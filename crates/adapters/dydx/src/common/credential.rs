@@ -30,8 +30,11 @@ use crate::common::consts::DYDX_BECH32_PREFIX;
 /// dYdX wallet credentials for signing blockchain transactions.
 ///
 /// Uses secp256k1 for signing as per Cosmos SDK specifications.
-/// The underlying `SigningKey` from `cosmrs` (backed by `k256`) implements
-/// `Zeroize`, ensuring private key material is securely cleared from memory on drop.
+///
+/// # Security
+///
+/// The underlying `SigningKey` from cosmrs (backed by k256) securely zeroizes
+/// private key material from memory on drop.
 pub struct DydxCredential {
     /// The secp256k1 signing key.
     signing_key: SigningKey,
@@ -67,6 +70,7 @@ impl DydxCredential {
         use bip32::{DerivationPath, Language, Mnemonic};
 
         // Derive seed from mnemonic
+        // Note: Both Mnemonic and Seed implement Drop for secure cleanup
         let mnemonic =
             Mnemonic::new(mnemonic_phrase, Language::English).context("Invalid mnemonic phrase")?;
         let seed = mnemonic.to_seed("");
@@ -76,7 +80,6 @@ impl DydxCredential {
         let derivation_path = format!("m/44'/118'/0'/0/{account_index}");
         let path = DerivationPath::from_str(&derivation_path).context("Invalid derivation path")?;
 
-        // Derive signing key
         let signing_key =
             SigningKey::derive_from_path(&seed, &path).context("Failed to derive signing key")?;
 

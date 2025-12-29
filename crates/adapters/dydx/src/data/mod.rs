@@ -246,13 +246,18 @@ impl DydxDataClient {
     async fn bootstrap_instruments(&mut self) -> anyhow::Result<Vec<InstrumentAny>> {
         tracing::info!("Bootstrapping dYdX instruments");
 
-        // Fetch instruments from HTTP API
-        // Note: maker_fee and taker_fee can be None initially - they'll be set to zero
-        let instruments = self
-            .http_client
-            .request_instruments(None, None, None)
+        // Populates all HTTP cache layers (instruments, clob_pair_id, market_params)
+        self.http_client
+            .fetch_and_cache_instruments()
             .await
             .context("failed to load instruments from dYdX")?;
+
+        let instruments: Vec<InstrumentAny> = self
+            .http_client
+            .instruments()
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
 
         if instruments.is_empty() {
             tracing::warn!("No dYdX instruments were loaded");
@@ -261,10 +266,6 @@ impl DydxDataClient {
 
         tracing::info!("Loaded {} dYdX instruments", instruments.len());
 
-        // Cache instruments in HTTP client (request_instruments does NOT cache automatically)
-        self.http_client.cache_instruments(instruments.clone());
-
-        // Cache in WebSocket client if present
         if let Some(ref ws) = self.ws_client {
             ws.cache_instruments(instruments.clone());
         }
@@ -273,7 +274,6 @@ impl DydxDataClient {
     }
 }
 
-// Implement DataClient trait for integration with Nautilus DataEngine
 #[async_trait::async_trait(?Send)]
 impl DataClient for DydxDataClient {
     fn client_id(&self) -> ClientId {
@@ -1369,6 +1369,7 @@ impl DydxDataClient {
         let interval = Duration::from_secs(interval_secs);
         let http_client = self.http_client.clone();
         let instruments_cache = self.instruments.clone();
+        let ws_client = self.ws_client.clone();
         let cancellation_token = self.cancellation_token.clone();
 
         tracing::info!(
@@ -1389,21 +1390,25 @@ impl DydxDataClient {
                     _ = interval_timer.tick() => {
                         tracing::debug!("Refreshing instruments");
 
-                        match http_client.request_instruments(None, None, None).await {
-                            Ok(instruments) => {
-                                tracing::debug!("Refreshed {} instruments", instruments.len());
-
-                                // Update local cache with refreshed instruments
-                                for instrument in instruments {
-                                    upsert_instrument(&instruments_cache, instrument);
-                                }
-
-                                // Also update HTTP client cache via cache_instruments method
-                                let all_instruments: Vec<_> = instruments_cache
+                        // Populates all HTTP cache layers (instruments, clob_pair_id, market_params)
+                        match http_client.fetch_and_cache_instruments().await {
+                            Ok(()) => {
+                                let instruments: Vec<_> = http_client
+                                    .instruments()
                                     .iter()
                                     .map(|entry| entry.value().clone())
                                     .collect();
-                                http_client.cache_instruments(all_instruments);
+
+                                tracing::debug!("Refreshed {} instruments", instruments.len());
+
+                                for instrument in &instruments {
+                                    upsert_instrument(&instruments_cache, instrument.clone());
+                                }
+
+                                // Propagate to WS handler for message parsing
+                                if let Some(ref ws) = ws_client {
+                                    ws.cache_instruments(instruments);
+                                }
                             }
                             Err(e) => {
                                 tracing::error!("Failed to refresh instruments: {}", e);

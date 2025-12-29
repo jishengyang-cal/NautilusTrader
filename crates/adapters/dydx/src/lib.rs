@@ -63,6 +63,7 @@ pub mod config;
 pub mod data;
 pub mod error;
 pub mod execution;
+pub mod factories;
 pub mod grpc;
 pub mod http;
 pub mod proto;
@@ -82,6 +83,7 @@ pub use crate::{
     },
     data::DydxDataClient,
     error::DydxError,
+    factories::{DydxDataClientFactory, DydxExecutionClientFactory},
     http::{
         client::DydxHttpClient,
         error::DydxHttpError,

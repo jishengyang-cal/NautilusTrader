@@ -72,6 +72,7 @@ use nautilus_model::{
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, MarginBalance},
 };
+use nautilus_network::retry::RetryConfig;
 use rust_decimal::Decimal;
 use tokio::task::JoinHandle;
 
@@ -153,7 +154,20 @@ impl DydxExecutionClient {
         wallet_address: String,
         subaccount_number: u32,
     ) -> anyhow::Result<Self> {
-        let http_client = DydxHttpClient::default();
+        // Build HTTP client from config (respects testnet URLs, timeouts, retries)
+        let retry_config = RetryConfig {
+            max_retries: config.max_retries,
+            initial_delay_ms: config.retry_delay_initial_ms,
+            max_delay_ms: config.retry_delay_max_ms,
+            ..Default::default()
+        };
+        let http_client = DydxHttpClient::new(
+            Some(config.base_url.clone()),
+            Some(config.timeout_secs),
+            None, // proxy_url - not in DydxAdapterConfig currently
+            config.is_testnet,
+            Some(retry_config),
+        )?;
 
         // Use private WebSocket client for authenticated subaccount subscriptions
         let ws_client = if let Some(ref mnemonic) = config.mnemonic {
