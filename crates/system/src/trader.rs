@@ -678,7 +678,10 @@ mod tests {
     use nautilus_core::UUID4;
     use nautilus_data::engine::{DataEngine, config::DataEngineConfig};
     use nautilus_execution::engine::{ExecutionEngine, config::ExecutionEngineConfig};
-    use nautilus_model::identifiers::{ActorId, ComponentId, TraderId};
+    use nautilus_model::{
+        identifiers::{ActorId, ComponentId, TraderId},
+        stubs::TestDefault,
+    };
     use nautilus_portfolio::portfolio::Portfolio;
     use nautilus_risk::engine::{RiskEngine, config::RiskEngineConfig};
     use nautilus_trading::strategy::{
@@ -763,7 +766,7 @@ mod tests {
         Rc<RefCell<ExecutionEngine>>,
         Rc<RefCell<TestClock>>,
     ) {
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
         let clock = Rc::new(RefCell::new(TestClock::new()));
         // Set the clock to a non-zero time for test purposes
@@ -821,7 +824,7 @@ mod tests {
     fn test_trader_creation() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let trader = Trader::new(
@@ -875,7 +878,7 @@ mod tests {
     fn test_add_actor_success() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let mut trader = Trader::new(
@@ -901,7 +904,7 @@ mod tests {
     fn test_add_duplicate_actor_fails() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let mut trader = Trader::new(
@@ -940,7 +943,7 @@ mod tests {
     fn test_add_strategy_success() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let mut trader = Trader::new(
@@ -970,7 +973,7 @@ mod tests {
     fn test_add_exec_algorithm_success() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let mut trader = Trader::new(
@@ -1000,7 +1003,7 @@ mod tests {
     fn test_component_lifecycle() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let mut trader = Trader::new(
@@ -1051,7 +1054,7 @@ mod tests {
     fn test_trader_component_lifecycle() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let mut trader = Trader::new(
@@ -1103,7 +1106,7 @@ mod tests {
     fn test_cannot_add_components_while_running() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         let mut trader = Trader::new(
@@ -1133,7 +1136,7 @@ mod tests {
     fn test_create_component_clock_backtest_vs_live() {
         let (_msgbus, cache, portfolio, _data_engine, _risk_engine, _exec_engine, clock) =
             create_trader_components();
-        let trader_id = TraderId::default();
+        let trader_id = TraderId::test_default();
         let instance_id = UUID4::new();
 
         // Test backtest environment - should create individual test clocks

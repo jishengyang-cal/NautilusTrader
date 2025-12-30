@@ -16,8 +16,8 @@
 //! Order types for the trading domain model.
 
 pub mod any;
+#[cfg(any(test, feature = "stubs"))]
 pub mod builder;
-pub mod default;
 pub mod limit;
 pub mod limit_if_touched;
 pub mod list;
@@ -41,9 +41,10 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
+#[cfg(any(test, feature = "stubs"))]
+pub use crate::orders::builder::OrderTestBuilder;
 pub use crate::orders::{
     any::{LimitOrderAny, OrderAny, PassiveOrderAny, StopOrderAny},
-    builder::OrderTestBuilder,
     limit::LimitOrder,
     limit_if_touched::LimitIfTouchedOrder,
     list::OrderList,

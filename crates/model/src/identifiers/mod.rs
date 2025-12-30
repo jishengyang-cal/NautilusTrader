@@ -25,7 +25,6 @@ pub mod actor_id;
 pub mod client_id;
 pub mod client_order_id;
 pub mod component_id;
-pub mod default;
 pub mod exec_algorithm_id;
 pub mod instrument_id;
 pub mod order_list_id;

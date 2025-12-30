@@ -267,7 +267,7 @@ impl OKXExecutionClient {
                     command.strategy_id,
                     command.instrument_id,
                     Some(command.client_order_id),
-                    Some(command.venue_order_id),
+                    command.venue_order_id,
                 )
                 .await?;
             Ok(())
@@ -652,7 +652,7 @@ impl ExecutionClient for OKXExecutionClient {
                     Some(command.client_order_id),
                     command.price,
                     command.quantity,
-                    Some(command.venue_order_id),
+                    command.venue_order_id,
                 )
                 .await?;
             Ok(())
@@ -712,7 +712,7 @@ impl ExecutionClient for OKXExecutionClient {
             payload.push((
                 cancel.instrument_id,
                 Some(cancel.client_order_id),
-                Some(cancel.venue_order_id),
+                cancel.venue_order_id,
             ));
         }
 
@@ -1036,7 +1036,7 @@ mod tests {
     fn test_batch_cancel_orders_builds_payload() {
         let trader_id = TraderId::from("TRADER-001");
         let strategy_id = StrategyId::from("STRATEGY-001");
-        let client_id = ClientId::from("OKX");
+        let client_id = Some(ClientId::from("OKX"));
         let instrument_id = InstrumentId::from("BTC-USDT.OKX");
         let client_order_id1 = ClientOrderId::new("order1");
         let client_order_id2 = ClientOrderId::new("order2");
@@ -1055,7 +1055,7 @@ mod tests {
                     strategy_id,
                     instrument_id,
                     client_order_id: client_order_id1,
-                    venue_order_id: venue_order_id1,
+                    venue_order_id: Some(venue_order_id1),
                     command_id: Default::default(),
                     ts_init: UnixNanos::default(),
                     params: None,
@@ -1066,7 +1066,7 @@ mod tests {
                     strategy_id,
                     instrument_id,
                     client_order_id: client_order_id2,
-                    venue_order_id: venue_order_id2,
+                    venue_order_id: Some(venue_order_id2),
                     command_id: Default::default(),
                     ts_init: UnixNanos::default(),
                     params: None,
@@ -1083,7 +1083,7 @@ mod tests {
             payload.push((
                 cancel.instrument_id,
                 Some(cancel.client_order_id),
-                Some(cancel.venue_order_id),
+                cancel.venue_order_id,
             ));
         }
 
@@ -1100,7 +1100,7 @@ mod tests {
     fn test_batch_cancel_orders_with_empty_cancels() {
         let cmd = BatchCancelOrders {
             trader_id: TraderId::from("TRADER-001"),
-            client_id: ClientId::from("OKX"),
+            client_id: Some(ClientId::from("OKX")),
             strategy_id: StrategyId::from("STRATEGY-001"),
             instrument_id: InstrumentId::from("BTC-USDT.OKX"),
             cancels: vec![],

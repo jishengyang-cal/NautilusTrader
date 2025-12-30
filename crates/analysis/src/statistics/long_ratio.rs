@@ -88,6 +88,7 @@ mod tests {
             AccountId, ClientOrderId, PositionId,
             stubs::{instrument_id_aud_usd_sim, strategy_id_ema_cross, trader_id},
         },
+        stubs::TestDefault,
         types::{Currency, Quantity},
     };
     use rstest::rstest;
@@ -104,7 +105,7 @@ mod tests {
             instrument_id: instrument_id_aud_usd_sim(),
             id: PositionId::new("test-position"),
             account_id: AccountId::new("test-account"),
-            opening_order_id: ClientOrderId::default(),
+            opening_order_id: ClientOrderId::test_default(),
             closing_order_id: None,
             entry,
             side: PositionSide::Flat, // Closed positions are Flat

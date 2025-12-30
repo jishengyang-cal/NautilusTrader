@@ -73,15 +73,18 @@ impl OrderListIdGenerator {
 #[cfg(test)]
 mod tests {
     use nautilus_core::time::get_atomic_clock_static;
-    use nautilus_model::identifiers::{OrderListId, StrategyId, TraderId};
+    use nautilus_model::{
+        identifiers::{OrderListId, StrategyId, TraderId},
+        stubs::TestDefault,
+    };
     use rstest::rstest;
 
     use crate::generators::order_list_id::OrderListIdGenerator;
 
     fn get_order_list_id_generator(initial_count: Option<usize>) -> OrderListIdGenerator {
         OrderListIdGenerator::new(
-            TraderId::default(),
-            StrategyId::default(),
+            TraderId::test_default(),
+            StrategyId::test_default(),
             initial_count.unwrap_or(0),
             get_atomic_clock_static(),
         )

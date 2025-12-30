@@ -509,17 +509,18 @@ impl ExecutionEngine {
             log::debug!("{RECV}{CMD} {command:?}");
         }
 
-        if self.external_clients.contains(&command.client_id()) {
+        if let Some(cid) = command.client_id()
+            && self.external_clients.contains(&cid)
+        {
             if self.config.debug {
-                let cid = command.client_id();
                 log::debug!("Skipping execution command for external client {cid}: {command:?}");
             }
             return;
         }
 
-        let client = if let Some(adapter) = self
-            .clients
-            .get(&command.client_id())
+        let client = if let Some(adapter) = command
+            .client_id()
+            .and_then(|cid| self.clients.get(&cid))
             .or_else(|| {
                 self.routing_map
                     .get(&command.instrument_id().venue)
@@ -559,8 +560,7 @@ impl ExecutionEngine {
             // Add order to cache in a separate scope to drop the mutable borrow
             {
                 let mut cache = self.cache.borrow_mut();
-                if let Err(e) =
-                    cache.add_order(order.clone(), cmd.position_id, Some(cmd.client_id), true)
+                if let Err(e) = cache.add_order(order.clone(), cmd.position_id, cmd.client_id, true)
                 {
                     log::error!("Error adding order to cache: {e}");
                     return;
@@ -628,8 +628,7 @@ impl ExecutionEngine {
         let mut cache = self.cache.borrow_mut();
         for order in &orders {
             if !cache.order_exists(&order.client_order_id()) {
-                if let Err(e) =
-                    cache.add_order(order.clone(), cmd.position_id, Some(cmd.client_id), true)
+                if let Err(e) = cache.add_order(order.clone(), cmd.position_id, cmd.client_id, true)
                 {
                     log::error!("Error adding order to cache: {e}");
                     return;

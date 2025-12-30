@@ -30,13 +30,14 @@ use nautilus_model::{
     defi::chain::chains,
     enums::{AccountType, OmsType},
     identifiers::{AccountId, ClientId, TraderId},
+    stubs::TestDefault,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let trader_id = TraderId::default();
-    let account = AccountId::default();
+    let trader_id = TraderId::test_default();
+    let account = AccountId::test_default();
     let arbitrum = chains::ARBITRUM.clone();
     let ethereum = chains::ETHEREUM.clone();
 
@@ -81,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let core_execution_client = ExecutionClientCore::new(
         trader_id,
-        ClientId::default(),
+        ClientId::new("BLOCKCHAIN"),
         *BLOCKCHAIN_VENUE,
         OmsType::Netting,
         account,

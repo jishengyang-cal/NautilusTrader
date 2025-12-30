@@ -38,9 +38,9 @@ use crate::{
 ///
 /// Applicable to `StopLimit` orders only.
 #[repr(C)]
-#[derive(Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Builder)]
-#[builder(default)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Builder)]
 #[serde(tag = "type")]
+#[cfg_attr(any(test, feature = "stubs"), builder(default))]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.model")

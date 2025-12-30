@@ -158,25 +158,18 @@ impl OrderManager {
         position_id: Option<PositionId>,
         client_id: Option<ClientId>,
     ) -> anyhow::Result<()> {
-        let client_id = client_id.ok_or_else(|| anyhow::anyhow!("Client ID is required"))?;
-        let venue_order_id = order
-            .venue_order_id()
-            .ok_or_else(|| anyhow::anyhow!("Venue order ID is required"))?;
-
         let submit = SubmitOrder::new(
             order.trader_id(),
             client_id,
             order.strategy_id(),
             order.instrument_id(),
-            order.client_order_id(),
-            venue_order_id,
             order.clone(),
             order.exec_algorithm_id(),
             position_id,
             None, // params
             UUID4::new(),
             self.clock.borrow().timestamp_ns(),
-        )?;
+        );
 
         if order.emulation_trigger() == Some(TriggerType::NoTrigger) {
             self.cache_submit_order_command(submit.clone());

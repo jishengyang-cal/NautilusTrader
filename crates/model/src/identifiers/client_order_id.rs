@@ -74,6 +74,19 @@ impl ClientOrderId {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    /// Creates an external client order ID used when no ID was provided.
+    #[must_use]
+    pub fn external() -> Self {
+        // SAFETY: Constant value is safe
+        Self::new("EXTERNAL")
+    }
+
+    /// Returns whether this client order ID is external.
+    #[must_use]
+    pub fn is_external(&self) -> bool {
+        self.0.as_str() == "EXTERNAL"
+    }
 }
 
 impl Debug for ClientOrderId {

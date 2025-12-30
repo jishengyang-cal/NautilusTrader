@@ -1427,6 +1427,7 @@ mod tests {
         identifiers::{StrategyId, TradeId, TraderId},
         instruments::stubs::crypto_perpetual_ethusdt,
         orders::LimitOrder,
+        stubs::TestDefault,
     };
     use nautilus_portfolio::portfolio::Portfolio;
     use rstest::*;
@@ -1473,7 +1474,7 @@ mod tests {
     }
 
     fn create_initialized_limit_order() -> OrderAny {
-        OrderAny::Limit(LimitOrder::default())
+        OrderAny::Limit(LimitOrder::test_default())
     }
 
     #[rstest]

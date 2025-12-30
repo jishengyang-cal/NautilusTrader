@@ -22,21 +22,17 @@ use nautilus_model::{
         ClientId, ClientOrderId, ExecAlgorithmId, InstrumentId, PositionId, StrategyId, TraderId,
         VenueOrderId,
     },
-    orders::{OrderAny, OrderList},
+    orders::{Order, OrderAny, OrderList},
 };
 use serde::{Deserialize, Serialize};
 
-// Fix: equality and default and builder
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-// #[builder(default)]
 #[serde(tag = "type")]
 pub struct SubmitOrder {
     pub trader_id: TraderId,
-    pub client_id: ClientId,
+    pub client_id: Option<ClientId>,
     pub strategy_id: StrategyId,
     pub instrument_id: InstrumentId,
-    pub client_order_id: ClientOrderId,
-    pub venue_order_id: VenueOrderId,
     pub order: OrderAny,
     pub exec_algorithm_id: Option<ExecAlgorithmId>,
     pub position_id: Option<PositionId>,
@@ -47,39 +43,44 @@ pub struct SubmitOrder {
 
 impl SubmitOrder {
     /// Creates a new [`SubmitOrder`] instance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if parameters are invalid.
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
-        client_id: ClientId,
+        client_id: Option<ClientId>,
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
-        client_order_id: ClientOrderId,
-        venue_order_id: VenueOrderId,
         order: OrderAny,
         exec_algorithm_id: Option<ExecAlgorithmId>,
         position_id: Option<PositionId>,
         params: Option<IndexMap<String, String>>,
         command_id: UUID4,
         ts_init: UnixNanos,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             trader_id,
             client_id,
             strategy_id,
             instrument_id,
-            client_order_id,
-            venue_order_id,
             order,
             exec_algorithm_id,
             position_id,
             params,
             command_id,
             ts_init,
-        })
+        }
+    }
+
+    /// Returns the client order ID from the contained order.
+    #[must_use]
+    pub fn client_order_id(&self) -> ClientOrderId {
+        self.order.client_order_id()
+    }
+
+    /// Returns the venue order ID from the contained order, if set.
+    #[must_use]
+    pub fn venue_order_id(&self) -> Option<VenueOrderId> {
+        self.order.venue_order_id()
     }
 }
 
@@ -99,11 +100,9 @@ impl Display for SubmitOrder {
 #[serde(tag = "type")]
 pub struct SubmitOrderList {
     pub trader_id: TraderId,
-    pub client_id: ClientId,
+    pub client_id: Option<ClientId>,
     pub strategy_id: StrategyId,
     pub instrument_id: InstrumentId,
-    pub client_order_id: ClientOrderId,
-    pub venue_order_id: VenueOrderId,
     pub order_list: OrderList,
     pub exec_algorithm_id: Option<ExecAlgorithmId>,
     pub position_id: Option<PositionId>,
@@ -114,39 +113,32 @@ pub struct SubmitOrderList {
 
 impl SubmitOrderList {
     /// Creates a new [`SubmitOrderList`] instance.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if parameters are invalid.
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub const fn new(
         trader_id: TraderId,
-        client_id: ClientId,
+        client_id: Option<ClientId>,
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
-        client_order_id: ClientOrderId,
-        venue_order_id: VenueOrderId,
         order_list: OrderList,
         exec_algorithm_id: Option<ExecAlgorithmId>,
         position_id: Option<PositionId>,
         params: Option<IndexMap<String, String>>,
         command_id: UUID4,
         ts_init: UnixNanos,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             trader_id,
             client_id,
             strategy_id,
             instrument_id,
-            client_order_id,
-            venue_order_id,
             order_list,
             exec_algorithm_id,
             position_id,
             params,
             command_id,
             ts_init,
-        })
+        }
     }
 }
 

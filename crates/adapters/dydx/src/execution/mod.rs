@@ -970,7 +970,7 @@ impl ExecutionClient for DydxExecutionClient {
                         ts_now,
                         ts_now,
                         false,
-                        Some(venue_order_id),
+                        venue_order_id,
                         None, // account_id not available in async context
                     );
                     sender

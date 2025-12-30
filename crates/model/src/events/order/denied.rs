@@ -39,9 +39,9 @@ use crate::{
 /// This could be due an unsupported feature, a risk limit exceedance, or for
 /// any other reason that an otherwise valid order is not able to be submitted.
 #[repr(C)]
-#[derive(Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Builder)]
-#[builder(default)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Builder)]
 #[serde(tag = "type")]
+#[cfg_attr(any(test, feature = "stubs"), builder(default))]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.model")

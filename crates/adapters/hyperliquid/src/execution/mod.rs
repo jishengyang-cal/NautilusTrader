@@ -554,12 +554,20 @@ impl ExecutionClient for HyperliquidExecutionClient {
         tracing::debug!("Modifying order: {:?}", command);
 
         // Parse venue_order_id as u64
-        let oid: u64 = match command.venue_order_id.as_str().parse() {
+        let venue_order_id = match command.venue_order_id {
+            Some(id) => id,
+            None => {
+                tracing::warn!("Cannot modify order: venue_order_id is None");
+                return Ok(());
+            }
+        };
+
+        let oid: u64 = match venue_order_id.as_str().parse() {
             Ok(id) => id,
             Err(e) => {
                 tracing::warn!(
                     "Failed to parse venue_order_id '{}' as u64: {}",
-                    command.venue_order_id,
+                    venue_order_id,
                     e
                 );
                 return Ok(());

@@ -1164,6 +1164,10 @@ impl HyperliquidHttpClient {
     /// # Errors
     ///
     /// Returns an error if the API request fails or parsing fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `account_id` is not set on the client.
     pub async fn request_order_status_reports(
         &self,
         user: &str,
@@ -1210,7 +1214,7 @@ impl HyperliquidHttpClient {
                 &order,
                 &status,
                 &instrument,
-                self.account_id.unwrap_or_default(),
+                self.account_id.expect("account_id not set"),
                 ts_init,
             ) {
                 Ok(report) => reports.push(report),
@@ -1232,6 +1236,10 @@ impl HyperliquidHttpClient {
     /// # Errors
     ///
     /// Returns an error if the API request fails or parsing fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `account_id` is not set on the client.
     pub async fn request_fill_reports(
         &self,
         user: &str,
@@ -1260,7 +1268,7 @@ impl HyperliquidHttpClient {
             match crate::http::parse::parse_fill_report(
                 &fill,
                 &instrument,
-                self.account_id.unwrap_or_default(),
+                self.account_id.expect("account_id not set"),
                 ts_init,
             ) {
                 Ok(report) => reports.push(report),
@@ -1282,6 +1290,10 @@ impl HyperliquidHttpClient {
     /// # Errors
     ///
     /// Returns an error if the API request fails or parsing fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `account_id` has not been set on the client.
     pub async fn request_position_status_reports(
         &self,
         user: &str,
@@ -1325,7 +1337,7 @@ impl HyperliquidHttpClient {
             match crate::http::parse::parse_position_status_report(
                 &position_value,
                 &instrument,
-                self.account_id.unwrap_or_default(),
+                self.account_id.expect("account_id not set"),
                 ts_init,
             ) {
                 Ok(report) => reports.push(report),

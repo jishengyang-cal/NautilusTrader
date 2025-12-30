@@ -61,7 +61,7 @@ pub enum TradingCommand {
 
 impl TradingCommand {
     #[must_use]
-    pub const fn client_id(&self) -> ClientId {
+    pub const fn client_id(&self) -> Option<ClientId> {
         match self {
             Self::SubmitOrder(command) => command.client_id,
             Self::SubmitOrderList(command) => command.client_id,

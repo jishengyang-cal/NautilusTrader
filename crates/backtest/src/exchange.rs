@@ -59,15 +59,15 @@ use crate::modules::SimulationModule;
 /// earliest timestamp having the highest priority in the queue.
 #[derive(Debug, Eq, PartialEq)]
 struct InflightCommand {
-    ts: UnixNanos,
+    timestamp: UnixNanos,
     counter: u32,
     command: TradingCommand,
 }
 
 impl InflightCommand {
-    const fn new(ts: UnixNanos, counter: u32, command: TradingCommand) -> Self {
+    const fn new(timestamp: UnixNanos, counter: u32, command: TradingCommand) -> Self {
         Self {
-            ts,
+            timestamp,
             counter,
             command,
         }
@@ -78,8 +78,8 @@ impl Ord for InflightCommand {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Reverse ordering for min-heap (earliest timestamp first then lowest counter)
         other
-            .ts
-            .cmp(&self.ts)
+            .timestamp
+            .cmp(&self.timestamp)
             .then_with(|| other.counter.cmp(&self.counter))
     }
 }
@@ -474,9 +474,9 @@ impl SimulatedExchange {
         } else if self.latency_model.is_none() {
             self.message_queue.push_back(command);
         } else {
-            let (ts, counter) = self.generate_inflight_command(&command);
+            let (timestamp, counter) = self.generate_inflight_command(&command);
             self.inflight_queue
-                .push(InflightCommand::new(ts, counter, command));
+                .push(InflightCommand::new(timestamp, counter, command));
         }
     }
 
@@ -704,7 +704,7 @@ impl SimulatedExchange {
 
         // Process inflight commands
         while let Some(inflight) = self.inflight_queue.peek() {
-            if inflight.ts > ts_now {
+            if inflight.timestamp > ts_now {
                 // Future commands remain in the queue
                 break;
             }
@@ -805,7 +805,7 @@ impl SimulatedExchange {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::BinaryHeap, rc::Rc, sync::LazyLock};
+    use std::{cell::RefCell, collections::BinaryHeap, rc::Rc};
 
     use ahash::AHashMap;
     use nautilus_common::{
@@ -817,7 +817,7 @@ mod tests {
             stubs::{get_message_saving_handler, get_saved_messages},
         },
     };
-    use nautilus_core::{AtomicTime, UUID4, UnixNanos};
+    use nautilus_core::{UUID4, UnixNanos};
     use nautilus_execution::models::{
         fee::{FeeModelAny, MakerTakerFeeModel},
         fill::FillModel,
@@ -834,12 +834,10 @@ mod tests {
             OmsType, OrderSide, OrderType,
         },
         events::AccountState,
-        identifiers::{
-            AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, Venue,
-            VenueOrderId,
-        },
+        identifiers::{AccountId, InstrumentId, StrategyId, TradeId, TraderId, Venue},
         instruments::{CryptoPerpetual, InstrumentAny, stubs::crypto_perpetual_ethusdt},
         orders::OrderTestBuilder,
+        stubs::TestDefault,
         types::{AccountBalance, Currency, Money, Price, Quantity},
     };
     use rstest::rstest;
@@ -848,9 +846,6 @@ mod tests {
         exchange::{InflightCommand, SimulatedExchange},
         execution_client::BacktestExecutionClient,
     };
-
-    static ATOMIC_TIME: LazyLock<AtomicTime> =
-        LazyLock::new(|| AtomicTime::new(true, UnixNanos::default()));
 
     fn get_exchange(
         venue: Venue,
@@ -895,8 +890,8 @@ mod tests {
 
         let clock = TestClock::new();
         let execution_client = BacktestExecutionClient::new(
-            TraderId::default(),
-            AccountId::default(),
+            TraderId::test_default(),
+            AccountId::test_default(),
             exchange.clone(),
             cache,
             Rc::new(RefCell::new(clock)),
@@ -916,23 +911,18 @@ mod tests {
             .instrument_id(instrument_id)
             .quantity(Quantity::from(1))
             .build();
-        TradingCommand::SubmitOrder(
-            SubmitOrder::new(
-                TraderId::default(),
-                ClientId::default(),
-                StrategyId::default(),
-                instrument_id,
-                ClientOrderId::default(),
-                VenueOrderId::default(),
-                order,
-                None,
-                None,
-                None, // params
-                UUID4::default(),
-                ts_init,
-            )
-            .unwrap(),
-        )
+        TradingCommand::SubmitOrder(SubmitOrder::new(
+            TraderId::test_default(),
+            None,
+            StrategyId::test_default(),
+            instrument_id,
+            order,
+            None,
+            None,
+            None, // params
+            UUID4::default(),
+            ts_init,
+        ))
     }
 
     #[rstest]
@@ -1388,11 +1378,11 @@ mod tests {
         let second = inflight_heap.pop().unwrap();
         let third = inflight_heap.pop().unwrap();
 
-        assert_eq!(first.ts, UnixNanos::from(100));
+        assert_eq!(first.timestamp, UnixNanos::from(100));
         assert_eq!(first.counter, 1);
-        assert_eq!(second.ts, UnixNanos::from(100));
+        assert_eq!(second.timestamp, UnixNanos::from(100));
         assert_eq!(second.counter, 2);
-        assert_eq!(third.ts, UnixNanos::from(200));
+        assert_eq!(third.timestamp, UnixNanos::from(200));
         assert_eq!(third.counter, 2);
     }
 
@@ -1454,12 +1444,24 @@ mod tests {
         assert_eq!(exchange.borrow().inflight_queue.len(), 2);
         // First inflight command should have timestamp at 100 and 200 insert latency
         assert_eq!(
-            exchange.borrow().inflight_queue.iter().next().unwrap().ts,
+            exchange
+                .borrow()
+                .inflight_queue
+                .iter()
+                .next()
+                .unwrap()
+                .timestamp,
             UnixNanos::from(300)
         );
         // Second inflight command should have timestamp at 150 and 200 insert latency
         assert_eq!(
-            exchange.borrow().inflight_queue.iter().nth(1).unwrap().ts,
+            exchange
+                .borrow()
+                .inflight_queue
+                .iter()
+                .nth(1)
+                .unwrap()
+                .timestamp,
             UnixNanos::from(350)
         );
 
@@ -1468,7 +1470,13 @@ mod tests {
         assert_eq!(exchange.borrow().message_queue.len(), 0);
         assert_eq!(exchange.borrow().inflight_queue.len(), 1);
         assert_eq!(
-            exchange.borrow().inflight_queue.iter().next().unwrap().ts,
+            exchange
+                .borrow()
+                .inflight_queue
+                .iter()
+                .next()
+                .unwrap()
+                .timestamp,
             UnixNanos::from(350)
         );
     }

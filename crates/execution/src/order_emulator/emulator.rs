@@ -192,18 +192,16 @@ impl OrderEmulator {
 
             let command = SubmitOrder::new(
                 order.trader_id(),
-                client_id.unwrap(),
+                client_id,
                 order.strategy_id(),
                 order.instrument_id(),
-                order.client_order_id(),
-                order.venue_order_id().unwrap(),
                 order.clone(),
                 order.exec_algorithm_id(),
                 position_id,
                 None, // params
                 UUID4::new(),
                 self.clock.borrow().timestamp_ns(),
-            )?;
+            );
 
             self.handle_submit_order(command);
         }
@@ -465,11 +463,10 @@ impl OrderEmulator {
                 }
             }
 
-            if let Err(e) = self.manager.create_new_submit_order(
-                order,
-                command.position_id,
-                Some(command.client_id),
-            ) {
+            if let Err(e) =
+                self.manager
+                    .create_new_submit_order(order, command.position_id, command.client_id)
+            {
                 log::error!("Error creating new submit order: {e}");
             }
         }
@@ -923,7 +920,7 @@ impl OrderEmulator {
             if let Err(e) = self.cache.borrow_mut().add_order(
                 OrderAny::Limit(transformed.clone()),
                 command.position_id,
-                Some(command.client_id),
+                command.client_id,
                 true,
             ) {
                 log::error!("Failed to add order: {e}");
@@ -1050,7 +1047,7 @@ impl OrderEmulator {
             if let Err(e) = self.cache.borrow_mut().add_order(
                 OrderAny::Market(transformed.clone()),
                 command.position_id,
-                Some(command.client_id),
+                command.client_id,
                 true,
             ) {
                 log::error!("Failed to add order: {e}");

@@ -97,7 +97,10 @@ impl ClientOrderIdGenerator {
 #[cfg(test)]
 mod tests {
     use nautilus_core::time::get_atomic_clock_static;
-    use nautilus_model::identifiers::{ClientOrderId, StrategyId, TraderId};
+    use nautilus_model::{
+        identifiers::{ClientOrderId, StrategyId, TraderId},
+        stubs::TestDefault,
+    };
     use rstest::rstest;
 
     use crate::generators::client_order_id::ClientOrderIdGenerator;
@@ -108,8 +111,8 @@ mod tests {
         use_hyphens: bool,
     ) -> ClientOrderIdGenerator {
         ClientOrderIdGenerator::new(
-            TraderId::default(),
-            StrategyId::default(),
+            TraderId::test_default(),
+            StrategyId::test_default(),
             initial_count.unwrap_or(0),
             get_atomic_clock_static(),
             use_uuids,

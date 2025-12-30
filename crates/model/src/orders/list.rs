@@ -123,6 +123,7 @@ mod tests {
         identifiers::{OrderListId, StrategyId},
         instruments::{CurrencyPair, stubs::*},
         orders::OrderTestBuilder,
+        stubs::TestDefault,
         types::{Price, Quantity},
     };
 
@@ -152,7 +153,7 @@ mod tests {
         let order_list = OrderList::new(
             OrderListId::from("OL-001"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );
@@ -184,7 +185,7 @@ mod tests {
         OrderList::new(
             OrderListId::from("OL-003"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );
@@ -199,7 +200,7 @@ mod tests {
         OrderList::new(
             OrderListId::from("OL-004"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );
@@ -219,7 +220,7 @@ mod tests {
         let order_list1 = OrderList::new(
             OrderListId::from("OL-006"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders.clone(),
             UnixNanos::default(),
         );
@@ -227,7 +228,7 @@ mod tests {
         let order_list2 = OrderList::new(
             OrderListId::from("OL-006"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );
@@ -249,7 +250,7 @@ mod tests {
         let order_list1 = OrderList::new(
             OrderListId::from("OL-007"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders.clone(),
             UnixNanos::default(),
         );
@@ -257,7 +258,7 @@ mod tests {
         let order_list2 = OrderList::new(
             OrderListId::from("OL-008"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );
@@ -286,7 +287,7 @@ mod tests {
         let order_list = OrderList::new(
             OrderListId::from("OL-009"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );
@@ -322,7 +323,7 @@ mod tests {
         let order_list = OrderList::new(
             OrderListId::from("OL-010"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );
@@ -345,7 +346,7 @@ mod tests {
         let order_list1 = OrderList::new(
             OrderListId::from("OL-011"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders.clone(),
             UnixNanos::default(),
         );
@@ -353,7 +354,7 @@ mod tests {
         let order_list2 = OrderList::new(
             OrderListId::from("OL-011"),
             audusd_sim.id,
-            StrategyId::default(),
+            StrategyId::test_default(),
             orders,
             UnixNanos::default(),
         );

@@ -656,11 +656,13 @@ pub fn parse_order_update_msg(
 ) -> Option<OrderUpdated> {
     // For BitMEX updates, we don't have trader_id or strategy_id from the exchange
     // These will be populated by the execution engine when it matches the venue_order_id
-    let trader_id = TraderId::default();
-    let strategy_id = StrategyId::default();
+    let trader_id = TraderId::external();
+    let strategy_id = StrategyId::external();
     let instrument_id = parse_instrument_id(msg.symbol);
     let venue_order_id = Some(VenueOrderId::new(msg.order_id.to_string()));
-    let client_order_id = msg.cl_ord_id.map(ClientOrderId::new).unwrap_or_default();
+    let client_order_id = msg
+        .cl_ord_id
+        .map_or_else(ClientOrderId::external, ClientOrderId::new);
     let quantity = Quantity::zero(instrument.size_precision());
     let price = msg
         .price

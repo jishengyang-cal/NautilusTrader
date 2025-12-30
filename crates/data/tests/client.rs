@@ -73,6 +73,7 @@ use nautilus_model::{
     enums::BookType,
     identifiers::{ClientId, InstrumentId, Venue},
     instruments::stubs::audusd_sim,
+    stubs::TestDefault,
 };
 use rstest::{fixture, rstest};
 #[cfg(feature = "defi")]
@@ -101,7 +102,7 @@ fn client_id() -> ClientId {
 
 #[fixture]
 fn venue() -> Venue {
-    Venue::default()
+    Venue::test_default()
 }
 
 // --------------------------------------------------------------------------------------------

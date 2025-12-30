@@ -36,6 +36,7 @@ use nautilus_live::node::LiveNode;
 use nautilus_model::{
     defi::{Block, Blockchain, DexType, Pool, PoolLiquidityUpdate, PoolSwap, chain::chains},
     identifiers::{ClientId, InstrumentId, TraderId},
+    stubs::TestDefault,
 };
 
 // Requires capnp installed on the machine
@@ -52,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
     let environment = Environment::Live;
-    let trader_id = TraderId::default();
+    let trader_id = TraderId::test_default();
     let node_name = "TESTER-001".to_string();
 
     let chain = chains::ARBITRUM.clone();

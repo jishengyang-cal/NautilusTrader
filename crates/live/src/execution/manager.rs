@@ -332,11 +332,19 @@ impl ExecutionManager {
 
         if let Some(order) = self.get_order(&report.client_order_id) {
             let mut order = order;
+            let Some(account_id) = order.account_id() else {
+                log::error!("Cannot process fill report: order has no account_id");
+                return Ok(vec![]);
+            };
+            let Some(venue_order_id) = report.venue_order_id else {
+                log::error!("Cannot process fill report: report has no venue_order_id");
+                return Ok(vec![]);
+            };
             let mut order_report = OrderStatusReport::new(
-                order.account_id().unwrap_or_default(),
+                account_id,
                 order.instrument_id(),
                 Some(report.client_order_id),
-                report.venue_order_id.unwrap_or_default(),
+                venue_order_id,
                 order.order_side(),
                 order.order_type(),
                 order.time_in_force(),
@@ -854,7 +862,9 @@ impl ExecutionManager {
             order.instrument_id(),
             order.client_order_id(),
             order.venue_order_id().unwrap_or(report.venue_order_id),
-            order.account_id().unwrap_or_default(),
+            order
+                .account_id()
+                .expect("Order should have account_id when creating accepted event"),
             UUID4::new(),
             report.ts_accepted,
             self.clock.borrow().timestamp_ns(),
@@ -869,7 +879,9 @@ impl ExecutionManager {
             order.strategy_id(),
             order.instrument_id(),
             order.client_order_id(),
-            order.account_id().unwrap_or_default(),
+            order
+                .account_id()
+                .expect("Order should have account_id when creating rejected event"),
             Ustr::from(reason),
             UUID4::new(),
             self.clock.borrow().timestamp_ns(),
@@ -949,7 +961,9 @@ impl ExecutionManager {
             order.instrument_id(),
             order.client_order_id(),
             fill.venue_order_id,
-            order.account_id().unwrap_or_default(),
+            order
+                .account_id()
+                .expect("Order should have account_id when creating filled event"),
             fill.trade_id,
             fill.order_side,
             order.order_type(),

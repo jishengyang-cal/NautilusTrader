@@ -472,7 +472,7 @@ impl ExecutionClient for BitmexExecutionClient {
         let http_client = self.http_client.clone();
         let instrument_id = cmd.instrument_id;
         let client_order_id = Some(cmd.client_order_id);
-        let venue_order_id = Some(cmd.venue_order_id);
+        let venue_order_id = cmd.venue_order_id;
         let quantity = cmd.quantity;
         let price = cmd.price;
         let trigger_price = cmd.trigger_price;
@@ -502,7 +502,7 @@ impl ExecutionClient for BitmexExecutionClient {
         let canceller = self._canceller.clone_for_async();
         let instrument_id = cmd.instrument_id;
         let client_order_id = Some(cmd.client_order_id);
-        let venue_order_id = Some(cmd.venue_order_id);
+        let venue_order_id = cmd.venue_order_id;
 
         self.spawn_task("cancel_order", async move {
             match canceller
@@ -551,7 +551,7 @@ impl ExecutionClient for BitmexExecutionClient {
         let venue_ids: Vec<VenueOrderId> = cmd
             .cancels
             .iter()
-            .map(|cancel| cancel.venue_order_id)
+            .filter_map(|cancel| cancel.venue_order_id)
             .collect();
 
         self.spawn_task("batch_cancel_orders", async move {
@@ -580,7 +580,7 @@ impl ExecutionClient for BitmexExecutionClient {
         let http_client = self.http_client.clone();
         let instrument_id = cmd.instrument_id;
         let client_order_id = Some(cmd.client_order_id);
-        let venue_order_id = Some(cmd.venue_order_id);
+        let venue_order_id = cmd.venue_order_id;
 
         self.spawn_task("query_order", async move {
             match http_client

@@ -107,6 +107,26 @@ impl TraderId {
         // SAFETY: Unwrap safe as value previously validated
         self.0.split('-').next_back().unwrap()
     }
+
+    /// Creates an external trader ID used for orders from external sources.
+    #[must_use]
+    pub fn external() -> Self {
+        // SAFETY: Constant value is safe
+        Self::new("EXTERNAL-0")
+    }
+
+    /// Returns whether this trader ID is external.
+    #[must_use]
+    pub fn is_external(&self) -> bool {
+        self.0.as_str() == "EXTERNAL-0"
+    }
+}
+
+impl Default for TraderId {
+    /// Returns the default trader ID "TRADER-001".
+    fn default() -> Self {
+        Self::from("TRADER-001")
+    }
 }
 
 impl Debug for TraderId {

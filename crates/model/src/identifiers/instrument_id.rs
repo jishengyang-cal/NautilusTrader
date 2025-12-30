@@ -32,7 +32,7 @@ use crate::identifiers::{Symbol, Venue};
 ///
 /// The symbol and venue combination should uniquely identify the instrument.
 #[repr(C)]
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.model")
