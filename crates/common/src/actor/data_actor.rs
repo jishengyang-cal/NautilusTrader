@@ -2247,7 +2247,7 @@ impl DataActorCore {
             );
         }
 
-        log::info!("Registered {} with trader {trader_id}", self.actor_id);
+        log::debug!("Registered '{}' with trader {trader_id}", self.actor_id);
         Ok(())
     }
 

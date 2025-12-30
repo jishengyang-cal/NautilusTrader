@@ -15,6 +15,5 @@
 
 //! Execution state management for live trading.
 
-pub mod client;
 pub mod manager;
 pub mod reconciliation;

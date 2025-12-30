@@ -63,6 +63,7 @@ use nautilus_model::{
     orderbook::own::{OwnOrderBook, should_handle_own_book_order},
     orders::{Order, OrderAny, OrderError},
     position::Position,
+    reports::ExecutionMassStatus,
     types::{Money, Price, Quantity},
 };
 
@@ -199,7 +200,7 @@ impl ExecutionEngine {
 
         self.routing_map.insert(venue, client_id);
 
-        log::info!("Registered client {client_id}");
+        log::debug!("Registered client {client_id}");
         self.clients.insert(client_id, adapter);
         Ok(())
     }
@@ -209,7 +210,7 @@ impl ExecutionEngine {
         let client_id = client.client_id();
         let adapter = ExecutionClientAdapter::new(client);
 
-        log::info!("Registered default client {client_id}");
+        log::debug!("Registered default client {client_id}");
         self.default_client = Some(adapter);
     }
 
@@ -217,6 +218,48 @@ impl ExecutionEngine {
     /// Returns a reference to the execution client registered with the given ID.
     pub fn get_client(&self, client_id: &ClientId) -> Option<&dyn ExecutionClient> {
         self.clients.get(client_id).map(|a| a.client.as_ref())
+    }
+
+    #[must_use]
+    /// Returns a mutable reference to the execution client adapter registered with the given ID.
+    pub fn get_client_adapter_mut(
+        &mut self,
+        client_id: &ClientId,
+    ) -> Option<&mut ExecutionClientAdapter> {
+        if let Some(default) = &self.default_client
+            && &default.client_id == client_id
+        {
+            return self.default_client.as_mut();
+        }
+        self.clients.get_mut(client_id)
+    }
+
+    /// Generates mass status for the given client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the client is not found or mass status generation fails.
+    pub async fn generate_mass_status(
+        &mut self,
+        client_id: &ClientId,
+        lookback_mins: Option<u64>,
+    ) -> anyhow::Result<Option<ExecutionMassStatus>> {
+        if let Some(client) = self.get_client_adapter_mut(client_id) {
+            client.generate_mass_status(lookback_mins).await
+        } else {
+            anyhow::bail!("Client {client_id} not found")
+        }
+    }
+
+    #[must_use]
+    /// Returns all registered execution client IDs.
+    pub fn client_ids(&self) -> Vec<ClientId> {
+        let mut ids: Vec<_> = self.clients.keys().copied().collect();
+
+        if let Some(default) = &self.default_client {
+            ids.push(default.client_id);
+        }
+        ids
     }
 
     #[must_use]

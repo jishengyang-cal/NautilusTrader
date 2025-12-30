@@ -92,6 +92,7 @@ impl FactoryRegistry {
         if extractors.contains_key(&type_name) {
             anyhow::bail!("Config extractor '{type_name}' is already registered");
         }
+
         extractors.insert(type_name, extractor);
         Ok(())
     }

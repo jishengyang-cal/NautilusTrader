@@ -232,15 +232,15 @@ impl DataEngine {
 
         if let Some(routing) = routing {
             self.routing_map.insert(routing, client_id);
-            log::info!("Set client {client_id} routing for {routing}");
+            log::debug!("Set client {client_id} routing for {routing}");
         }
 
         if client.venue.is_none() && self.default_client.is_none() {
             self.default_client = Some(client);
-            log::info!("Registered client {client_id} for default routing");
+            log::debug!("Registered client {client_id} for default routing");
         } else {
             self.clients.insert(client_id, client);
-            log::info!("Registered client {client_id}");
+            log::debug!("Registered client {client_id}");
         }
     }
 
@@ -277,7 +277,7 @@ impl DataEngine {
         let client_id = client.client_id();
 
         self.default_client = Some(client);
-        log::info!("Registered default client {client_id}");
+        log::debug!("Registered default client {client_id}");
     }
 
     /// Starts all registered data clients.

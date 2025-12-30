@@ -21,6 +21,7 @@ use std::{
         Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use anyhow::Context;
@@ -40,7 +41,6 @@ use nautilus_common::{
 };
 use nautilus_core::{MUTEX_POISONED, UUID4, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
-use nautilus_live::execution::client::LiveExecutionClient;
 use nautilus_model::{
     accounts::AccountAny,
     enums::{AccountType, OmsType, OrderType},
@@ -307,6 +307,35 @@ impl OKXExecutionClient {
             handle.abort();
         }
     }
+
+    /// Polls the cache until the account is registered or timeout is reached.
+    async fn await_account_registered(&self, timeout_secs: f64) -> anyhow::Result<()> {
+        let account_id = self.core.account_id;
+
+        if self.core.cache().borrow().account(&account_id).is_some() {
+            tracing::info!("Account {account_id} registered");
+            return Ok(());
+        }
+
+        let start = Instant::now();
+        let timeout = Duration::from_secs_f64(timeout_secs);
+        let interval = Duration::from_millis(10);
+
+        loop {
+            tokio::time::sleep(interval).await;
+
+            if self.core.cache().borrow().account(&account_id).is_some() {
+                tracing::info!("Account {account_id} registered");
+                return Ok(());
+            }
+
+            if start.elapsed() >= timeout {
+                anyhow::bail!(
+                    "Timeout waiting for account {account_id} to be registered after {timeout_secs}s"
+                );
+            }
+        }
+    }
 }
 
 #[async_trait(?Send)]
@@ -363,8 +392,23 @@ impl ExecutionClient for OKXExecutionClient {
                     continue;
                 }
 
+                tracing::info!(
+                    "Loaded {} {instrument_type:?} instruments",
+                    instruments.len()
+                );
+
                 self.http_client.cache_instruments(instruments.clone());
                 all_instruments.extend(instruments);
+            }
+
+            // Add instruments to Nautilus Cache for reconciliation
+            {
+                let mut cache = self.core.cache().borrow_mut();
+                for instrument in &all_instruments {
+                    if let Err(e) = cache.add_instrument(instrument.clone()) {
+                        tracing::debug!("Instrument already in cache: {e}");
+                    }
+                }
             }
 
             if !all_instruments.is_empty() {
@@ -380,6 +424,7 @@ impl ExecutionClient for OKXExecutionClient {
 
         self.ws_private.connect().await?;
         self.ws_private.wait_until_active(10.0).await?;
+        tracing::info!("Connected to private WebSocket");
 
         if self.ws_stream_handle.is_none() {
             let stream = self.ws_private.stream();
@@ -395,6 +440,7 @@ impl ExecutionClient for OKXExecutionClient {
 
         self.ws_business.connect().await?;
         self.ws_business.wait_until_active(10.0).await?;
+        tracing::info!("Connected to business WebSocket");
 
         if self.ws_business_stream_handle.is_none() {
             let stream = self.ws_business.stream();
@@ -409,16 +455,14 @@ impl ExecutionClient for OKXExecutionClient {
         }
 
         for inst_type in &instrument_types {
-            tracing::debug!(
-                "Subscribing to channels for instrument type: {:?}",
-                inst_type
-            );
+            tracing::info!("Subscribing to orders channel for {inst_type:?}");
             self.ws_private.subscribe_orders(*inst_type).await?;
 
-            if self.config.use_fills_channel
-                && let Err(e) = self.ws_private.subscribe_fills(*inst_type).await
-            {
-                tracing::warn!("Failed to subscribe to fills channel ({inst_type:?}): {e}");
+            if self.config.use_fills_channel {
+                tracing::info!("Subscribing to fills channel for {inst_type:?}");
+                if let Err(e) = self.ws_private.subscribe_fills(*inst_type).await {
+                    tracing::warn!("Failed to subscribe to fills channel ({inst_type:?}): {e}");
+                }
             }
         }
 
@@ -437,7 +481,16 @@ impl ExecutionClient for OKXExecutionClient {
             .await
             .context("failed to request OKX account state")?;
 
+        if !account_state.balances.is_empty() {
+            tracing::info!(
+                "Received account state with {} balance(s)",
+                account_state.balances.len()
+            );
+        }
         dispatch_account_state(account_state, sender);
+
+        // Wait for account to be registered in cache before completing connect
+        self.await_account_registered(30.0).await?;
 
         self.connected.store(true, Ordering::Release);
         tracing::info!(client_id = %self.core.client_id, "Connected");
@@ -724,10 +777,7 @@ impl ExecutionClient for OKXExecutionClient {
 
         Ok(())
     }
-}
 
-#[async_trait(?Send)]
-impl LiveExecutionClient for OKXExecutionClient {
     async fn generate_order_status_report(
         &self,
         cmd: &GenerateOrderStatusReport,
@@ -862,6 +912,7 @@ impl LiveExecutionClient for OKXExecutionClient {
         let mut reports = Vec::new();
 
         // Query derivative positions (SWAP/FUTURES/OPTION) from /api/v5/account/positions
+        // Note: The positions endpoint does not support Spot or Margin - those are handled separately
         if let Some(instrument_id) = cmd.instrument_id {
             let mut fetched = self
                 .http_client
@@ -870,6 +921,10 @@ impl LiveExecutionClient for OKXExecutionClient {
             reports.append(&mut fetched);
         } else {
             for inst_type in self.instrument_types() {
+                // Skip Spot and Margin - positions API only supports derivatives
+                if inst_type == OKXInstrumentType::Spot || inst_type == OKXInstrumentType::Margin {
+                    continue;
+                }
                 let mut fetched = self
                     .http_client
                     .request_position_status_reports(self.core.account_id, Some(inst_type), None)
@@ -901,10 +956,63 @@ impl LiveExecutionClient for OKXExecutionClient {
         &self,
         lookback_mins: Option<u64>,
     ) -> anyhow::Result<Option<ExecutionMassStatus>> {
-        tracing::warn!(
-            "generate_mass_status not yet implemented (lookback_mins={lookback_mins:?})"
+        tracing::info!("Generating ExecutionMassStatus (lookback_mins={lookback_mins:?})");
+
+        let ts_now = get_atomic_clock_realtime().get_time_ns();
+
+        let start = lookback_mins.map(|mins| {
+            let lookback_ns = mins * 60 * 1_000_000_000;
+            UnixNanos::from(ts_now.as_u64().saturating_sub(lookback_ns))
+        });
+
+        let order_cmd = GenerateOrderStatusReport::new(
+            UUID4::new(),
+            ts_now,
+            None, // instrument_id
+            None, // client_order_id
+            None, // venue_order_id
         );
-        Ok(None)
+
+        let fill_cmd = GenerateFillReports::new(
+            UUID4::new(),
+            ts_now,
+            None, // instrument_id
+            None, // venue_order_id
+            start,
+            None, // end
+        );
+
+        let position_cmd = GeneratePositionReports::new(
+            UUID4::new(),
+            ts_now,
+            None, // instrument_id
+            start,
+            None, // end
+        );
+
+        let (order_reports, fill_reports, position_reports) = tokio::try_join!(
+            self.generate_order_status_reports(&order_cmd),
+            self.generate_fill_reports(fill_cmd),
+            self.generate_position_status_reports(&position_cmd),
+        )?;
+
+        tracing::info!("Received {} OrderStatusReports", order_reports.len());
+        tracing::info!("Received {} FillReports", fill_reports.len());
+        tracing::info!("Received {} PositionReports", position_reports.len());
+
+        let mut mass_status = ExecutionMassStatus::new(
+            self.core.client_id,
+            self.core.account_id,
+            *OKX_VENUE,
+            ts_now,
+            None,
+        );
+
+        mass_status.add_order_reports(order_reports);
+        mass_status.add_fill_reports(fill_reports);
+        mass_status.add_position_reports(position_reports);
+
+        Ok(Some(mass_status))
     }
 }
 

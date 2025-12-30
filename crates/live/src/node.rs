@@ -42,6 +42,7 @@ use nautilus_trading::strategy::Strategy;
 
 use crate::{
     config::LiveNodeConfig,
+    execution::manager::{ExecutionManager, ExecutionManagerConfig},
     runner::{AsyncRunner, AsyncRunnerChannels},
 };
 
@@ -113,6 +114,7 @@ pub struct LiveNode {
     runner: Option<AsyncRunner>,
     config: LiveNodeConfig,
     handle: LiveNodeHandle,
+    exec_manager: ExecutionManager,
     is_running: bool,
     shutdown_deadline: Option<tokio::time::Instant>,
     #[cfg(feature = "python")]
@@ -162,6 +164,14 @@ impl LiveNode {
         let runner = AsyncRunner::new();
         let kernel = NautilusKernel::new(name, config.clone())?;
 
+        let exec_manager_config =
+            ExecutionManagerConfig::from(&config.exec_engine).with_trader_id(config.trader_id);
+        let exec_manager = ExecutionManager::new(
+            kernel.clock.clone(),
+            kernel.cache.clone(),
+            exec_manager_config,
+        );
+
         log::info!("LiveNode built successfully with kernel config");
 
         Ok(Self {
@@ -169,6 +179,7 @@ impl LiveNode {
             runner: Some(runner),
             config,
             handle: LiveNodeHandle::new(),
+            exec_manager,
             is_running: false,
             shutdown_deadline: None,
             #[cfg(feature = "python")]
@@ -189,6 +200,7 @@ impl LiveNode {
         self.kernel.start_async().await;
         self.kernel.connect_clients().await?;
         self.await_engines_connected().await?;
+        self.perform_startup_reconciliation().await?;
 
         self.is_running = true;
         self.handle.set_running(true);
@@ -277,6 +289,88 @@ impl LiveNode {
         }
 
         anyhow::bail!("Timeout waiting for engine clients to disconnect after {timeout:?}")
+    }
+
+    /// Performs startup reconciliation to align internal state with venue state.
+    ///
+    /// This method queries each execution client for mass status (orders, fills, positions)
+    /// and reconciles any discrepancies with the local cache state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reconciliation fails or times out.
+    #[allow(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
+    async fn perform_startup_reconciliation(&mut self) -> anyhow::Result<()> {
+        if !self.config.exec_engine.reconciliation {
+            log::info!("Startup reconciliation disabled");
+            return Ok(());
+        }
+
+        log::info!("Starting execution state reconciliation...");
+
+        let lookback_mins = self
+            .config
+            .exec_engine
+            .reconciliation_lookback_mins
+            .map(|m| m as u64);
+
+        let timeout = self.config.timeout_reconciliation;
+        let start = Instant::now();
+        let client_ids = self.kernel.exec_engine.borrow().client_ids();
+
+        for client_id in client_ids {
+            if start.elapsed() > timeout {
+                log::warn!("Reconciliation timeout reached, stopping early");
+                break;
+            }
+
+            log::info!("Requesting mass status from {client_id}...");
+
+            let mass_status_result = self
+                .kernel
+                .exec_engine
+                .borrow_mut()
+                .generate_mass_status(&client_id, lookback_mins)
+                .await;
+
+            match mass_status_result {
+                Ok(Some(mass_status)) => {
+                    log::info!("Reconciling ExecutionMassStatus for {client_id}");
+                    let events = self
+                        .exec_manager
+                        .reconcile_execution_mass_status(mass_status)
+                        .await;
+
+                    if events.is_empty() {
+                        log::info!("Reconciliation for {client_id} succeeded");
+                    } else {
+                        log::info!(
+                            "Reconciliation for {client_id} generated {} events",
+                            events.len()
+                        );
+
+                        let mut exec_engine = self.kernel.exec_engine.borrow_mut();
+                        for event in events {
+                            exec_engine.process(&event);
+                        }
+                    }
+                }
+                Ok(None) => {
+                    log::warn!(
+                        "No mass status available from {client_id} \
+                         (likely adapter error when generating reports)"
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to get mass status from {client_id}: {e}");
+                }
+            }
+        }
+
+        let elapsed_secs = start.elapsed().as_secs_f64();
+        log::info!("Startup reconciliation completed in {elapsed_secs:.2}s");
+
+        Ok(())
     }
 
     /// Run the live node with automatic shutdown handling.
@@ -454,6 +548,18 @@ impl LiveNode {
     #[must_use]
     pub const fn is_running(&self) -> bool {
         self.is_running
+    }
+
+    /// Gets a reference to the execution manager.
+    #[must_use]
+    pub const fn exec_manager(&self) -> &ExecutionManager {
+        &self.exec_manager
+    }
+
+    /// Gets an exclusive reference to the execution manager.
+    #[must_use]
+    pub fn exec_manager_mut(&mut self) -> &mut ExecutionManager {
+        &mut self.exec_manager
     }
 
     /// Adds an actor to the trader.
@@ -715,14 +821,12 @@ impl LiveNodeBuilder {
             self.exec_client_factories.len()
         );
 
-        // Create runner first to set up global event channels
         let runner = AsyncRunner::new();
         let kernel = NautilusKernel::new(self.name.clone(), self.config.clone())?;
 
-        // Create and register data clients
         for (name, factory) in self.data_client_factories {
             if let Some(config) = self.data_client_configs.remove(&name) {
-                log::info!("Creating data client '{name}'");
+                log::debug!("Creating data client {name}");
 
                 let client =
                     factory.create(&name, config.as_ref(), kernel.cache(), kernel.clock())?;
@@ -740,16 +844,15 @@ impl LiveNodeBuilder {
                     .borrow_mut()
                     .register_client(adapter, venue);
 
-                log::info!("Registered data client '{name}' ({client_id})");
+                log::info!("Registered DataClient-{client_id}");
             } else {
-                log::warn!("No config found for data client factory '{name}'");
+                log::warn!("No config found for data client factory {name}");
             }
         }
 
-        // Create and register execution clients
         for (name, factory) in self.exec_client_factories {
             if let Some(config) = self.exec_client_configs.remove(&name) {
-                log::info!("Creating execution client '{name}'");
+                log::debug!("Creating execution client {name}");
 
                 let client =
                     factory.create(&name, config.as_ref(), kernel.cache(), kernel.clock())?;
@@ -757,11 +860,19 @@ impl LiveNodeBuilder {
 
                 kernel.exec_engine.borrow_mut().register_client(client)?;
 
-                log::info!("Registered execution client '{name}' ({client_id})");
+                log::info!("Registered ExecutionClient-{client_id}");
             } else {
-                log::warn!("No config found for execution client factory '{name}'");
+                log::warn!("No config found for execution client factory {name}");
             }
         }
+
+        let exec_manager_config = ExecutionManagerConfig::from(&self.config.exec_engine)
+            .with_trader_id(self.config.trader_id);
+        let exec_manager = ExecutionManager::new(
+            kernel.clock.clone(),
+            kernel.cache.clone(),
+            exec_manager_config,
+        );
 
         log::info!("Built successfully");
 
@@ -770,6 +881,7 @@ impl LiveNodeBuilder {
             runner: Some(runner),
             config: self.config,
             handle: LiveNodeHandle::new(),
+            exec_manager,
             is_running: false,
             shutdown_deadline: None,
             #[cfg(feature = "python")]

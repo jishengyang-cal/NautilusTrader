@@ -32,7 +32,6 @@ use nautilus_common::{
 };
 use nautilus_core::{MUTEX_POISONED, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
-use nautilus_live::execution::client::LiveExecutionClient;
 use nautilus_model::{
     accounts::AccountAny,
     enums::{OmsType, OrderType},
@@ -897,10 +896,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         tracing::info!(client_id = %self.core.client_id, "Disconnected");
         Ok(())
     }
-}
 
-#[async_trait(?Send)]
-impl LiveExecutionClient for HyperliquidExecutionClient {
     async fn generate_order_status_report(
         &self,
         _cmd: &GenerateOrderStatusReport,

@@ -56,7 +56,6 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
 pub mod config;
-pub mod data;
 pub mod execution;
 pub mod node;
 pub mod runner;

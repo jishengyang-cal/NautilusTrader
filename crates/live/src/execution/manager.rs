@@ -27,13 +27,16 @@ use nautilus_common::{
     messages::execution::report::{GenerateOrderStatusReport, GeneratePositionReports},
 };
 use nautilus_core::{UUID4, UnixNanos};
+use nautilus_execution::client::ExecutionClient;
 use nautilus_model::{
     enums::OrderStatus,
     events::{
-        OrderAccepted, OrderCanceled, OrderEventAny, OrderExpired, OrderFilled, OrderRejected,
-        OrderTriggered,
+        OrderAccepted, OrderCanceled, OrderEventAny, OrderExpired, OrderFilled, OrderInitialized,
+        OrderRejected, OrderTriggered,
     },
-    identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, VenueOrderId},
+    identifiers::{
+        AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, VenueOrderId,
+    },
     instruments::{Instrument, InstrumentAny},
     orders::{Order, OrderAny},
     position::Position,
@@ -43,11 +46,13 @@ use nautilus_model::{
 use rust_decimal::Decimal;
 use ustr::Ustr;
 
-use crate::{config::LiveExecEngineConfig, execution::client::LiveExecutionClient};
+use crate::config::LiveExecEngineConfig;
 
 /// Configuration for execution manager.
 #[derive(Debug, Clone)]
 pub struct ExecutionManagerConfig {
+    /// The trader ID for generated orders.
+    pub trader_id: TraderId,
     /// If reconciliation is active at start-up.
     pub reconciliation: bool,
     /// The delay (seconds) before starting reconciliation at startup.
@@ -103,6 +108,7 @@ pub struct ExecutionManagerConfig {
 impl Default for ExecutionManagerConfig {
     fn default() -> Self {
         Self {
+            trader_id: TraderId::default(),
             reconciliation: true,
             reconciliation_startup_delay_secs: 10.0,
             lookback_mins: Some(60),
@@ -151,6 +157,7 @@ impl From<&LiveExecEngineConfig> for ExecutionManagerConfig {
             .collect();
 
         Self {
+            trader_id: TraderId::default(), // Must be set separately via with_trader_id
             reconciliation: config.reconciliation,
             reconciliation_startup_delay_secs: config.reconciliation_startup_delay_secs,
             lookback_mins: config.reconciliation_lookback_mins.map(|m| m as u64),
@@ -177,6 +184,15 @@ impl From<&LiveExecEngineConfig> for ExecutionManagerConfig {
             purge_account_events_lookback_mins: config.purge_account_events_lookback_mins,
             purge_from_database: config.purge_from_database,
         }
+    }
+}
+
+impl ExecutionManagerConfig {
+    /// Sets the trader ID on the configuration.
+    #[must_use]
+    pub fn with_trader_id(mut self, trader_id: TraderId) -> Self {
+        self.trader_id = trader_id;
+        self
     }
 }
 
@@ -278,7 +294,20 @@ impl ExecutionManager {
         &mut self,
         mass_status: ExecutionMassStatus,
     ) -> Vec<OrderEventAny> {
+        let order_count = mass_status.order_reports().len();
+        let fill_count: usize = mass_status.fill_reports().values().map(|v| v.len()).sum();
+        let position_count = mass_status.position_reports().len();
+
+        log::info!("Attempting to adjust fills for {position_count} instruments");
+        log::info!(
+            "Final order_reports contains {order_count} orders, fill_reports contains {fill_count} fills across all instruments"
+        );
+
         let mut events = Vec::new();
+        let mut orders_reconciled = 0usize;
+        let mut external_orders_created = 0usize;
+        let mut orders_skipped_no_instrument = 0usize;
+        let mut fills_applied = 0usize;
 
         // Process order status reports first
         for report in mass_status.order_reports().values() {
@@ -286,13 +315,33 @@ impl ExecutionManager {
                 if let Some(order) = self.get_order(client_order_id) {
                     let mut order = order;
                     if let Some(event) = self.reconcile_order_report(&mut order, report) {
+                        orders_reconciled += 1;
                         events.push(event);
                     }
+                } else if !self.config.filter_unclaimed_external {
+                    // Order has client_order_id but not in cache - external order
+                    if self.get_instrument(&report.instrument_id).is_none() {
+                        orders_skipped_no_instrument += 1;
+                    } else {
+                        let external_events =
+                            self.handle_external_order(report, &mass_status.account_id);
+                        if !external_events.is_empty() {
+                            external_orders_created += 1;
+                            events.extend(external_events);
+                        }
+                    }
                 }
-            } else if !self.config.filter_unclaimed_external
-                && let Some(event) = self.handle_external_order(report, &mass_status.account_id)
-            {
-                events.push(event);
+            } else if !self.config.filter_unclaimed_external {
+                if self.get_instrument(&report.instrument_id).is_none() {
+                    orders_skipped_no_instrument += 1;
+                } else {
+                    let external_events =
+                        self.handle_external_order(report, &mass_status.account_id);
+                    if !external_events.is_empty() {
+                        external_orders_created += 1;
+                        events.extend(external_events);
+                    }
+                }
             }
         }
 
@@ -308,11 +357,20 @@ impl ExecutionManager {
                     if let Some(instrument) = self.get_instrument(&instrument_id)
                         && let Some(event) = self.create_order_fill(&mut order, fill, &instrument)
                     {
+                        fills_applied += 1;
                         events.push(event);
                     }
                 }
             }
         }
+
+        if orders_skipped_no_instrument > 0 {
+            log::warn!("{orders_skipped_no_instrument} orders skipped (instrument not in cache)");
+        }
+
+        log::info!(
+            "Mass status reconciliation complete: orders_reconciled={orders_reconciled}, external_orders_created={external_orders_created}, fills_applied={fills_applied}"
+        );
 
         events
     }
@@ -429,7 +487,7 @@ impl ExecutionManager {
     /// A vector of order events generated to reconcile discrepancies.
     pub async fn check_open_orders(
         &mut self,
-        clients: &[Rc<dyn LiveExecutionClient>],
+        clients: &[Rc<dyn ExecutionClient>],
     ) -> Vec<OrderEventAny> {
         log::debug!("Checking order consistency between cached-state and venues");
 
@@ -529,7 +587,7 @@ impl ExecutionManager {
     /// A vector of fill events generated to reconcile position discrepancies.
     pub async fn check_positions_consistency(
         &mut self,
-        clients: &[Rc<dyn LiveExecutionClient>],
+        clients: &[Rc<dyn ExecutionClient>],
     ) -> Vec<OrderEventAny> {
         log::debug!("Checking position consistency between cached-state and venues");
 
@@ -846,13 +904,196 @@ impl ExecutionManager {
     }
 
     fn handle_external_order(
+        &mut self,
+        report: &OrderStatusReport,
+        account_id: &AccountId,
+    ) -> Vec<OrderEventAny> {
+        let (strategy_id, tags) =
+            if let Some(claimed_strategy) = self.external_order_claims.get(&report.instrument_id) {
+                let order_id = report
+                    .client_order_id
+                    .map_or_else(|| report.venue_order_id.to_string(), |id| id.to_string());
+                log::info!(
+                    "External order {order_id} for {} claimed by strategy {claimed_strategy}",
+                    report.instrument_id
+                );
+                (*claimed_strategy, None)
+            } else {
+                // Unclaimed external orders use EXTERNAL strategy ID with VENUE tag
+                (
+                    StrategyId::from("EXTERNAL"),
+                    Some(vec![Ustr::from("VENUE")]),
+                )
+            };
+
+        let client_order_id = report
+            .client_order_id
+            .unwrap_or_else(|| ClientOrderId::from(report.venue_order_id.as_str()));
+
+        let ts_now = self.clock.borrow().timestamp_ns();
+
+        let initialized = OrderInitialized::new(
+            self.config.trader_id,
+            strategy_id,
+            report.instrument_id,
+            client_order_id,
+            report.order_side,
+            report.order_type,
+            report.quantity,
+            report.time_in_force,
+            report.post_only,
+            report.reduce_only,
+            false, // quote_quantity
+            true,  // reconciliation
+            UUID4::new(),
+            ts_now,
+            ts_now,
+            report.price,
+            report.trigger_price,
+            report.trigger_type,
+            report.limit_offset,
+            report.trailing_offset,
+            Some(report.trailing_offset_type),
+            report.expire_time,
+            report.display_qty,
+            None, // emulation_trigger
+            None, // trigger_instrument_id
+            Some(report.contingency_type),
+            report.order_list_id,
+            report.linked_order_ids.clone(),
+            report.parent_order_id,
+            None, // exec_algorithm_id
+            None, // exec_algorithm_params
+            None, // exec_spawn_id
+            tags,
+        );
+
+        let events = vec![OrderEventAny::Initialized(initialized)];
+        let order = match OrderAny::from_events(events) {
+            Ok(order) => order,
+            Err(e) => {
+                log::error!("Failed to create order from report: {e}");
+                return Vec::new();
+            }
+        };
+
+        {
+            let mut cache = self.cache.borrow_mut();
+            if let Err(e) = cache.add_order(order.clone(), None, None, false) {
+                log::error!("Failed to add external order to cache: {e}");
+                return Vec::new();
+            }
+
+            if let Err(e) =
+                cache.add_venue_order_id(&client_order_id, &report.venue_order_id, false)
+            {
+                log::warn!("Failed to add venue order ID index: {e}");
+            }
+        }
+
+        log::info!(
+            "Created external order {} ({}) for {} [{}]",
+            client_order_id,
+            report.venue_order_id,
+            report.instrument_id,
+            report.order_status,
+        );
+
+        self.generate_external_order_status_events(&order, report, account_id)
+    }
+
+    /// Generates the appropriate order status events for an external order.
+    ///
+    /// After creating an external order, we need to transition it to its actual state
+    /// based on the order status report from the venue. For terminal states like
+    /// Canceled/Expired, we return multiple events to properly transition through states.
+    fn generate_external_order_status_events(
         &self,
-        _report: &OrderStatusReport,
-        _account_id: &AccountId,
-    ) -> Option<OrderEventAny> {
-        // TODO: This would need to create a new order from the report
-        // For now, we'll skip external order handling - WIP
-        None
+        order: &OrderAny,
+        report: &OrderStatusReport,
+        account_id: &AccountId,
+    ) -> Vec<OrderEventAny> {
+        let ts_now = self.clock.borrow().timestamp_ns();
+
+        let accepted = OrderEventAny::Accepted(OrderAccepted::new(
+            order.trader_id(),
+            order.strategy_id(),
+            order.instrument_id(),
+            order.client_order_id(),
+            report.venue_order_id,
+            *account_id,
+            UUID4::new(),
+            report.ts_accepted,
+            ts_now,
+            true, // reconciliation
+        ));
+
+        match report.order_status {
+            OrderStatus::Accepted | OrderStatus::PartiallyFilled | OrderStatus::Filled => {
+                // All these states require order to first be accepted
+                vec![accepted]
+            }
+            OrderStatus::Canceled => {
+                // Accept first, then cancel to reach terminal state
+                let canceled = OrderEventAny::Canceled(OrderCanceled::new(
+                    order.trader_id(),
+                    order.strategy_id(),
+                    order.instrument_id(),
+                    order.client_order_id(),
+                    UUID4::new(),
+                    report.ts_last,
+                    ts_now,
+                    true, // reconciliation
+                    Some(report.venue_order_id),
+                    Some(*account_id),
+                ));
+                vec![accepted, canceled]
+            }
+            OrderStatus::Expired => {
+                // Accept first, then expire to reach terminal state
+                let expired = OrderEventAny::Expired(OrderExpired::new(
+                    order.trader_id(),
+                    order.strategy_id(),
+                    order.instrument_id(),
+                    order.client_order_id(),
+                    UUID4::new(),
+                    report.ts_last,
+                    ts_now,
+                    true, // reconciliation
+                    Some(report.venue_order_id),
+                    Some(*account_id),
+                ));
+                vec![accepted, expired]
+            }
+            OrderStatus::Rejected => {
+                // Rejected goes directly to terminal state without acceptance
+                vec![OrderEventAny::Rejected(OrderRejected::new(
+                    order.trader_id(),
+                    order.strategy_id(),
+                    order.instrument_id(),
+                    order.client_order_id(),
+                    *account_id,
+                    Ustr::from(report.cancel_reason.as_deref().unwrap_or("UNKNOWN")),
+                    UUID4::new(),
+                    report.ts_last,
+                    ts_now,
+                    true, // reconciliation
+                    false,
+                ))]
+            }
+            OrderStatus::Triggered => {
+                // Triggered orders need acceptance first
+                vec![accepted]
+            }
+            _ => {
+                log::warn!(
+                    "Unhandled order status {} for external order {}",
+                    report.order_status,
+                    order.client_order_id()
+                );
+                Vec::new()
+            }
+        }
     }
 
     fn create_order_accepted(&self, order: &OrderAny, report: &OrderStatusReport) -> OrderEventAny {

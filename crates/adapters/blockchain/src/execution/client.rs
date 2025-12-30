@@ -24,7 +24,6 @@ use nautilus_common::messages::execution::{
 };
 use nautilus_core::UnixNanos;
 use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
-use nautilus_live::execution::client::LiveExecutionClient;
 use nautilus_model::{
     accounts::AccountAny,
     defi::{
@@ -287,10 +286,7 @@ impl ExecutionClient for BlockchainExecutionClient {
         self.connected = false;
         Ok(())
     }
-}
 
-#[async_trait(?Send)]
-impl LiveExecutionClient for BlockchainExecutionClient {
     async fn generate_order_status_report(
         &self,
         _cmd: &GenerateOrderStatusReport,

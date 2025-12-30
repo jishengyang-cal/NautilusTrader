@@ -280,7 +280,6 @@ impl Trader {
         T: DataActor + Component + Debug + 'static,
     {
         let actor_id = actor.actor_id();
-        let mem_addr = actor.mem_address();
 
         // Register in both component and actor registries (this consumes the actor)
         register_component_actor(actor);
@@ -289,7 +288,7 @@ impl Trader {
         self.actor_ids.push(actor_id);
 
         log::info!(
-            "Registered '{actor_id}' at mem_addr {mem_addr} with trader {}",
+            "Registered actor '{actor_id}' with trader {}",
             self.trader_id
         );
 
@@ -401,8 +400,9 @@ impl Trader {
         msgbus::subscribe_topic(position_topic, handler, None);
 
         self.strategy_ids.push(strategy_id);
+
         log::info!(
-            "Registered strategy '{strategy_id}' with trader {}",
+            "Registered strategy {strategy_id} with trader {}",
             self.trader_id
         );
 
@@ -443,6 +443,7 @@ impl Trader {
         register_component_actor(exec_algorithm);
 
         self.exec_algorithm_ids.push(exec_algorithm_id);
+
         log::info!(
             "Registered execution algorithm '{exec_algorithm_id}' with trader {}",
             self.trader_id
@@ -474,17 +475,17 @@ impl Trader {
     /// Returns an error if any component fails to start.
     pub fn start_components(&mut self) -> anyhow::Result<()> {
         for actor_id in &self.actor_ids {
-            log::debug!("Starting actor '{actor_id}'");
+            log::debug!("Starting actor {actor_id}");
             start_component(&actor_id.inner())?;
         }
 
         for strategy_id in &self.strategy_ids {
-            log::debug!("Starting strategy '{strategy_id}'");
+            log::debug!("Starting strategy {strategy_id}");
             start_component(&strategy_id.inner())?;
         }
 
         for exec_algorithm_id in &self.exec_algorithm_ids {
-            log::debug!("Starting execution algorithm '{exec_algorithm_id}'");
+            log::debug!("Starting execution algorithm {exec_algorithm_id}");
             start_component(&exec_algorithm_id.inner())?;
         }
 
@@ -498,17 +499,17 @@ impl Trader {
     /// Returns an error if any component fails to stop.
     pub fn stop_components(&mut self) -> anyhow::Result<()> {
         for actor_id in &self.actor_ids {
-            log::debug!("Stopping actor '{actor_id}'");
+            log::debug!("Stopping actor {actor_id}");
             stop_component(&actor_id.inner())?;
         }
 
         for exec_algorithm_id in &self.exec_algorithm_ids {
-            log::debug!("Stopping execution algorithm '{exec_algorithm_id}'");
+            log::debug!("Stopping execution algorithm {exec_algorithm_id}");
             stop_component(&exec_algorithm_id.inner())?;
         }
 
         for strategy_id in &self.strategy_ids {
-            log::debug!("Stopping strategy '{strategy_id}'");
+            log::debug!("Stopping strategy {strategy_id}");
             stop_component(&strategy_id.inner())?;
         }
 
@@ -522,17 +523,17 @@ impl Trader {
     /// Returns an error if any component fails to reset.
     pub fn reset_components(&mut self) -> anyhow::Result<()> {
         for actor_id in &self.actor_ids {
-            log::debug!("Resetting actor '{actor_id}'");
+            log::debug!("Resetting actor {actor_id}");
             reset_component(&actor_id.inner())?;
         }
 
         for strategy_id in &self.strategy_ids {
-            log::debug!("Resetting strategy '{strategy_id}'");
+            log::debug!("Resetting strategy {strategy_id}");
             reset_component(&strategy_id.inner())?;
         }
 
         for exec_algorithm_id in &self.exec_algorithm_ids {
-            log::debug!("Resetting execution algorithm '{exec_algorithm_id}'");
+            log::debug!("Resetting execution algorithm {exec_algorithm_id}");
             reset_component(&exec_algorithm_id.inner())?;
         }
 
@@ -546,17 +547,17 @@ impl Trader {
     /// Returns an error if any component fails to dispose.
     pub fn dispose_components(&mut self) -> anyhow::Result<()> {
         for actor_id in &self.actor_ids {
-            log::debug!("Disposing actor '{actor_id}'");
+            log::debug!("Disposing actor {actor_id}");
             dispose_component(&actor_id.inner())?;
         }
 
         for strategy_id in &self.strategy_ids {
-            log::debug!("Disposing strategy '{strategy_id}'");
+            log::debug!("Disposing strategy {strategy_id}");
             dispose_component(&strategy_id.inner())?;
         }
 
         for exec_algorithm_id in &self.exec_algorithm_ids {
-            log::debug!("Disposing execution algorithm '{exec_algorithm_id}'");
+            log::debug!("Disposing execution algorithm {exec_algorithm_id}");
             dispose_component(&exec_algorithm_id.inner())?;
         }
 

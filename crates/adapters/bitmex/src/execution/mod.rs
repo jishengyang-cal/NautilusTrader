@@ -37,7 +37,6 @@ use nautilus_common::{
 };
 use nautilus_core::{UUID4, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
-use nautilus_live::execution::client::LiveExecutionClient;
 use nautilus_model::{
     accounts::AccountAny,
     enums::OmsType,
@@ -348,6 +347,156 @@ impl ExecutionClient for BitmexExecutionClient {
         Ok(())
     }
 
+    async fn connect(&mut self) -> anyhow::Result<()> {
+        if self.connected {
+            return Ok(());
+        }
+
+        self.ensure_instruments_initialized_async().await?;
+
+        self._submitter.start().await?;
+        self._canceller.start().await?;
+
+        self.ws_client.connect().await?;
+        self.ws_client.wait_until_active(10.0).await?;
+
+        self.ws_client.subscribe_orders().await?;
+        self.ws_client.subscribe_executions().await?;
+        self.ws_client.subscribe_positions().await?;
+        self.ws_client.subscribe_wallet().await?;
+        if let Err(e) = self.ws_client.subscribe_margin().await {
+            tracing::debug!("Margin subscription unavailable: {e:?}");
+        }
+
+        self.start_ws_stream()?;
+        self.refresh_account_state().await?;
+
+        self.connected = true;
+        self.core.set_connected(true);
+        tracing::info!(client_id = %self.core.client_id, "Connected");
+        Ok(())
+    }
+
+    async fn disconnect(&mut self) -> anyhow::Result<()> {
+        if !self.connected {
+            return Ok(());
+        }
+
+        self.http_client.cancel_all_requests();
+        self._submitter.stop().await;
+        self._canceller.stop().await;
+
+        if let Err(e) = self.ws_client.close().await {
+            tracing::warn!("Error while closing BitMEX execution websocket: {e:?}");
+        }
+
+        if let Some(handle) = self.ws_stream_handle.take() {
+            handle.abort();
+        }
+
+        self.abort_pending_tasks();
+        self.connected = false;
+        self.core.set_connected(false);
+        tracing::info!(client_id = %self.core.client_id, "Disconnected");
+        Ok(())
+    }
+
+    async fn generate_order_status_report(
+        &self,
+        cmd: &GenerateOrderStatusReport,
+    ) -> anyhow::Result<Option<OrderStatusReport>> {
+        let instrument_id = cmd
+            .instrument_id
+            .context("BitMEX generate_order_status_report requires an instrument identifier")?;
+
+        self.http_client
+            .query_order(
+                instrument_id,
+                cmd.client_order_id,
+                cmd.venue_order_id.map(|id| VenueOrderId::from(id.as_str())),
+            )
+            .await
+            .context("failed to query BitMEX order status")
+    }
+
+    async fn generate_order_status_reports(
+        &self,
+        cmd: &GenerateOrderStatusReport,
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let reports = self
+            .http_client
+            .request_order_status_reports(cmd.instrument_id, false, None)
+            .await
+            .context("failed to request BitMEX order status reports")?;
+        Ok(reports)
+    }
+
+    async fn generate_fill_reports(
+        &self,
+        cmd: GenerateFillReports,
+    ) -> anyhow::Result<Vec<FillReport>> {
+        let mut reports = self
+            .http_client
+            .request_fill_reports(cmd.instrument_id, None)
+            .await
+            .context("failed to request BitMEX fill reports")?;
+
+        if let Some(order_id) = cmd.venue_order_id {
+            reports.retain(|report| report.venue_order_id.as_str() == order_id.as_str());
+        }
+
+        Ok(reports)
+    }
+
+    async fn generate_position_status_reports(
+        &self,
+        cmd: &GeneratePositionReports,
+    ) -> anyhow::Result<Vec<PositionStatusReport>> {
+        let mut reports = self
+            .http_client
+            .request_position_status_reports()
+            .await
+            .context("failed to request BitMEX position reports")?;
+
+        if let Some(instrument_id) = cmd.instrument_id {
+            reports.retain(|report| report.instrument_id == instrument_id);
+        }
+
+        Ok(reports)
+    }
+
+    async fn generate_mass_status(
+        &self,
+        _lookback_mins: Option<u64>,
+    ) -> anyhow::Result<Option<ExecutionMassStatus>> {
+        tracing::warn!("generate_mass_status not yet implemented for BitMEX execution client");
+        Ok(None)
+    }
+
+    fn query_account(&self, _cmd: &QueryAccount) -> anyhow::Result<()> {
+        self.update_account_state()
+    }
+
+    fn query_order(&self, cmd: &QueryOrder) -> anyhow::Result<()> {
+        let http_client = self.http_client.clone();
+        let instrument_id = cmd.instrument_id;
+        let client_order_id = Some(cmd.client_order_id);
+        let venue_order_id = cmd.venue_order_id;
+
+        self.spawn_task("query_order", async move {
+            match http_client
+                .request_order_status_report(instrument_id, client_order_id, venue_order_id)
+                .await
+            {
+                Ok(report) => dispatch_order_status_report(report),
+                Err(e) => tracing::error!("BitMEX query order failed: {e:?}"),
+            }
+            Ok(())
+        });
+
+        Ok(())
+    }
+
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
         let order = cmd.order.clone();
 
@@ -570,159 +719,6 @@ impl ExecutionClient for BitmexExecutionClient {
         });
 
         Ok(())
-    }
-
-    fn query_account(&self, _cmd: &QueryAccount) -> anyhow::Result<()> {
-        self.update_account_state()
-    }
-
-    fn query_order(&self, cmd: &QueryOrder) -> anyhow::Result<()> {
-        let http_client = self.http_client.clone();
-        let instrument_id = cmd.instrument_id;
-        let client_order_id = Some(cmd.client_order_id);
-        let venue_order_id = cmd.venue_order_id;
-
-        self.spawn_task("query_order", async move {
-            match http_client
-                .request_order_status_report(instrument_id, client_order_id, venue_order_id)
-                .await
-            {
-                Ok(report) => dispatch_order_status_report(report),
-                Err(e) => tracing::error!("BitMEX query order failed: {e:?}"),
-            }
-            Ok(())
-        });
-
-        Ok(())
-    }
-
-    async fn connect(&mut self) -> anyhow::Result<()> {
-        if self.connected {
-            return Ok(());
-        }
-
-        self.ensure_instruments_initialized_async().await?;
-
-        self._submitter.start().await?;
-        self._canceller.start().await?;
-
-        self.ws_client.connect().await?;
-        self.ws_client.wait_until_active(10.0).await?;
-
-        self.ws_client.subscribe_orders().await?;
-        self.ws_client.subscribe_executions().await?;
-        self.ws_client.subscribe_positions().await?;
-        self.ws_client.subscribe_wallet().await?;
-        if let Err(e) = self.ws_client.subscribe_margin().await {
-            tracing::debug!("Margin subscription unavailable: {e:?}");
-        }
-
-        self.start_ws_stream()?;
-        self.refresh_account_state().await?;
-
-        self.connected = true;
-        self.core.set_connected(true);
-        tracing::info!(client_id = %self.core.client_id, "Connected");
-        Ok(())
-    }
-
-    async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !self.connected {
-            return Ok(());
-        }
-
-        self.http_client.cancel_all_requests();
-        self._submitter.stop().await;
-        self._canceller.stop().await;
-
-        if let Err(e) = self.ws_client.close().await {
-            tracing::warn!("Error while closing BitMEX execution websocket: {e:?}");
-        }
-
-        if let Some(handle) = self.ws_stream_handle.take() {
-            handle.abort();
-        }
-
-        self.abort_pending_tasks();
-        self.connected = false;
-        self.core.set_connected(false);
-        tracing::info!(client_id = %self.core.client_id, "Disconnected");
-        Ok(())
-    }
-}
-
-#[async_trait(?Send)]
-impl LiveExecutionClient for BitmexExecutionClient {
-    async fn generate_order_status_report(
-        &self,
-        cmd: &GenerateOrderStatusReport,
-    ) -> anyhow::Result<Option<OrderStatusReport>> {
-        let instrument_id = cmd
-            .instrument_id
-            .context("BitMEX generate_order_status_report requires an instrument identifier")?;
-
-        self.http_client
-            .query_order(
-                instrument_id,
-                cmd.client_order_id,
-                cmd.venue_order_id.map(|id| VenueOrderId::from(id.as_str())),
-            )
-            .await
-            .context("failed to query BitMEX order status")
-    }
-
-    async fn generate_order_status_reports(
-        &self,
-        cmd: &GenerateOrderStatusReport,
-    ) -> anyhow::Result<Vec<OrderStatusReport>> {
-        let reports = self
-            .http_client
-            .request_order_status_reports(cmd.instrument_id, false, None)
-            .await
-            .context("failed to request BitMEX order status reports")?;
-        Ok(reports)
-    }
-
-    async fn generate_fill_reports(
-        &self,
-        cmd: GenerateFillReports,
-    ) -> anyhow::Result<Vec<FillReport>> {
-        let mut reports = self
-            .http_client
-            .request_fill_reports(cmd.instrument_id, None)
-            .await
-            .context("failed to request BitMEX fill reports")?;
-
-        if let Some(order_id) = cmd.venue_order_id {
-            reports.retain(|report| report.venue_order_id.as_str() == order_id.as_str());
-        }
-
-        Ok(reports)
-    }
-
-    async fn generate_position_status_reports(
-        &self,
-        cmd: &GeneratePositionReports,
-    ) -> anyhow::Result<Vec<PositionStatusReport>> {
-        let mut reports = self
-            .http_client
-            .request_position_status_reports()
-            .await
-            .context("failed to request BitMEX position reports")?;
-
-        if let Some(instrument_id) = cmd.instrument_id {
-            reports.retain(|report| report.instrument_id == instrument_id);
-        }
-
-        Ok(reports)
-    }
-
-    async fn generate_mass_status(
-        &self,
-        _lookback_mins: Option<u64>,
-    ) -> anyhow::Result<Option<ExecutionMassStatus>> {
-        tracing::warn!("generate_mass_status not yet implemented for BitMEX execution client");
-        Ok(None)
     }
 }
 
