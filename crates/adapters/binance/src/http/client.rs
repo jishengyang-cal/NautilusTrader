@@ -458,6 +458,12 @@ impl BinanceHttpClient {
         &self.raw
     }
 
+    /// Returns a reference to the instruments cache.
+    #[must_use]
+    pub fn instruments(&self) -> &DashMap<Ustr, BinanceInstrument> {
+        &self.instruments
+    }
+
     /// Returns server time for the configured product type.
     pub async fn server_time(&self) -> BinanceHttpResult<BinanceServerTime> {
         self.raw

@@ -17,6 +17,11 @@
 //!
 //! These models represent Binance venue-specific response types decoded from SBE.
 
+use crate::common::sbe::spot::{
+    order_side::OrderSide, order_status::OrderStatus, order_type::OrderType,
+    self_trade_prevention_mode::SelfTradePreventionMode, time_in_force::TimeInForce,
+};
+
 /// Price/quantity level in an order book.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BinancePriceLevel {
@@ -24,20 +29,6 @@ pub struct BinancePriceLevel {
     pub price_mantissa: i64,
     /// Quantity mantissa (multiply by 10^exponent to get actual quantity).
     pub qty_mantissa: i64,
-}
-
-impl BinancePriceLevel {
-    /// Converts the price mantissa to f64 using the given exponent.
-    #[must_use]
-    pub fn price_f64(&self, exponent: i8) -> f64 {
-        self.price_mantissa as f64 * 10_f64.powi(exponent as i32)
-    }
-
-    /// Converts the quantity mantissa to f64 using the given exponent.
-    #[must_use]
-    pub fn qty_f64(&self, exponent: i8) -> f64 {
-        self.qty_mantissa as f64 * 10_f64.powi(exponent as i32)
-    }
 }
 
 /// Binance order book depth response.
@@ -74,20 +65,6 @@ pub struct BinanceTrade {
     pub is_best_match: bool,
 }
 
-impl BinanceTrade {
-    /// Converts the price mantissa to f64 using the given exponent.
-    #[must_use]
-    pub fn price_f64(&self, exponent: i8) -> f64 {
-        self.price_mantissa as f64 * 10_f64.powi(exponent as i32)
-    }
-
-    /// Converts the quantity mantissa to f64 using the given exponent.
-    #[must_use]
-    pub fn qty_f64(&self, exponent: i8) -> f64 {
-        self.qty_mantissa as f64 * 10_f64.powi(exponent as i32)
-    }
-}
-
 /// Binance trades response.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinanceTrades {
@@ -97,4 +74,233 @@ pub struct BinanceTrades {
     pub qty_exponent: i8,
     /// List of trades.
     pub trades: Vec<BinanceTrade>,
+}
+
+/// A fill from an order execution.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceOrderFill {
+    /// Fill price mantissa.
+    pub price_mantissa: i64,
+    /// Fill quantity mantissa.
+    pub qty_mantissa: i64,
+    /// Commission mantissa.
+    pub commission_mantissa: i64,
+    /// Commission exponent.
+    pub commission_exponent: i8,
+    /// Commission asset.
+    pub commission_asset: String,
+    /// Trade ID (if available).
+    pub trade_id: Option<i64>,
+}
+
+/// New order response (FULL response type).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceNewOrderResponse {
+    /// Price exponent for this response.
+    pub price_exponent: i8,
+    /// Quantity exponent for this response.
+    pub qty_exponent: i8,
+    /// Exchange order ID.
+    pub order_id: i64,
+    /// Order list ID (for OCO orders).
+    pub order_list_id: Option<i64>,
+    /// Transaction time in microseconds.
+    pub transact_time: i64,
+    /// Order price mantissa.
+    pub price_mantissa: i64,
+    /// Original order quantity mantissa.
+    pub orig_qty_mantissa: i64,
+    /// Executed quantity mantissa.
+    pub executed_qty_mantissa: i64,
+    /// Cumulative quote quantity mantissa.
+    pub cummulative_quote_qty_mantissa: i64,
+    /// Order status.
+    pub status: OrderStatus,
+    /// Time in force.
+    pub time_in_force: TimeInForce,
+    /// Order type.
+    pub order_type: OrderType,
+    /// Order side.
+    pub side: OrderSide,
+    /// Stop price mantissa (for stop orders).
+    pub stop_price_mantissa: Option<i64>,
+    /// Working time in microseconds.
+    pub working_time: Option<i64>,
+    /// Self-trade prevention mode.
+    pub self_trade_prevention_mode: SelfTradePreventionMode,
+    /// Client order ID.
+    pub client_order_id: String,
+    /// Symbol.
+    pub symbol: String,
+    /// Order fills.
+    pub fills: Vec<BinanceOrderFill>,
+}
+
+/// Cancel order response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceCancelOrderResponse {
+    /// Price exponent for this response.
+    pub price_exponent: i8,
+    /// Quantity exponent for this response.
+    pub qty_exponent: i8,
+    /// Exchange order ID.
+    pub order_id: i64,
+    /// Order list ID (for OCO orders).
+    pub order_list_id: Option<i64>,
+    /// Transaction time in microseconds.
+    pub transact_time: i64,
+    /// Order price mantissa.
+    pub price_mantissa: i64,
+    /// Original order quantity mantissa.
+    pub orig_qty_mantissa: i64,
+    /// Executed quantity mantissa.
+    pub executed_qty_mantissa: i64,
+    /// Cumulative quote quantity mantissa.
+    pub cummulative_quote_qty_mantissa: i64,
+    /// Order status.
+    pub status: OrderStatus,
+    /// Time in force.
+    pub time_in_force: TimeInForce,
+    /// Order type.
+    pub order_type: OrderType,
+    /// Order side.
+    pub side: OrderSide,
+    /// Self-trade prevention mode.
+    pub self_trade_prevention_mode: SelfTradePreventionMode,
+    /// Client order ID.
+    pub client_order_id: String,
+    /// Original client order ID.
+    pub orig_client_order_id: String,
+    /// Symbol.
+    pub symbol: String,
+}
+
+/// Query order response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceOrderResponse {
+    /// Price exponent for this response.
+    pub price_exponent: i8,
+    /// Quantity exponent for this response.
+    pub qty_exponent: i8,
+    /// Exchange order ID.
+    pub order_id: i64,
+    /// Order list ID (for OCO orders).
+    pub order_list_id: Option<i64>,
+    /// Order price mantissa.
+    pub price_mantissa: i64,
+    /// Original order quantity mantissa.
+    pub orig_qty_mantissa: i64,
+    /// Executed quantity mantissa.
+    pub executed_qty_mantissa: i64,
+    /// Cumulative quote quantity mantissa.
+    pub cummulative_quote_qty_mantissa: i64,
+    /// Order status.
+    pub status: OrderStatus,
+    /// Time in force.
+    pub time_in_force: TimeInForce,
+    /// Order type.
+    pub order_type: OrderType,
+    /// Order side.
+    pub side: OrderSide,
+    /// Stop price mantissa (for stop orders).
+    pub stop_price_mantissa: Option<i64>,
+    /// Iceberg quantity mantissa.
+    pub iceberg_qty_mantissa: Option<i64>,
+    /// Order creation time in microseconds.
+    pub time: i64,
+    /// Last update time in microseconds.
+    pub update_time: i64,
+    /// Whether the order is working.
+    pub is_working: bool,
+    /// Working time in microseconds.
+    pub working_time: Option<i64>,
+    /// Original quote order quantity mantissa.
+    pub orig_quote_order_qty_mantissa: i64,
+    /// Self-trade prevention mode.
+    pub self_trade_prevention_mode: SelfTradePreventionMode,
+    /// Client order ID.
+    pub client_order_id: String,
+    /// Symbol.
+    pub symbol: String,
+}
+
+/// Account balance for a single asset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceBalance {
+    /// Asset symbol.
+    pub asset: String,
+    /// Free (available) balance mantissa.
+    pub free_mantissa: i64,
+    /// Locked balance mantissa.
+    pub locked_mantissa: i64,
+    /// Balance exponent.
+    pub exponent: i8,
+}
+
+/// Account information response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceAccountInfo {
+    /// Commission exponent.
+    pub commission_exponent: i8,
+    /// Maker commission rate mantissa.
+    pub maker_commission_mantissa: i64,
+    /// Taker commission rate mantissa.
+    pub taker_commission_mantissa: i64,
+    /// Buyer commission rate mantissa.
+    pub buyer_commission_mantissa: i64,
+    /// Seller commission rate mantissa.
+    pub seller_commission_mantissa: i64,
+    /// Whether trading is enabled.
+    pub can_trade: bool,
+    /// Whether withdrawals are enabled.
+    pub can_withdraw: bool,
+    /// Whether deposits are enabled.
+    pub can_deposit: bool,
+    /// Whether the account requires self-trade prevention.
+    pub require_self_trade_prevention: bool,
+    /// Whether to prevent self-trade by quote order ID.
+    pub prevent_sor: bool,
+    /// Account update time in microseconds.
+    pub update_time: i64,
+    /// Account type.
+    pub account_type: String,
+    /// Account balances.
+    pub balances: Vec<BinanceBalance>,
+}
+
+/// Account trade history entry.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceAccountTrade {
+    /// Price exponent.
+    pub price_exponent: i8,
+    /// Quantity exponent.
+    pub qty_exponent: i8,
+    /// Commission exponent.
+    pub commission_exponent: i8,
+    /// Trade ID.
+    pub id: i64,
+    /// Order ID.
+    pub order_id: i64,
+    /// Order list ID (for OCO).
+    pub order_list_id: Option<i64>,
+    /// Trade price mantissa.
+    pub price_mantissa: i64,
+    /// Trade quantity mantissa.
+    pub qty_mantissa: i64,
+    /// Quote quantity mantissa.
+    pub quote_qty_mantissa: i64,
+    /// Commission mantissa.
+    pub commission_mantissa: i64,
+    /// Trade time in microseconds.
+    pub time: i64,
+    /// Whether the trade was as buyer.
+    pub is_buyer: bool,
+    /// Whether the trade was as maker.
+    pub is_maker: bool,
+    /// Whether this is the best price match.
+    pub is_best_match: bool,
+    /// Symbol.
+    pub symbol: String,
+    /// Commission asset.
+    pub commission_asset: String,
 }

@@ -39,9 +39,11 @@
 //!     └── streams.rs  # Stream subscription management
 //! ```
 
+pub mod enums;
 pub mod http;
 pub mod websocket;
 
 // Re-export main client types
+pub use enums::{BinanceCancelReplaceMode, BinanceOrderResponseType, BinanceSpotOrderType};
 pub use http::client::BinanceSpotHttpClient;
 pub use websocket::client::BinanceSpotWebSocketClient;

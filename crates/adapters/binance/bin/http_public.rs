@@ -25,7 +25,7 @@
 //! ```
 
 use nautilus_binance::{
-    common::enums::BinanceEnvironment,
+    common::{enums::BinanceEnvironment, fixed::mantissa_to_f64},
     spot::http::{BinanceSpotHttpClient, DepthParams, TradesParams},
 };
 use tracing_subscriber::EnvFilter;
@@ -92,14 +92,14 @@ async fn main() -> anyhow::Result<()> {
             );
             tracing::info!("Bids ({} levels):", depth.bids.len());
             for (i, level) in depth.bids.iter().take(5).enumerate() {
-                let price = level.price_f64(depth.price_exponent);
-                let qty = level.qty_f64(depth.qty_exponent);
+                let price = mantissa_to_f64(level.price_mantissa, depth.price_exponent);
+                let qty = mantissa_to_f64(level.qty_mantissa, depth.qty_exponent);
                 tracing::info!("  [{i}] Price: {price:.2}, Qty: {qty:.8}");
             }
             tracing::info!("Asks ({} levels):", depth.asks.len());
             for (i, level) in depth.asks.iter().take(5).enumerate() {
-                let price = level.price_f64(depth.price_exponent);
-                let qty = level.qty_f64(depth.qty_exponent);
+                let price = mantissa_to_f64(level.price_mantissa, depth.price_exponent);
+                let qty = mantissa_to_f64(level.qty_mantissa, depth.qty_exponent);
                 tracing::info!("  [{i}] Price: {price:.2}, Qty: {qty:.8}");
             }
         }
@@ -118,8 +118,8 @@ async fn main() -> anyhow::Result<()> {
             );
             tracing::info!("Trades ({} total):", trades.trades.len());
             for trade in trades.trades.iter().take(5) {
-                let price = trade.price_f64(trades.price_exponent);
-                let qty = trade.qty_f64(trades.qty_exponent);
+                let price = mantissa_to_f64(trade.price_mantissa, trades.price_exponent);
+                let qty = mantissa_to_f64(trade.qty_mantissa, trades.qty_exponent);
                 let side = if trade.is_buyer_maker { "SELL" } else { "BUY" };
                 let datetime = chrono::DateTime::from_timestamp_millis(trade.time).map_or_else(
                     || "?".to_string(),
@@ -142,17 +142,17 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Last update ID: {}", depth.last_update_id);
             tracing::info!(
                 "Best bid: {:.2}",
-                depth
-                    .bids
-                    .first()
-                    .map_or(0.0, |l| l.price_f64(depth.price_exponent))
+                depth.bids.first().map_or(0.0, |l| mantissa_to_f64(
+                    l.price_mantissa,
+                    depth.price_exponent
+                ))
             );
             tracing::info!(
                 "Best ask: {:.2}",
-                depth
-                    .asks
-                    .first()
-                    .map_or(0.0, |l| l.price_f64(depth.price_exponent))
+                depth.asks.first().map_or(0.0, |l| mantissa_to_f64(
+                    l.price_mantissa,
+                    depth.price_exponent
+                ))
             );
         }
         Err(e) => tracing::error!("Depth (ETHUSDT) failed: {e}"),

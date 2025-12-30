@@ -24,13 +24,18 @@ use anyhow::Context;
 use nautilus_core::nanos::UnixNanos;
 use nautilus_model::{
     identifiers::{InstrumentId, Symbol, Venue},
-    instruments::{any::InstrumentAny, crypto_perpetual::CryptoPerpetual},
+    instruments::{
+        any::InstrumentAny, crypto_perpetual::CryptoPerpetual, currency_pair::CurrencyPair,
+    },
     types::{Currency, Price, Quantity},
 };
 use rust_decimal::Decimal;
 use serde_json::Value;
 
-use crate::http::models::BinanceFuturesUsdSymbol;
+use crate::{
+    common::enums::BinanceTradingStatus,
+    http::models::{BinanceFuturesUsdSymbol, BinanceSpotSymbol},
+};
 
 const BINANCE_VENUE: &str = "BINANCE";
 const CONTRACT_TYPE_PERPETUAL: &str = "PERPETUAL";
@@ -151,6 +156,81 @@ pub fn parse_usdm_instrument(
     Ok(InstrumentAny::CryptoPerpetual(instrument))
 }
 
+/// Parses a Binance Spot symbol definition into a Nautilus CurrencyPair instrument.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Required filter values are missing (PRICE_FILTER, LOT_SIZE).
+/// - Price or quantity values cannot be parsed.
+/// - The symbol is not actively trading.
+pub fn parse_spot_instrument(
+    symbol: &BinanceSpotSymbol,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
+    if symbol.status != BinanceTradingStatus::Trading {
+        anyhow::bail!(
+            "Symbol '{}' is not trading (status: {:?})",
+            symbol.symbol,
+            symbol.status
+        );
+    }
+
+    let base_currency = get_currency(symbol.base_asset.as_str());
+    let quote_currency = get_currency(symbol.quote_asset.as_str());
+
+    let instrument_id = InstrumentId::new(
+        Symbol::from_str_unchecked(symbol.symbol.as_str()),
+        Venue::new(BINANCE_VENUE),
+    );
+    let raw_symbol = Symbol::new(symbol.symbol.as_str());
+
+    let price_filter = get_filter(&symbol.filters, "PRICE_FILTER")
+        .context("Missing PRICE_FILTER in symbol filters")?;
+
+    let tick_size = parse_filter_price(price_filter, "tickSize")?;
+    let max_price = parse_filter_price(price_filter, "maxPrice").ok();
+    let min_price = parse_filter_price(price_filter, "minPrice").ok();
+
+    let lot_filter =
+        get_filter(&symbol.filters, "LOT_SIZE").context("Missing LOT_SIZE in symbol filters")?;
+
+    let step_size = parse_filter_quantity(lot_filter, "stepSize")?;
+    let max_quantity = parse_filter_quantity(lot_filter, "maxQty").ok();
+    let min_quantity = parse_filter_quantity(lot_filter, "minQty").ok();
+
+    // Spot has no leverage, use 1.0 margin
+    let default_margin = Decimal::new(1, 0);
+
+    let instrument = CurrencyPair::new(
+        instrument_id,
+        raw_symbol,
+        base_currency,
+        quote_currency,
+        tick_size.precision,
+        step_size.precision,
+        tick_size,
+        step_size,
+        None, // multiplier
+        Some(step_size),
+        max_quantity,
+        min_quantity,
+        None, // max_notional
+        None, // min_notional
+        max_price,
+        min_price,
+        Some(default_margin),
+        Some(default_margin),
+        None, // maker_fee
+        None, // taker_fee
+        ts_event,
+        ts_init,
+    );
+
+    Ok(InstrumentAny::CurrencyPair(instrument))
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -158,7 +238,7 @@ mod tests {
     use ustr::Ustr;
 
     use super::*;
-    use crate::{common::enums::BinanceTradingStatus, http::models::BinanceFuturesUsdSymbol};
+    use crate::http::models::BinanceSpotSymbol;
 
     fn sample_usdm_symbol() -> BinanceFuturesUsdSymbol {
         BinanceFuturesUsdSymbol {
@@ -261,5 +341,75 @@ mod tests {
                 .to_string()
                 .contains("Missing PRICE_FILTER")
         );
+    }
+
+    fn sample_spot_symbol() -> BinanceSpotSymbol {
+        BinanceSpotSymbol {
+            symbol: Ustr::from("BTCUSDT"),
+            status: BinanceTradingStatus::Trading,
+            base_asset: Ustr::from("BTC"),
+            base_asset_precision: 8,
+            quote_asset: Ustr::from("USDT"),
+            quote_precision: 8,
+            quote_asset_precision: Some(8),
+            order_types: vec!["LIMIT".to_string(), "MARKET".to_string()],
+            iceberg_allowed: true,
+            oco_allowed: Some(true),
+            quote_order_qty_market_allowed: Some(true),
+            allow_trailing_stop: Some(true),
+            is_spot_trading_allowed: Some(true),
+            is_margin_trading_allowed: Some(false),
+            filters: vec![
+                json!({
+                    "filterType": "PRICE_FILTER",
+                    "tickSize": "0.01",
+                    "maxPrice": "1000000.00",
+                    "minPrice": "0.01"
+                }),
+                json!({
+                    "filterType": "LOT_SIZE",
+                    "stepSize": "0.00001",
+                    "maxQty": "9000.00000",
+                    "minQty": "0.00001"
+                }),
+            ],
+            permissions: vec!["SPOT".to_string()],
+            permission_sets: vec![],
+            default_self_trade_prevention_mode: Some("EXPIRE_MAKER".to_string()),
+            allowed_self_trade_prevention_modes: vec!["EXPIRE_MAKER".to_string()],
+        }
+    }
+
+    #[rstest]
+    fn test_parse_spot_instrument() {
+        let symbol = sample_spot_symbol();
+        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
+
+        let result = parse_spot_instrument(&symbol, ts, ts);
+        assert!(result.is_ok(), "Failed: {:?}", result.err());
+
+        let instrument = result.unwrap();
+        match instrument {
+            InstrumentAny::CurrencyPair(pair) => {
+                assert_eq!(pair.id.to_string(), "BTCUSDT.BINANCE");
+                assert_eq!(pair.raw_symbol.to_string(), "BTCUSDT");
+                assert_eq!(pair.base_currency.code.as_str(), "BTC");
+                assert_eq!(pair.quote_currency.code.as_str(), "USDT");
+                assert_eq!(pair.price_increment, Price::from_str("0.01").unwrap());
+                assert_eq!(pair.size_increment, Quantity::from_str("0.00001").unwrap());
+            }
+            other => panic!("Expected CurrencyPair, got {other:?}"),
+        }
+    }
+
+    #[rstest]
+    fn test_parse_spot_non_trading_fails() {
+        let mut symbol = sample_spot_symbol();
+        symbol.status = BinanceTradingStatus::Break;
+        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
+
+        let result = parse_spot_instrument(&symbol, ts, ts);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("is not trading"));
     }
 }

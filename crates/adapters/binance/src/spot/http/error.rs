@@ -111,6 +111,8 @@ pub enum SbeDecodeError {
     UnknownTemplateId(u16),
     /// Group count exceeds safety limit.
     GroupSizeTooLarge { count: u32, max: u32 },
+    /// Invalid block length.
+    InvalidBlockLength { expected: u16, actual: u16 },
     /// Invalid UTF-8 in string field.
     InvalidUtf8,
 }
@@ -136,6 +138,9 @@ impl Display for SbeDecodeError {
             Self::UnknownTemplateId(id) => write!(f, "Unknown template ID: {id}"),
             Self::GroupSizeTooLarge { count, max } => {
                 write!(f, "Group size {count} exceeds maximum {max}")
+            }
+            Self::InvalidBlockLength { expected, actual } => {
+                write!(f, "Invalid block length: expected {expected}, got {actual}")
             }
             Self::InvalidUtf8 => write!(f, "Invalid UTF-8 in string field"),
         }

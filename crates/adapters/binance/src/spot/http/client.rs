@@ -43,9 +43,16 @@ use serde::Serialize;
 
 use super::{
     error::{BinanceSpotHttpError, BinanceSpotHttpResult},
-    models::{BinanceDepth, BinanceTrades},
+    models::{
+        BinanceAccountInfo, BinanceAccountTrade, BinanceCancelOrderResponse, BinanceDepth,
+        BinanceNewOrderResponse, BinanceOrderResponse, BinanceTrades,
+    },
     parse,
-    query::{DepthParams, TradesParams},
+    query::{
+        AccountInfoParams, AccountTradesParams, AllOrdersParams, CancelOpenOrdersParams,
+        CancelOrderParams, CancelReplaceOrderParams, DepthParams, NewOrderParams, OpenOrdersParams,
+        QueryOrderParams, TradesParams,
+    },
 };
 use crate::common::{
     consts::BINANCE_SPOT_RATE_LIMITS,
@@ -182,6 +189,18 @@ impl BinanceRawSpotHttpClient {
         self.request(Method::POST, path, params, true, true).await
     }
 
+    /// Performs a signed DELETE request for cancel operations.
+    pub async fn delete_order<P>(
+        &self,
+        path: &str,
+        params: Option<&P>,
+    ) -> BinanceSpotHttpResult<Vec<u8>>
+    where
+        P: Serialize + ?Sized,
+    {
+        self.request(Method::DELETE, path, params, true, true).await
+    }
+
     /// Tests connectivity to the API.
     ///
     /// # Errors
@@ -226,6 +245,132 @@ impl BinanceRawSpotHttpClient {
         let bytes = self.get("trades", Some(params)).await?;
         let trades = parse::decode_trades(&bytes)?;
         Ok(trades)
+    }
+
+    /// Creates a new order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn new_order(
+        &self,
+        params: &NewOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
+        let bytes = self.post_order("order", Some(params)).await?;
+        let response = parse::decode_new_order_full(&bytes)?;
+        Ok(response)
+    }
+
+    /// Cancels an existing order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_order(
+        &self,
+        params: &CancelOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceCancelOrderResponse> {
+        let bytes = self.delete_order("order", Some(params)).await?;
+        let response = parse::decode_cancel_order(&bytes)?;
+        Ok(response)
+    }
+
+    /// Cancels all open orders for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_open_orders(
+        &self,
+        params: &CancelOpenOrdersParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceCancelOrderResponse>> {
+        let bytes = self.delete_order("openOrders", Some(params)).await?;
+        let response = parse::decode_cancel_open_orders(&bytes)?;
+        Ok(response)
+    }
+
+    /// Cancels an existing order and places a new order atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_replace_order(
+        &self,
+        params: &CancelReplaceOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
+        let bytes = self.post_order("order/cancelReplace", Some(params)).await?;
+        let response = parse::decode_new_order_full(&bytes)?;
+        Ok(response)
+    }
+
+    /// Queries an order's status.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn query_order(
+        &self,
+        params: &QueryOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceOrderResponse> {
+        let bytes = self.get_signed("order", Some(params)).await?;
+        let response = parse::decode_order(&bytes)?;
+        Ok(response)
+    }
+
+    /// Returns all open orders for a symbol or all symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn open_orders(
+        &self,
+        params: &OpenOrdersParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
+        let bytes = self.get_signed("openOrders", Some(params)).await?;
+        let response = parse::decode_orders(&bytes)?;
+        Ok(response)
+    }
+
+    /// Returns all orders (including closed) for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn all_orders(
+        &self,
+        params: &AllOrdersParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
+        let bytes = self.get_signed("allOrders", Some(params)).await?;
+        let response = parse::decode_orders(&bytes)?;
+        Ok(response)
+    }
+
+    /// Returns account information including balances.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn account(
+        &self,
+        params: &AccountInfoParams,
+    ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
+        let bytes = self.get_signed("account", Some(params)).await?;
+        let response = parse::decode_account(&bytes)?;
+        Ok(response)
+    }
+
+    /// Returns account trade history for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn account_trades(
+        &self,
+        params: &AccountTradesParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceAccountTrade>> {
+        let bytes = self.get_signed("myTrades", Some(params)).await?;
+        let response = parse::decode_account_trades(&bytes)?;
+        Ok(response)
     }
 
     async fn request<P>(
@@ -490,6 +635,114 @@ impl BinanceSpotHttpClient {
     /// Returns an error if the request fails or SBE decoding fails.
     pub async fn trades(&self, params: &TradesParams) -> BinanceSpotHttpResult<BinanceTrades> {
         self.inner.trades(params).await
+    }
+
+    /// Creates a new order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn new_order(
+        &self,
+        params: &NewOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
+        self.inner.new_order(params).await
+    }
+
+    /// Cancels an existing order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_order(
+        &self,
+        params: &CancelOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceCancelOrderResponse> {
+        self.inner.cancel_order(params).await
+    }
+
+    /// Cancels all open orders for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_open_orders(
+        &self,
+        params: &CancelOpenOrdersParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceCancelOrderResponse>> {
+        self.inner.cancel_open_orders(params).await
+    }
+
+    /// Cancels an existing order and places a new order atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_replace_order(
+        &self,
+        params: &CancelReplaceOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
+        self.inner.cancel_replace_order(params).await
+    }
+
+    /// Queries an order's status.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn query_order(
+        &self,
+        params: &QueryOrderParams,
+    ) -> BinanceSpotHttpResult<BinanceOrderResponse> {
+        self.inner.query_order(params).await
+    }
+
+    /// Returns all open orders for a symbol or all symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn open_orders(
+        &self,
+        params: &OpenOrdersParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
+        self.inner.open_orders(params).await
+    }
+
+    /// Returns all orders (including closed) for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn all_orders(
+        &self,
+        params: &AllOrdersParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
+        self.inner.all_orders(params).await
+    }
+
+    /// Returns account information including balances.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn account(
+        &self,
+        params: &AccountInfoParams,
+    ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
+        self.inner.account(params).await
+    }
+
+    /// Returns account trade history for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn account_trades(
+        &self,
+        params: &AccountTradesParams,
+    ) -> BinanceSpotHttpResult<Vec<BinanceAccountTrade>> {
+        self.inner.account_trades(params).await
     }
 }
 
