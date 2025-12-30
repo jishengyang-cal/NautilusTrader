@@ -1974,7 +1974,7 @@ class OptionStrategy(Strategy):
         self.custom_data_received: list[CustomTestData] = []
 
     def on_start(self):
-        self.default_data_params = {"aggregate_spread_quotes":True}
+        self.default_data_params = {"aggregate_spread_quotes": True}
 
         self.user_log("Strategy on_start called")
         self.bar_type = BarType.from_str(f"{self.config.future_id}-1-MINUTE-LAST-EXTERNAL")

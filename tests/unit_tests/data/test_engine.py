@@ -4824,6 +4824,90 @@ class TestDataEngine:
         # Note: The actual spread quote aggregator creation is now handled by the data client
         # This test verifies that the subscription command is processed correctly
 
+    def test_subscribe_spread_quotes_without_aggregation_flag(self):
+        # Arrange
+        xcme_client = BacktestMarketDataClient(
+            client_id=ClientId("XCME"),
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
+        self.data_engine.register_client(xcme_client)
+        xcme_client.start()
+
+        option1 = OptionContract(
+            instrument_id=InstrumentId(Symbol("ESM4 P5230"), Venue("XCME")),
+            raw_symbol=Symbol("ESM4 P5230"),
+            asset_class=AssetClass.EQUITY,
+            currency=Currency.from_str("USD"),
+            price_precision=2,
+            price_increment=Price.from_str("0.01"),
+            multiplier=Quantity.from_int(100),
+            lot_size=Quantity.from_int(1),
+            underlying="ESM4",
+            option_kind=OptionKind.PUT,
+            activation_ns=0,
+            expiration_ns=1719792000000000000,
+            strike_price=Price.from_str("5230.0"),
+            ts_event=0,
+            ts_init=0,
+        )
+        option2 = OptionContract(
+            instrument_id=InstrumentId(Symbol("ESM4 P5250"), Venue("XCME")),
+            raw_symbol=Symbol("ESM4 P5250"),
+            asset_class=AssetClass.EQUITY,
+            currency=Currency.from_str("USD"),
+            price_precision=2,
+            price_increment=Price.from_str("0.01"),
+            multiplier=Quantity.from_int(100),
+            lot_size=Quantity.from_int(1),
+            underlying="ESM4",
+            option_kind=OptionKind.PUT,
+            activation_ns=0,
+            expiration_ns=1719792000000000000,
+            strike_price=Price.from_str("5250.0"),
+            ts_event=0,
+            ts_init=0,
+        )
+        self.data_engine.process(option1)
+        self.data_engine.process(option2)
+
+        spread_instrument_id = new_generic_spread_id(
+            [(option1.id, 1), (option2.id, -1)],
+        )
+        spread_instrument = OptionSpread(
+            instrument_id=spread_instrument_id,
+            raw_symbol=spread_instrument_id.symbol,
+            asset_class=option1.asset_class,
+            currency=option1.quote_currency,
+            price_precision=option1.price_precision,
+            price_increment=option1.price_increment,
+            multiplier=option1.multiplier,
+            lot_size=option1.lot_size,
+            underlying="ES",
+            strategy_type="SPREAD",
+            activation_ns=0,
+            expiration_ns=0,
+            ts_event=0,
+            ts_init=0,
+        )
+        self.data_engine.process(spread_instrument)
+
+        # Subscribe WITHOUT aggregate_spread_quotes flag (default behavior)
+        subscribe = SubscribeQuoteTicks(
+            client_id=None,
+            venue=Venue("XCME"),
+            instrument_id=spread_instrument_id,
+            command_id=UUID4(),
+            ts_init=self.clock.timestamp_ns(),
+        )
+
+        # Act
+        self.data_engine.execute(subscribe)
+
+        # Assert - Only 1 command (no leg subscriptions created)
+        assert self.data_engine.command_count == 1
+
     def test_unsubscribe_spread_quotes_removes_aggregator(self):
         # Arrange
         # Create a client for XCME venue
