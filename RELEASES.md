@@ -204,6 +204,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Standardized dYdX client integration tests (#3193), thanks @nicolad
 - Standardized dYdX per adapter guide conventions (#3267), thanks @nicolad
 - Changed Interactive Brokers default quote tick subscription to batch quotes (#3196), thanks @faysou
+- Changed spread quote aggregation to opt-in (#3355), thanks @faysou
 - Removed redundant debug code for reconcile execution (#3344), thanks @TaiShanQ
 - Refined timer name validation to accept non-ASCII characters (common for foreign currencies) (#3154), thanks for reporting @woung717
 - Refined spread support (#3284), thanks @faysou
@@ -246,7 +247,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Upgraded `msgspec` to 0.20.0
 - Upgraded `pyo3` crate to v0.27.2
 - Upgraded `pyo3-async-runtimes` crate to v0.27.0
-- Upgraded `redis` crate to v1.0.1
+- Upgraded `redis` crate to v1.0.2
 
 ### Documentation Updates
 - Added Polymarket historical data loading docs

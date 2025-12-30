@@ -159,6 +159,9 @@ skip = [
   { crate = "thiserror" },
   { crate = "thiserror-impl" },
 
+  # HTTP client - reqwest 0.12 vs 0.13 transition (databento, hypersync, object_store on 0.12)
+  { crate = "reqwest" },
+
   # TLS roots - version fragmentation in TLS ecosystem
   { crate = "webpki-roots" },
 

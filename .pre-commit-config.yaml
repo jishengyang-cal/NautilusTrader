@@ -59,7 +59,7 @@ repos:
         description: Lint Dockerfiles for best practices and errors
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.40.0 # v1.40.0 (pinned for security; autoupdate bumps to moving v1)
+    rev: v1.40.0 # Pinned to 1.40.0 for security (autoupdate bumps to moving v1 tag)
     hooks:
       - id: typos
         description: Checks for common typos
@@ -93,7 +93,7 @@ repos:
   #  GitHub Actions linting (complementary tools covering different aspects)
   ##############################################################################
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.9
+    rev: v1.7.10
     hooks:
       - id: actionlint
         name: actionlint (syntax/structure)
@@ -341,7 +341,7 @@ repos:
         ]
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.9.18 # Must match uv-version file
+    rev: 0.9.21 # Must match uv-version file
     hooks:
       - id: uv-lock
         files: ^python/uv\.lock$

@@ -236,7 +236,7 @@ pre-flight:  #-- Run comprehensive pre-flight checks (format, check-code, cargo-
 	fi
 	@$(MAKE) --no-print-directory format
 	@$(MAKE) --no-print-directory check-code
-	@$(MAKE) --no-print-directory cargo-test
+	@$(MAKE) --no-print-directory cargo-test-extras
 	@$(MAKE) --no-print-directory build-debug
 	@$(MAKE) --no-print-directory pytest
 	@printf "$(GREEN)All pre-flight checks passed$(RESET)\n"

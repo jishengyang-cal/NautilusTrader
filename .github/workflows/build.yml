@@ -6,7 +6,7 @@ permissions: # Principle of least privilege
 
 on:
   push:
-    branches: [master, nightly, develop, test-ci]
+    branches: [master, nightly, develop, test-ci, test-pre-commit]
   pull_request:
     branches: ['*']
 
@@ -89,6 +89,7 @@ jobs:
         run: cargo vet --locked
 
   build-linux-x86:
+    if: github.ref != 'refs/heads/test-pre-commit'
     strategy:
       fail-fast: false
       matrix:
@@ -198,14 +199,16 @@ jobs:
         shell: bash
     name: build - python ${{ matrix.python-version }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Pause job on develop, nightly, and test-ci branches for now
+    # Pause job on develop, nightly, test-ci, and test-pre-commit branches
     # - develop: takes ~1-1.5 hrs
     # - nightly: TODO: build issue pending investigation
     # - test-ci: skip ARM builds during CI testing
+    # - test-pre-commit: only run linting jobs
     if: >
       !(
         (github.event_name == 'push' &&
-          (github.ref_name == 'develop' || github.ref_name == 'nightly' || github.ref_name == 'test-ci'))
+          (github.ref_name == 'develop' || github.ref_name == 'nightly' ||
+           github.ref_name == 'test-ci' || github.ref_name == 'test-pre-commit'))
         || (github.event_name == 'pull_request' &&
           (github.base_ref == 'develop' || github.base_ref == 'nightly' || github.base_ref == 'test-ci'))
       )
@@ -289,6 +292,7 @@ jobs:
         uses: ./.github/actions/upload-artifact-wheel
 
   build-macos:
+    if: github.ref != 'refs/heads/test-pre-commit'
     strategy:
       fail-fast: false
       matrix:
@@ -347,6 +351,7 @@ jobs:
         uses: ./.github/actions/upload-artifact-wheel
 
   build-windows:
+    if: github.ref != 'refs/heads/test-pre-commit'
     strategy:
       fail-fast: false
       matrix:
