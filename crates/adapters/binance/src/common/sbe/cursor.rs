@@ -109,8 +109,6 @@ impl<'a> SbeCursor<'a> {
         self.pos = pos;
     }
 
-    // ==================== Primitive Reads ====================
-
     /// Reads a u8 and advances by 1 byte.
     pub fn read_u8(&mut self) -> Result<u8, SbeDecodeError> {
         self.require(1)?;
@@ -216,8 +214,6 @@ impl<'a> SbeCursor<'a> {
         self.pos += n;
         Ok(slice)
     }
-
-    // ==================== SBE-Specific Reads ====================
 
     /// Reads a varString8 (1-byte length prefix + UTF-8 data).
     ///
