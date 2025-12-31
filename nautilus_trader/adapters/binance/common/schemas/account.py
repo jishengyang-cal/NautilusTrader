@@ -177,9 +177,7 @@ class BinanceOrder(msgspec.Struct, frozen=True):
         enum_parser: BinanceEnumParser,
     ) -> tuple[TimeInForce | None, datetime | None]:
         time_in_force = (
-            enum_parser.parse_binance_time_in_force(self.timeInForce)
-            if self.timeInForce
-            else None
+            enum_parser.parse_binance_time_in_force(self.timeInForce) if self.timeInForce else None
         )
         expire_time: datetime | None = None
 

@@ -18,8 +18,6 @@ import sys
 
 import msgspec
 import pandas as pd
-
-# Third-party
 import pyarrow.dataset as ds
 import pytest
 from click.testing import CliRunner

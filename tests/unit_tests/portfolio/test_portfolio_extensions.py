@@ -17,7 +17,6 @@ Extended tests for Portfolio functionality, especially position snapshots and Pn
 calculations.
 """
 
-
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import AccountType

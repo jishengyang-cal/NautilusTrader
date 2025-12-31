@@ -288,7 +288,11 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         await self._ws_client.disconnect()
 
     def _should_retry(self, error_code: BinanceErrorCode, retries: int) -> bool:
-        return not (error_code not in self._retry_errors or not self._max_retries or retries > self._max_retries)
+        return not (
+            error_code not in self._retry_errors
+            or not self._max_retries
+            or retries > self._max_retries
+        )
 
     # -- SUBSCRIPTIONS ----------------------------------------------------------------------------
 

@@ -295,13 +295,15 @@ repos:
       - id: ruff
         name: ruff
         args: ["--fix"]
+      - id: ruff-format
+        name: ruff-format
 
   - repo: https://github.com/pycqa/isort
     rev: 7.0.0
     hooks:
       - id: isort
-        name: isort
-        types_or: [python, pyi, cython]
+        name: isort (cython)
+        types: [cython]
         entry: "isort"
         args: ["--settings-file", "pyproject.toml"]
 

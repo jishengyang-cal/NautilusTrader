@@ -238,7 +238,10 @@ class BacktestDataConfig(NautilusConfig, frozen=True):
             elif self.instrument_id and self.bar_spec:
                 identifiers = [f"{self.instrument_id}-{self.bar_spec}-EXTERNAL"]
             elif self.instrument_ids and self.bar_spec:
-                identifiers = [f"{instrument_id}-{self.bar_spec}-EXTERNAL" for instrument_id in self.instrument_ids]
+                identifiers = [
+                    f"{instrument_id}-{self.bar_spec}-EXTERNAL"
+                    for instrument_id in self.instrument_ids
+                ]
 
         if not identifiers:
             if self.instrument_id:

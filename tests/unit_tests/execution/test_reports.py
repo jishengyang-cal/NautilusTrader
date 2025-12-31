@@ -89,7 +89,9 @@ class TestExecutionReports:
 
         # Assert
         # When trailing_offset_type is None in Python, it converts to NO_TRAILING_OFFSET in Rust
-        assert pyo3_report.trailing_offset_type == nautilus_pyo3.TrailingOffsetType.NO_TRAILING_OFFSET
+        assert (
+            pyo3_report.trailing_offset_type == nautilus_pyo3.TrailingOffsetType.NO_TRAILING_OFFSET
+        )
         assert pyo3_report.account_id.value == "SIM-001"
         assert pyo3_report.venue_order_id.value == "TEST-001"
         assert pyo3_report.order_side == nautilus_pyo3.OrderSide.BUY
@@ -173,9 +175,11 @@ class TestExecutionReports:
         assert len(pyo3_mass_status.order_reports) == 1
         pyo3_order_report = next(iter(pyo3_mass_status.order_reports.values()))
         # When trailing_offset_type is None in Python, it converts to NO_TRAILING_OFFSET in Rust
-        assert pyo3_order_report.trailing_offset_type == nautilus_pyo3.TrailingOffsetType.NO_TRAILING_OFFSET
+        assert (
+            pyo3_order_report.trailing_offset_type
+            == nautilus_pyo3.TrailingOffsetType.NO_TRAILING_OFFSET
+        )
         assert pyo3_order_report.avg_px == Decimal("0.90050")
-
 
     def test_instantiate_order_status_report(self):
         # Arrange, Act

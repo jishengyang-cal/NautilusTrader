@@ -56,7 +56,6 @@ class BlockchainActorConfig(DataActorConfig):
 
 
 class BlockchainActor(DataActor):
-
     def __init__(self, config: BlockchainActorConfig | None = None) -> None:
         if config is None:
             config = BlockchainActorConfig()

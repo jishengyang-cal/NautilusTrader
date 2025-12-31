@@ -23,6 +23,7 @@ For convenience, the most commonly used symbols are re-exported at the subpackag
 top level, so downstream code can simply import from ``nautilus_trader.adapters.tardis``.
 
 """
+
 from nautilus_trader.adapters.tardis.config import TardisDataClientConfig
 from nautilus_trader.adapters.tardis.constants import TARDIS
 from nautilus_trader.adapters.tardis.constants import TARDIS_CLIENT_ID

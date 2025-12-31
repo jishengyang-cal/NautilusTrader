@@ -209,8 +209,9 @@ distclean: clean  #-- Nuclear clean - remove all untracked files (requires FORCE
 #== Code Quality
 
 .PHONY: format
-format:  #-- Format Rust code using nightly formatter
+format:  #-- Format Rust (with nightly) and Python code
 	cargo +nightly fmt
+	uv run --active --no-sync ruff format .
 
 .PHONY: pre-commit
 pre-commit:  #-- Run all pre-commit hooks on all files

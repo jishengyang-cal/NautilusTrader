@@ -21,7 +21,6 @@ https://binance-docs.github.io/apidocs/futures/en/#public-endpoints-info
 
 """
 
-
 from decimal import Decimal
 from enum import Enum
 from enum import unique

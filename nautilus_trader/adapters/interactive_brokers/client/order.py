@@ -368,7 +368,7 @@ class InteractiveBrokersClientOrderMixin(BaseMixin):
                 "commission_report": cache["commission_report"],
             }
             request.result.append(execution_detail)
-                # Don't remove from cache yet, wait for execDetailsEnd
+            # Don't remove from cache yet, wait for execDetailsEnd
 
         # Handle event-based response for live executions
         name = f"execDetails-{execution.acctNumber}"

@@ -114,10 +114,7 @@ class InteractiveBrokersClientErrorMixin(BaseMixin):
                     LogColor.BLUE,
                 )
                 self._is_ib_connected.clear()
-        elif (
-            error_code in self.CONNECTIVITY_RESTORED_CODES
-            and not self._is_ib_connected.is_set()
-        ):
+        elif error_code in self.CONNECTIVITY_RESTORED_CODES and not self._is_ib_connected.is_set():
             self._log.debug(
                 f"`_is_ib_connected` set by code {error_code} in `_process_error`",
                 LogColor.BLUE,

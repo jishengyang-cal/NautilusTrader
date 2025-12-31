@@ -158,7 +158,7 @@ def register_theme(name: str, template: str, colors: dict[str, str]) -> None:
     ...         "neutral": "#808080",
     ...         "background": "#ffffff",
     ...         "grid": "#dddddd",
-    ...     }
+    ...     },
     ... )
 
     """

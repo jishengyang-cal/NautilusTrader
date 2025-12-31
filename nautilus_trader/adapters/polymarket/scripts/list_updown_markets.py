@@ -132,9 +132,9 @@ def _print_no_updown_found(markets: list[dict]) -> None:
     for market in markets:
         slug = market.get("slug", "").lower()
         question = market.get("question", "").lower()
-        if any(term in slug or term in question for term in ["bitcoin", "btc", "ethereum", "eth"]) and any(
-            price_term in question for price_term in ["reach", "hit", "dip", "$"]
-        ):
+        if any(
+            term in slug or term in question for term in ["bitcoin", "btc", "ethereum", "eth"]
+        ) and any(price_term in question for price_term in ["reach", "hit", "dip", "$"]):
             crypto_markets.append(market)
 
     for market in crypto_markets[:10]:
@@ -147,7 +147,11 @@ def _print_no_updown_found(markets: list[dict]) -> None:
         print(f"\n  ... and {len(crypto_markets) - 10} more crypto price markets")
 
 
-def _print_updown_results(btc_markets: list[dict], eth_markets: list[dict], other_updown: list[dict]) -> None:
+def _print_updown_results(
+    btc_markets: list[dict],
+    eth_markets: list[dict],
+    other_updown: list[dict],
+) -> None:
     """
     Print UpDown market results.
     """

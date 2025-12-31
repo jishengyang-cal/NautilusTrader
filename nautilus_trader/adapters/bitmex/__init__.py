@@ -23,6 +23,7 @@ subpackage's top level, so downstream code can simply import from
 ``nautilus_trader.adapters.bitmex``.
 
 """
+
 from nautilus_trader.adapters.bitmex.config import BitmexDataClientConfig
 from nautilus_trader.adapters.bitmex.config import BitmexExecClientConfig
 from nautilus_trader.adapters.bitmex.constants import BITMEX

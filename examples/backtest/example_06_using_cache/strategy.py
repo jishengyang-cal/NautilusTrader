@@ -41,7 +41,6 @@ class DataContainer:
 
 
 class CacheDemoStrategy(Strategy):
-
     def __init__(self, bar_type: BarType):
         super().__init__()
         self.bar_type = bar_type

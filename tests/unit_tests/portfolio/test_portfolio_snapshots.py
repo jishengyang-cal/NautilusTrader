@@ -16,7 +16,6 @@
 Tests for Portfolio functionality with position snapshots and PnL calculations.
 """
 
-
 from decimal import Decimal
 
 from nautilus_trader.core.uuid import UUID4

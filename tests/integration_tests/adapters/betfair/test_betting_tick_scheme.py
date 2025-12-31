@@ -105,8 +105,6 @@ def test_betfair_tick_scheme_next_bid_price(value, n, expected):
     assert result == expected
 
 
-
-
 def test_topix100_tick_scheme_attrs():
     tick_scheme = get_tick_scheme("TOPIX100")
     assert tick_scheme.min_price == Price.from_str("0.1")
@@ -147,8 +145,6 @@ def test_topix100_tick_scheme_next_bid_price(value, n, expected):
     assert result == expected
 
 
-
-
 @pytest.mark.parametrize(
     ("value", "n", "expected"),
     [
@@ -185,8 +181,6 @@ def test_bitmex_spot_tick_scheme_next_bid_price(value, n, expected):
     result = tick_scheme.next_bid_price(value=value, n=n)
     expected = Price.from_str(expected)
     assert result == expected
-
-
 
 
 def test_betting_instrument_tick_scheme_next_ask_prices() -> None:

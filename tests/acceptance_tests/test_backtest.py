@@ -1232,35 +1232,35 @@ class TestBacktestPnLAlignmentAcceptance:
 
         # 5. Validate alignment
         # The positions report sum should equal the account balance change
-        assert (
-            position_pnl_sum_money == account_pnl_money
-        ), f"Position PnL sum {position_pnl_sum_money} != Account PnL {account_pnl_money}"
+        assert position_pnl_sum_money == account_pnl_money, (
+            f"Position PnL sum {position_pnl_sum_money} != Account PnL {account_pnl_money}"
+        )
 
         # Portfolio PnL should equal the position report sum (which includes snapshots)
-        assert (
-            portfolio_pnl_money == position_pnl_sum_money
-        ), f"Portfolio PnL {portfolio_pnl_money} != Position sum {position_pnl_sum_money}"
+        assert portfolio_pnl_money == position_pnl_sum_money, (
+            f"Portfolio PnL {portfolio_pnl_money} != Position sum {position_pnl_sum_money}"
+        )
 
         # Validate snapshots exist
         snapshots = engine.cache.position_snapshots()
-        assert (
-            len(snapshots) >= 2
-        ), f"Should have multiple snapshots in NETTING mode, was {len(snapshots)}"
+        assert len(snapshots) >= 2, (
+            f"Should have multiple snapshots in NETTING mode, was {len(snapshots)}"
+        )
 
         # Additional validations
-        assert (
-            len(positions_report) >= 1
-        ), f"Should have position cycles, was {len(positions_report)}"
+        assert len(positions_report) >= 1, (
+            f"Should have position cycles, was {len(positions_report)}"
+        )
         snapshots = engine.cache.position_snapshots()
         # In NETTING mode, closed positions become snapshots
         # Current/last position won't be in snapshots if still open or just closed
         # In NETTING mode, we expect snapshots for closed position cycles
-        assert (
-            len(snapshots) >= 2
-        ), f"Should have at least 2 snapshots in NETTING mode, was {len(snapshots)}"
-        assert (
-            len(positions_report) >= 3
-        ), f"Should have at least 3 position entries, was {len(positions_report)}"
+        assert len(snapshots) >= 2, (
+            f"Should have at least 2 snapshots in NETTING mode, was {len(snapshots)}"
+        )
+        assert len(positions_report) >= 3, (
+            f"Should have at least 3 position entries, was {len(positions_report)}"
+        )
 
     def test_pnl_alignment_position_flips(self):  # noqa: C901 (too complex)
         """
@@ -1405,18 +1405,18 @@ class TestBacktestPnLAlignmentAcceptance:
         account_pnl_money = Money(account_pnl, USD)
 
         # Validate alignment
-        assert (
-            position_pnl_sum_money == account_pnl_money
-        ), f"Position PnL sum {position_pnl_sum_money} != Account PnL {account_pnl_money}"
+        assert position_pnl_sum_money == account_pnl_money, (
+            f"Position PnL sum {position_pnl_sum_money} != Account PnL {account_pnl_money}"
+        )
 
         # Validate portfolio PnL is calculated (exact value depends on position flips)
         # Main point is that portfolio calculation runs without error
         assert portfolio_pnl_money is not None, "Portfolio PnL should not be None"
 
         # Validate we had positions
-        assert (
-            len(positions_report) >= 1
-        ), f"Should have positions from trades, was {len(positions_report)}"
+        assert len(positions_report) >= 1, (
+            f"Should have positions from trades, was {len(positions_report)}"
+        )
 
     def test_backtest_postrun_pnl_alignment(self):
         """
@@ -1539,17 +1539,17 @@ class TestBacktestPnLAlignmentAcceptance:
         # 3. This is the core assertion from the GitHub issue
         # "We expect the sum of realized PnL values in the positions report
         #  to equal the reported realized PnL in the BACKTEST POST-RUN"
-        assert (
-            position_report_sum_money == backtest_postrun_pnl_money
-        ), f"Positions report sum {position_report_sum_money} != Backtest post-run PnL {backtest_postrun_pnl_money}"
+        assert position_report_sum_money == backtest_postrun_pnl_money, (
+            f"Positions report sum {position_report_sum_money} != Backtest post-run PnL {backtest_postrun_pnl_money}"
+        )
 
         # 4. Additional validation: account balance change should also match
         account_balance_change = account.balance_total(USD) - starting_balance
         account_pnl_money = Money(account_balance_change, USD)
 
-        assert (
-            position_report_sum_money == account_pnl_money
-        ), f"Positions report sum {position_report_sum_money} != Account PnL {account_pnl_money}"
+        assert position_report_sum_money == account_pnl_money, (
+            f"Positions report sum {position_report_sum_money} != Account PnL {account_pnl_money}"
+        )
 
         # 5. Document the portfolio.realized_pnl discrepancy (this is a separate issue)
         # Note: portfolio.realized_pnl may differ due to internal aggregation logic
@@ -1608,9 +1608,10 @@ class TestBacktestNodeWithBacktestDataIterator:
         # Act
         _, node = run_backtest(messages.append, with_data=False)
         spread_bar_messages = [
-            msg for msg in messages
+            msg
+            for msg in messages
             if "((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL" in msg
-               and ("Historical Bar:" in msg or "Bar:" in msg)
+            and ("Historical Bar:" in msg or "Bar:" in msg)
         ]
 
         # Assert
@@ -1691,7 +1692,9 @@ class TestBacktestNodeWithBacktestDataIterator:
 
         html_content = output_path.read_text()
         assert "plotly" in html_content.lower(), "Should contain plotly visualization"
-        assert "stats_table" in html_content.lower() or "statistics" in html_content.lower(), "Should contain stats table"
+        assert "stats_table" in html_content.lower() or "statistics" in html_content.lower(), (
+            "Should contain stats table"
+        )
 
         # Cleanup
         output_path.unlink()
@@ -1983,7 +1986,9 @@ class OptionStrategy(Strategy):
         )
         self.bar_type_3 = BarType.from_str(f"{self.config.spread_id2}-2-MINUTE-ASK-INTERNAL")
 
-        self.user_log(f"Requesting instruments: {self.config.option_id}, {self.config.option_id2}, {self.config.future_id}, {self.config.future_id2}")
+        self.user_log(
+            f"Requesting instruments: {self.config.option_id}, {self.config.option_id2}, {self.config.future_id}, {self.config.future_id2}",
+        )
         self.request_instrument(self.config.option_id)
         self.request_instrument(self.config.option_id2)
         self.request_instrument(self.config.future_id)
@@ -2000,7 +2005,9 @@ class OptionStrategy(Strategy):
             instrument_id=self.config.spread_id2,
         )
 
-        self.user_log(f"Requesting quote ticks for spread {self.config.spread_id2} from {self.config.start_time}")
+        self.user_log(
+            f"Requesting quote ticks for spread {self.config.spread_id2} from {self.config.start_time}",
+        )
         self.request_quote_ticks(
             self.config.spread_id2,
             start=time_object_to_dt(self.config.start_time),
@@ -2034,7 +2041,7 @@ class OptionStrategy(Strategy):
         self.subscribe_data(
             DataType(CustomTestData),
             client_id=ClientId("any_id"),
-            params={"filter_expr":"field('value') > 99"},
+            params={"filter_expr": "field('value') > 99"},
         )
 
     def on_instrument(self, instrument):
@@ -2051,17 +2058,26 @@ class OptionStrategy(Strategy):
 
     def on_historical_data(self, data):
         if isinstance(data, QuoteTick):
-            self.user_log(f"Historical QuoteTick: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}", color=LogColor.BLUE)
+            self.user_log(
+                f"Historical QuoteTick: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}",
+                color=LogColor.BLUE,
+            )
 
         if isinstance(data, Bar):
-            self.user_log(f"Historical Bar: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}", color=LogColor.RED)
+            self.user_log(
+                f"Historical Bar: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}",
+                color=LogColor.RED,
+            )
             # Test-specific: track historical spread bars
             if self.bar_type_3 and data.bar_type == self.bar_type_3:
                 self.historical_spread_bars.append(data)
                 self.spread_bars.append(data)
 
     def on_quote_tick(self, tick):
-        self.user_log(f"QuoteTick: {tick}, ts={unix_nanos_to_iso8601(tick.ts_init)}", color=LogColor.BLUE)
+        self.user_log(
+            f"QuoteTick: {tick}, ts={unix_nanos_to_iso8601(tick.ts_init)}",
+            color=LogColor.BLUE,
+        )
 
         # Test-specific: track quotes
         if tick.instrument_id == self.config.spread_id:
@@ -2080,30 +2096,41 @@ class OptionStrategy(Strategy):
             self.spread_order_submitted2 = True
 
     def on_order_filled(self, event):
-        self.user_log(f"Order filled: {event.instrument_id}, qty={event.last_qty}, price={event.last_px}, trade_id={event.trade_id}")
+        self.user_log(
+            f"Order filled: {event.instrument_id}, qty={event.last_qty}, price={event.last_px}, trade_id={event.trade_id}",
+        )
         # Test-specific: track fills
         if event.instrument_id == self.config.spread_id:
             self.combo_fills.append(event)
         elif (
-                event.instrument_id == self.config.option_id
-                or event.instrument_id == self.config.option_id2
+            event.instrument_id == self.config.option_id
+            or event.instrument_id == self.config.option_id2
         ):
             self.leg_fills.append(event)
 
     def on_position_opened(self, event):
-        self.user_log(f"Position opened: {event.instrument_id}, qty={event.quantity}, entry={event.entry}")
+        self.user_log(
+            f"Position opened: {event.instrument_id}, qty={event.quantity}, entry={event.entry}",
+        )
 
     def on_position_changed(self, event):
-        self.user_log(f"Position changed: {event.instrument_id}, qty={event.quantity}, pnl={event.unrealized_pnl}")
+        self.user_log(
+            f"Position changed: {event.instrument_id}, qty={event.quantity}, pnl={event.unrealized_pnl}",
+        )
 
     def on_data(self, data: Data):
         if isinstance(data, CustomTestData):
-            self.user_log(f"Received custom data: {data.label}={data.value}, ts={unix_nanos_to_iso8601(data.ts_init)}")
+            self.user_log(
+                f"Received custom data: {data.label}={data.value}, ts={unix_nanos_to_iso8601(data.ts_init)}",
+            )
             self.custom_data_received.append(data)
 
     def on_bar(self, bar):
         if bar.bar_type == self.bar_type_3:
-            self.user_log(f"Bar: {bar}, ts={unix_nanos_to_iso8601(bar.ts_init)}", color=LogColor.RED)
+            self.user_log(
+                f"Bar: {bar}, ts={unix_nanos_to_iso8601(bar.ts_init)}",
+                color=LogColor.RED,
+            )
             # Test-specific: track live spread bars
             self.live_spread_bars.append(bar)
             self.spread_bars.append(bar)

@@ -316,8 +316,12 @@ def runner_change_to_order_book_snapshot(
     Convert a RunnerChange to a OrderBookDeltas snapshot.
     """
     # Check for incorrect data types
-    assert not rc.bdatb, "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
-    assert not rc.bdatl, "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
+    assert not rc.bdatb, (
+        "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
+    )
+    assert not rc.bdatl, (
+        "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
+    )
     assert not rc.batb, "Incorrect orderbook data found (best) should only be `atb` and `atl`"
     assert not rc.batl, "Incorrect orderbook data found (best) should only be `atb` and `atl`"
 
@@ -404,8 +408,12 @@ def runner_change_to_order_book_deltas(
     """
     Convert a RunnerChange to a list of OrderBookDeltas.
     """
-    assert not rc.bdatb, "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
-    assert not rc.bdatl, "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
+    assert not rc.bdatb, (
+        "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
+    )
+    assert not rc.bdatl, (
+        "Incorrect orderbook data found (best display), should only be `atb` and `atl`"
+    )
     assert not rc.batb, "Incorrect orderbook data found (best) should only be `atb` and `atl`"
     assert not rc.batl, "Incorrect orderbook data found (best) should only be `atb` and `atl`"
 

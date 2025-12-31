@@ -77,7 +77,14 @@ def eurusd_instrument():
 
 
 @pytest.mark.parametrize(
-    ("current_qty", "current_avg_px", "target_qty", "target_avg_px", "expected_price", "description"),
+    (
+        "current_qty",
+        "current_avg_px",
+        "target_qty",
+        "target_avg_px",
+        "expected_price",
+        "description",
+    ),
     [
         # Flat position scenarios
         (
@@ -1624,8 +1631,12 @@ def test_adjust_fills_filter_to_current_lifecycle_preserves_working_orders(eurus
     )
 
     # Assert - O1 and O2 filtered out (closed, from previous lifecycle)
-    assert VenueOrderId("V-001") not in adjusted_orders, "O1 should be filtered (closed order from previous lifecycle)"
-    assert VenueOrderId("V-002") not in adjusted_orders, "O2 should be filtered (closed order from previous lifecycle)"
+    assert VenueOrderId("V-001") not in adjusted_orders, (
+        "O1 should be filtered (closed order from previous lifecycle)"
+    )
+    assert VenueOrderId("V-002") not in adjusted_orders, (
+        "O2 should be filtered (closed order from previous lifecycle)"
+    )
 
     # Assert - O3 preserved (working order in current lifecycle)
     assert VenueOrderId("V-003") in adjusted_orders, "O3 should be preserved (working order)"

@@ -20,6 +20,7 @@ References
 https://binance-docs.github.io/apidocs/spot/en/#public-api-definitions
 
 """
+
 from enum import Enum
 from enum import unique
 

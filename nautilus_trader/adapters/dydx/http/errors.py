@@ -61,4 +61,14 @@ def should_retry(error: BaseException) -> bool:
     if isinstance(error, DYDXGRPCError):
         return error.code in DYDX_RETRY_ERRORS_GRPC
 
-    return bool(isinstance(error, AioRpcError | DYDXError | HttpError | HttpTimeoutError | WebSocketClientError | DecodeError))
+    return bool(
+        isinstance(
+            error,
+            AioRpcError
+            | DYDXError
+            | HttpError
+            | HttpTimeoutError
+            | WebSocketClientError
+            | DecodeError,
+        ),
+    )

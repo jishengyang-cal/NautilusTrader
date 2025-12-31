@@ -182,9 +182,7 @@ class KrakenDataClient(LiveMarketDataClient):
         self,
         symbol: str,
     ) -> (
-        nautilus_pyo3.KrakenSpotWebSocketClient
-        | nautilus_pyo3.KrakenFuturesWebSocketClient
-        | None
+        nautilus_pyo3.KrakenSpotWebSocketClient | nautilus_pyo3.KrakenFuturesWebSocketClient | None
     ):
         product_type = nautilus_pyo3.kraken_product_type_from_symbol(symbol)
         if product_type == KrakenProductType.SPOT:
@@ -215,7 +213,10 @@ class KrakenDataClient(LiveMarketDataClient):
             instruments_pyo3 = self.instrument_provider.instruments_pyo3()
             await self._ws_client_futures.connect(instruments_pyo3, self._handle_msg)
             self._ws_client_futures_connected = True
-            self._log.info(f"Connected to futures websocket {self._ws_client_futures.url}", LogColor.BLUE)
+            self._log.info(
+                f"Connected to futures websocket {self._ws_client_futures.url}",
+                LogColor.BLUE,
+            )
 
         if self._config.update_instruments_interval_mins:
             self._update_instruments_task = self.create_task(

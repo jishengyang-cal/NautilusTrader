@@ -26,7 +26,6 @@ from nautilus_trader.trading.strategy import Strategy
 
 
 class DemoStrategy(Strategy):
-
     def __init__(self, input_bartype: BarType):
         super().__init__()
 

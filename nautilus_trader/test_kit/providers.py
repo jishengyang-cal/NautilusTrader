@@ -1058,7 +1058,6 @@ class TestDataProvider:
 
 
 class TestDataGenerator:
-
     __test__ = False  # Prevents pytest from collecting this as a test class
 
     @staticmethod

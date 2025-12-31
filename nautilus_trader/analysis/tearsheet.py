@@ -479,8 +479,11 @@ def create_tearsheet_from_stats(
     >>> stats_pnls = {"PnL (total)": 10000.0, ...}
     >>> returns = pd.Series([0.01, -0.02, ...])
     >>> html = create_tearsheet_from_stats(
-    ...     stats_pnls, stats_returns, stats_general, returns,
-    ...     output_path=None  # Return HTML instead of saving
+    ...     stats_pnls,
+    ...     stats_returns,
+    ...     stats_general,
+    ...     returns,
+    ...     output_path=None,  # Return HTML instead of saving
     ... )
 
     """
@@ -1804,8 +1807,12 @@ def _render_bars_with_fills(  # noqa: C901
     # Add order fills as scatter markers if available
     if not fills_df.empty and "ts_init" in fills_df.columns:
         # Separate buy and sell fills
-        buy_fills = fills_df[fills_df["side"] == "BUY"] if "side" in fills_df.columns else pd.DataFrame()
-        sell_fills = fills_df[fills_df["side"] == "SELL"] if "side" in fills_df.columns else pd.DataFrame()
+        buy_fills = (
+            fills_df[fills_df["side"] == "BUY"] if "side" in fills_df.columns else pd.DataFrame()
+        )
+        sell_fills = (
+            fills_df[fills_df["side"] == "SELL"] if "side" in fills_df.columns else pd.DataFrame()
+        )
 
         # Get theme colors for fills
         positive_color = theme_config["colors"]["positive"]
@@ -1856,7 +1863,15 @@ def _add_fill_scatter_trace(
     if fills_df.empty or "avg_px" not in fills_df.columns or "filled_qty" not in fills_df.columns:
         return
 
-    required_cols = ["strategy_id", "instrument_id", "type", "side", "filled_qty", "avg_px", "ts_init"]
+    required_cols = [
+        "strategy_id",
+        "instrument_id",
+        "type",
+        "side",
+        "filled_qty",
+        "avg_px",
+        "ts_init",
+    ]
     has_all_cols = all(col in fills_df.columns for col in required_cols)
 
     fig.add_trace(
@@ -1883,12 +1898,7 @@ def _add_fill_scatter_trace(
                 "<extra></extra>"
             )
             if has_all_cols
-            else (
-                "<b>%{x}</b><br>"
-                "Price: %{y:.2f}<br>"
-                "Quantity: %{customdata}<br>"
-                "<extra></extra>"
-            ),
+            else ("<b>%{x}</b><br>Price: %{y:.2f}<br>Quantity: %{customdata}<br><extra></extra>"),
             showlegend=True,
         ),
         row=row,
@@ -2026,4 +2036,9 @@ _register_tearsheet_chart(
     _render_rolling_sharpe,
 )
 _register_tearsheet_chart("yearly_returns", "bar", "Yearly Returns", _render_yearly_returns)
-_register_tearsheet_chart("bars_with_fills", "scatter", "Bars with Order Fills", _render_bars_with_fills)
+_register_tearsheet_chart(
+    "bars_with_fills",
+    "scatter",
+    "Bars with Order Fills",
+    _render_bars_with_fills,
+)

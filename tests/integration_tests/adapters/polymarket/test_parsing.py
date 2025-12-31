@@ -891,7 +891,9 @@ def test_polymarket_user_trade_order_side(
     )
 
     # Act
-    filled_order_id = taker_order_id if trader_side == PolymarketLiquiditySide.TAKER else maker_order_id
+    filled_order_id = (
+        taker_order_id if trader_side == PolymarketLiquiditySide.TAKER else maker_order_id
+    )
     result = user_trade.order_side(filled_order_id)
 
     # Assert
@@ -969,7 +971,9 @@ def test_polymarket_trade_report_order_side(
     )
 
     # Act
-    filled_order_id = taker_order_id if trader_side == PolymarketLiquiditySide.TAKER else maker_order_id
+    filled_order_id = (
+        taker_order_id if trader_side == PolymarketLiquiditySide.TAKER else maker_order_id
+    )
     result = trade_report.order_side(filled_order_id)
 
     # Assert

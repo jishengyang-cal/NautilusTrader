@@ -56,7 +56,6 @@ from nautilus_trader.model.position import Position
 
 
 class CachePostgresAdapter(CacheDatabaseFacade):
-
     def __init__(
         self,
         config: CacheConfig | None = None,

@@ -31,7 +31,6 @@ class DemoStrategyConfig(StrategyConfig, frozen=True):
 
 
 class DemoStrategy(Strategy):
-
     def __init__(self, config: DemoStrategyConfig):
         super().__init__(config=config)
 

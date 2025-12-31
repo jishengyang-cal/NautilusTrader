@@ -23,6 +23,7 @@ subpackage's top level, so downstream code can simply import from
 ``nautilus_trader.adapters.hyperliquid``.
 
 """
+
 from nautilus_trader.adapters.hyperliquid.config import HyperliquidDataClientConfig
 from nautilus_trader.adapters.hyperliquid.config import HyperliquidExecClientConfig
 from nautilus_trader.adapters.hyperliquid.constants import HYPERLIQUID

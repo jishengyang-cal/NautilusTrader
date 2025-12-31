@@ -21,7 +21,6 @@ from nautilus_trader.core.uuid import UUID4
 
 
 class TestUUID:
-
     @pytest.mark.parametrize(
         ("value"),
         [

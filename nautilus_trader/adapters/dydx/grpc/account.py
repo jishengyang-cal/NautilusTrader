@@ -254,7 +254,6 @@ class DYDXAccountGRPCAPI:
 
         self._log: Logger = Logger(type(self).__name__)
 
-
     def _get_channel(self) -> grpc.aio.Channel:
         if self._channel is None:
             self._channel = grpc.aio.secure_channel(
@@ -532,13 +531,19 @@ class DYDXAccountGRPCAPI:
                 before = wallet.sequence
                 account = await self.get_account(wallet.address)
                 wallet.sequence = account.sequence
-                self._log.info(f"Account sequence mismatch, refreshing from chain. Current sequence {before}, after {wallet.sequence}")
+                self._log.info(
+                    f"Account sequence mismatch, refreshing from chain. Current sequence {before}, after {wallet.sequence}",
+                )
 
             elif response.tx_response.code == GOOD_TILL_BLOCK_ERROR_CODE:
-                self._log.info(f"Good till block error, likely the good_til_block has passed. Response: {response}")
+                self._log.info(
+                    f"Good till block error, likely the good_til_block has passed. Response: {response}",
+                )
 
             else:
-                self._log.info(f"Broadcast response: {response}. Code {response.tx_response.code}, message: {response.tx_response.raw_log}")
+                self._log.info(
+                    f"Broadcast response: {response}. Code {response.tx_response.code}, message: {response.tx_response.raw_log}",
+                )
 
             return response
 

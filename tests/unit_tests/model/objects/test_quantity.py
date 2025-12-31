@@ -709,7 +709,6 @@ class TestQuantity:
                 Quantity.from_str("1." + "0" * 17)  # 17 decimals > 16
 
     def test_from_str_precision_preservation(self):
-
         # Whole numbers should have precision 0
         assert Quantity.from_str("100").precision == 0
         assert Quantity.from_str("1000000").precision == 0

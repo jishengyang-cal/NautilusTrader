@@ -30,6 +30,7 @@ For production, use:
 - DERIBIT_API_SECRET: Your Deribit API secret
 
 """
+
 import os
 
 from nautilus_trader.adapters.deribit import DERIBIT

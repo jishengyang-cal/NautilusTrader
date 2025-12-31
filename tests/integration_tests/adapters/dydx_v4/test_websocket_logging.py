@@ -25,7 +25,6 @@ pytestmark = pytest.mark.skipif(
 
 
 if sys.version_info < (3, 14):
-
     from nautilus_trader.adapters.dydx.schemas.ws import DYDXWsBlockHeightChannelData
     from nautilus_trader.adapters.dydx.schemas.ws import DYDXWsMessageGeneral
 

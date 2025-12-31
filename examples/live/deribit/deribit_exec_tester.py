@@ -62,9 +62,7 @@ from nautilus_trader.test_kit.strategies.tester_exec import ExecTesterConfig
 USE_TESTNET = os.getenv("USE_TESTNET", "true").lower() != "false"
 
 # Optional: Filter by instrument kinds
-instrument_kinds: tuple[DeribitInstrumentKind, ...] | None = (
-    DeribitInstrumentKind.FUTURE,
-)
+instrument_kinds: tuple[DeribitInstrumentKind, ...] | None = (DeribitInstrumentKind.FUTURE,)
 
 # Define instrument to test with
 perpetual_id = InstrumentId.from_str(f"BTC-PERPETUAL.{DERIBIT}")

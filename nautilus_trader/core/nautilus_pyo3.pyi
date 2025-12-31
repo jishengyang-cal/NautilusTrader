@@ -30,7 +30,6 @@ import numpy as np
 
 from nautilus_trader.core.data import Data
 
-
 # Python interface type hints
 # ---------------------------
 # These type definitions provide import resolution and docstrings for Python types
@@ -1171,10 +1170,6 @@ class AggressorSide(Enum):
     BUYER = "BUYER"
     SELLER = "SELLER"
 
-class AdjustmentType(Enum):
-    COMMISSION = "COMMISSION"
-    FUNDING = "FUNDING"
-
 class AssetClass(Enum):
     FX = "FX"
     EQUITY = "EQUITY"
@@ -1351,6 +1346,10 @@ class OrderType(Enum):
     LIMIT_IF_TOUCHED = "LIMIT_IF_TOUCHED"
     TRAILING_STOP_MARKET = "TRAILING_STOP_MARKET"
     TRAILING_STOP_LIMIT = "TRAILING_STOP_LIMIT"
+
+class PositionAdjustmentType(Enum):
+    COMMISSION = "COMMISSION"
+    FUNDING = "FUNDING"
 
 class PositionSide(Enum):
     FLAT = "FLAT"
@@ -3729,7 +3728,7 @@ class PositionAdjusted:
         instrument_id: InstrumentId,
         position_id: PositionId,
         account_id: AccountId,
-        adjustment_type: AdjustmentType,
+        adjustment_type: PositionAdjustmentType,
         quantity_change: float | None,
         pnl_change: Money | None,
         reason: str | None,
@@ -3751,7 +3750,7 @@ class PositionAdjusted:
     @property
     def account_id(self) -> AccountId: ...
     @property
-    def adjustment_type(self) -> AdjustmentType: ...
+    def adjustment_type(self) -> PositionAdjustmentType: ...
     @property
     def quantity_change(self) -> float | None: ...
     @property

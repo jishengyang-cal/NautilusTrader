@@ -200,7 +200,9 @@ class OptionStrategy(Strategy):
 
         self.bar_type_3 = BarType.from_str(f"{self.config.spread_id2}-2-MINUTE-ASK-INTERNAL")
 
-        self.user_log(f"Requesting instruments: {self.config.option_id}, {self.config.option_id2}, {self.config.future_id}, {self.config.future_id2}")
+        self.user_log(
+            f"Requesting instruments: {self.config.option_id}, {self.config.option_id2}, {self.config.future_id}, {self.config.future_id2}",
+        )
         self.request_instrument(self.config.option_id)
         self.request_instrument(self.config.option_id2)
         self.request_instrument(self.config.future_id)
@@ -217,8 +219,14 @@ class OptionStrategy(Strategy):
             instrument_id=self.config.spread_id2,
         )
 
-        self.user_log(f"Requesting quote ticks for spread {self.config.spread_id2} from {start_time}")
-        self.request_quote_ticks(self.config.spread_id2, start=time_object_to_dt(start_time), params=self.default_data_params)
+        self.user_log(
+            f"Requesting quote ticks for spread {self.config.spread_id2} from {start_time}",
+        )
+        self.request_quote_ticks(
+            self.config.spread_id2,
+            start=time_object_to_dt(start_time),
+            params=self.default_data_params,
+        )
 
         self.user_log(f"Requesting bars for spread {self.bar_type_3} from {start_time}")
         self.request_aggregated_bars(
@@ -241,7 +249,9 @@ class OptionStrategy(Strategy):
         self.subscribe_bars(self.bar_type_3)
 
         # Subscribing to custom greeks data if it's already stored
-        self.user_log(f"Subscribing to GreeksData for options, load_greeks={self.config.load_greeks}")
+        self.user_log(
+            f"Subscribing to GreeksData for options, load_greeks={self.config.load_greeks}",
+        )
         self.subscribe_data(
             DataType(GreeksData),
             instrument_id=self.config.option_id,
@@ -272,13 +282,22 @@ class OptionStrategy(Strategy):
 
     def on_historical_data(self, data):
         if isinstance(data, QuoteTick):
-            self.user_log(f"Historical QuoteTick: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}", color=LogColor.BLUE)
+            self.user_log(
+                f"Historical QuoteTick: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}",
+                color=LogColor.BLUE,
+            )
 
         if isinstance(data, Bar):
-            self.user_log(f"Historical Bar: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}", color=LogColor.RED)
+            self.user_log(
+                f"Historical Bar: {data}, ts={unix_nanos_to_iso8601(data.ts_init)}",
+                color=LogColor.RED,
+            )
 
     def on_quote_tick(self, tick):
-        self.user_log(f"QuoteTick: {tick}, ts={unix_nanos_to_iso8601(tick.ts_init)}", color=LogColor.BLUE)
+        self.user_log(
+            f"QuoteTick: {tick}, ts={unix_nanos_to_iso8601(tick.ts_init)}",
+            color=LogColor.BLUE,
+        )
 
         # Submit spread order when we have spread quotes available
         if tick.instrument_id == self.config.spread_id and not self.spread_order_submitted:
@@ -291,13 +310,19 @@ class OptionStrategy(Strategy):
             self.spread_order_submitted2 = True
 
     def on_order_filled(self, event):
-        self.user_log(f"Order filled: {event.instrument_id}, qty={event.last_qty}, price={event.last_px}, trade_id={event.trade_id}")
+        self.user_log(
+            f"Order filled: {event.instrument_id}, qty={event.last_qty}, price={event.last_px}, trade_id={event.trade_id}",
+        )
 
     def on_position_opened(self, event):
-        self.user_log(f"Position opened: {event.instrument_id}, qty={event.quantity}, entry={event.entry}")
+        self.user_log(
+            f"Position opened: {event.instrument_id}, qty={event.quantity}, entry={event.entry}",
+        )
 
     def on_position_changed(self, event):
-        self.user_log(f"Position changed: {event.instrument_id}, qty={event.quantity}, pnl={event.unrealized_pnl}")
+        self.user_log(
+            f"Position changed: {event.instrument_id}, qty={event.quantity}, pnl={event.unrealized_pnl}",
+        )
 
     # def on_data(self, greeks):
     #     self.log.warning(f"{greeks=}")
@@ -305,7 +330,10 @@ class OptionStrategy(Strategy):
 
     def on_bar(self, bar):
         if bar.bar_type == self.bar_type_3:
-            self.user_log(f"Bar: {bar}, ts={unix_nanos_to_iso8601(bar.ts_init)}", color=LogColor.RED)
+            self.user_log(
+                f"Bar: {bar}, ts={unix_nanos_to_iso8601(bar.ts_init)}",
+                color=LogColor.RED,
+            )
         else:
             self.user_log(
                 f"bar ts_init = {unix_nanos_to_iso8601(bar.ts_init)}, bar close = {bar}",

@@ -381,7 +381,10 @@ async def test_ib_bar_to_nautilus_bar_invalid_data(ib_client):
 
     # Act
     result = await ib_client._ib_bar_to_nautilus_bar(
-        bar_type, bar_invalid_low_gt_open, ts_init, is_revision=False,
+        bar_type,
+        bar_invalid_low_gt_open,
+        ts_init,
+        is_revision=False,
     )
 
     # Assert
@@ -399,7 +402,10 @@ async def test_ib_bar_to_nautilus_bar_invalid_data(ib_client):
     bar_invalid_high_lt_open.barCount = -1
 
     result = await ib_client._ib_bar_to_nautilus_bar(
-        bar_type, bar_invalid_high_lt_open, ts_init, is_revision=False,
+        bar_type,
+        bar_invalid_high_lt_open,
+        ts_init,
+        is_revision=False,
     )
 
     # Assert
@@ -417,7 +423,10 @@ async def test_ib_bar_to_nautilus_bar_invalid_data(ib_client):
     bar_invalid_high_lt_low.barCount = -1
 
     result = await ib_client._ib_bar_to_nautilus_bar(
-        bar_type, bar_invalid_high_lt_low, ts_init, is_revision=False,
+        bar_type,
+        bar_invalid_high_lt_low,
+        ts_init,
+        is_revision=False,
     )
 
     # Assert
@@ -435,7 +444,10 @@ async def test_ib_bar_to_nautilus_bar_invalid_data(ib_client):
     bar_invalid_low_gt_close.barCount = -1
 
     result = await ib_client._ib_bar_to_nautilus_bar(
-        bar_type, bar_invalid_low_gt_close, ts_init, is_revision=False,
+        bar_type,
+        bar_invalid_low_gt_close,
+        ts_init,
+        is_revision=False,
     )
 
     # Assert
@@ -453,7 +465,10 @@ async def test_ib_bar_to_nautilus_bar_invalid_data(ib_client):
     bar_invalid_high_lt_close.barCount = -1
 
     result = await ib_client._ib_bar_to_nautilus_bar(
-        bar_type, bar_invalid_high_lt_close, ts_init, is_revision=False,
+        bar_type,
+        bar_invalid_high_lt_close,
+        ts_init,
+        is_revision=False,
     )
 
     # Assert

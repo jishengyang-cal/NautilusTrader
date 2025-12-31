@@ -815,7 +815,9 @@ class BybitExecutionClient(LiveExecutionClient):
         self._publish_margin_data(response)
 
     async def _handle_get_borrow_amount_action(
-        self, command: QueryAccount, params: dict[str, Any],
+        self,
+        command: QueryAccount,
+        params: dict[str, Any],
     ) -> None:
         coin = params.get("coin")
 

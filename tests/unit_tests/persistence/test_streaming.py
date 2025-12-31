@@ -650,7 +650,11 @@ class TestPersistenceStreaming:
         writer.close()
 
         # Verify feather file was created
-        feather_files = list(self.catalog.fs.glob(f"{self.catalog.path}/backtest/{instance_id}/crypto_perpetual*.feather"))
+        feather_files = list(
+            self.catalog.fs.glob(
+                f"{self.catalog.path}/backtest/{instance_id}/crypto_perpetual*.feather",
+            ),
+        )
         assert len(feather_files) >= 1, "No feather files found for crypto_perpetual"
 
         # Convert feather to parquet

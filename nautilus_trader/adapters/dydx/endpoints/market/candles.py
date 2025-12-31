@@ -16,7 +16,6 @@
 Define the candles / bars endpoint.
 """
 
-
 import datetime
 
 import msgspec

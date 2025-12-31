@@ -25,16 +25,24 @@ from nautilus_trader.adapters.dydx.common.enums import DYDXOrderType
 from nautilus_trader.adapters.dydx.common.enums import DYDXPerpetualPositionStatus
 from nautilus_trader.adapters.dydx.endpoints.account.address import DYDXGetAddressEndpoint
 from nautilus_trader.adapters.dydx.endpoints.account.address import DYDXGetAddressGetParams
-from nautilus_trader.adapters.dydx.endpoints.account.asset_positions import DYDXGetAssetPositionsEndpoint
-from nautilus_trader.adapters.dydx.endpoints.account.asset_positions import DYDXGetAssetPositionsGetParams
+from nautilus_trader.adapters.dydx.endpoints.account.asset_positions import (
+    DYDXGetAssetPositionsEndpoint,
+)
+from nautilus_trader.adapters.dydx.endpoints.account.asset_positions import (
+    DYDXGetAssetPositionsGetParams,
+)
 from nautilus_trader.adapters.dydx.endpoints.account.fills import DYDXGetFillsEndpoint
 from nautilus_trader.adapters.dydx.endpoints.account.fills import DYDXGetFillsGetParams
 from nautilus_trader.adapters.dydx.endpoints.account.order import DYDXGetOrderEndpoint
 from nautilus_trader.adapters.dydx.endpoints.account.order import DYDXGetOrderGetParams
 from nautilus_trader.adapters.dydx.endpoints.account.orders import DYDXGetOrdersEndpoint
 from nautilus_trader.adapters.dydx.endpoints.account.orders import DYDXGetOrdersGetParams
-from nautilus_trader.adapters.dydx.endpoints.account.perpetual_positions import DYDXGetPerpetualPositionsEndpoint
-from nautilus_trader.adapters.dydx.endpoints.account.perpetual_positions import DYDXGetPerpetualPositionsGetParams
+from nautilus_trader.adapters.dydx.endpoints.account.perpetual_positions import (
+    DYDXGetPerpetualPositionsEndpoint,
+)
+from nautilus_trader.adapters.dydx.endpoints.account.perpetual_positions import (
+    DYDXGetPerpetualPositionsGetParams,
+)
 from nautilus_trader.adapters.dydx.endpoints.account.subaccount import DYDXGetSubaccountEndpoint
 from nautilus_trader.adapters.dydx.endpoints.account.subaccount import DYDXGetSubaccountGetParams
 from nautilus_trader.adapters.dydx.http.client import DYDXHttpClient
@@ -43,7 +51,9 @@ from nautilus_trader.adapters.dydx.schemas.account.address import DYDXSubaccount
 from nautilus_trader.adapters.dydx.schemas.account.asset_positions import DYDXAssetPositionsResponse
 from nautilus_trader.adapters.dydx.schemas.account.fills import DYDXFillsResponse
 from nautilus_trader.adapters.dydx.schemas.account.orders import DYDXOrderResponse
-from nautilus_trader.adapters.dydx.schemas.account.perpetual_positions import DYDXPerpetualPositionsResponse
+from nautilus_trader.adapters.dydx.schemas.account.perpetual_positions import (
+    DYDXPerpetualPositionsResponse,
+)
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.core.correctness import PyCondition
 

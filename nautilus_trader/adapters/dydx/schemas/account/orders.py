@@ -16,7 +16,6 @@
 Define the schemas for the GetOrders endpoint.
 """
 
-
 import datetime
 from decimal import Decimal
 

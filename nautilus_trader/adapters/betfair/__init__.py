@@ -24,6 +24,7 @@ subpackage's top level, so downstream code can simply import from
 ``nautilus_trader.adapters.betfair``.
 
 """
+
 from nautilus_trader.adapters.betfair.config import BetfairDataClientConfig
 from nautilus_trader.adapters.betfair.config import BetfairExecClientConfig
 from nautilus_trader.adapters.betfair.constants import BETFAIR

@@ -29,10 +29,14 @@ from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesMarginType
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesAccountInfo
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesAlgoOrder
-from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesAlgoOrderCancelResponse
+from nautilus_trader.adapters.binance.futures.schemas.account import (
+    BinanceFuturesAlgoOrderCancelResponse,
+)
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesDualSidePosition
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesLeverage
-from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesMarginTypeResponse
+from nautilus_trader.adapters.binance.futures.schemas.account import (
+    BinanceFuturesMarginTypeResponse,
+)
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesPositionRisk
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesSymbolConfig
 from nautilus_trader.adapters.binance.http.account import BinanceAccountHttpAPI

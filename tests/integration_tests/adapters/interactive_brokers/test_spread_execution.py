@@ -64,9 +64,9 @@ class TestSpreadExecutionDetection:
         for instrument_id_str, expected in test_cases:
             instrument_id = InstrumentId.from_str(instrument_id_str)
             result = self._is_spread_instrument(instrument_id)
-            assert (
-                result == expected
-            ), f"Failed for {instrument_id_str}: expected {expected}, was {result}"
+            assert result == expected, (
+                f"Failed for {instrument_id_str}: expected {expected}, was {result}"
+            )
 
     def test_is_spread_instrument_edge_cases(self):
         """
@@ -83,9 +83,9 @@ class TestSpreadExecutionDetection:
         for instrument_id_str, expected in edge_cases:
             instrument_id = InstrumentId.from_str(instrument_id_str)
             result = self._is_spread_instrument(instrument_id)
-            assert (
-                result == expected
-            ), f"Failed for {instrument_id_str}: expected {expected}, was {result}"
+            assert result == expected, (
+                f"Failed for {instrument_id_str}: expected {expected}, was {result}"
+            )
 
     def _is_spread_instrument(self, instrument_id):
         """

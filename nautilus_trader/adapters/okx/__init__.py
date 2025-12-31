@@ -23,6 +23,7 @@ subpackage's top level, so downstream code can simply import from
 ``nautilus_trader.adapters.okx``.
 
 """
+
 from nautilus_trader.adapters.okx.config import OKXDataClientConfig
 from nautilus_trader.adapters.okx.config import OKXExecClientConfig
 from nautilus_trader.adapters.okx.constants import OKX

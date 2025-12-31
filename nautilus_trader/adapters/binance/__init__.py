@@ -24,6 +24,7 @@ subpackage's top level, so downstream code can simply import from
 ``nautilus_trader.adapters.binance``.
 
 """
+
 from typing import Final
 
 import pyarrow as pa

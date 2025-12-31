@@ -16,7 +16,6 @@
 Define the orderbook snapshot endpoint.
 """
 
-
 import msgspec
 
 from nautilus_trader.adapters.dydx.common.enums import DYDXEndpointType

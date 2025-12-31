@@ -16,7 +16,6 @@
 Define the instrument info endpoint.
 """
 
-
 from decimal import Decimal
 
 import msgspec

@@ -41,7 +41,9 @@ from nautilus_trader.adapters.interactive_brokers.parsing.data import bar_spec_t
 from nautilus_trader.adapters.interactive_brokers.parsing.data import generate_trade_id
 from nautilus_trader.adapters.interactive_brokers.parsing.data import timedelta_to_duration_str
 from nautilus_trader.adapters.interactive_brokers.parsing.data import what_to_show
-from nautilus_trader.adapters.interactive_brokers.parsing.price_conversion import ib_price_to_nautilus_price
+from nautilus_trader.adapters.interactive_brokers.parsing.price_conversion import (
+    ib_price_to_nautilus_price,
+)
 from nautilus_trader.core.data import Data
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType

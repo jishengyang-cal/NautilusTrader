@@ -1182,8 +1182,7 @@ class TestOrderMatchingEngine:
             f"Expected 1 fill event after second delta, got {len(filled_events)}"
         )
         assert filled_events[0].last_qty == self.instrument.make_qty(50.0), (
-            f"Second fill should be 50 (current book liquidity), "
-            f"got {filled_events[0].last_qty}"
+            f"Second fill should be 50 (current book liquidity), got {filled_events[0].last_qty}"
         )
 
     def test_new_liquidity_at_better_price_fills(self) -> None:
@@ -2036,17 +2035,21 @@ def test_modify_partially_filled_limit_order_crosses_new_book_level(
     # For BUY: ASK at 1498 (crossed by initial 1500), ASK at 1502 (not crossed by 1500, crossed by 1510)
     # For SELL: BID at 1502 (crossed by initial 1500), BID at 1498 (not crossed by 1500, crossed by 1490)
     if order_side == OrderSide.BUY:
-        first_level_price = "1498.00"   # ASK below initial order → crossed, partial fill
-        second_level_price = "1502.00"  # ASK above initial but below modified → should cross after modify
-        same_side_price = "1490.00"     # BID (same side) required by FillModel
+        first_level_price = "1498.00"  # ASK below initial order → crossed, partial fill
+        second_level_price = (
+            "1502.00"  # ASK above initial but below modified → should cross after modify
+        )
+        same_side_price = "1490.00"  # BID (same side) required by FillModel
         order_initial_price = "1500.00"  # Crosses first level at 1498
-        order_modify_price = "1510.00"   # Should cross second level at 1502
+        order_modify_price = "1510.00"  # Should cross second level at 1502
     else:
-        first_level_price = "1502.00"   # BID above initial order → crossed, partial fill
-        second_level_price = "1498.00"  # BID below initial but above modified → should cross after modify
-        same_side_price = "1510.00"     # ASK (same side) required by FillModel
+        first_level_price = "1502.00"  # BID above initial order → crossed, partial fill
+        second_level_price = (
+            "1498.00"  # BID below initial but above modified → should cross after modify
+        )
+        same_side_price = "1510.00"  # ASK (same side) required by FillModel
         order_initial_price = "1500.00"  # Crosses first level at 1502
-        order_modify_price = "1490.00"   # Should cross second level at 1498
+        order_modify_price = "1490.00"  # Should cross second level at 1498
 
     # Add first level on opposite side (will be partially consumed)
     delta1 = OrderBookDelta(

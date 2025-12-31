@@ -3095,7 +3095,8 @@ class TestPosition:
 
         # Verify funding adjustment is preserved
         has_funding = any(
-            adj.adjustment_type == PositionAdjustmentType.FUNDING and adj.pnl_change == Money(10.0, USDT)
+            adj.adjustment_type == PositionAdjustmentType.FUNDING
+            and adj.pnl_change == Money(10.0, USDT)
             for adj in position.adjustments
         )
         assert has_funding

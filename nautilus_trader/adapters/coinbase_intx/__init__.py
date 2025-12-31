@@ -24,6 +24,7 @@ subpackage's top level, so downstream code can simply import from
 ``nautilus_trader.adapters.coinbase_intx``.
 
 """
+
 from nautilus_trader.adapters.coinbase_intx.config import CoinbaseIntxDataClientConfig
 from nautilus_trader.adapters.coinbase_intx.config import CoinbaseIntxExecClientConfig
 from nautilus_trader.adapters.coinbase_intx.constants import COINBASE_INTX

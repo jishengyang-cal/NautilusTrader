@@ -23,7 +23,9 @@ from nautilus_trader.adapters.interactive_brokers.common import IB_VENUE
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
 from nautilus_trader.adapters.interactive_brokers.config import InteractiveBrokersDataClientConfig
 from nautilus_trader.adapters.interactive_brokers.parsing.data import timedelta_to_duration_str
-from nautilus_trader.adapters.interactive_brokers.providers import InteractiveBrokersInstrumentProvider
+from nautilus_trader.adapters.interactive_brokers.providers import (
+    InteractiveBrokersInstrumentProvider,
+)
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
@@ -698,7 +700,7 @@ class InteractiveBrokersDataClient(LiveMarketDataClient):
                 f"with duration '{segment_duration}'",
             )
 
-            bars = await self._client.get_historical_bars( # Changed self.get_historical_bars to self._client.get_historical_bars
+            bars = await self._client.get_historical_bars(  # Changed self.get_historical_bars to self._client.get_historical_bars
                 bar_type,
                 contract,
                 use_rth,
@@ -757,8 +759,8 @@ class InteractiveBrokersDataClient(LiveMarketDataClient):
         subsecond = (
             1
             if delta.components.milliseconds > 0
-               or delta.components.microseconds > 0
-               or delta.components.nanoseconds > 0
+            or delta.components.microseconds > 0
+            or delta.components.nanoseconds > 0
             else 0
         )
         seconds = (

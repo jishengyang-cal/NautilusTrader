@@ -141,9 +141,9 @@ def test_no_empty_exchange_or_venue_mappings():
 
         # Test reverse mapping
         mapped_exchanges = tardis_exchange_from_venue_str(venue_str)
-        assert (
-            exchange in mapped_exchanges
-        ), f"Exchange '{exchange}' not found in reverse mapping for venue '{venue_str}'"
+        assert exchange in mapped_exchanges, (
+            f"Exchange '{exchange}' not found in reverse mapping for venue '{venue_str}'"
+        )
 
 
 def test_exchange_inference_from_csv_data():

@@ -25,6 +25,7 @@ subpackage's top level, so downstream code can simply import from
 ``nautilus_trader.adapters.databento``.
 
 """
+
 from nautilus_trader.adapters.databento.config import DatabentoDataClientConfig
 from nautilus_trader.adapters.databento.constants import ALL_SYMBOLS
 from nautilus_trader.adapters.databento.constants import DATABENTO

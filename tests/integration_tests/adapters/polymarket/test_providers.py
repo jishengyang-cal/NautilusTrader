@@ -351,8 +351,10 @@ async def test_gamma_markets_filters_specific_token_ids(mock_clob_client, live_c
     }
 
     with patch("nautilus_trader.adapters.polymarket.providers.list_markets") as mock_list_markets:
+
         async def mock_async_list_markets(*args, **kwargs):
             return [gamma_market]
+
         mock_list_markets.side_effect = mock_async_list_markets
 
         # Act
@@ -400,8 +402,10 @@ async def test_gamma_markets_deduplicates_condition_ids(mock_clob_client, live_c
         )
 
     with patch("nautilus_trader.adapters.polymarket.providers.list_markets") as mock_list_markets:
+
         async def mock_async_list_markets(*args, **kwargs):
             return []
+
         mock_list_markets.side_effect = mock_async_list_markets
 
         # Act

@@ -227,7 +227,7 @@ class TestBarBuilder:
                 open=Price.from_str(f"1.0000{i}"),
                 high=Price.from_str(f"1.0001{i}"),
                 low=Price.from_str(f"1.0000{i}"),
-                close=Price.from_str(f"1.0000{i+1}"),
+                close=Price.from_str(f"1.0000{i + 1}"),
                 volume=Quantity.from_int(1),
                 ts_event=1_000 * (i + 1),
                 ts_init=1_000 * (i + 1),
@@ -5240,7 +5240,7 @@ class TestSpreadQuoteAggregator:
         futures_spread_id = new_generic_spread_id(
             [
                 (future1.id, -1),  # Short front month
-                (future2.id, 1),   # Long back month
+                (future2.id, 1),  # Long back month
             ],
         )
 
@@ -5470,7 +5470,7 @@ class TestSpreadQuoteAggregator:
             bid_price=Price.from_str("97.00"),
             ask_price=Price.from_str("98.00"),
             bid_size=Quantity.from_int(100),  # Large bid size
-            ask_size=Quantity.from_int(50),   # Smaller ask size
+            ask_size=Quantity.from_int(50),  # Smaller ask size
             ts_event=self.clock.timestamp_ns(),
             ts_init=self.clock.timestamp_ns(),
         )
@@ -5823,10 +5823,13 @@ class TestSpreadQuoteAggregatorHistoricalMode:
 
         # Create spread instrument
         from nautilus_trader.model.identifiers import new_generic_spread_id
-        self.spread_instrument_id = new_generic_spread_id([
-            (self.option1.id, 1),
-            (self.option2.id, -1),
-        ])
+
+        self.spread_instrument_id = new_generic_spread_id(
+            [
+                (self.option1.id, 1),
+                (self.option2.id, -1),
+            ],
+        )
 
         self.spread_instrument = OptionSpread(
             instrument_id=self.spread_instrument_id,
@@ -6188,7 +6191,7 @@ class TestSpreadQuoteAggregatorHistoricalMode:
         futures_spread_id = new_generic_spread_id(
             [
                 (future1_id, -1),  # Short ESM4
-                (future2_id, 1),   # Long ES future (using ES instead of NQM4 for simplicity)
+                (future2_id, 1),  # Long ES future (using ES instead of NQM4 for simplicity)
             ],
         )
 

@@ -29,7 +29,6 @@ async def run():
     URL = f"{WS_REPLAY_URL}?exchange=bitmex&from=2019-10-01&to=2019-10-02"
 
     async with aiohttp.ClientSession() as session, session.ws_connect(URL) as websocket:
-
         await websocket.send_str(
             json.dumps(
                 {

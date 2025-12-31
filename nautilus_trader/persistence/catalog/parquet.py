@@ -1799,7 +1799,6 @@ class ParquetDataCatalog(BaseDataCatalog):
         file_uri = self._build_file_uri(directory)
         session.add_file(data_type, table, file_uri, query)
 
-
     def _build_file_uri(self, file: str) -> str:
         """
         Convert a file path to a URI format based on the filesystem protocol.
@@ -2052,10 +2051,7 @@ class ParquetDataCatalog(BaseDataCatalog):
             exact_match_file_paths = [
                 file_paths[i]
                 for i, file_instrument in enumerate(file_safe_identifiers)
-                if any(
-                    safe_identifier == file_instrument
-                    for safe_identifier in safe_identifiers
-                )
+                if any(safe_identifier == file_instrument for safe_identifier in safe_identifiers)
             ]
 
             if not exact_match_file_paths and data_cls in [Bar, *Bar.__subclasses__()]:

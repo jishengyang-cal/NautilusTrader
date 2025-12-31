@@ -45,7 +45,6 @@ class CreateActor(Command):
         command_id: UUID4 | None = None,
         ts_init: int = 0,
     ) -> None:
-
         super().__init__(command_id or UUID4(), ts_init)
 
         self.actor_config = actor_config
@@ -76,7 +75,6 @@ class CreateStrategy(Command):
         command_id: UUID4 | None = None,
         ts_init: int = 0,
     ) -> None:
-
         super().__init__(command_id or UUID4(), ts_init)
 
         self.strategy_config = strategy_config

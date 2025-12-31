@@ -55,7 +55,9 @@ class BaseDataCatalog(ABC, metaclass=_CombinedMeta):
     @classmethod
     @abstractmethod
     def from_uri(
-        cls, uri: str, storage_options: dict[str, str] | None = None,
+        cls,
+        uri: str,
+        storage_options: dict[str, str] | None = None,
     ) -> BaseDataCatalog:
         raise NotImplementedError
 
@@ -103,7 +105,9 @@ class BaseDataCatalog(ABC, metaclass=_CombinedMeta):
         **kwargs: Any,
     ) -> list[InstrumentStatus]:
         return self.query(
-            data_cls=InstrumentStatus, identifiers=instrument_ids, **kwargs,
+            data_cls=InstrumentStatus,
+            identifiers=instrument_ids,
+            **kwargs,
         )
 
     def instrument_closes(
@@ -112,7 +116,9 @@ class BaseDataCatalog(ABC, metaclass=_CombinedMeta):
         **kwargs: Any,
     ) -> list[InstrumentClose]:
         return self.query(
-            data_cls=InstrumentClose, identifiers=instrument_ids, **kwargs,
+            data_cls=InstrumentClose,
+            identifiers=instrument_ids,
+            **kwargs,
         )
 
     def order_book_deltas(
@@ -131,7 +137,9 @@ class BaseDataCatalog(ABC, metaclass=_CombinedMeta):
         **kwargs: Any,
     ) -> list[OrderBookDepth10]:
         return self.query(
-            data_cls=OrderBookDepth10, identifiers=instrument_ids, **kwargs,
+            data_cls=OrderBookDepth10,
+            identifiers=instrument_ids,
+            **kwargs,
         )
 
     def quote_ticks(
@@ -155,7 +163,9 @@ class BaseDataCatalog(ABC, metaclass=_CombinedMeta):
         **kwargs: Any,
     ) -> list[Bar]:
         return self.query(
-            data_cls=Bar, identifiers=(bar_types or instrument_ids), **kwargs,
+            data_cls=Bar,
+            identifiers=(bar_types or instrument_ids),
+            **kwargs,
         )
 
     def custom_data(
@@ -172,10 +182,7 @@ class BaseDataCatalog(ABC, metaclass=_CombinedMeta):
             if data is None:
                 return []
 
-            return [
-                CustomData(data_type=DataType(cls, metadata=metadata), data=d)
-                for d in data
-            ]
+            return [CustomData(data_type=DataType(cls, metadata=metadata), data=d) for d in data]
 
         return data
 
@@ -227,12 +234,16 @@ class BaseDataCatalog(ABC, metaclass=_CombinedMeta):
 
     @abstractmethod
     def read_live_run(
-        self, instance_id: str, **kwargs: Any,
+        self,
+        instance_id: str,
+        **kwargs: Any,
     ) -> list[str] | dict[str, list[Data]]:
         raise NotImplementedError
 
     @abstractmethod
     def read_backtest(
-        self, instance_id: str, **kwargs: Any,
+        self,
+        instance_id: str,
+        **kwargs: Any,
     ) -> list[str] | dict[str, list[Data]]:
         raise NotImplementedError

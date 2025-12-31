@@ -16,7 +16,6 @@
 Define the schemas for the GetPerpetualPositions endpoint.
 """
 
-
 import msgspec
 
 from nautilus_trader.adapters.dydx.schemas.account.address import DYDXPerpetualPosition

@@ -234,13 +234,13 @@ class TestDYDXDataClientBarPartitioning:
 
             # Assert
             if expected_bars > 1000:
-                assert (
-                    should_partition is True
-                ), f"Should partition for {timeframe} with {expected_bars} bars"
+                assert should_partition is True, (
+                    f"Should partition for {timeframe} with {expected_bars} bars"
+                )
             else:
-                assert (
-                    should_partition is False
-                ), f"Should not partition for {timeframe} with {expected_bars} bars"
+                assert should_partition is False, (
+                    f"Should not partition for {timeframe} with {expected_bars} bars"
+                )
 
     # =====================================================================================
     # REQUEST SIZE HANDLING TESTS

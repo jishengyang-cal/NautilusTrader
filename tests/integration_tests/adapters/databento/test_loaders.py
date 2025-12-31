@@ -606,7 +606,7 @@ def test_loader_ohlcv_1s() -> None:
 @pytest.mark.parametrize(
     ("bars_timestamp_on_close", "expected_ts_event"),
     [
-        (True, 1609160460000000000),   # Close time (default)
+        (True, 1609160460000000000),  # Close time (default)
         (False, 1609160400000000000),  # Open time
     ],
 )

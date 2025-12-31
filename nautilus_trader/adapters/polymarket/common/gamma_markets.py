@@ -128,7 +128,9 @@ async def _request_markets_page(
     )
     if resp.status != 200:
         body = resp.body.decode("utf-8", errors="replace")
-        raise RuntimeError(f"Gamma Get Markets failed: {resp.status} for url {base_endpoint} with params {effective_params} and body {body}")
+        raise RuntimeError(
+            f"Gamma Get Markets failed: {resp.status} for url {base_endpoint} with params {effective_params} and body {body}",
+        )
 
     data = msgspec.json.decode(resp.body)
     if isinstance(data, list):
@@ -277,7 +279,12 @@ async def list_markets(
 
     """
     results: list[dict[str, Any]] = []
-    async for market in iter_markets(http_client=http_client, filters=filters, base_url=base_url, timeout=timeout):
+    async for market in iter_markets(
+        http_client=http_client,
+        filters=filters,
+        base_url=base_url,
+        timeout=timeout,
+    ):
         results.append(market)
         if max_results is not None and len(results) >= max_results:
             break
