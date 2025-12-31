@@ -430,10 +430,6 @@ async fn wait_for_connection_count(state: &TestServerState, expected: usize, tim
     .await;
 }
 
-// ============================================================================
-// Core Connectivity Tests
-// ============================================================================
-
 #[rstest]
 #[tokio::test]
 async fn test_client_creation() {
@@ -573,10 +569,6 @@ async fn test_close_connection() {
 
     wait_for_connection_count(&state, 0, Duration::from_secs(5)).await;
 }
-
-// ============================================================================
-// Subscription Tests
-// ============================================================================
 
 #[rstest]
 #[tokio::test]
@@ -817,10 +809,6 @@ async fn test_multiple_subscriptions() {
     client.disconnect().await.expect("close failed");
 }
 
-// ============================================================================
-// Reconnection Tests
-// ============================================================================
-
 #[rstest]
 #[tokio::test]
 async fn test_reconnection_scenario() {
@@ -1005,10 +993,6 @@ async fn test_true_auto_reconnect_with_verification() {
 
     client.disconnect().await.expect("close failed");
 }
-
-// ============================================================================
-// Edge Case Tests
-// ============================================================================
 
 #[rstest]
 #[tokio::test]

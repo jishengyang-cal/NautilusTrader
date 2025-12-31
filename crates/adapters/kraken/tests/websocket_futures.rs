@@ -200,10 +200,6 @@ async fn start_test_server(
     Ok(addr)
 }
 
-// =============================================================================
-// Connection Tests
-// =============================================================================
-
 #[rstest]
 #[tokio::test]
 async fn test_futures_websocket_connection() {

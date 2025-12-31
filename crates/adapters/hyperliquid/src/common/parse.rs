@@ -1055,10 +1055,6 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // Conditional Order Parsing Tests
-    // ========================================================================
-
     #[rstest]
     fn test_is_conditional_order_data() {
         // Test with trigger price and tpsl (conditional)

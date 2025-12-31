@@ -84,10 +84,6 @@ async fn wait_for_server(addr: SocketAddr) {
     .await;
 }
 
-// ============================================================================
-// JSON-RPC Handlers
-// ============================================================================
-
 async fn handle_jsonrpc_request(
     State(state): State<TestServerState>,
     Json(request): Json<serde_json::Value>,
@@ -394,10 +390,6 @@ async fn handle_method_not_found(id: u64) -> axum::response::Response {
     }))
     .into_response()
 }
-
-// ============================================================================
-// Router
-// ============================================================================
 
 fn create_router(state: TestServerState) -> Router {
     Router::new()

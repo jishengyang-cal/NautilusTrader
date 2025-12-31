@@ -881,10 +881,6 @@ impl KrakenFuturesRawHttpClient {
     }
 }
 
-// =============================================================================
-// Domain Client
-// =============================================================================
-
 /// High-level HTTP client for the Kraken Futures REST API.
 ///
 /// This client wraps the raw client and provides Nautilus domain types.

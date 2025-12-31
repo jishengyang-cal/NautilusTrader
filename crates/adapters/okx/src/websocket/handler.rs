@@ -2879,10 +2879,6 @@ mod tests {
         assert!(handler.fee_cache.contains_key(&venue_id2.inner()));
     }
 
-    // ==================================================================================
-    // Channel routing integration tests
-    // ==================================================================================
-
     mod channel_routing {
         use nautilus_core::nanos::UnixNanos;
         use nautilus_model::{

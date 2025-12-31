@@ -1263,10 +1263,6 @@ fn test_generic_consolidate_data_by_period_with_time_range() {
     assert!(!intervals.is_empty());
 }
 
-// ================================================================================================
-// Integration tests for consolidation workflow
-// ================================================================================================
-
 #[rstest]
 fn test_consolidation_workflow_end_to_end() {
     let (_temp_dir, catalog) = create_temp_catalog();
@@ -1635,10 +1631,6 @@ fn test_reconstruct_full_uri_moved() {
     let expected = format!("{}/data/quotes/file.parquet", tmp.path().display());
     assert_eq!(reconstructed, expected);
 }
-
-// ================================================================================================
-// Delete functionality tests
-// ================================================================================================
 
 #[rstest]
 fn test_delete_data_range_complete_file_deletion() {

@@ -173,8 +173,6 @@ mod tests {
         serde_json::from_value(log_json).expect("Failed to deserialize RPC log")
     }
 
-    // ========== HyperSync parser tests ==========
-
     #[rstest]
     fn test_parse_pair_created_hypersync(hypersync_log_weth_usdt: HypersyncLog) {
         let event =
@@ -196,8 +194,6 @@ mod tests {
         assert_eq!(event.fee, None);
         assert_eq!(event.tick_spacing, None);
     }
-
-    // ========== RPC parser tests ==========
 
     #[rstest]
     fn test_parse_pair_created_rpc(rpc_log_weth_usdt: RpcLog) {

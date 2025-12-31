@@ -875,10 +875,6 @@ mod tests {
         assert_eq!(book.levels[1].len(), 1);
     }
 
-    // ========================================================================
-    // Conditional Order WebSocket Message Tests
-    // ========================================================================
-
     #[rstest]
     fn test_ws_trailing_stop_data_deserialization() {
         let json = r#"{

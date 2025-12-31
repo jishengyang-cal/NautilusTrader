@@ -3268,10 +3268,6 @@ mod tests {
         assert_eq!(bar.ts_init, ts2);
     }
 
-    // ========================================================================
-    // RenkoBarAggregator Tests
-    // ========================================================================
-
     #[rstest]
     fn test_renko_bar_aggregator_initialization(audusd_sim: CurrencyPair) {
         let instrument = InstrumentAny::CurrencyPair(audusd_sim);

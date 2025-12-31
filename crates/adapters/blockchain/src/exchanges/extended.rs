@@ -98,8 +98,6 @@ impl DexExtended {
         }
     }
 
-    // ==================== HyperSync Parser Setters ====================
-
     /// Sets the function used to parse pool creation events from HyperSync logs.
     pub fn set_pool_created_event_hypersync_parsing(
         &mut self,
@@ -156,8 +154,6 @@ impl DexExtended {
         self.parse_flash_event_hypersync_fn = Some(parse_fn);
     }
 
-    // ==================== RPC Parser Setters ====================
-
     /// Sets the function used to parse pool creation events from RPC logs.
     pub fn set_pool_created_event_rpc_parsing(
         &mut self,
@@ -213,8 +209,6 @@ impl DexExtended {
     ) {
         self.parse_flash_event_rpc_fn = Some(parse_fn);
     }
-
-    // ==================== HyperSync Parser Dispatch Methods ====================
 
     /// Parses a pool creation event from a HyperSync log.
     ///
@@ -341,8 +335,6 @@ impl DexExtended {
         }
     }
 
-    // ==================== RPC Parser Dispatch Methods ====================
-
     /// Parses a pool creation event from an RPC log.
     ///
     /// # Errors
@@ -461,8 +453,6 @@ impl DexExtended {
             )
         }
     }
-
-    // ==================== Utility Methods ====================
 
     /// Checks if this DEX requires pool initialization events.
     #[must_use]

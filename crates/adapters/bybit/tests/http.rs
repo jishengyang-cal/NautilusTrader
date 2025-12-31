@@ -1947,10 +1947,6 @@ async fn test_request_order_status_reports_with_time_filtering() {
     );
 }
 
-// =====================================================
-// Tests for request_tickers
-// =====================================================
-
 #[tokio::test]
 #[ignore] // Requires real Bybit API access
 async fn test_request_tickers_spot_live() {

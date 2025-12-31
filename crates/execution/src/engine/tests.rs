@@ -51,10 +51,6 @@ use crate::{
     engine::{ExecutionEngine, config::ExecutionEngineConfig, stubs::StubExecutionClient},
 };
 
-// =================================================================================================
-// Test Fixtures
-// =================================================================================================
-
 #[fixture]
 fn test_clock() -> Rc<RefCell<dyn clock::Clock>> {
     Rc::new(RefCell::new(TestClock::new()))
@@ -98,10 +94,6 @@ fn stub_client() -> StubExecutionClient {
         None,
     )
 }
-
-// =================================================================================================
-// Client Registration Tests
-// =================================================================================================
 
 #[rstest]
 fn test_register_client_success(
@@ -176,10 +168,6 @@ fn test_deregister_client_removes_client(
     );
 }
 
-// =================================================================================================
-// Connection Status Tests
-// =================================================================================================
-
 #[rstest]
 fn test_check_connected_when_client_connected_returns_true(mut execution_engine: ExecutionEngine) {
     let mut stub_client = StubExecutionClient::new(
@@ -249,10 +237,6 @@ fn test_check_disconnected_when_client_disconnected_returns_true(
     );
 }
 
-// =================================================================================================
-// Cache and Integrity Tests
-// =================================================================================================
-
 #[rstest]
 fn test_check_integrity_returns_true(execution_engine: ExecutionEngine) {
     let integrity_check = execution_engine.check_integrity();
@@ -284,10 +268,6 @@ fn test_set_position_id_counts_updates_correctly(mut execution_engine: Execution
     );
 }
 
-// =================================================================================================
-// Engine Initialization & Configuration Tests
-// =================================================================================================
-
 #[rstest]
 fn test_execution_engine_with_config_initializes_correctly(
     execution_engine_with_config: ExecutionEngine,
@@ -301,10 +281,6 @@ fn test_execution_engine_default_config_initializes_correctly(execution_engine: 
     let integrity_check = execution_engine.check_integrity();
     assert!(integrity_check);
 }
-
-// =================================================================================================
-// Command Execution Tests
-// =================================================================================================
 
 #[rstest]
 fn test_submit_order_with_duplicate_client_order_id_handles_gracefully(
@@ -822,10 +798,6 @@ fn test_submit_order_with_cleared_cache_logs_error(mut execution_engine: Executi
         "Order should remain absent from cache"
     );
 }
-
-// =================================================================================================
-// Event Handling Tests
-// =================================================================================================
 
 #[rstest]
 fn test_when_applying_event_to_order_with_invalid_state_trigger_logs(
@@ -1787,10 +1759,6 @@ fn test_handle_duplicate_order_events_logs_error_and_does_not_apply(
         "Order should have correct event count"
     );
 }
-
-// =================================================================================================
-// Fill Events & Position Management Tests
-// =================================================================================================
 
 #[rstest]
 fn test_handle_order_fill_event_with_no_position_id_correctly_handles_fill(
@@ -4078,10 +4046,6 @@ fn test_handle_updated_order_event(mut execution_engine: ExecutionEngine) {
     );
 }
 
-// =================================================================================================
-// Quote Quantity Conversion Tests
-// =================================================================================================
-
 #[rstest]
 fn test_submit_order_with_quote_quantity_and_no_prices_denies(
     mut execution_engine: ExecutionEngine,
@@ -4856,10 +4820,6 @@ fn test_submit_bracket_order_with_quote_quantity_and_ticks_converts_expected(
     assert_eq!(final_stop_loss_order.quantity(), expected_base_quantity);
     assert_eq!(final_take_profit_order.quantity(), expected_base_quantity);
 }
-
-// =================================================================================================
-// Own Order Book Tests
-// =================================================================================================
 
 #[rstest]
 fn test_submit_market_should_not_add_to_own_book() {
@@ -7561,10 +7521,6 @@ fn test_own_book_status_integrity_during_transitions() {
         );
     }
 
-    // =============================================================================================
-    // External Order Claims Tests
-    // =============================================================================================
-
     #[rstest]
     fn test_get_external_client_ids_when_none_configured(execution_engine: ExecutionEngine) {
         let external_ids = execution_engine.get_external_client_ids();
@@ -7693,10 +7649,6 @@ fn test_own_book_status_integrity_during_transitions() {
         assert!(instruments.contains(&instrument_id_2));
     }
 
-    // =============================================================================================
-    // OMS Type Registration Tests
-    // =============================================================================================
-
     #[rstest]
     fn test_register_oms_type_for_strategy(mut execution_engine: ExecutionEngine) {
         let strategy_id = StrategyId::from("TEST-001");
@@ -7711,10 +7663,6 @@ fn test_own_book_status_integrity_during_transitions() {
         execution_engine.register_oms_type(strategy_id, OmsType::Hedging);
         execution_engine.register_oms_type(strategy_id, OmsType::Netting);
     }
-
-    // =============================================================================================
-    // Client Utilities Tests
-    // =============================================================================================
 
     #[rstest]
     fn test_get_clients_for_orders_empty_list(execution_engine: ExecutionEngine) {
@@ -7744,10 +7692,6 @@ fn test_own_book_status_integrity_during_transitions() {
         assert_eq!(clients[0].client_id(), client_id);
     }
 
-    // =============================================================================================
-    // Configuration Toggles Tests
-    // =============================================================================================
-
     #[rstest]
     fn test_set_manage_own_order_books(mut execution_engine: ExecutionEngine) {
         assert!(!execution_engine.config.manage_own_order_books);
@@ -7769,10 +7713,6 @@ fn test_own_book_status_integrity_during_transitions() {
         execution_engine.set_convert_quote_qty_to_base(true);
         assert!(execution_engine.config.convert_quote_qty_to_base);
     }
-
-    // =============================================================================================
-    // Position Snapshots Tests
-    // =============================================================================================
 
     #[rstest]
     fn test_netting_flip_creates_snapshot(mut execution_engine: ExecutionEngine) {

@@ -877,10 +877,6 @@ async fn test_websocket_cache_instrument() {
     client.cache_instruments(instruments);
 }
 
-// =============================================================================
-// Robustness and edge case tests
-// =============================================================================
-
 #[rstest]
 #[tokio::test]
 async fn test_websocket_reconnection_after_disconnect() {

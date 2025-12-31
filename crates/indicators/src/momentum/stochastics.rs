@@ -389,10 +389,6 @@ mod tests {
         stubs::{bar_ethusdt_binance_minute_bid, stochastics_10},
     };
 
-    // ============================================================================
-    // Backward Compatibility Tests (existing tests, must continue to pass)
-    // ============================================================================
-
     #[rstest]
     fn test_stochastics_initialized(stochastics_10: Stochastics) {
         let display_str = format!("{stochastics_10}");
@@ -474,10 +470,6 @@ mod tests {
         assert!(!stochastics_10.initialized);
     }
 
-    // ============================================================================
-    // New Parameter Tests
-    // ============================================================================
-
     #[rstest]
     fn test_new_defaults_slowing_1_ratio() {
         let stoch = Stochastics::new(10, 3);
@@ -548,10 +540,6 @@ mod tests {
         assert_eq!(stoch_old.initialized, stoch_new.initialized);
     }
 
-    // ============================================================================
-    // Slowing Tests
-    // ============================================================================
-
     #[rstest]
     fn test_slowing_3_smoothes_k() {
         let mut stoch_no_slowing = Stochastics::new(5, 3);
@@ -616,10 +604,6 @@ mod tests {
         );
     }
 
-    // ============================================================================
-    // D Method Tests
-    // ============================================================================
-
     #[rstest]
     fn test_d_method_ratio_preserves_nautilus_behavior() {
         let mut stoch = Stochastics::new_with_params(
@@ -671,10 +655,6 @@ mod tests {
         assert!(stoch.value_d.is_finite());
         assert!(stoch.value_d >= 0.0 && stoch.value_d <= 100.0);
     }
-
-    // ============================================================================
-    // Warmup / Initialization Tests
-    // ============================================================================
 
     #[rstest]
     fn test_warmup_period_with_slowing() {
@@ -734,10 +714,6 @@ mod tests {
         );
     }
 
-    // ============================================================================
-    // Reset Tests
-    // ============================================================================
-
     #[rstest]
     fn test_reset_clears_slowing_ma_state() {
         let mut stoch = Stochastics::new_with_params(
@@ -771,10 +747,6 @@ mod tests {
         }
         assert!(stoch.value_k > 0.0);
     }
-
-    // ============================================================================
-    // Edge Cases
-    // ============================================================================
 
     #[rstest]
     fn test_slowing_1_bypasses_ma() {

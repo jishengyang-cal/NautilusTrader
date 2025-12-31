@@ -3997,10 +3997,6 @@ mod tests {
         assert_eq!(data[0].inst_id, Ustr::from("BTC-USD"));
     }
 
-    // ========================================================================
-    // Tests for parse_order_event and related functions
-    // ========================================================================
-
     fn create_order_msg_for_event_test(
         state: OKXOrderStatus,
         cl_ord_id: &str,
@@ -4348,10 +4344,6 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // Tests for is_order_expired_by_reason
-    // ========================================================================
-
     #[rstest]
     fn test_is_order_expired_by_reason_gtd_in_reason() {
         let mut msg =
@@ -4407,10 +4399,6 @@ mod tests {
             create_order_msg_for_event_test(OKXOrderStatus::Canceled, "test", "123", "100", "1");
         assert!(!is_order_expired_by_reason(&msg));
     }
-
-    // ========================================================================
-    // Tests for is_order_updated
-    // ========================================================================
 
     // Regression test: PartiallyFilled order with price change should emit Updated, not StatusOnly
     #[rstest]

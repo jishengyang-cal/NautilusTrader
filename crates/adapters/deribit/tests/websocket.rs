@@ -495,10 +495,6 @@ fn create_test_client(ws_url: &str) -> DeribitWebSocketClient {
     .expect("failed to construct deribit websocket client")
 }
 
-// ================================================================================================
-// Connection Tests
-// ================================================================================================
-
 #[tokio::test]
 async fn test_websocket_connection() {
     let state = Arc::new(TestServerState::default());
@@ -588,10 +584,6 @@ async fn test_is_active_and_is_closed_states() {
 
     assert!(client.is_closed());
 }
-
-// ================================================================================================
-// Subscription Tests
-// ================================================================================================
 
 #[tokio::test]
 async fn test_trades_subscription_flow() {
@@ -927,10 +919,6 @@ async fn test_unsubscribe() {
     client.close().await.expect("close failed");
 }
 
-// ================================================================================================
-// Heartbeat Tests
-// ================================================================================================
-
 #[tokio::test]
 async fn test_heartbeat_enable() {
     let state = Arc::new(TestServerState::default());
@@ -1026,10 +1014,6 @@ async fn test_heartbeat_test_request_response() {
     client.close().await.expect("close failed");
 }
 
-// ================================================================================================
-// Error Handling Tests
-// ================================================================================================
-
 #[tokio::test]
 async fn test_subscription_failure_handling() {
     let state = Arc::new(TestServerState::default());
@@ -1075,10 +1059,6 @@ async fn test_subscription_failure_handling() {
 
     client.close().await.expect("close failed");
 }
-
-// ================================================================================================
-// Reconnection Tests
-// ================================================================================================
 
 #[tokio::test]
 async fn test_reconnection_after_disconnect() {
@@ -1137,10 +1117,6 @@ async fn test_reconnection_after_disconnect() {
 
     client.close().await.expect("close failed");
 }
-
-// ================================================================================================
-// Instrument Cache Tests
-// ================================================================================================
 
 #[tokio::test]
 async fn test_instrument_cache_usage() {
@@ -1458,10 +1434,6 @@ async fn test_100ms_subscription_without_authentication() {
 
     client.close().await.expect("close failed");
 }
-
-// ================================================================================================
-// Reconnection with Authentication Tests
-// ================================================================================================
 
 #[tokio::test]
 async fn test_reconnection_with_reauthentication() {

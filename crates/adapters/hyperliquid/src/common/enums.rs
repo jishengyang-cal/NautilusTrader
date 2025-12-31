@@ -1060,10 +1060,6 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // Conditional Order Tests
-    // ========================================================================
-
     #[rstest]
     fn test_hyperliquid_tpsl_serialization() {
         let tp = HyperliquidTpSl::Tp;

@@ -43,11 +43,9 @@ use nautilus_model::{
 // Run with `cargo run -p nautilus-blockchain --bin node_test --features hypersync`
 // To see additional tracing logs `export RUST_LOG=debug,h2=off`
 
-// ================================================================================================
 // IMPORTANT: The actor definitions below are EXAMPLE CODE for demonstration purposes.
 // They should NOT be moved to the main library as they are specific to this test scenario.
 // If you need production-ready actors, create them in a separate production module.
-// ================================================================================================
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();

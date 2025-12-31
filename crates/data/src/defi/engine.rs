@@ -532,7 +532,6 @@ mod tests {
 
     use super::*;
 
-    // Test fixtures
     #[fixture]
     fn test_instrument_id() -> InstrumentId {
         InstrumentId::new(Symbol::from("ETH/USDC"), Venue::from("UNISWAPV3"))

@@ -29,10 +29,6 @@ const FUNDING_RATE: &str = include_str!("../test_data/ws_funding_rate.json");
 const ORDERS: &str = include_str!("../test_data/ws_orders.json");
 const ACCOUNT: &str = include_str!("../test_data/ws_account.json");
 
-// =============================================================================
-// DESERIALIZATION BENCHMARKS
-// =============================================================================
-
 fn bench_message_parsing(c: &mut Criterion) {
     let mut group = c.benchmark_group("OKX Message Parsing");
 
@@ -89,10 +85,6 @@ fn bench_json_value_parsing(c: &mut Criterion) {
     group.finish();
 }
 
-// =============================================================================
-// BATCH PROCESSING BENCHMARKS
-// =============================================================================
-
 fn bench_batch_processing(c: &mut Criterion) {
     let mut group = c.benchmark_group("OKX Batch Processing");
 
@@ -147,10 +139,6 @@ fn bench_book_updates_batch(c: &mut Criterion) {
     group.finish();
 }
 
-// =============================================================================
-// CHANNEL ROUTING BENCHMARKS
-// =============================================================================
-
 fn bench_channel_routing(c: &mut Criterion) {
     let mut group = c.benchmark_group("OKX Channel Routing");
 
@@ -194,10 +182,6 @@ fn bench_channel_routing(c: &mut Criterion) {
 
     group.finish();
 }
-
-// =============================================================================
-// COMPARISON BENCHMARKS
-// =============================================================================
 
 fn bench_parsing_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("OKX Parsing Comparison");
