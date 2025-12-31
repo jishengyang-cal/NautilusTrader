@@ -34,8 +34,8 @@ class TestOrderPerformance:
         )
 
         self.order_factory = OrderFactory(
-            trader_id=TraderId("TESTER-000"),
-            strategy_id=StrategyId("S-001"),
+            trader_id=TestIdStubs.trader_id(),
+            strategy_id=TestIdStubs.strategy_id(),
             clock=TestClock(),
         )
 

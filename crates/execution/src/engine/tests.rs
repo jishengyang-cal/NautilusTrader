@@ -39,7 +39,7 @@ use nautilus_model::{
     instruments::{Instrument, InstrumentAny, stubs::audusd_sim},
     orders::{Order, OrderAny, OrderList, builder::OrderTestBuilder, stubs::TestOrderEventStubs},
     position::Position,
-    stubs::stub_position_long,
+    stubs::{TestDefault, stub_position_long},
     types::{Money, Price, Quantity},
 };
 use rstest::*;
@@ -310,8 +310,8 @@ fn test_execution_engine_default_config_initializes_correctly(execution_engine: 
 fn test_submit_order_with_duplicate_client_order_id_handles_gracefully(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -353,7 +353,7 @@ fn test_submit_order_with_duplicate_client_order_id_handles_gracefully(
 
     execution_engine.execute(&TradingCommand::SubmitOrder(submit_order.clone()));
 
-    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::from("SIM-001"));
+    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::test_default());
     execution_engine.process(&order_submitted_event);
     execution_engine.execute(&TradingCommand::SubmitOrder(submit_order));
 
@@ -384,14 +384,14 @@ fn test_submit_order_with_duplicate_client_order_id_handles_gracefully(
 
 #[rstest]
 fn test_submit_order_for_random_venue_logs(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"), // Use SIM venue to match instrument
+        AccountId::test_default(),
+        Venue::test_default(), // Use SIM venue to match instrument
         OmsType::Netting,
         None,
     );
@@ -443,14 +443,14 @@ fn test_submit_order_for_random_venue_logs(mut execution_engine: ExecutionEngine
 
 #[rstest]
 fn test_order_filled_with_unrecognized_strategy_id(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -484,7 +484,7 @@ fn test_order_filled_with_unrecognized_strategy_id(mut execution_engine: Executi
         .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
         .unwrap();
 
-    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::from("SIM-001"));
+    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::test_default());
     execution_engine.process(&order_submitted_event);
 
     let different_strategy_id = StrategyId::from("RANDOM-001");
@@ -494,7 +494,7 @@ fn test_order_filled_with_unrecognized_strategy_id(mut execution_engine: Executi
         instrument.id,
         order.client_order_id(),
         VenueOrderId::from("V-001"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         TradeId::new("T-001"),
         order.order_side(),
         order.order_type(),
@@ -524,14 +524,14 @@ fn test_order_filled_with_unrecognized_strategy_id(mut execution_engine: Executi
 fn test_submit_bracket_order_list_with_all_duplicate_client_order_id_logs_does_not_submit(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -596,15 +596,14 @@ fn test_submit_bracket_order_list_with_all_duplicate_client_order_id_logs_does_n
         ts_init: UnixNanos::default(),
     };
     execution_engine.execute(&TradingCommand::SubmitOrderList(submit_order_list.clone()));
-    let entry_submitted = TestOrderEventStubs::submitted(&entry, AccountId::from("SIM-001"));
+    let entry_submitted = TestOrderEventStubs::submitted(&entry, AccountId::test_default());
     execution_engine.process(&entry_submitted);
 
-    let stop_loss_submitted =
-        TestOrderEventStubs::submitted(&stop_loss, AccountId::from("SIM-001"));
+    let stop_loss_submitted = TestOrderEventStubs::submitted(&stop_loss, AccountId::test_default());
     execution_engine.process(&stop_loss_submitted);
 
     let take_profit_submitted =
-        TestOrderEventStubs::submitted(&take_profit, AccountId::from("SIM-001"));
+        TestOrderEventStubs::submitted(&take_profit, AccountId::test_default());
     execution_engine.process(&take_profit_submitted);
 
     // Get updated orders from cache after submitted events
@@ -662,8 +661,8 @@ fn test_submit_bracket_order_list_with_all_duplicate_client_order_id_logs_does_n
 fn test_submit_order_successfully_processes_and_caches_order(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -745,14 +744,14 @@ fn test_submit_order_successfully_processes_and_caches_order(
 
 #[rstest]
 fn test_submit_order_with_cleared_cache_logs_error(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -806,7 +805,7 @@ fn test_submit_order_with_cleared_cache_logs_error(mut execution_engine: Executi
 
     let order_accepted_event = TestOrderEventStubs::accepted(
         &order,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order_accepted_event);
@@ -832,14 +831,14 @@ fn test_submit_order_with_cleared_cache_logs_error(mut execution_engine: Executi
 fn test_when_applying_event_to_order_with_invalid_state_trigger_logs(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -892,7 +891,7 @@ fn test_when_applying_event_to_order_with_invalid_state_trigger_logs(
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
 
     // This should log an error and not change the order status
@@ -908,8 +907,8 @@ fn test_when_applying_event_to_order_with_invalid_state_trigger_logs(
 fn test_order_filled_event_when_order_not_found_in_cache_logs(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -943,7 +942,7 @@ fn test_order_filled_event_when_order_not_found_in_cache_logs(
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
 
     execution_engine.process(&order_filled_event);
@@ -965,14 +964,14 @@ fn test_order_filled_event_when_order_not_found_in_cache_logs(
 fn test_cancel_order_for_already_closed_order_logs_and_does_nothing(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -1016,12 +1015,12 @@ fn test_cancel_order_for_already_closed_order_logs_and_does_nothing(
     // Submit and process order through full lifecycle to FILLED status
     execution_engine.execute(&TradingCommand::SubmitOrder(submit_order));
 
-    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::from("SIM-001"));
+    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::test_default());
     execution_engine.process(&order_submitted_event);
 
     let order_accepted_event = TestOrderEventStubs::accepted(
         &order,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order_accepted_event);
@@ -1032,7 +1031,7 @@ fn test_cancel_order_for_already_closed_order_logs_and_does_nothing(
         order.instrument_id(),
         order.client_order_id(),
         VenueOrderId::from("V-001"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         TradeId::new("E-19700101-000000-001-001"),
         order.order_side(),
         order.order_type(),
@@ -1091,8 +1090,8 @@ fn test_cancel_order_for_already_closed_order_logs_and_does_nothing(
 fn test_canceled_order_receiving_fill_event_reopens_and_completes_order(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -1224,8 +1223,8 @@ fn test_canceled_order_receiving_fill_event_reopens_and_completes_order(
 fn test_canceled_order_receiving_partial_fill_event_reopens_and_becomes_partially_filled(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -1366,8 +1365,8 @@ fn test_canceled_order_receiving_partial_fill_event_reopens_and_becomes_partiall
 fn test_process_event_with_no_venue_order_id_logs_and_does_nothing(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -1436,8 +1435,8 @@ fn test_process_event_with_no_venue_order_id_logs_and_does_nothing(
 fn test_modify_order_for_already_closed_order_logs_and_does_nothing(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -1559,8 +1558,8 @@ fn test_modify_order_for_already_closed_order_logs_and_does_nothing(
 fn test_handle_order_event_with_different_client_order_id_but_matching_venue_order_id_fails_to_apply(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -1634,8 +1633,8 @@ fn test_handle_order_event_with_different_client_order_id_but_matching_venue_ord
 fn test_handle_order_event_with_random_client_order_id_and_order_id_not_cached(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -1710,8 +1709,8 @@ fn test_handle_order_event_with_random_client_order_id_and_order_id_not_cached(
 fn test_handle_duplicate_order_events_logs_error_and_does_not_apply(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
@@ -1797,14 +1796,14 @@ fn test_handle_duplicate_order_events_logs_error_and_does_not_apply(
 fn test_handle_order_fill_event_with_no_position_id_correctly_handles_fill(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -1839,7 +1838,7 @@ fn test_handle_order_fill_event_with_no_position_id_correctly_handles_fill(
         .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
         .unwrap();
 
-    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::from("SIM-001"));
+    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::test_default());
     execution_engine.process(&order_submitted_event);
 
     let order_filled_event = TestOrderEventStubs::filled(
@@ -1852,7 +1851,7 @@ fn test_handle_order_fill_event_with_no_position_id_correctly_handles_fill(
         None,                                            // liquidity_side
         None,                                            // commission
         None,                                            // ts_filled_ns
-        Some(AccountId::from("SIM-001")),                // account_id
+        Some(AccountId::test_default()),                 // account_id
     );
 
     execution_engine.process(&order_filled_event);
@@ -1907,13 +1906,13 @@ fn test_handle_order_fill_event_with_no_position_id_correctly_handles_fill(
 
 #[rstest]
 fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         Venue::from("STUB_VENUE"),
         OmsType::Netting,
         None,
@@ -1960,7 +1959,7 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
             instrument.id(),
             order.client_order_id(),
             VenueOrderId::from("V-001"),
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             TradeId::new("E-19700101-000000-001-001-0"), // Different trade ID
             order.order_side(),
             order.order_type(),
@@ -1989,7 +1988,7 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
         instrument.id(),
         order.client_order_id(),
         VenueOrderId::from("V-001"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         TradeId::new("E-19700101-000000-001-001-1"),
         order.order_side(),
         order.order_type(),
@@ -2057,7 +2056,7 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
     assert!(
         !cache
             .position_closed_ids(
-                Some(&Venue::from("SIM")),
+                Some(&Venue::test_default()),
                 Some(&instrument.id),
                 Some(&strategy_id)
             )
@@ -2075,7 +2074,7 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
     assert!(
         cache
             .position_open_ids(
-                Some(&Venue::from("SIM")),
+                Some(&Venue::test_default()),
                 Some(&instrument.id),
                 Some(&strategy_id)
             )
@@ -2111,13 +2110,13 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
 
 #[rstest]
 fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         Venue::from("STUB_VENUE"),
         OmsType::Netting,
         None,
@@ -2152,12 +2151,12 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
         .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
         .unwrap();
 
-    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::from("SIM-001"));
+    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::test_default());
     execution_engine.process(&order_submitted_event);
 
     let order_accepted_event = TestOrderEventStubs::accepted(
         &order,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order_accepted_event);
@@ -2172,7 +2171,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
             instrument.id(),
             order.client_order_id(),
             VenueOrderId::from("V-001"),
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             TradeId::new("E-19700101-000000-001-001-0"), // Different trade ID
             order.order_side(),
             order.order_type(),
@@ -2201,7 +2200,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
         instrument.id(),
         order.client_order_id(),
         VenueOrderId::from("V-001"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         TradeId::new("E-19700101-000000-001-001-1"),
         order.order_side(),
         order.order_type(),
@@ -2225,7 +2224,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
         instrument.id(),
         order.client_order_id(),
         VenueOrderId::from("V-001"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         TradeId::new("E-19700101-000000-001-001-2"),
         order.order_side(),
         order.order_type(),
@@ -2249,7 +2248,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
         instrument.id(),
         order.client_order_id(),
         VenueOrderId::from("V-001"),
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         TradeId::new("E-19700101-000000-001-001-3"),
         order.order_side(),
         order.order_type(),
@@ -2301,7 +2300,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
     assert!(
         !cache
             .position_closed_ids(
-                Some(&Venue::from("SIM")),
+                Some(&Venue::test_default()),
                 Some(&instrument.id),
                 Some(&strategy_id)
             )
@@ -2319,7 +2318,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
     assert!(
         cache
             .position_open_ids(
-                Some(&Venue::from("SIM")),
+                Some(&Venue::test_default()),
                 Some(&instrument.id),
                 Some(&strategy_id)
             )
@@ -2355,14 +2354,14 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
 
 #[rstest]
 fn test_handle_position_opening_with_position_id_none(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -2396,12 +2395,12 @@ fn test_handle_position_opening_with_position_id_none(mut execution_engine: Exec
         .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
         .unwrap();
 
-    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::from("SIM-001"));
+    let order_submitted_event = TestOrderEventStubs::submitted(&order, AccountId::test_default());
     execution_engine.process(&order_submitted_event);
 
     let order_accepted_event = TestOrderEventStubs::accepted(
         &order,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order_accepted_event);
@@ -2410,13 +2409,13 @@ fn test_handle_position_opening_with_position_id_none(mut execution_engine: Exec
         &order,
         &instrument.into(),
         Some(TradeId::new("E-19700101-000000-001-001")),
-        None,                             // position_id = None (let engine generate it)
-        None,                             // last_px
-        None,                             // last_qty
-        None,                             // liquidity_side
-        None,                             // commission
-        None,                             // ts_filled_ns
-        Some(AccountId::from("SIM-001")), // account_id
+        None,                            // position_id = None (let engine generate it)
+        None,                            // last_px
+        None,                            // last_qty
+        None,                            // liquidity_side
+        None,                            // commission
+        None,                            // ts_filled_ns
+        Some(AccountId::test_default()), // account_id
     );
 
     execution_engine.process(&order_filled_event);
@@ -2505,14 +2504,14 @@ fn test_handle_position_opening_with_position_id_none(mut execution_engine: Exec
 
 #[rstest]
 fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -2546,13 +2545,12 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
         .add_order(order1.clone(), None, Some(ClientId::from("STUB")), true)
         .unwrap();
 
-    let order1_submitted_event =
-        TestOrderEventStubs::submitted(&order1, AccountId::from("SIM-001"));
+    let order1_submitted_event = TestOrderEventStubs::submitted(&order1, AccountId::test_default());
     execution_engine.process(&order1_submitted_event);
 
     let order1_accepted_event = TestOrderEventStubs::accepted(
         &order1,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order1_accepted_event);
@@ -2562,13 +2560,13 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
         &order1,
         &instrument.into(),
         Some(TradeId::new("E-19700101-000000-001-001-1")),
-        None,                             // Let system generate position ID
-        None,                             // last_px
-        None,                             // last_qty
-        None,                             // liquidity_side
-        None,                             // commission
-        None,                             // ts_filled_ns
-        Some(AccountId::from("SIM-001")), // account_id
+        None,                            // Let system generate position ID
+        None,                            // last_px
+        None,                            // last_qty
+        None,                            // liquidity_side
+        None,                            // commission
+        None,                            // ts_filled_ns
+        Some(AccountId::test_default()), // account_id
     );
     execution_engine.process(&order1_filled_event);
 
@@ -2598,13 +2596,12 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
         .add_order(order2.clone(), None, Some(ClientId::from("STUB")), true)
         .unwrap();
 
-    let order2_submitted_event =
-        TestOrderEventStubs::submitted(&order2, AccountId::from("SIM-001"));
+    let order2_submitted_event = TestOrderEventStubs::submitted(&order2, AccountId::test_default());
     execution_engine.process(&order2_submitted_event);
 
     let order2_accepted_event = TestOrderEventStubs::accepted(
         &order2,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-002"),
     );
     execution_engine.process(&order2_accepted_event);
@@ -2613,13 +2610,13 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
         &order2,
         &instrument.into(),
         Some(TradeId::new("E-19700101-000000-001-001-2")),
-        Some(expected_position_id),       // Specify existing position ID
-        None,                             // last_px
-        None,                             // last_qty
-        None,                             // liquidity_side
-        None,                             // commission
-        None,                             // ts_filled_ns
-        Some(AccountId::from("SIM-001")), // account_id
+        Some(expected_position_id),      // Specify existing position ID
+        None,                            // last_px
+        None,                            // last_qty
+        None,                            // liquidity_side
+        None,                            // commission
+        None,                            // ts_filled_ns
+        Some(AccountId::test_default()), // account_id
     );
     execution_engine.process(&order2_filled_event);
     let cache = execution_engine.cache.borrow();
@@ -2699,7 +2696,7 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
     assert_eq!(
         cache
             .position_open_ids(
-                Some(&Venue::from("SIM")),
+                Some(&Venue::test_default()),
                 Some(&instrument.id),
                 Some(&strategy_id)
             )
@@ -2711,7 +2708,7 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
     assert_eq!(
         cache
             .position_closed_ids(
-                Some(&Venue::from("SIM")),
+                Some(&Venue::test_default()),
                 Some(&instrument.id),
                 Some(&strategy_id)
             )
@@ -2723,14 +2720,14 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
 
 #[rstest]
 fn test_close_position_on_order_fill(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -2766,13 +2763,12 @@ fn test_close_position_on_order_fill(mut execution_engine: ExecutionEngine) {
         .add_order(order1.clone(), None, Some(ClientId::from("STUB")), true)
         .unwrap();
 
-    let order1_submitted_event =
-        TestOrderEventStubs::submitted(&order1, AccountId::from("SIM-001"));
+    let order1_submitted_event = TestOrderEventStubs::submitted(&order1, AccountId::test_default());
     execution_engine.process(&order1_submitted_event);
 
     let order1_accepted_event = TestOrderEventStubs::accepted(
         &order1,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order1_accepted_event);
@@ -2790,7 +2786,7 @@ fn test_close_position_on_order_fill(mut execution_engine: ExecutionEngine) {
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order1_filled_event);
 
@@ -2830,13 +2826,12 @@ fn test_close_position_on_order_fill(mut execution_engine: ExecutionEngine) {
         )
         .unwrap();
 
-    let order2_submitted_event =
-        TestOrderEventStubs::submitted(&order2, AccountId::from("SIM-001"));
+    let order2_submitted_event = TestOrderEventStubs::submitted(&order2, AccountId::test_default());
     execution_engine.process(&order2_submitted_event);
 
     let order2_accepted_event = TestOrderEventStubs::accepted(
         &order2,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-002"),
     );
     execution_engine.process(&order2_accepted_event);
@@ -2851,7 +2846,7 @@ fn test_close_position_on_order_fill(mut execution_engine: ExecutionEngine) {
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order2_filled_event);
 
@@ -2927,15 +2922,15 @@ fn test_close_position_on_order_fill(mut execution_engine: ExecutionEngine) {
 
 #[rstest]
 fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
+    let trader_id = TraderId::test_default();
     let strategy1_id = StrategyId::from("TEST-STRATEGY-001");
     let strategy2_id = StrategyId::from("TEST-STRATEGY-002");
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -2991,13 +2986,12 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
     let position1_id = PositionId::from("P-1");
     let position2_id = PositionId::from("P-2");
 
-    let order1_submitted_event =
-        TestOrderEventStubs::submitted(&order1, AccountId::from("SIM-001"));
+    let order1_submitted_event = TestOrderEventStubs::submitted(&order1, AccountId::test_default());
     execution_engine.process(&order1_submitted_event);
 
     let order1_accepted_event = TestOrderEventStubs::accepted(
         &order1,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order1_accepted_event);
@@ -3012,17 +3006,16 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order1_filled_event);
 
-    let order2_submitted_event =
-        TestOrderEventStubs::submitted(&order2, AccountId::from("SIM-001"));
+    let order2_submitted_event = TestOrderEventStubs::submitted(&order2, AccountId::test_default());
     execution_engine.process(&order2_submitted_event);
 
     let order2_accepted_event = TestOrderEventStubs::accepted(
         &order2,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-002"),
     );
     execution_engine.process(&order2_accepted_event);
@@ -3037,7 +3030,7 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order2_filled_event);
 
@@ -3079,7 +3072,7 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
         "Position 2 should be retrievable"
     );
 
-    let venue = Venue::from("SIM");
+    let venue = Venue::test_default();
     assert!(
         cache
             .position_ids(Some(&venue), Some(&instrument.id), Some(&strategy1_id))
@@ -3197,14 +3190,14 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
 
 #[rstest]
 fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Hedging,
         None,
     );
@@ -3257,13 +3250,12 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
 
     let position_id = PositionId::from("P-19700101-000000-000-000-1");
 
-    let order1_submitted_event =
-        TestOrderEventStubs::submitted(&order1, AccountId::from("SIM-001"));
+    let order1_submitted_event = TestOrderEventStubs::submitted(&order1, AccountId::test_default());
     execution_engine.process(&order1_submitted_event);
 
     let order1_accepted_event = TestOrderEventStubs::accepted(
         &order1,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order1_accepted_event);
@@ -3278,7 +3270,7 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order1_filled_event);
 
@@ -3302,13 +3294,12 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
         );
     }
 
-    let order2_submitted_event =
-        TestOrderEventStubs::submitted(&order2, AccountId::from("SIM-001"));
+    let order2_submitted_event = TestOrderEventStubs::submitted(&order2, AccountId::test_default());
     execution_engine.process(&order2_submitted_event);
 
     let order2_accepted_event = TestOrderEventStubs::accepted(
         &order2,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-002"),
     );
     execution_engine.process(&order2_accepted_event);
@@ -3323,7 +3314,7 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order2_filled_event);
 
@@ -3427,14 +3418,14 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
 
 #[rstest]
 fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Hedging,
         None,
     );
@@ -3487,13 +3478,12 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
 
     let position_id = PositionId::from("P-19700101-000000-000-None-1");
 
-    let order1_submitted_event =
-        TestOrderEventStubs::submitted(&order1, AccountId::from("SIM-001"));
+    let order1_submitted_event = TestOrderEventStubs::submitted(&order1, AccountId::test_default());
     execution_engine.process(&order1_submitted_event);
 
     let order1_accepted_event = TestOrderEventStubs::accepted(
         &order1,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order1_accepted_event);
@@ -3508,7 +3498,7 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order1_filled_event);
 
@@ -3536,13 +3526,12 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
         );
     }
 
-    let order2_submitted_event =
-        TestOrderEventStubs::submitted(&order2, AccountId::from("SIM-001"));
+    let order2_submitted_event = TestOrderEventStubs::submitted(&order2, AccountId::test_default());
     execution_engine.process(&order2_submitted_event);
 
     let order2_accepted_event = TestOrderEventStubs::accepted(
         &order2,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-002"),
     );
     execution_engine.process(&order2_accepted_event);
@@ -3557,7 +3546,7 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order2_filled_event);
 
@@ -3662,14 +3651,14 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
 fn test_flip_position_on_flat_position_then_filled_reusing_position_id(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Hedging,
         None,
     );
@@ -3737,13 +3726,12 @@ fn test_flip_position_on_flat_position_then_filled_reusing_position_id(
 
     let position_id = PositionId::from("P-19700101-000000-000-001-1");
 
-    let order1_submitted_event =
-        TestOrderEventStubs::submitted(&order1, AccountId::from("SIM-001"));
+    let order1_submitted_event = TestOrderEventStubs::submitted(&order1, AccountId::test_default());
     execution_engine.process(&order1_submitted_event);
 
     let order1_accepted_event = TestOrderEventStubs::accepted(
         &order1,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order1_accepted_event);
@@ -3758,7 +3746,7 @@ fn test_flip_position_on_flat_position_then_filled_reusing_position_id(
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order1_filled_event);
 
@@ -3786,13 +3774,12 @@ fn test_flip_position_on_flat_position_then_filled_reusing_position_id(
         );
     }
 
-    let order2_submitted_event =
-        TestOrderEventStubs::submitted(&order2, AccountId::from("SIM-001"));
+    let order2_submitted_event = TestOrderEventStubs::submitted(&order2, AccountId::test_default());
     execution_engine.process(&order2_submitted_event);
 
     let order2_accepted_event = TestOrderEventStubs::accepted(
         &order2,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-002"),
     );
     execution_engine.process(&order2_accepted_event);
@@ -3807,7 +3794,7 @@ fn test_flip_position_on_flat_position_then_filled_reusing_position_id(
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order2_filled_event);
 
@@ -3849,14 +3836,14 @@ fn test_flip_position_on_flat_position_then_filled_reusing_position_id(
 
 #[rstest]
 fn test_flip_position_when_netting_oms(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
     let instrument = audusd_sim();
 
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
-        AccountId::from("SIM-001"),
-        Venue::from("SIM"),
+        AccountId::test_default(),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -3909,13 +3896,12 @@ fn test_flip_position_when_netting_oms(mut execution_engine: ExecutionEngine) {
 
     let position_id = PositionId::from("P-19700101-000000-000-None-1");
 
-    let order1_submitted_event =
-        TestOrderEventStubs::submitted(&order1, AccountId::from("SIM-001"));
+    let order1_submitted_event = TestOrderEventStubs::submitted(&order1, AccountId::test_default());
     execution_engine.process(&order1_submitted_event);
 
     let order1_accepted_event = TestOrderEventStubs::accepted(
         &order1,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-001"),
     );
     execution_engine.process(&order1_accepted_event);
@@ -3930,7 +3916,7 @@ fn test_flip_position_when_netting_oms(mut execution_engine: ExecutionEngine) {
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order1_filled_event);
 
@@ -3958,13 +3944,12 @@ fn test_flip_position_when_netting_oms(mut execution_engine: ExecutionEngine) {
         );
     }
 
-    let order2_submitted_event =
-        TestOrderEventStubs::submitted(&order2, AccountId::from("SIM-001"));
+    let order2_submitted_event = TestOrderEventStubs::submitted(&order2, AccountId::test_default());
     execution_engine.process(&order2_submitted_event);
 
     let order2_accepted_event = TestOrderEventStubs::accepted(
         &order2,
-        AccountId::from("SIM-001"),
+        AccountId::test_default(),
         VenueOrderId::from("V-002"),
     );
     execution_engine.process(&order2_accepted_event);
@@ -3979,7 +3964,7 @@ fn test_flip_position_when_netting_oms(mut execution_engine: ExecutionEngine) {
         None,
         None,
         None,
-        Some(AccountId::from("SIM-001")),
+        Some(AccountId::test_default()),
     );
     execution_engine.process(&order2_filled_event);
 
@@ -4007,9 +3992,9 @@ fn test_flip_position_when_netting_oms(mut execution_engine: ExecutionEngine) {
 //CAN CHECK THIS TEST
 #[rstest]
 fn test_handle_updated_order_event(mut execution_engine: ExecutionEngine) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     let order = OrderTestBuilder::new(OrderType::Limit)
@@ -4101,9 +4086,9 @@ fn test_handle_updated_order_event(mut execution_engine: ExecutionEngine) {
 fn test_submit_order_with_quote_quantity_and_no_prices_denies(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     let order = OrderTestBuilder::new(OrderType::Limit)
@@ -4185,9 +4170,9 @@ fn test_submit_order_with_quote_quantity_and_no_prices_denies(
 fn test_submit_bracket_order_with_quote_quantity_and_no_prices_denies(
     mut execution_engine: ExecutionEngine,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -4375,9 +4360,9 @@ fn test_submit_order_with_quote_quantity_and_quote_tick_converts_to_base_quantit
     mut execution_engine: ExecutionEngine,
     #[case] order_side: OrderSide,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -4511,9 +4496,9 @@ fn test_submit_order_with_quote_quantity_and_trade_ticks_converts_to_base_quanti
     mut execution_engine: ExecutionEngine,
     #[case] order_side: OrderSide,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -4647,9 +4632,9 @@ fn test_submit_bracket_order_with_quote_quantity_and_ticks_converts_expected(
     mut execution_engine: ExecutionEngine,
     #[case] order_side: OrderSide,
 ) {
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -4890,9 +4875,9 @@ fn test_submit_market_should_not_add_to_own_book() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -4966,9 +4951,9 @@ fn test_submit_ioc_fok_should_not_add_to_own_book(#[case] time_in_force: TimeInF
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -5042,9 +5027,9 @@ fn test_submit_order_adds_to_own_book_bid() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -5188,9 +5173,9 @@ fn test_submit_order_adds_to_own_book_ask() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -5334,9 +5319,9 @@ fn test_cancel_order_removes_from_own_book() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -5496,9 +5481,9 @@ fn test_own_book_status_filtering() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -5696,9 +5681,9 @@ fn test_filled_order_removes_from_own_book() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -5894,9 +5879,9 @@ fn test_order_updates_in_own_book() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -6123,9 +6108,9 @@ fn test_position_flip_with_own_order_book() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -6368,9 +6353,9 @@ fn test_own_book_with_crossed_orders() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -6524,9 +6509,9 @@ fn test_own_book_with_contingent_orders() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -6538,7 +6523,7 @@ fn test_own_book_with_contingent_orders() {
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
         account_id,
-        Venue::from("SIM"),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -6791,9 +6776,9 @@ fn test_own_book_order_status_filtering_parameterized(
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -6805,7 +6790,7 @@ fn test_own_book_order_status_filtering_parameterized(
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
         account_id,
-        Venue::from("SIM"),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -6966,9 +6951,9 @@ fn test_own_book_combined_status_filtering() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -6980,7 +6965,7 @@ fn test_own_book_combined_status_filtering() {
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
         account_id,
-        Venue::from("SIM"),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -7252,9 +7237,9 @@ fn test_own_book_status_integrity_during_transitions() {
 
     let mut execution_engine = ExecutionEngine::new(clock, cache, Some(config));
 
-    let trader_id = TraderId::from("TEST-TRADER");
-    let strategy_id = StrategyId::from("TEST-STRATEGY");
-    let account_id = AccountId::from("SIM-001");
+    let trader_id = TraderId::test_default();
+    let strategy_id = StrategyId::test_default();
+    let account_id = AccountId::test_default();
     let instrument = audusd_sim();
 
     execution_engine
@@ -7266,7 +7251,7 @@ fn test_own_book_status_integrity_during_transitions() {
     let stub_client = StubExecutionClient::new(
         ClientId::from("STUB"),
         account_id,
-        Venue::from("SIM"),
+        Venue::test_default(),
         OmsType::Netting,
         None,
     );
@@ -7791,14 +7776,14 @@ fn test_own_book_status_integrity_during_transitions() {
 
     #[rstest]
     fn test_netting_flip_creates_snapshot(mut execution_engine: ExecutionEngine) {
-        let trader_id = TraderId::from("TEST-TRADER");
-        let strategy_id = StrategyId::from("TEST-STRATEGY");
+        let trader_id = TraderId::test_default();
+        let strategy_id = StrategyId::test_default();
         let instrument = audusd_sim();
 
         let stub_client = StubExecutionClient::new(
             ClientId::from("STUB"),
-            AccountId::from("SIM-001"),
-            Venue::from("SIM"),
+            AccountId::test_default(),
+            Venue::test_default(),
             OmsType::Netting,
             None,
         );
@@ -7838,11 +7823,11 @@ fn test_own_book_status_integrity_during_transitions() {
 
         execution_engine.process(&TestOrderEventStubs::submitted(
             &order1,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
         ));
         execution_engine.process(&TestOrderEventStubs::accepted(
             &order1,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             VenueOrderId::from("V-1"),
         ));
         execution_engine.process(&TestOrderEventStubs::filled(
@@ -7855,7 +7840,7 @@ fn test_own_book_status_integrity_during_transitions() {
             None,
             None,
             None,
-            Some(AccountId::from("SIM-001")),
+            Some(AccountId::test_default()),
         ));
 
         {
@@ -7883,11 +7868,11 @@ fn test_own_book_status_integrity_during_transitions() {
 
         execution_engine.process(&TestOrderEventStubs::submitted(
             &order2,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
         ));
         execution_engine.process(&TestOrderEventStubs::accepted(
             &order2,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             VenueOrderId::from("V-2"),
         ));
         execution_engine.process(&TestOrderEventStubs::filled(
@@ -7900,7 +7885,7 @@ fn test_own_book_status_integrity_during_transitions() {
             None,
             None,
             None,
-            Some(AccountId::from("SIM-001")),
+            Some(AccountId::test_default()),
         ));
 
         let cache = execution_engine.cache.borrow();
@@ -7920,14 +7905,14 @@ fn test_own_book_status_integrity_during_transitions() {
 
     #[rstest]
     fn test_hedging_flip_no_snapshot(mut execution_engine: ExecutionEngine) {
-        let trader_id = TraderId::from("TEST-TRADER");
-        let strategy_id = StrategyId::from("TEST-STRATEGY");
+        let trader_id = TraderId::test_default();
+        let strategy_id = StrategyId::test_default();
         let instrument = audusd_sim();
 
         let stub_client = StubExecutionClient::new(
             ClientId::from("STUB"),
-            AccountId::from("SIM-001"),
-            Venue::from("SIM"),
+            AccountId::test_default(),
+            Venue::test_default(),
             OmsType::Hedging,
             None,
         );
@@ -7967,11 +7952,11 @@ fn test_own_book_status_integrity_during_transitions() {
 
         execution_engine.process(&TestOrderEventStubs::submitted(
             &order1,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
         ));
         execution_engine.process(&TestOrderEventStubs::accepted(
             &order1,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             VenueOrderId::from("V-1"),
         ));
         execution_engine.process(&TestOrderEventStubs::filled(
@@ -7984,7 +7969,7 @@ fn test_own_book_status_integrity_during_transitions() {
             None,
             None,
             None,
-            Some(AccountId::from("SIM-001")),
+            Some(AccountId::test_default()),
         ));
 
         let order2 = OrderTestBuilder::new(OrderType::Market)
@@ -8004,11 +7989,11 @@ fn test_own_book_status_integrity_during_transitions() {
 
         execution_engine.process(&TestOrderEventStubs::submitted(
             &order2,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
         ));
         execution_engine.process(&TestOrderEventStubs::accepted(
             &order2,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             VenueOrderId::from("V-2"),
         ));
         execution_engine.process(&TestOrderEventStubs::filled(
@@ -8021,7 +8006,7 @@ fn test_own_book_status_integrity_during_transitions() {
             None,
             None,
             None,
-            Some(AccountId::from("SIM-001")),
+            Some(AccountId::test_default()),
         ));
 
         let cache = execution_engine.cache.borrow();
@@ -8047,14 +8032,14 @@ fn test_own_book_status_integrity_during_transitions() {
 
     #[rstest]
     fn test_netting_reopen_creates_snapshot(mut execution_engine: ExecutionEngine) {
-        let trader_id = TraderId::from("TEST-TRADER");
-        let strategy_id = StrategyId::from("TEST-STRATEGY");
+        let trader_id = TraderId::test_default();
+        let strategy_id = StrategyId::test_default();
         let instrument = audusd_sim();
 
         let stub_client = StubExecutionClient::new(
             ClientId::from("STUB"),
-            AccountId::from("SIM-001"),
-            Venue::from("SIM"),
+            AccountId::test_default(),
+            Venue::test_default(),
             OmsType::Netting,
             None,
         );
@@ -8095,11 +8080,11 @@ fn test_own_book_status_integrity_during_transitions() {
 
         execution_engine.process(&TestOrderEventStubs::submitted(
             &order1,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
         ));
         execution_engine.process(&TestOrderEventStubs::accepted(
             &order1,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             VenueOrderId::from("V-1"),
         ));
         execution_engine.process(&TestOrderEventStubs::filled(
@@ -8112,7 +8097,7 @@ fn test_own_book_status_integrity_during_transitions() {
             None,
             None,
             None,
-            Some(AccountId::from("SIM-001")),
+            Some(AccountId::test_default()),
         ));
 
         // Close to FLAT
@@ -8133,11 +8118,11 @@ fn test_own_book_status_integrity_during_transitions() {
 
         execution_engine.process(&TestOrderEventStubs::submitted(
             &order2,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
         ));
         execution_engine.process(&TestOrderEventStubs::accepted(
             &order2,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             VenueOrderId::from("V-2"),
         ));
         execution_engine.process(&TestOrderEventStubs::filled(
@@ -8150,7 +8135,7 @@ fn test_own_book_status_integrity_during_transitions() {
             None,
             None,
             None,
-            Some(AccountId::from("SIM-001")),
+            Some(AccountId::test_default()),
         ));
 
         {
@@ -8177,11 +8162,11 @@ fn test_own_book_status_integrity_during_transitions() {
 
         execution_engine.process(&TestOrderEventStubs::submitted(
             &order3,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
         ));
         execution_engine.process(&TestOrderEventStubs::accepted(
             &order3,
-            AccountId::from("SIM-001"),
+            AccountId::test_default(),
             VenueOrderId::from("V-3"),
         ));
         execution_engine.process(&TestOrderEventStubs::filled(
@@ -8194,7 +8179,7 @@ fn test_own_book_status_integrity_during_transitions() {
             None,
             None,
             None,
-            Some(AccountId::from("SIM-001")),
+            Some(AccountId::test_default()),
         ));
 
         let cache = execution_engine.cache.borrow();

@@ -27,12 +27,12 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import TraderId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.test_kit.providers import TestDataGenerator
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
+from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 from nautilus_trader.trading.strategy import Strategy
 
 
@@ -89,7 +89,7 @@ def test_time_bar_aggregation():
     # Create a backtest engine
     engine = BacktestEngine(
         config=BacktestEngineConfig(
-            trader_id=TraderId("TESTER-000"),
+            trader_id=TestIdStubs.trader_id(),
         ),
     )
 
@@ -236,7 +236,7 @@ def test_year_bar_aggregation():
     # Create a backtest engine
     engine = BacktestEngine(
         config=BacktestEngineConfig(
-            trader_id=TraderId("TESTER-000"),
+            trader_id=TestIdStubs.trader_id(),
         ),
     )
 
@@ -397,7 +397,7 @@ def test_month_bar_aggregation():
     # Create a backtest engine
     engine = BacktestEngine(
         config=BacktestEngineConfig(
-            trader_id=TraderId("TESTER-000"),
+            trader_id=TestIdStubs.trader_id(),
         ),
     )
 

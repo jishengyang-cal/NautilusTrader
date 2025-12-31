@@ -1835,7 +1835,7 @@ fn test_purge_order_when_order_not_in_cache_still_cleans_up_indices() {
     let mut cache = Cache::default();
 
     let client_order_id = ClientOrderId::new("O-NOT-IN-CACHE");
-    let strategy_id = StrategyId::from("S-001");
+    let strategy_id = StrategyId::test_default();
 
     // Manually add to indices (simulating a corrupted state)
     cache

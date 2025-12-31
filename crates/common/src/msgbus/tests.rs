@@ -14,7 +14,7 @@
 // -------------------------------------------------------------------------------------------------
 
 use nautilus_core::UUID4;
-use nautilus_model::identifiers::TraderId;
+use nautilus_model::{identifiers::TraderId, stubs::TestDefault};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use regex::Regex;
 use rstest::rstest;
@@ -32,7 +32,7 @@ use crate::msgbus::{
 
 #[rstest]
 fn test_new() {
-    let trader_id = TraderId::from("trader-001");
+    let trader_id = TraderId::test_default();
     let msgbus = MessageBus::new(trader_id, UUID4::new(), None, None);
 
     assert_eq!(msgbus.trader_id, trader_id);

@@ -50,6 +50,7 @@ use nautilus_model::{
         Order, OrderAny, OrderTestBuilder,
         stubs::{TestOrderEventStubs, TestOrderStubs},
     },
+    stubs::TestDefault,
     types::{Price, Quantity},
 };
 use rstest::{fixture, rstest};
@@ -1381,9 +1382,9 @@ fn test_process_cancel_command_valid(
         .build();
     // Create cancel command for limit order above
     let cancel_command = CancelOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -1432,9 +1433,9 @@ fn test_process_cancel_command_order_not_found(
     let client_order_id = ClientOrderId::from("O-19700101-000000-001-001-1");
     let account_id = AccountId::from("ACCOUNT-001");
     let cancel_command = CancelOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -1548,9 +1549,9 @@ fn test_process_cancel_all_command(
 
     // Create cancel all order which related to only ETHUSDT-PERP.BINANCE instrument
     let cancel_all_command = CancelAllOrders::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         OrderSide::Buy,
         UUID4::new(),
@@ -1651,9 +1652,9 @@ fn test_process_batch_cancel_command(
     engine_l2.process_order(&mut limit_order_2, account_id);
 
     let cancel_1 = CancelOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id_1,
         Some(VenueOrderId::from("V1")),
@@ -1662,9 +1663,9 @@ fn test_process_batch_cancel_command(
         None,
     );
     let cancel_2 = CancelOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id_2,
         Some(VenueOrderId::from("V2")),
@@ -1673,9 +1674,9 @@ fn test_process_batch_cancel_command(
         None,
     );
     let batch_cancel_command = BatchCancelOrders::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         vec![cancel_1, cancel_2],
         UUID4::new(),
@@ -1820,9 +1821,9 @@ fn test_process_modify_order_rejected_not_found(
     // Create modify order command with client order id that didn't pass through the engine
     let client_order_id = ClientOrderId::from("O-19700101-000000-001-001-1");
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -1889,9 +1890,9 @@ fn test_update_limit_order_post_only_matched(
 
     // Create ModifyOrder command to update price of the order to be matched
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -1970,9 +1971,9 @@ fn test_update_limit_order_valid(
     // Create ModifyOrder command to update price to 1500.00 where it will be matched immediately
     let new_limit_price = Price::from("1500.00");
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -2056,9 +2057,9 @@ fn test_update_stop_market_order_valid(
     //  as ask is at 1500.00 and order will be correctly updated
     let new_trigger_price = Price::from("1501.00");
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -2120,9 +2121,9 @@ fn test_update_stop_limit_order_valid_update_not_triggered(
     // as ask is at 1500.00 and order will be correctly updated
     let new_trigger_price = Price::from("1501.00");
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -2236,9 +2237,9 @@ fn test_update_market_if_touched_order_valid(
     // as ask is at 1500.00 and order will be correctly updated
     let new_trigger_price = Price::from("1501.00");
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -2383,9 +2384,9 @@ fn test_update_limit_if_touched_order_valid(
     // as ask is at 1500.00 and order will be correctly updated
     let new_trigger_price = Price::from("1499.00");
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -2726,9 +2727,9 @@ fn test_updating_of_contingent_orders(
     // Modify primary order quantity to 2.000 which will trigger the contingent order
     // update of the same quantity
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id_primary,
         Some(VenueOrderId::from("V1")),
@@ -3128,9 +3129,9 @@ fn test_modify_partially_filled_order_quantity_below_filled_rejected(
 
     // Attempt to modify quantity to 0.4, which is below filled_qty of 0.5
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id,
         Some(VenueOrderId::from("V1")),
@@ -3257,9 +3258,9 @@ fn test_ouo_child_cancelled_when_parent_leaves_zero(
     // This makes leaves_qty = 0.6 - 0.6 = 0
     // Contingent should be cancelled because parent has no remaining quantity
     let modify_order_command = ModifyOrder::new(
-        TraderId::from("TRADER-001"),
+        TraderId::test_default(),
         Some(ClientId::from("CLIENT-001")),
-        StrategyId::from("STRATEGY-001"),
+        StrategyId::test_default(),
         instrument_eth_usdt.id(),
         client_order_id_primary,
         Some(VenueOrderId::from("V1")),
