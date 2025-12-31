@@ -190,6 +190,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Improved Binance data client with optional authentication
 - Improved Bybit spot borrow repayments (#3223), thanks @vcraciun
 - Improved Databento live connection stability and reconnects
+- Improved Databento decoder sentinel value handling (#3361), thanks for reporting @davidsblom
 - Improved dYdX v3 resilience and reliability (#3225), thanks @SarunasSS
 - Improved dYdX v4 adapter test coverage (#3212), thanks @nicolad
 - Improved dYdX v4 network, bars, and batch cancel (#3231), thanks @nicolad
