@@ -33,7 +33,7 @@ use pyo3::{
 };
 use serde_json;
 
-use crate::node::{LiveNode, LiveNodeBuilder};
+use crate::{builder::LiveNodeBuilder, node::LiveNode};
 
 #[pymethods]
 impl LiveNode {
@@ -72,7 +72,7 @@ impl LiveNode {
 
     #[getter]
     #[pyo3(name = "is_running")]
-    const fn py_is_running(&self) -> bool {
+    fn py_is_running(&self) -> bool {
         self.is_running()
     }
 

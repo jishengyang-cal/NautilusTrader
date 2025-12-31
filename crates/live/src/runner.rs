@@ -205,9 +205,7 @@ impl AsyncRunner {
     pub fn take_channels(self) -> AsyncRunnerChannels {
         self.channels
     }
-}
 
-impl AsyncRunner {
     /// Runs the async runner event loop.
     ///
     /// This method processes data events, time events, execution events, and signal events in an async loop.
