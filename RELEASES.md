@@ -176,6 +176,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Refactored reading of feather files in catalog (#3114), thanks @faysou
 - Refactored processing of historical data (#3038), thanks @faysou
 - Refactored execution engine reconciliation (#3185), thanks @faysou
+- Refactored risk engine initialization with shallow clone for portfolio (#3360), thanks @marcus-sa
 - Refactored `SpreadQuoteAggregator` (#3312), thanks @faysou
 - Refactored Polymarket instrument provider to use async HttpClient
 - Refactored Interactive Brokers `HistoricInteractiveBrokersClient` (#3261), thanks @faysou
@@ -224,6 +225,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Refined parsing of IB expiries (#3332), thanks @faysou
 - Refined subscription to spread quotes (#3349), thanks @faysou
 - Refined data query and subscription (#3353), thanks @faysou
+- Refined response to join_request (#3366), thanks @faysou
 - Optimized unnecessary string allocations and `Ustr` usage
 - Optimized build to prefer sccache when available (#3243), thanks @sunlei
 - Optimized execution reconciliation to avoid quadratic complexity (#3140), thanks @DeirhX
