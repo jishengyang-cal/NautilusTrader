@@ -19,6 +19,9 @@ use std::fmt::{self, Display};
 
 use nautilus_network::http::error::HttpClientError;
 
+// Re-export unified SBE decode error
+pub use crate::common::sbe::SbeDecodeError;
+
 /// Binance Spot HTTP client error type.
 #[derive(Debug)]
 pub enum BinanceSpotHttpError {
@@ -97,54 +100,3 @@ impl From<HttpClientError> for BinanceSpotHttpError {
 
 /// Result type for Binance Spot HTTP operations.
 pub type BinanceSpotHttpResult<T> = Result<T, BinanceSpotHttpError>;
-
-/// SBE decode error.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SbeDecodeError {
-    /// Buffer too short to decode expected data.
-    BufferTooShort { expected: usize, actual: usize },
-    /// Schema ID mismatch.
-    SchemaMismatch { expected: u16, actual: u16 },
-    /// Schema version mismatch.
-    VersionMismatch { expected: u16, actual: u16 },
-    /// Unknown template ID.
-    UnknownTemplateId(u16),
-    /// Group count exceeds safety limit.
-    GroupSizeTooLarge { count: u32, max: u32 },
-    /// Invalid block length.
-    InvalidBlockLength { expected: u16, actual: u16 },
-    /// Invalid UTF-8 in string field.
-    InvalidUtf8,
-}
-
-impl Display for SbeDecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BufferTooShort { expected, actual } => {
-                write!(
-                    f,
-                    "Buffer too short: expected {expected} bytes, got {actual}"
-                )
-            }
-            Self::SchemaMismatch { expected, actual } => {
-                write!(f, "Schema ID mismatch: expected {expected}, got {actual}")
-            }
-            Self::VersionMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "Schema version mismatch: expected {expected}, got {actual}"
-                )
-            }
-            Self::UnknownTemplateId(id) => write!(f, "Unknown template ID: {id}"),
-            Self::GroupSizeTooLarge { count, max } => {
-                write!(f, "Group size {count} exceeds maximum {max}")
-            }
-            Self::InvalidBlockLength { expected, actual } => {
-                write!(f, "Invalid block length: expected {expected}, got {actual}")
-            }
-            Self::InvalidUtf8 => write!(f, "Invalid UTF-8 in string field"),
-        }
-    }
-}
-
-impl std::error::Error for SbeDecodeError {}
