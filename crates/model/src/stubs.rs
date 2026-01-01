@@ -31,7 +31,7 @@ use crate::{
 
 /// A trait for providing test-only default values.
 ///
-/// This trait is intentionally separate from [`std::Default`] to make it clear
+/// This trait is intentionally separate from [`Default`] to make it clear
 /// that these default values are only meaningful in testing contexts and should
 /// not be used in production code.
 pub trait TestDefault {

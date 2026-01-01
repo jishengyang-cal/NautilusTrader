@@ -37,7 +37,7 @@ use crate::reconciliation::{
 ///
 /// # Returns
 ///
-/// Tuple of (Dict[str, OrderStatusReport], Dict[str, List[FillReport]])
+/// Tuple of `(Dict[str, OrderStatusReport], Dict[str, List[FillReport]])`
 ///
 /// # Errors
 ///
