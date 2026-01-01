@@ -1,6 +1,6 @@
 # NautilusTrader 1.222.0 Beta
 
-Released on TBD (UTC).
+Released on 1st January 2026 (UTC).
 
 This release adds support for Python 3.14 with the following limitations:
 - dYdX adapter extras (`[dydx]`) unavailable due to upstream `coincurve` compatibility (available on Python 3.12-3.13)
@@ -172,6 +172,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Scaffolded blockchain execution client with native balance fetch (#3214), thanks @filipmacek
 - Ported Bybit integration adapter to Rust
 - Unified tokio runtime selection in Rust adapters (#3321), thanks @filipmacek
+- Converted `LatencyModel` to trait with `StaticLatencyModel` impl (#3369), thanks @marcus-sa
 - Refactored network crate to modularize `http`, `socket`, and `websocket`
 - Refactored reading of feather files in catalog (#3114), thanks @faysou
 - Refactored processing of historical data (#3038), thanks @faysou
@@ -226,6 +227,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Refined subscription to spread quotes (#3349), thanks @faysou
 - Refined data query and subscription (#3353), thanks @faysou
 - Refined response to join_request (#3366), thanks @faysou
+- Refined adding instrument to cache after modifying it (#3372), thanks @faysou
 - Optimized unnecessary string allocations and `Ustr` usage
 - Optimized build to prefer sccache when available (#3243), thanks @sunlei
 - Optimized execution reconciliation to avoid quadratic complexity (#3140), thanks @DeirhX

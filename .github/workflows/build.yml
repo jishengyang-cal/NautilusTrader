@@ -199,17 +199,14 @@ jobs:
         shell: bash
     name: build - python ${{ matrix.python-version }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Pause job on develop and nightly branches
-    # - develop: takes ~1-1.5 hrs
-    # - nightly: TODO: build issue pending investigation
+    # Pause job on develop branch (takes ~1-1.5 hrs)
     # - test-pre-commit: only run linting jobs
     if: >
       !(
         (github.event_name == 'push' &&
-          (github.ref_name == 'develop' || github.ref_name == 'nightly' ||
-           github.ref_name == 'test-pre-commit'))
+          (github.ref_name == 'develop' || github.ref_name == 'test-pre-commit'))
         || (github.event_name == 'pull_request' &&
-          (github.base_ref == 'develop' || github.base_ref == 'nightly'))
+          github.base_ref == 'develop')
       )
     needs:
       - cargo-deny
@@ -483,7 +480,7 @@ jobs:
       attestations: write # Required for attestations
     needs:
       - build-linux-x86
-      # - build-linux-arm  # TODO: Build issue pending investigation
+      - build-linux-arm
       - build-macos
       - build-windows
     if: >
