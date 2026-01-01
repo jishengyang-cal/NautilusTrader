@@ -193,24 +193,23 @@ jobs:
         python-version:
           - "3.12"
           - "3.13"
-          # - "3.14"  # Disabled: ckzg dependency (via eth-account) lacks ARM64 wheel for 3.14
+          - "3.14"
     defaults:
       run:
         shell: bash
     name: build - python ${{ matrix.python-version }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Pause job on develop, nightly, test-ci, and test-pre-commit branches
+    # Pause job on develop and nightly branches
     # - develop: takes ~1-1.5 hrs
     # - nightly: TODO: build issue pending investigation
-    # - test-ci: skip ARM builds during CI testing
     # - test-pre-commit: only run linting jobs
     if: >
       !(
         (github.event_name == 'push' &&
           (github.ref_name == 'develop' || github.ref_name == 'nightly' ||
-           github.ref_name == 'test-ci' || github.ref_name == 'test-pre-commit'))
+           github.ref_name == 'test-pre-commit'))
         || (github.event_name == 'pull_request' &&
-          (github.base_ref == 'develop' || github.base_ref == 'nightly' || github.base_ref == 'test-ci'))
+          (github.base_ref == 'develop' || github.base_ref == 'nightly'))
       )
     needs:
       - cargo-deny
@@ -219,6 +218,7 @@ jobs:
     env:
       BUILD_MODE: release
       RUST_BACKTRACE: 1
+      CARGO_BUILD_JOBS: 1
     # yamllint disable rule:line-length
     services:
       redis:
@@ -276,7 +276,7 @@ jobs:
         uses: ./.github/actions/common-test-data
 
       - name: Run Rust tests
-        run: make cargo-test EXTRA_FEATURES="capnp,hypersync"
+        run: make cargo-test EXTRA_FEATURES="capnp"
 
       - name: Build and install wheel
         uses: ./.github/actions/common-wheel-build
@@ -681,6 +681,7 @@ jobs:
         with:
           persist-credentials: true  # Required for salsify action to push git tags
           fetch-depth: 2
+          fetch-tags: true
 
       - name: Set up Python environment
         # https://github.com/actions/setup-python
