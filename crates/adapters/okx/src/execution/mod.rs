@@ -34,8 +34,8 @@ use nautilus_common::{
         ExecutionEvent, ExecutionReport as NautilusExecutionReport,
         execution::{
             BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
-            GenerateOrderStatusReport, GeneratePositionReports, ModifyOrder, QueryAccount,
-            QueryOrder, SubmitOrder, SubmitOrderList,
+            GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+            ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
         },
     },
 };
@@ -813,7 +813,7 @@ impl ExecutionClient for OKXExecutionClient {
 
     async fn generate_order_status_reports(
         &self,
-        cmd: &GenerateOrderStatusReport,
+        cmd: &GenerateOrderStatusReports,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         let mut reports = Vec::new();
 
@@ -849,12 +849,17 @@ impl ExecutionClient for OKXExecutionClient {
             }
         }
 
-        if let Some(client_order_id) = cmd.client_order_id {
-            reports.retain(|report| report.client_order_id == Some(client_order_id));
+        // Filter by open_only if specified
+        if cmd.open_only {
+            reports.retain(|r| r.order_status.is_open());
         }
 
-        if let Some(venue_order_id) = cmd.venue_order_id {
-            reports.retain(|report| report.venue_order_id.as_str() == venue_order_id.as_str());
+        // Filter by time range if specified
+        if let Some(start) = cmd.start {
+            reports.retain(|r| r.ts_last >= start);
+        }
+        if let Some(end) = cmd.end {
+            reports.retain(|r| r.ts_last <= end);
         }
 
         Ok(reports)
@@ -907,7 +912,7 @@ impl ExecutionClient for OKXExecutionClient {
 
     async fn generate_position_status_reports(
         &self,
-        cmd: &GeneratePositionReports,
+        cmd: &GeneratePositionStatusReports,
     ) -> anyhow::Result<Vec<PositionStatusReport>> {
         let mut reports = Vec::new();
 
@@ -965,12 +970,15 @@ impl ExecutionClient for OKXExecutionClient {
             UnixNanos::from(ts_now.as_u64().saturating_sub(lookback_ns))
         });
 
-        let order_cmd = GenerateOrderStatusReport::new(
+        let order_cmd = GenerateOrderStatusReports::new(
             UUID4::new(),
             ts_now,
-            None, // instrument_id
-            None, // client_order_id
-            None, // venue_order_id
+            false, // open_only - get all orders for mass status
+            None,  // instrument_id
+            start, // start
+            None,  // end
+            None,  // params
+            None,  // correlation_id
         );
 
         let fill_cmd = GenerateFillReports::new(
@@ -980,14 +988,18 @@ impl ExecutionClient for OKXExecutionClient {
             None, // venue_order_id
             start,
             None, // end
+            None, // params
+            None, // correlation_id
         );
 
-        let position_cmd = GeneratePositionReports::new(
+        let position_cmd = GeneratePositionStatusReports::new(
             UUID4::new(),
             ts_now,
             None, // instrument_id
             start,
             None, // end
+            None, // params
+            None, // correlation_id
         );
 
         let (order_reports, fill_reports, position_reports) = tokio::try_join!(

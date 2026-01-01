@@ -88,6 +88,7 @@ compile_error!("Unsupported platform: Nautilus supports only Linux, macOS, and W
 // Re-exports
 pub use crate::{
     drop::CleanDrop,
+    message::Params,
     nanos::UnixNanos,
     shared::{SharedCell, WeakCell},
     stack_str::{STACKSTR_CAPACITY, StackStr},

@@ -1159,6 +1159,20 @@ impl OrderStatus {
             ])
         })
     }
+
+    /// Returns whether the order status represents an open/working order.
+    #[must_use]
+    pub const fn is_open(self) -> bool {
+        matches!(
+            self,
+            Self::Submitted
+                | Self::Accepted
+                | Self::Triggered
+                | Self::PendingUpdate
+                | Self::PendingCancel
+                | Self::PartiallyFilled
+        )
+    }
 }
 
 /// The type of order.

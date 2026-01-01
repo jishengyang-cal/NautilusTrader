@@ -24,7 +24,7 @@ use ahash::{AHashMap, AHashSet};
 use nautilus_common::{
     cache::Cache,
     clock::Clock,
-    messages::execution::report::{GenerateOrderStatusReport, GeneratePositionReports},
+    messages::execution::report::{GenerateOrderStatusReports, GeneratePositionStatusReports},
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_execution::client::ExecutionClient;
@@ -520,12 +520,15 @@ impl ExecutionManager {
         let mut venue_reported_ids = AHashSet::new();
 
         for client in clients {
-            let cmd = GenerateOrderStatusReport::new(
+            let cmd = GenerateOrderStatusReports::new(
                 UUID4::new(),
                 self.clock.borrow().timestamp_ns(),
+                true, // open_only
                 None, // instrument_id - query all
-                None, // client_order_id
-                None, // venue_order_id
+                None, // start
+                None, // end
+                None, // params
+                None, // correlation_id
             );
 
             match client.generate_order_status_reports(&cmd).await {
@@ -620,12 +623,14 @@ impl ExecutionManager {
         let mut venue_positions = AHashMap::new();
 
         for client in clients {
-            let cmd = GeneratePositionReports::new(
+            let cmd = GeneratePositionStatusReports::new(
                 UUID4::new(),
                 self.clock.borrow().timestamp_ns(),
                 None, // instrument_id - query all
                 None, // start
                 None, // end
+                None, // params
+                None, // correlation_id
             );
 
             match client.generate_position_status_reports(&cmd).await {

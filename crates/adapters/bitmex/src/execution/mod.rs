@@ -29,8 +29,8 @@ use nautilus_common::{
         ExecutionEvent, ExecutionReport,
         execution::{
             BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
-            GenerateOrderStatusReport, GeneratePositionReports, ModifyOrder, QueryAccount,
-            QueryOrder, SubmitOrder, SubmitOrderList,
+            GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+            ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
         },
     },
     msgbus,
@@ -421,11 +421,11 @@ impl ExecutionClient for BitmexExecutionClient {
 
     async fn generate_order_status_reports(
         &self,
-        cmd: &GenerateOrderStatusReport,
+        cmd: &GenerateOrderStatusReports,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         let reports = self
             .http_client
-            .request_order_status_reports(cmd.instrument_id, false, None)
+            .request_order_status_reports(cmd.instrument_id, cmd.open_only, None)
             .await
             .context("failed to request BitMEX order status reports")?;
         Ok(reports)
@@ -450,7 +450,7 @@ impl ExecutionClient for BitmexExecutionClient {
 
     async fn generate_position_status_reports(
         &self,
-        cmd: &GeneratePositionReports,
+        cmd: &GeneratePositionStatusReports,
     ) -> anyhow::Result<Vec<PositionStatusReport>> {
         let mut reports = self
             .http_client

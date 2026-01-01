@@ -25,8 +25,8 @@ use nautilus_common::{
         ExecutionEvent, ExecutionReport as NautilusExecutionReport,
         execution::{
             BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
-            GenerateOrderStatusReport, GeneratePositionReports, ModifyOrder, QueryAccount,
-            QueryOrder, SubmitOrder, SubmitOrderList,
+            GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+            ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
         },
     },
 };
@@ -910,7 +910,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
 
     async fn generate_order_status_reports(
         &self,
-        cmd: &GenerateOrderStatusReport,
+        cmd: &GenerateOrderStatusReports,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         let user_address = self.get_user_address()?;
 
@@ -920,18 +920,26 @@ impl ExecutionClient for HyperliquidExecutionClient {
             .await
             .context("failed to generate order status reports")?;
 
-        // Filter by client_order_id if specified
-        let reports = if let Some(client_order_id) = cmd.client_order_id {
+        // Filter by open_only if specified
+        let reports = if cmd.open_only {
             reports
                 .into_iter()
-                .filter(|r| r.client_order_id == Some(client_order_id))
+                .filter(|r| r.order_status.is_open())
                 .collect()
         } else {
             reports
         };
 
-        // Note: cmd.venue_order_id is Option<ClientOrderId> in the struct definition,
-        // but report venue_order_id is VenueOrderId - type mismatch prevents filtering here
+        // Filter by time range if specified
+        let reports = match (cmd.start, cmd.end) {
+            (Some(start), Some(end)) => reports
+                .into_iter()
+                .filter(|r| r.ts_last >= start && r.ts_last <= end)
+                .collect(),
+            (Some(start), None) => reports.into_iter().filter(|r| r.ts_last >= start).collect(),
+            (None, Some(end)) => reports.into_iter().filter(|r| r.ts_last <= end).collect(),
+            (None, None) => reports,
+        };
 
         tracing::info!("Generated {} order status reports", reports.len());
         Ok(reports)
@@ -972,7 +980,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
 
     async fn generate_position_status_reports(
         &self,
-        cmd: &GeneratePositionReports,
+        cmd: &GeneratePositionStatusReports,
     ) -> anyhow::Result<Vec<PositionStatusReport>> {
         let user_address = self.get_user_address()?;
 

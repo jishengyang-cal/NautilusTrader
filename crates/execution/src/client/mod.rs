@@ -23,8 +23,8 @@ use std::{
 use async_trait::async_trait;
 use nautilus_common::messages::execution::{
     BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
-    GenerateOrderStatusReport, GeneratePositionReports, ModifyOrder, QueryAccount, QueryOrder,
-    SubmitOrder, SubmitOrderList,
+    GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+    ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
 };
 use nautilus_core::UnixNanos;
 use nautilus_model::{
@@ -197,7 +197,7 @@ pub trait ExecutionClient {
     /// Returns an error if report generation fails.
     async fn generate_order_status_reports(
         &self,
-        cmd: &GenerateOrderStatusReport,
+        cmd: &GenerateOrderStatusReports,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         log_not_implemented(cmd);
         Ok(Vec::new())
@@ -223,7 +223,7 @@ pub trait ExecutionClient {
     /// Returns an error if generation fails.
     async fn generate_position_status_reports(
         &self,
-        cmd: &GeneratePositionReports,
+        cmd: &GeneratePositionStatusReports,
     ) -> anyhow::Result<Vec<PositionStatusReport>> {
         log_not_implemented(cmd);
         Ok(Vec::new())
@@ -337,7 +337,7 @@ impl ExecutionClientAdapter {
     /// Returns an error if report generation fails.
     pub async fn generate_order_status_reports(
         &self,
-        cmd: &GenerateOrderStatusReport,
+        cmd: &GenerateOrderStatusReports,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         self.client.generate_order_status_reports(cmd).await
     }
@@ -361,7 +361,7 @@ impl ExecutionClientAdapter {
     /// Returns an error if generation fails.
     pub async fn generate_position_status_reports(
         &self,
-        cmd: &GeneratePositionReports,
+        cmd: &GeneratePositionStatusReports,
     ) -> anyhow::Result<Vec<PositionStatusReport>> {
         self.client.generate_position_status_reports(cmd).await
     }

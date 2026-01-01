@@ -52,8 +52,8 @@ use nautilus_common::{
         ExecutionEvent, ExecutionReport as NautilusExecutionReport,
         execution::{
             BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
-            GenerateOrderStatusReport, GeneratePositionReports, ModifyOrder, QueryAccount,
-            QueryOrder, SubmitOrder, SubmitOrderList,
+            GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+            ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
         },
     },
     msgbus,
@@ -1615,7 +1615,7 @@ impl ExecutionClient for DydxExecutionClient {
 
     async fn generate_order_status_reports(
         &self,
-        cmd: &GenerateOrderStatusReport,
+        cmd: &GenerateOrderStatusReports,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         // Query orders from dYdX API
         let response = self
@@ -1661,12 +1661,17 @@ impl ExecutionClient for DydxExecutionClient {
             reports.push(report);
         }
 
-        if let Some(client_order_id) = cmd.client_order_id {
-            reports.retain(|r| r.client_order_id == Some(client_order_id));
+        // Filter by open_only if specified
+        if cmd.open_only {
+            reports.retain(|r| r.order_status.is_open());
         }
 
-        if let Some(venue_order_id) = cmd.venue_order_id {
-            reports.retain(|r| r.venue_order_id.as_str() == venue_order_id.as_str());
+        // Filter by time range if specified
+        if let Some(start) = cmd.start {
+            reports.retain(|r| r.ts_last >= start);
+        }
+        if let Some(end) = cmd.end {
+            reports.retain(|r| r.ts_last <= end);
         }
 
         Ok(reports)
@@ -1731,7 +1736,7 @@ impl ExecutionClient for DydxExecutionClient {
 
     async fn generate_position_status_reports(
         &self,
-        cmd: &GeneratePositionReports,
+        cmd: &GeneratePositionStatusReports,
     ) -> anyhow::Result<Vec<PositionStatusReport>> {
         // Query subaccount positions from dYdX API
         let response = self
