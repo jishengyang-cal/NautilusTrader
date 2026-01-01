@@ -50,7 +50,8 @@ use crate::{
     },
     http::models::{BinanceFuturesUsdSymbol, BinanceSpotSymbol},
     spot::http::models::{
-        BinanceAccountTrade, BinanceOrderResponse, BinanceSymbolSbe, BinanceTrades,
+        BinanceAccountTrade, BinanceNewOrderResponse, BinanceOrderResponse, BinanceSymbolSbe,
+        BinanceTrades,
     },
 };
 
@@ -541,6 +542,128 @@ pub fn parse_order_status_report_sbe(
     );
 
     // Apply optional fields using builder methods
+    if let Some(p) = price {
+        report = report.with_price(p);
+    }
+    if let Some(ap) = avg_px {
+        report = report.with_avg_px(ap.as_f64())?;
+    }
+    if let Some(tp) = trigger_price {
+        report = report.with_trigger_price(tp);
+    }
+    if let Some(tt) = trigger_type {
+        report = report.with_trigger_type(tt);
+    }
+    if let Some(oli) = order_list_id {
+        report = report.with_order_list_id(oli);
+    }
+    if post_only {
+        report = report.with_post_only(true);
+    }
+
+    Ok(report)
+}
+
+/// Parses a Binance new order response (SBE) into a Nautilus `OrderStatusReport`.
+///
+/// # Errors
+///
+/// Returns an error if any field cannot be parsed.
+pub fn parse_new_order_response_sbe(
+    response: &BinanceNewOrderResponse,
+    account_id: AccountId,
+    instrument: &InstrumentAny,
+    ts_init: UnixNanos,
+) -> anyhow::Result<OrderStatusReport> {
+    let instrument_id = instrument.id();
+    let price_precision = instrument.price_precision();
+    let size_precision = instrument.size_precision();
+
+    let price_exp = response.price_exponent as i32;
+    let qty_exp = response.qty_exponent as i32;
+
+    let price_dec = Decimal::new(response.price_mantissa, (-price_exp) as u32);
+    let qty_dec = Decimal::new(response.orig_qty_mantissa, (-qty_exp) as u32);
+    let filled_dec = Decimal::new(response.executed_qty_mantissa, (-qty_exp) as u32);
+
+    let price = if response.price_mantissa != 0 {
+        Some(Price::new(
+            price_dec.to_f64().unwrap_or(0.0),
+            price_precision,
+        ))
+    } else {
+        None
+    };
+
+    let quantity = Quantity::new(qty_dec.to_f64().unwrap_or(0.0), size_precision);
+    let filled_qty = Quantity::new(filled_dec.to_f64().unwrap_or(0.0), size_precision);
+
+    // Quote qty = price * qty, so exponent is (price_exp + qty_exp)
+    let avg_px = if response.executed_qty_mantissa > 0 {
+        let quote_exp = price_exp + qty_exp;
+        let cum_quote_dec =
+            Decimal::new(response.cummulative_quote_qty_mantissa, (-quote_exp) as u32);
+        let avg_dec = cum_quote_dec / filled_dec;
+        Some(Price::new(avg_dec.to_f64().unwrap_or(0.0), price_precision))
+    } else {
+        None
+    };
+
+    let trigger_price = response.stop_price_mantissa.and_then(|mantissa| {
+        if mantissa != 0 {
+            let stop_dec = Decimal::new(mantissa, (-price_exp) as u32);
+            Some(Price::new(
+                stop_dec.to_f64().unwrap_or(0.0),
+                price_precision,
+            ))
+        } else {
+            None
+        }
+    });
+
+    let order_status = map_order_status_sbe(response.status);
+    let order_type = map_order_type_sbe(response.order_type);
+    let order_side = map_order_side_sbe(response.side);
+    let time_in_force = map_time_in_force_sbe(response.time_in_force);
+
+    let trigger_type = if trigger_price.is_some() {
+        Some(TriggerType::LastPrice)
+    } else {
+        None
+    };
+
+    // SBE uses microseconds; for new orders transact_time is both creation and event time
+    let ts_event = UnixNanos::from(response.transact_time as u64 * 1000);
+    let ts_accepted = ts_event;
+
+    let order_list_id = response.order_list_id.and_then(|id| {
+        if id > 0 {
+            Some(OrderListId::new(id.to_string()))
+        } else {
+            None
+        }
+    });
+
+    // Limit maker orders are post-only
+    let post_only = response.order_type == SbeOrderType::LimitMaker;
+
+    let mut report = OrderStatusReport::new(
+        account_id,
+        instrument_id,
+        Some(ClientOrderId::new(response.client_order_id.clone())),
+        VenueOrderId::new(response.order_id.to_string()),
+        order_side,
+        order_type,
+        time_in_force,
+        order_status,
+        quantity,
+        filled_qty,
+        ts_accepted,
+        ts_event,
+        ts_init,
+        None,
+    );
+
     if let Some(p) = price {
         report = report.with_price(p);
     }

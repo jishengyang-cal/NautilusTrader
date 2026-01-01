@@ -38,9 +38,11 @@ use dashmap::DashMap;
 use nautilus_core::{consts::NAUTILUS_USER_AGENT, nanos::UnixNanos};
 use nautilus_model::{
     data::TradeTick,
-    identifiers::{AccountId, InstrumentId},
+    enums::{OrderSide, OrderType, TimeInForce},
+    identifiers::{AccountId, ClientOrderId, InstrumentId, VenueOrderId},
     instruments::{Instrument, any::InstrumentAny},
     reports::{FillReport, OrderStatusReport},
+    types::{Price, Quantity},
 };
 use nautilus_network::{
     http::{HttpClient, HttpResponse, Method},
@@ -62,13 +64,16 @@ use super::{
         QueryOrderParams, TradesParams,
     },
 };
-use crate::common::{
-    consts::BINANCE_SPOT_RATE_LIMITS,
-    credential::Credential,
-    enums::{BinanceEnvironment, BinanceProductType},
-    models::BinanceErrorResponse,
-    sbe::spot::{SBE_SCHEMA_ID, SBE_SCHEMA_VERSION},
-    urls::get_http_base_url,
+use crate::{
+    common::{
+        consts::BINANCE_SPOT_RATE_LIMITS,
+        credential::Credential,
+        enums::{BinanceEnvironment, BinanceProductType, BinanceSide, BinanceTimeInForce},
+        models::BinanceErrorResponse,
+        sbe::spot::{SBE_SCHEMA_ID, SBE_SCHEMA_VERSION},
+        urls::get_http_base_url,
+    },
+    spot::enums::BinanceSpotOrderType,
 };
 
 /// SBE schema header value for Spot API.
@@ -773,50 +778,249 @@ impl BinanceSpotHttpClient {
 
     /// Submits a new order to the venue.
     ///
+    /// Converts Nautilus domain types to Binance-specific parameters
+    /// and returns an `OrderStatusReport`.
+    ///
     /// # Errors
     ///
-    /// Returns an error if the request fails or SBE decoding fails.
+    /// Returns an error if:
+    /// - The instrument is not cached.
+    /// - The order type or time-in-force is unsupported.
+    /// - Stop orders are submitted without a trigger price.
+    /// - The request fails or SBE decoding fails.
+    #[allow(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
-        params: &NewOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
-        self.inner.new_order(params).await
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        client_order_id: ClientOrderId,
+        order_side: OrderSide,
+        order_type: OrderType,
+        quantity: Quantity,
+        time_in_force: TimeInForce,
+        price: Option<Price>,
+        trigger_price: Option<Price>,
+        post_only: bool,
+    ) -> anyhow::Result<OrderStatusReport> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let binance_side = match order_side {
+            OrderSide::Buy => BinanceSide::Buy,
+            OrderSide::Sell => BinanceSide::Sell,
+            _ => anyhow::bail!("Invalid order side: {order_side:?}"),
+        };
+
+        let is_stop_order = matches!(order_type, OrderType::StopMarket | OrderType::StopLimit);
+        if is_stop_order && trigger_price.is_none() {
+            anyhow::bail!("Stop orders require a trigger price");
+        }
+
+        let binance_order_type = match (order_type, post_only) {
+            (OrderType::Market, _) => BinanceSpotOrderType::Market,
+            (OrderType::Limit, true) => BinanceSpotOrderType::LimitMaker,
+            (OrderType::Limit, false) => BinanceSpotOrderType::Limit,
+            (OrderType::StopMarket, _) => BinanceSpotOrderType::StopLoss,
+            (OrderType::StopLimit, _) => BinanceSpotOrderType::StopLossLimit,
+            _ => anyhow::bail!("Unsupported order type: {order_type:?}"),
+        };
+
+        let binance_tif = match time_in_force {
+            TimeInForce::Gtc => BinanceTimeInForce::Gtc,
+            TimeInForce::Ioc => BinanceTimeInForce::Ioc,
+            TimeInForce::Fok => BinanceTimeInForce::Fok,
+            TimeInForce::Gtd => BinanceTimeInForce::Gtd,
+            _ => anyhow::bail!("Unsupported time in force: {time_in_force:?}"),
+        };
+
+        let params = NewOrderParams {
+            symbol: symbol.to_string(),
+            side: binance_side,
+            order_type: binance_order_type,
+            time_in_force: Some(binance_tif),
+            quantity: Some(quantity.to_string()),
+            quote_order_qty: None,
+            price: price.map(|p| p.to_string()),
+            new_client_order_id: Some(client_order_id.to_string()),
+            stop_price: trigger_price.map(|p| p.to_string()),
+            trailing_delta: None,
+            iceberg_qty: None,
+            new_order_resp_type: None,
+            self_trade_prevention_mode: None,
+        };
+
+        let response = self
+            .inner
+            .new_order(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        crate::common::parse::parse_new_order_response_sbe(
+            &response,
+            account_id,
+            &instrument,
+            ts_init,
+        )
     }
 
-    /// Cancels an existing order on the venue.
+    /// Cancels an existing order on the venue by venue order ID.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
     pub async fn cancel_order(
         &self,
-        params: &CancelOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceCancelOrderResponse> {
-        self.inner.cancel_order(params).await
+        instrument_id: InstrumentId,
+        venue_order_id: VenueOrderId,
+    ) -> anyhow::Result<VenueOrderId> {
+        let symbol = instrument_id.symbol.inner().to_string();
+
+        let order_id: i64 = venue_order_id
+            .inner()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid venue order ID: {venue_order_id}"))?;
+
+        let params = CancelOrderParams::by_order_id(&symbol, order_id);
+
+        let response = self
+            .inner
+            .cancel_order(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        Ok(VenueOrderId::new(response.order_id.to_string()))
+    }
+
+    /// Cancels an existing order on the venue by client order ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_order_by_client_id(
+        &self,
+        instrument_id: InstrumentId,
+        client_order_id: ClientOrderId,
+    ) -> anyhow::Result<VenueOrderId> {
+        let symbol = instrument_id.symbol.inner().to_string();
+        let params = CancelOrderParams::by_client_order_id(&symbol, client_order_id.to_string());
+
+        let response = self
+            .inner
+            .cancel_order(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        Ok(VenueOrderId::new(response.order_id.to_string()))
     }
 
     /// Cancels all open orders for a symbol.
+    ///
+    /// Returns the venue order IDs of all canceled orders.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
     pub async fn cancel_all_orders(
         &self,
-        params: &CancelOpenOrdersParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceCancelOrderResponse>> {
-        self.inner.cancel_open_orders(params).await
+        instrument_id: InstrumentId,
+    ) -> anyhow::Result<Vec<VenueOrderId>> {
+        let symbol = instrument_id.symbol.inner().to_string();
+        let params = CancelOpenOrdersParams::new(symbol);
+
+        let responses = self
+            .inner
+            .cancel_open_orders(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        Ok(responses
+            .into_iter()
+            .map(|r| VenueOrderId::new(r.order_id.to_string()))
+            .collect())
     }
 
     /// Modifies an existing order (cancel and replace atomically).
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails or SBE decoding fails.
+    /// Returns an error if:
+    /// - The instrument is not cached.
+    /// - The order type or time-in-force is unsupported.
+    /// - The request fails or SBE decoding fails.
+    #[allow(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
-        params: &CancelReplaceOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
-        self.inner.cancel_replace_order(params).await
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        venue_order_id: VenueOrderId,
+        client_order_id: ClientOrderId,
+        order_side: OrderSide,
+        order_type: OrderType,
+        quantity: Quantity,
+        time_in_force: TimeInForce,
+        price: Option<Price>,
+    ) -> anyhow::Result<OrderStatusReport> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let binance_side = match order_side {
+            OrderSide::Buy => BinanceSide::Buy,
+            OrderSide::Sell => BinanceSide::Sell,
+            _ => anyhow::bail!("Invalid order side: {order_side:?}"),
+        };
+
+        let binance_order_type = match order_type {
+            OrderType::Market => BinanceSpotOrderType::Market,
+            OrderType::Limit => BinanceSpotOrderType::Limit,
+            _ => anyhow::bail!("Unsupported order type for modify: {order_type:?}"),
+        };
+
+        let binance_tif = match time_in_force {
+            TimeInForce::Gtc => BinanceTimeInForce::Gtc,
+            TimeInForce::Ioc => BinanceTimeInForce::Ioc,
+            TimeInForce::Fok => BinanceTimeInForce::Fok,
+            TimeInForce::Gtd => BinanceTimeInForce::Gtd,
+            _ => anyhow::bail!("Unsupported time in force: {time_in_force:?}"),
+        };
+
+        let cancel_order_id: i64 = venue_order_id
+            .inner()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid venue order ID: {venue_order_id}"))?;
+
+        let params = CancelReplaceOrderParams {
+            symbol: symbol.to_string(),
+            side: binance_side,
+            order_type: binance_order_type,
+            cancel_replace_mode: crate::spot::enums::BinanceCancelReplaceMode::StopOnFailure,
+            time_in_force: Some(binance_tif),
+            quantity: Some(quantity.to_string()),
+            quote_order_qty: None,
+            price: price.map(|p| p.to_string()),
+            cancel_order_id: Some(cancel_order_id),
+            cancel_orig_client_order_id: None,
+            new_client_order_id: Some(client_order_id.to_string()),
+            stop_price: None,
+            trailing_delta: None,
+            iceberg_qty: None,
+            new_order_resp_type: None,
+            self_trade_prevention_mode: None,
+        };
+
+        let response = self
+            .inner
+            .cancel_replace_order(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        crate::common::parse::parse_new_order_response_sbe(
+            &response,
+            account_id,
+            &instrument,
+            ts_init,
+        )
     }
 
     /// Requests the status of a specific order.
@@ -853,16 +1057,13 @@ impl BinanceSpotHttpClient {
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails, instrument is not cached,
+    /// Returns an error if the request fails, any order's instrument is not cached,
     /// or parsing fails.
     pub async fn request_open_orders(
         &self,
         account_id: AccountId,
-        instrument_id: InstrumentId,
         params: &OpenOrdersParams,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
-        let symbol = instrument_id.symbol.inner();
-        let instrument = self.instrument_from_cache(symbol)?;
         let ts_init = self.generate_ts_init();
 
         let orders = self
@@ -874,6 +1075,8 @@ impl BinanceSpotHttpClient {
         orders
             .iter()
             .map(|order| {
+                let symbol = Ustr::from(&order.symbol);
+                let instrument = self.instrument_from_cache(symbol)?;
                 crate::common::parse::parse_order_status_report_sbe(
                     order,
                     account_id,
@@ -888,16 +1091,13 @@ impl BinanceSpotHttpClient {
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails, instrument is not cached,
+    /// Returns an error if the request fails, any order's instrument is not cached,
     /// or parsing fails.
     pub async fn request_order_history(
         &self,
         account_id: AccountId,
-        instrument_id: InstrumentId,
         params: &AllOrdersParams,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
-        let symbol = instrument_id.symbol.inner();
-        let instrument = self.instrument_from_cache(symbol)?;
         let ts_init = self.generate_ts_init();
 
         let orders = self
@@ -909,6 +1109,8 @@ impl BinanceSpotHttpClient {
         orders
             .iter()
             .map(|order| {
+                let symbol = Ustr::from(&order.symbol);
+                let instrument = self.instrument_from_cache(symbol)?;
                 crate::common::parse::parse_order_status_report_sbe(
                     order,
                     account_id,
@@ -935,16 +1137,13 @@ impl BinanceSpotHttpClient {
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails, instrument is not cached,
+    /// Returns an error if the request fails, any trade's instrument is not cached,
     /// or parsing fails.
     pub async fn request_fill_reports(
         &self,
         account_id: AccountId,
-        instrument_id: InstrumentId,
         params: &AccountTradesParams,
     ) -> anyhow::Result<Vec<FillReport>> {
-        let symbol = instrument_id.symbol.inner();
-        let instrument = self.instrument_from_cache(symbol)?;
         let ts_init = self.generate_ts_init();
 
         let trades = self
@@ -956,6 +1155,8 @@ impl BinanceSpotHttpClient {
         trades
             .iter()
             .map(|trade| {
+                let symbol = Ustr::from(&trade.symbol);
+                let instrument = self.instrument_from_cache(symbol)?;
                 let commission_currency =
                     crate::common::parse::get_currency(&trade.commission_asset);
                 crate::common::parse::parse_fill_report_sbe(

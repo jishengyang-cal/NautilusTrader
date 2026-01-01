@@ -24,6 +24,8 @@
 //! All decoders return `Result<T, StreamDecodeError>` to safely handle malformed
 //! or truncated network data without panicking.
 
+use crate::common::sbe::{cursor::SbeCursor, error::SbeDecodeError};
+
 mod best_bid_ask;
 mod depth_diff;
 mod depth_snapshot;
@@ -90,6 +92,33 @@ impl std::fmt::Display for StreamDecodeError {
 
 impl std::error::Error for StreamDecodeError {}
 
+impl From<SbeDecodeError> for StreamDecodeError {
+    fn from(err: SbeDecodeError) -> Self {
+        match err {
+            SbeDecodeError::BufferTooShort { expected, actual } => {
+                Self::BufferTooShort { expected, actual }
+            }
+            SbeDecodeError::SchemaMismatch { expected, actual } => {
+                Self::SchemaMismatch { expected, actual }
+            }
+            SbeDecodeError::VersionMismatch { .. } => Self::SchemaMismatch {
+                expected: STREAM_SCHEMA_VERSION,
+                actual: 0,
+            },
+            SbeDecodeError::UnknownTemplateId(id) => Self::UnknownTemplateId(id),
+            SbeDecodeError::GroupSizeTooLarge { count, max } => Self::GroupSizeTooLarge {
+                count: count as usize,
+                max: max as usize,
+            },
+            SbeDecodeError::InvalidBlockLength { .. } => Self::BufferTooShort {
+                expected: 0,
+                actual: 0,
+            },
+            SbeDecodeError::InvalidUtf8 => Self::InvalidUtf8,
+        }
+    }
+}
+
 /// SBE message header (8 bytes).
 #[derive(Debug, Clone, Copy)]
 pub struct MessageHeader {
@@ -146,24 +175,15 @@ pub struct PriceLevel {
 impl PriceLevel {
     pub const ENCODED_LENGTH: usize = 16;
 
-    /// Decode price level from buffer.
+    /// Decode price level from cursor.
     ///
     /// # Errors
     ///
-    /// Returns error if buffer is less than 16 bytes.
-    #[allow(clippy::missing_panics_doc)] // Panic unreachable after length check
-    pub fn decode(buf: &[u8]) -> Result<Self, StreamDecodeError> {
-        if buf.len() < Self::ENCODED_LENGTH {
-            return Err(StreamDecodeError::BufferTooShort {
-                expected: Self::ENCODED_LENGTH,
-                actual: buf.len(),
-            });
-        }
-
-        // SAFETY: Length checked above
+    /// Returns error if buffer is too short.
+    pub fn decode(cursor: &mut SbeCursor<'_>) -> Result<Self, SbeDecodeError> {
         Ok(Self {
-            price_mantissa: i64::from_le_bytes(buf[0..8].try_into().unwrap()),
-            qty_mantissa: i64::from_le_bytes(buf[8..16].try_into().unwrap()),
+            price_mantissa: cursor.read_i64_le()?,
+            qty_mantissa: cursor.read_i64_le()?,
         })
     }
 }
@@ -281,43 +301,6 @@ impl GroupSize16Encoding {
             num_in_group,
         })
     }
-}
-
-/// Helper to safely read bytes from buffer with bounds checking.
-#[inline]
-fn read_i64_le(buf: &[u8], offset: usize) -> Result<i64, StreamDecodeError> {
-    let end = offset + 8;
-    if buf.len() < end {
-        return Err(StreamDecodeError::BufferTooShort {
-            expected: end,
-            actual: buf.len(),
-        });
-    }
-    Ok(i64::from_le_bytes(buf[offset..end].try_into().unwrap()))
-}
-
-/// Helper to safely read i8 from buffer.
-#[inline]
-fn read_i8(buf: &[u8], offset: usize) -> Result<i8, StreamDecodeError> {
-    if buf.len() <= offset {
-        return Err(StreamDecodeError::BufferTooShort {
-            expected: offset + 1,
-            actual: buf.len(),
-        });
-    }
-    Ok(buf[offset] as i8)
-}
-
-/// Helper to safely read u8 from buffer.
-#[inline]
-fn read_u8(buf: &[u8], offset: usize) -> Result<u8, StreamDecodeError> {
-    if buf.len() <= offset {
-        return Err(StreamDecodeError::BufferTooShort {
-            expected: offset + 1,
-            actual: buf.len(),
-        });
-    }
-    Ok(buf[offset])
 }
 
 #[cfg(test)]

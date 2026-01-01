@@ -23,17 +23,18 @@ use axum::{
     extract::Query,
     http::{HeaderMap, StatusCode, header},
     response::IntoResponse,
-    routing::get,
+    routing::{delete, get, post},
 };
 use nautilus_binance::{
     common::{
-        enums::BinanceEnvironment,
+        enums::{BinanceEnvironment, BinanceSide},
         sbe::spot::{SBE_SCHEMA_ID, SBE_SCHEMA_VERSION},
     },
     spot::http::{
         client::{BinanceRawSpotHttpClient, BinanceSpotHttpClient},
         query::{
-            AccountInfoParams, AccountTradesParams, DepthParams, OpenOrdersParams, TradesParams,
+            AccountInfoParams, AccountTradesParams, CancelOpenOrdersParams, CancelOrderParams,
+            DepthParams, NewOrderParams, OpenOrdersParams, TradesParams,
         },
     },
 };
@@ -46,6 +47,9 @@ const SERVER_TIME_TEMPLATE_ID: u16 = 102;
 const DEPTH_TEMPLATE_ID: u16 = 200;
 const TRADES_TEMPLATE_ID: u16 = 201;
 const EXCHANGE_INFO_TEMPLATE_ID: u16 = 103;
+const NEW_ORDER_FULL_TEMPLATE_ID: u16 = 302;
+const CANCEL_ORDER_TEMPLATE_ID: u16 = 305;
+const CANCEL_OPEN_ORDERS_TEMPLATE_ID: u16 = 306;
 const ACCOUNT_TEMPLATE_ID: u16 = 400;
 const ORDERS_TEMPLATE_ID: u16 = 308;
 const ACCOUNT_TRADES_TEMPLATE_ID: u16 = 401;
@@ -54,6 +58,8 @@ const ORDERS_GROUP_BLOCK_LENGTH: u16 = 162;
 const ACCOUNT_BLOCK_LENGTH: u16 = 64;
 const BALANCE_BLOCK_LENGTH: u16 = 17;
 const ACCOUNT_TRADE_BLOCK_LENGTH: u16 = 70;
+const NEW_ORDER_FULL_BLOCK_LENGTH: u16 = 153;
+const CANCEL_ORDER_BLOCK_LENGTH: u16 = 137;
 
 fn create_sbe_header(block_length: u16, template_id: u16) -> [u8; 8] {
     let mut header = [0u8; 8];
@@ -323,6 +329,122 @@ fn build_account_trades_response(
     buf
 }
 
+fn build_new_order_response(
+    order_id: i64,
+    symbol: &str,
+    client_order_id: &str,
+    price: i64,
+    qty: i64,
+    executed_qty: i64,
+    status: u8,
+) -> Vec<u8> {
+    let header = create_sbe_header(NEW_ORDER_FULL_BLOCK_LENGTH, NEW_ORDER_FULL_TEMPLATE_ID);
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&header);
+
+    // Fixed block (153 bytes)
+    buf.push((-8i8) as u8); // price_exponent
+    buf.push((-8i8) as u8); // qty_exponent
+    buf.extend_from_slice(&order_id.to_le_bytes()); // order_id
+    buf.extend_from_slice(&i64::MIN.to_le_bytes()); // order_list_id (None)
+    buf.extend_from_slice(&1734300000000i64.to_le_bytes()); // transact_time
+    buf.extend_from_slice(&price.to_le_bytes()); // price_mantissa
+    buf.extend_from_slice(&qty.to_le_bytes()); // orig_qty_mantissa
+    buf.extend_from_slice(&executed_qty.to_le_bytes()); // executed_qty_mantissa
+    buf.extend_from_slice(&(price * executed_qty).to_le_bytes()); // cummulative_quote_qty
+    buf.push(status); // status (1=NEW, 2=FILLED)
+    buf.push(1); // time_in_force (GTC)
+    buf.push(1); // order_type (LIMIT)
+    buf.push(1); // side (BUY)
+    buf.extend_from_slice(&i64::MIN.to_le_bytes()); // stop_price (None)
+    buf.extend_from_slice(&[0u8; 16]); // trailing_delta + trailing_time
+    buf.extend_from_slice(&1734300000000i64.to_le_bytes()); // working_time
+    buf.extend_from_slice(&[0u8; 23]); // iceberg to used_sor
+    buf.push(0); // self_trade_prevention_mode
+    buf.extend_from_slice(&[0u8; 16]); // trade_group_id + prevented_quantity
+    buf.push((-8i8) as u8); // commission_exponent
+    buf.extend_from_slice(&[0u8; 18]); // padding to end of fixed block
+
+    // Fills group (empty) - block length is 42
+    buf.extend_from_slice(&create_group_header(42, 0));
+
+    // Prevented matches group (empty) - block length is 40
+    buf.extend_from_slice(&create_group_header(40, 0));
+
+    // Variable strings
+    write_var_string(&mut buf, symbol);
+    write_var_string(&mut buf, client_order_id);
+
+    buf
+}
+
+fn build_cancel_order_response(
+    order_id: i64,
+    symbol: &str,
+    client_order_id: &str,
+    orig_client_order_id: &str,
+    price: i64,
+    qty: i64,
+    executed_qty: i64,
+) -> Vec<u8> {
+    let header = create_sbe_header(CANCEL_ORDER_BLOCK_LENGTH, CANCEL_ORDER_TEMPLATE_ID);
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&header);
+
+    // Fixed block (137 bytes)
+    buf.push((-8i8) as u8); // price_exponent
+    buf.push((-8i8) as u8); // qty_exponent
+    buf.extend_from_slice(&order_id.to_le_bytes()); // order_id
+    buf.extend_from_slice(&i64::MIN.to_le_bytes()); // order_list_id (None)
+    buf.extend_from_slice(&1734300000000i64.to_le_bytes()); // transact_time
+    buf.extend_from_slice(&price.to_le_bytes()); // price_mantissa
+    buf.extend_from_slice(&qty.to_le_bytes()); // orig_qty_mantissa
+    buf.extend_from_slice(&executed_qty.to_le_bytes()); // executed_qty_mantissa
+    buf.extend_from_slice(&(price * executed_qty).to_le_bytes()); // cummulative_quote_qty
+    buf.push(4); // status (CANCELED)
+    buf.push(1); // time_in_force (GTC)
+    buf.push(1); // order_type (LIMIT)
+    buf.push(1); // side (BUY)
+    buf.push(0); // self_trade_prevention_mode
+
+    // Pad to end of fixed block (137 - 63 = 74 bytes remaining)
+    let current_len = buf.len() - 8; // Subtract header
+    buf.extend_from_slice(&vec![0u8; CANCEL_ORDER_BLOCK_LENGTH as usize - current_len]);
+
+    // Variable strings
+    write_var_string(&mut buf, symbol);
+    write_var_string(&mut buf, orig_client_order_id);
+    write_var_string(&mut buf, client_order_id);
+
+    buf
+}
+
+fn build_cancel_open_orders_response(orders: &[(i64, &str, &str, &str, i64, i64)]) -> Vec<u8> {
+    let header = create_sbe_header(0, CANCEL_OPEN_ORDERS_TEMPLATE_ID);
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&header);
+
+    // Group header with block_length=0 (embedded messages)
+    buf.extend_from_slice(&create_group_header(0, orders.len() as u32));
+
+    // Each item is: u16 length prefix + embedded cancel_order SBE message
+    for (order_id, symbol, client_order_id, orig_client_order_id, price, qty) in orders {
+        let embedded = build_cancel_order_response(
+            *order_id,
+            symbol,
+            client_order_id,
+            orig_client_order_id,
+            *price,
+            *qty,
+            0, // executed_qty
+        );
+        buf.extend_from_slice(&(embedded.len() as u16).to_le_bytes());
+        buf.extend_from_slice(&embedded);
+    }
+
+    buf
+}
+
 #[derive(Clone, Default)]
 struct TestServerState {
     request_count: Arc<std::sync::Mutex<usize>>,
@@ -395,7 +517,10 @@ fn create_router(state: Arc<TestServerState>) -> Router {
     let exchange_info_state = state.clone();
     let account_state = state.clone();
     let open_orders_state = state.clone();
-    let my_trades_state = state;
+    let my_trades_state = state.clone();
+    let new_order_state = state.clone();
+    let cancel_order_state = state.clone();
+    let cancel_all_orders_state = state;
 
     Router::new()
         .route(
@@ -584,6 +709,114 @@ fn create_router(state: Arc<TestServerState>) -> Router {
                             ),
                         ];
                         sbe_response(build_account_trades_response(&trades)).into_response()
+                    }
+                },
+            ),
+        )
+        .route(
+            "/api/v3/order",
+            post(
+                move |headers: HeaderMap, Query(params): Query<HashMap<String, String>>| {
+                    let state = new_order_state.clone();
+                    async move {
+                        if !has_auth_headers(&headers) {
+                            return unauthorized_response().into_response();
+                        }
+                        if state.increment_and_check() {
+                            return rate_limit_response().into_response();
+                        }
+                        let symbol = params
+                            .get("symbol")
+                            .cloned()
+                            .unwrap_or_else(|| "BTCUSDT".to_string());
+                        let client_order_id = params
+                            .get("newClientOrderId")
+                            .cloned()
+                            .unwrap_or_else(|| "test-order-1".to_string());
+                        sbe_response(build_new_order_response(
+                            99999,
+                            &symbol,
+                            &client_order_id,
+                            100_000_000_000, // price: 1000.00
+                            10_000_000,      // qty: 0.1
+                            0,               // executed: 0
+                            1,               // status: NEW
+                        ))
+                        .into_response()
+                    }
+                },
+            )
+            .delete(
+                move |headers: HeaderMap, Query(params): Query<HashMap<String, String>>| {
+                    let state = cancel_order_state.clone();
+                    async move {
+                        if !has_auth_headers(&headers) {
+                            return unauthorized_response().into_response();
+                        }
+                        if state.increment_and_check() {
+                            return rate_limit_response().into_response();
+                        }
+                        let symbol = params
+                            .get("symbol")
+                            .cloned()
+                            .unwrap_or_else(|| "BTCUSDT".to_string());
+                        let order_id = params
+                            .get("orderId")
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(12345);
+                        let orig_client_order_id = params
+                            .get("origClientOrderId")
+                            .cloned()
+                            .unwrap_or_else(|| "orig-order-1".to_string());
+                        sbe_response(build_cancel_order_response(
+                            order_id,
+                            &symbol,
+                            "cancel-req-1",
+                            &orig_client_order_id,
+                            100_000_000_000, // price
+                            10_000_000,      // qty
+                            0,               // executed
+                        ))
+                        .into_response()
+                    }
+                },
+            ),
+        )
+        .route(
+            "/api/v3/openOrders",
+            delete(
+                move |headers: HeaderMap, Query(params): Query<HashMap<String, String>>| {
+                    let state = cancel_all_orders_state.clone();
+                    async move {
+                        if !has_auth_headers(&headers) {
+                            return unauthorized_response().into_response();
+                        }
+                        if state.increment_and_check() {
+                            return rate_limit_response().into_response();
+                        }
+                        let symbol = params
+                            .get("symbol")
+                            .cloned()
+                            .unwrap_or_else(|| "BTCUSDT".to_string());
+                        let orders = vec![
+                            (
+                                12345i64,
+                                symbol.as_str(),
+                                "cancel-1",
+                                "order-1",
+                                100_000_000_000i64,
+                                10_000_000i64,
+                            ),
+                            (
+                                12346i64,
+                                symbol.as_str(),
+                                "cancel-2",
+                                "order-2",
+                                99_000_000_000i64,
+                                20_000_000i64,
+                            ),
+                        ];
+                        sbe_response(build_cancel_open_orders_response(&orders)).into_response()
                     }
                 },
             ),
@@ -955,4 +1188,148 @@ async fn test_domain_client_request_instruments() {
     let instruments = client.request_instruments().await.unwrap();
 
     assert_eq!(instruments.len(), 3);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_new_order_requires_credentials() {
+    let addr = start_test_server(Arc::new(TestServerState::default())).await;
+    let base_url = format!("http://{addr}");
+
+    let client = BinanceRawSpotHttpClient::new(
+        BinanceEnvironment::Mainnet,
+        None,
+        None,
+        Some(base_url),
+        None,
+        Some(60),
+        None,
+    )
+    .unwrap();
+
+    let params = NewOrderParams::limit("BTCUSDT", BinanceSide::Buy, "0.1", "50000.00");
+    let result = client.new_order(&params).await;
+
+    assert!(result.is_err());
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_new_order_with_credentials_succeeds() {
+    let addr = start_test_server(Arc::new(TestServerState::default())).await;
+    let base_url = format!("http://{addr}");
+
+    let client = BinanceRawSpotHttpClient::new(
+        BinanceEnvironment::Mainnet,
+        Some("test_api_key".to_string()),
+        Some("test_api_secret".to_string()),
+        Some(base_url),
+        None,
+        Some(60),
+        None,
+    )
+    .unwrap();
+
+    let params = NewOrderParams::limit("BTCUSDT", BinanceSide::Buy, "0.1", "50000.00")
+        .with_client_order_id("my-order-123");
+    let order = client.new_order(&params).await.unwrap();
+
+    assert_eq!(order.order_id, 99999);
+    assert_eq!(order.symbol, "BTCUSDT");
+    assert_eq!(order.client_order_id, "my-order-123");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_order_requires_credentials() {
+    let addr = start_test_server(Arc::new(TestServerState::default())).await;
+    let base_url = format!("http://{addr}");
+
+    let client = BinanceRawSpotHttpClient::new(
+        BinanceEnvironment::Mainnet,
+        None,
+        None,
+        Some(base_url),
+        None,
+        Some(60),
+        None,
+    )
+    .unwrap();
+
+    let params = CancelOrderParams::by_order_id("BTCUSDT", 12345);
+    let result = client.cancel_order(&params).await;
+
+    assert!(result.is_err());
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_order_with_credentials_succeeds() {
+    let addr = start_test_server(Arc::new(TestServerState::default())).await;
+    let base_url = format!("http://{addr}");
+
+    let client = BinanceRawSpotHttpClient::new(
+        BinanceEnvironment::Mainnet,
+        Some("test_api_key".to_string()),
+        Some("test_api_secret".to_string()),
+        Some(base_url),
+        None,
+        Some(60),
+        None,
+    )
+    .unwrap();
+
+    let params = CancelOrderParams::by_order_id("BTCUSDT", 12345);
+    let order = client.cancel_order(&params).await.unwrap();
+
+    assert_eq!(order.order_id, 12345);
+    assert_eq!(order.symbol, "BTCUSDT");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_all_orders_requires_credentials() {
+    let addr = start_test_server(Arc::new(TestServerState::default())).await;
+    let base_url = format!("http://{addr}");
+
+    let client = BinanceRawSpotHttpClient::new(
+        BinanceEnvironment::Mainnet,
+        None,
+        None,
+        Some(base_url),
+        None,
+        Some(60),
+        None,
+    )
+    .unwrap();
+
+    let params = CancelOpenOrdersParams::new("BTCUSDT");
+    let result = client.cancel_open_orders(&params).await;
+
+    assert!(result.is_err());
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_all_orders_with_credentials_succeeds() {
+    let addr = start_test_server(Arc::new(TestServerState::default())).await;
+    let base_url = format!("http://{addr}");
+
+    let client = BinanceRawSpotHttpClient::new(
+        BinanceEnvironment::Mainnet,
+        Some("test_api_key".to_string()),
+        Some("test_api_secret".to_string()),
+        Some(base_url),
+        None,
+        Some(60),
+        None,
+    )
+    .unwrap();
+
+    let params = CancelOpenOrdersParams::new("BTCUSDT");
+    let orders = client.cancel_open_orders(&params).await.unwrap();
+
+    assert_eq!(orders.len(), 2);
+    assert_eq!(orders[0].order_id, 12345);
+    assert_eq!(orders[1].order_id, 12346);
 }
