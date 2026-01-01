@@ -15,13 +15,6 @@
 
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-use crate::{
-    http::{
-        models::{HyperliquidL2Book, HyperliquidLevel},
-        parse::get_currency,
-    },
-    websocket::messages::{WsBookData, WsLevelData},
-};
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     data::{delta::OrderBookDelta, deltas::OrderBookDeltas, order::BookOrder},
@@ -33,6 +26,14 @@ use nautilus_model::{
 };
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use ustr::Ustr;
+
+use crate::{
+    http::{
+        models::{HyperliquidL2Book, HyperliquidLevel},
+        parse::get_currency,
+    },
+    websocket::messages::{WsBookData, WsLevelData},
+};
 
 /// Configuration for price/size precision.
 #[derive(Debug, Clone)]

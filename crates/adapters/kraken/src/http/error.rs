@@ -15,7 +15,7 @@
 
 //! Error types for Kraken HTTP client operations.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 #[derive(Debug, Clone)]
 pub enum KrakenHttpError {
@@ -27,7 +27,7 @@ pub enum KrakenHttpError {
 }
 
 impl Display for KrakenHttpError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NetworkError(msg) => write!(f, "Network error: {msg}"),
             Self::ApiError(errors) => write!(f, "API error: {}", errors.join(", ")),

@@ -30,7 +30,7 @@
 //!
 //! See <https://docs.dydx.xyz/concepts/trading/authenticators> for details.
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 
 use cosmrs::{
     Any, Coin,
@@ -182,7 +182,7 @@ impl TxBuilder {
 }
 
 impl Debug for TxBuilder {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxBuilder")
             .field("chain_id", &self.chain_id)
             .field("fee_denom", &self.fee_denom)

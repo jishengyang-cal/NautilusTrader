@@ -3,6 +3,8 @@
 # 1. Nautilus domain types should not be fully qualified in code
 #    (identifiers, data types, enums, etc. should be imported and used directly)
 # 2. Box-style banner comments are not allowed
+# 3. std::fmt conventions: import Debug (use as `impl Debug`), but fully qualify
+#    std::fmt::Formatter and std::fmt::Result (do not import them)
 #
 # Use '// nautilus-import-ok' comment to allow specific exceptions
 
@@ -153,8 +155,61 @@ else
   echo "✓ No box-style banner comments found"
 fi
 
+# Check for std::fmt convention violations
+echo "Checking for std::fmt convention violations..."
+
+FMT_VIOLATIONS=0
+
+# Check 1: impl std::fmt::Debug should be impl Debug
+fmt_debug_output=$(rg -n --no-heading 'impl\s+std::fmt::Debug' crates --type rust 2> /dev/null || true)
+
+if [[ -n "$fmt_debug_output" ]]; then
+  echo
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([^:]+):([0-9]+):(.*)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      line_num="${BASH_REMATCH[2]}"
+      line_content="${BASH_REMATCH[3]}"
+      echo -e "${RED}Error:${NC} Use 'impl Debug' instead of 'impl std::fmt::Debug' in $file:$line_num"
+      echo "  ${line_content:0:100}"
+      FMT_VIOLATIONS=$((FMT_VIOLATIONS + 1))
+    fi
+  done <<< "$fmt_debug_output"
+fi
+
+# Check 2: Formatter and Result should not be imported from std::fmt
+# Match patterns like: use std::fmt::Formatter, use std::fmt::{..., Formatter, ...}
+fmt_import_output=$(rg -n --no-heading 'use\s+std::fmt::\{[^}]*(Formatter|Result)[^}]*\}|use\s+std::fmt::(Formatter|Result)\b' crates --type rust 2> /dev/null || true)
+
+if [[ -n "$fmt_import_output" ]]; then
+  echo
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([^:]+):([0-9]+):(.*)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      line_num="${BASH_REMATCH[2]}"
+      line_content="${BASH_REMATCH[3]}"
+      echo -e "${RED}Error:${NC} Do not import Formatter/Result from std::fmt in $file:$line_num"
+      echo "  ${line_content:0:100}"
+      echo "  Use std::fmt::Formatter and std::fmt::Result directly instead"
+      FMT_VIOLATIONS=$((FMT_VIOLATIONS + 1))
+    fi
+  done <<< "$fmt_import_output"
+fi
+
+if [ $FMT_VIOLATIONS -gt 0 ]; then
+  echo
+  echo -e "${RED}Found $FMT_VIOLATIONS std::fmt convention violation(s)${NC}"
+  echo
+  echo -e "${YELLOW}To fix:${NC}"
+  echo "  - Import Debug and use as: impl Debug for MyType"
+  echo "  - Do NOT import Formatter or Result, use fully qualified:"
+  echo "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result"
+else
+  echo "✓ std::fmt conventions are valid"
+fi
+
 # Exit with error if any violations found
-if [ $VIOLATIONS -gt 0 ] || [ $BANNER_VIOLATIONS -gt 0 ]; then
+if [ $VIOLATIONS -gt 0 ] || [ $BANNER_VIOLATIONS -gt 0 ] || [ $FMT_VIOLATIONS -gt 0 ]; then
   exit 1
 fi
 
