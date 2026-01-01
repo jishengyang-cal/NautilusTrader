@@ -41,7 +41,7 @@ use nautilus_trading::strategy::Strategy;
 use crate::{
     builder::LiveNodeBuilder,
     config::LiveNodeConfig,
-    execution::manager::{ExecutionManager, ExecutionManagerConfig},
+    manager::{ExecutionManager, ExecutionManagerConfig},
     runner::{AsyncRunner, AsyncRunnerChannels},
 };
 

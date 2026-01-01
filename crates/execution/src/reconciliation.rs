@@ -13,10 +13,18 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Reconciliation calculation functions for live trading.
+//! Position reconciliation calculation functions.
 
-use nautilus_model::{enums::OrderSide, identifiers::VenueOrderId, instruments::InstrumentAny};
-use rust_decimal::Decimal;
+use ahash::AHashMap;
+use nautilus_core::{UUID4, UnixNanos};
+use nautilus_model::{
+    enums::{LiquiditySide, OrderSide, OrderStatus, OrderType, PositionSideSpecified, TimeInForce},
+    identifiers::{AccountId, InstrumentId, TradeId, VenueOrderId},
+    instruments::{Instrument, InstrumentAny},
+    reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
+    types::{Money, Price, Quantity},
+};
+use rust_decimal::{Decimal, prelude::ToPrimitive};
 
 /// Immutable snapshot of fill data for position simulation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -517,6 +525,351 @@ pub fn adjust_fills_for_partial_window(
     }
 
     FillAdjustmentResult::NoAdjustment
+}
+
+/// Create a synthetic `VenueOrderId` using timestamp and UUID suffix.
+///
+/// Format: `S-{hex_timestamp}-{uuid_prefix}`
+#[must_use]
+pub fn create_synthetic_venue_order_id(ts_event: u64) -> VenueOrderId {
+    let uuid = UUID4::new();
+    let uuid_str = uuid.to_string();
+    let uuid_suffix = &uuid_str[..8];
+    let venue_order_id_value = format!("S-{ts_event:x}-{uuid_suffix}");
+    VenueOrderId::new(&venue_order_id_value)
+}
+
+/// Create a synthetic `TradeId` using timestamp and UUID suffix.
+///
+/// Format: `S-{hex_timestamp}-{uuid_prefix}`
+#[must_use]
+pub fn create_synthetic_trade_id(ts_event: u64) -> TradeId {
+    let uuid = UUID4::new();
+    let uuid_str = uuid.to_string();
+    let uuid_suffix = &uuid_str[..8];
+    let trade_id_value = format!("S-{ts_event:x}-{uuid_suffix}");
+    TradeId::new(&trade_id_value)
+}
+
+/// Create a synthetic `OrderStatusReport` from a `FillSnapshot`.
+///
+/// # Errors
+///
+/// Returns an error if the fill quantity cannot be converted to f64.
+pub fn create_synthetic_order_report(
+    fill: &FillSnapshot,
+    account_id: AccountId,
+    instrument_id: InstrumentId,
+    instrument: &InstrumentAny,
+    venue_order_id: VenueOrderId,
+) -> anyhow::Result<OrderStatusReport> {
+    let qty_f64 = fill
+        .qty
+        .to_f64()
+        .ok_or_else(|| anyhow::anyhow!("Failed to convert quantity to f64"))?;
+    let order_qty = Quantity::new(qty_f64, instrument.size_precision());
+
+    Ok(OrderStatusReport::new(
+        account_id,
+        instrument_id,
+        None, // client_order_id
+        venue_order_id,
+        fill.side,
+        OrderType::Market,
+        TimeInForce::Gtc,
+        OrderStatus::Filled,
+        order_qty,
+        order_qty, // filled_qty = order_qty (fully filled)
+        UnixNanos::from(fill.ts_event),
+        UnixNanos::from(fill.ts_event),
+        UnixNanos::from(fill.ts_event),
+        None, // report_id
+    ))
+}
+
+/// Create a synthetic `FillReport` from a `FillSnapshot`.
+///
+/// # Errors
+///
+/// Returns an error if the fill quantity or price cannot be converted to f64.
+pub fn create_synthetic_fill_report(
+    fill: &FillSnapshot,
+    account_id: AccountId,
+    instrument_id: InstrumentId,
+    instrument: &InstrumentAny,
+    venue_order_id: VenueOrderId,
+) -> anyhow::Result<FillReport> {
+    let trade_id = create_synthetic_trade_id(fill.ts_event);
+
+    let qty_f64 = fill
+        .qty
+        .to_f64()
+        .ok_or_else(|| anyhow::anyhow!("Failed to convert quantity to f64"))?;
+    let px_f64 = fill
+        .px
+        .to_f64()
+        .ok_or_else(|| anyhow::anyhow!("Failed to convert price to f64"))?;
+
+    Ok(FillReport::new(
+        account_id,
+        instrument_id,
+        venue_order_id,
+        trade_id,
+        fill.side,
+        Quantity::new(qty_f64, instrument.size_precision()),
+        Price::new(px_f64, instrument.price_precision()),
+        Money::new(0.0, instrument.quote_currency()),
+        LiquiditySide::NoLiquiditySide,
+        None, // client_order_id
+        None, // venue_position_id
+        fill.ts_event.into(),
+        fill.ts_event.into(),
+        None, // report_id
+    ))
+}
+
+/// Result of processing fill reports for reconciliation.
+#[derive(Debug, Clone)]
+pub struct ReconciliationResult {
+    /// Order status reports keyed by venue order ID.
+    pub orders: AHashMap<VenueOrderId, OrderStatusReport>,
+    /// Fill reports keyed by venue order ID.
+    pub fills: AHashMap<VenueOrderId, Vec<FillReport>>,
+}
+
+const DEFAULT_TOLERANCE: Decimal = Decimal::from_parts(1, 0, 0, false, 4); // 0.0001
+
+/// Process fill reports from a mass status for position reconciliation.
+///
+/// This is the main entry point for position reconciliation. It:
+/// 1. Extracts fills and position for the given instrument
+/// 2. Detects position discrepancies
+/// 3. Returns adjusted order/fill reports ready for processing
+///
+/// # Errors
+///
+/// Returns an error if synthetic report creation fails.
+pub fn process_mass_status_for_reconciliation(
+    mass_status: &ExecutionMassStatus,
+    instrument: &InstrumentAny,
+    tolerance: Option<Decimal>,
+) -> anyhow::Result<ReconciliationResult> {
+    let instrument_id = instrument.id();
+    let account_id = mass_status.account_id;
+    let tol = tolerance.unwrap_or(DEFAULT_TOLERANCE);
+
+    // Get position report for this instrument
+    let position_reports = mass_status.position_reports();
+    let venue_position = match position_reports.get(&instrument_id).and_then(|r| r.first()) {
+        Some(report) => position_report_to_snapshot(report),
+        None => {
+            // No position report - return orders/fills unchanged
+            return Ok(extract_instrument_reports(mass_status, instrument_id));
+        }
+    };
+
+    // Extract and convert fills to snapshots
+    let extracted = extract_fills_for_instrument(mass_status, instrument_id);
+    let fill_snapshots = extracted.snapshots;
+    let mut order_map = extracted.orders;
+    let mut fill_map = extracted.fills;
+
+    if fill_snapshots.is_empty() {
+        return Ok(ReconciliationResult {
+            orders: order_map,
+            fills: fill_map,
+        });
+    }
+
+    // Run adjustment logic
+    let result = adjust_fills_for_partial_window(&fill_snapshots, &venue_position, instrument, tol);
+
+    // Apply adjustments
+    match result {
+        FillAdjustmentResult::NoAdjustment => {}
+
+        FillAdjustmentResult::AddSyntheticOpening {
+            synthetic_fill,
+            existing_fills: _,
+        } => {
+            let venue_order_id = create_synthetic_venue_order_id(synthetic_fill.ts_event);
+            let order = create_synthetic_order_report(
+                &synthetic_fill,
+                account_id,
+                instrument_id,
+                instrument,
+                venue_order_id,
+            )?;
+            let fill = create_synthetic_fill_report(
+                &synthetic_fill,
+                account_id,
+                instrument_id,
+                instrument,
+                venue_order_id,
+            )?;
+
+            order_map.insert(venue_order_id, order);
+            fill_map.entry(venue_order_id).or_default().insert(0, fill);
+        }
+
+        FillAdjustmentResult::ReplaceCurrentLifecycle {
+            synthetic_fill,
+            first_venue_order_id,
+        } => {
+            let order = create_synthetic_order_report(
+                &synthetic_fill,
+                account_id,
+                instrument_id,
+                instrument,
+                first_venue_order_id,
+            )?;
+            let fill = create_synthetic_fill_report(
+                &synthetic_fill,
+                account_id,
+                instrument_id,
+                instrument,
+                first_venue_order_id,
+            )?;
+
+            // Replace with only synthetic
+            order_map.clear();
+            fill_map.clear();
+            order_map.insert(first_venue_order_id, order);
+            fill_map.insert(first_venue_order_id, vec![fill]);
+        }
+
+        FillAdjustmentResult::FilterToCurrentLifecycle {
+            last_zero_crossing_ts,
+            current_lifecycle_fills: _,
+        } => {
+            // Filter fills to current lifecycle
+            for fills in fill_map.values_mut() {
+                fills.retain(|f| f.ts_event.as_u64() > last_zero_crossing_ts);
+            }
+            fill_map.retain(|_, fills| !fills.is_empty());
+
+            // Keep only orders that have fills or are still working
+            let orders_with_fills: ahash::AHashSet<VenueOrderId> =
+                fill_map.keys().copied().collect();
+            order_map.retain(|id, order| {
+                orders_with_fills.contains(id)
+                    || !matches!(
+                        order.order_status,
+                        OrderStatus::Denied
+                            | OrderStatus::Rejected
+                            | OrderStatus::Canceled
+                            | OrderStatus::Expired
+                            | OrderStatus::Filled
+                    )
+            });
+        }
+    }
+
+    Ok(ReconciliationResult {
+        orders: order_map,
+        fills: fill_map,
+    })
+}
+
+/// Convert a position status report to a venue position snapshot.
+fn position_report_to_snapshot(report: &PositionStatusReport) -> VenuePositionSnapshot {
+    let side = match report.position_side {
+        PositionSideSpecified::Long => OrderSide::Buy,
+        PositionSideSpecified::Short => OrderSide::Sell,
+        PositionSideSpecified::Flat => OrderSide::Buy,
+    };
+
+    VenuePositionSnapshot {
+        side,
+        qty: report.quantity.into(),
+        avg_px: report.avg_px_open.unwrap_or(Decimal::ZERO),
+    }
+}
+
+/// Extract orders and fills for a specific instrument from mass status.
+fn extract_instrument_reports(
+    mass_status: &ExecutionMassStatus,
+    instrument_id: InstrumentId,
+) -> ReconciliationResult {
+    let mut orders = AHashMap::new();
+    let mut fills = AHashMap::new();
+
+    for (id, order) in mass_status.order_reports() {
+        if order.instrument_id == instrument_id {
+            orders.insert(id, order.clone());
+        }
+    }
+
+    for (id, fill_list) in mass_status.fill_reports() {
+        let filtered: Vec<_> = fill_list
+            .iter()
+            .filter(|f| f.instrument_id == instrument_id)
+            .cloned()
+            .collect();
+        if !filtered.is_empty() {
+            fills.insert(id, filtered);
+        }
+    }
+
+    ReconciliationResult { orders, fills }
+}
+
+/// Extracted fills and reports for an instrument.
+struct ExtractedFills {
+    snapshots: Vec<FillSnapshot>,
+    orders: AHashMap<VenueOrderId, OrderStatusReport>,
+    fills: AHashMap<VenueOrderId, Vec<FillReport>>,
+}
+
+/// Extract fills for an instrument and convert to snapshots.
+fn extract_fills_for_instrument(
+    mass_status: &ExecutionMassStatus,
+    instrument_id: InstrumentId,
+) -> ExtractedFills {
+    let mut snapshots = Vec::new();
+    let mut order_map = AHashMap::new();
+    let mut fill_map = AHashMap::new();
+
+    // Seed order_map
+    for (id, order) in mass_status.order_reports() {
+        if order.instrument_id == instrument_id {
+            order_map.insert(id, order.clone());
+        }
+    }
+
+    // Extract fills
+    for (venue_order_id, fill_reports) in mass_status.fill_reports() {
+        for fill in fill_reports {
+            if fill.instrument_id == instrument_id {
+                let side = mass_status
+                    .order_reports()
+                    .get(&venue_order_id)
+                    .map_or(fill.order_side, |o| o.order_side);
+
+                snapshots.push(FillSnapshot::new(
+                    fill.ts_event.as_u64(),
+                    side,
+                    fill.last_qty.into(),
+                    fill.last_px.into(),
+                    venue_order_id,
+                ));
+
+                fill_map
+                    .entry(venue_order_id)
+                    .or_insert_with(Vec::new)
+                    .push(fill.clone());
+            }
+        }
+    }
+
+    // Sort chronologically
+    snapshots.sort_by_key(|f| f.ts_event);
+
+    ExtractedFills {
+        snapshots,
+        orders: order_map,
+        fills: fill_map,
+    }
 }
 
 #[cfg(test)]
@@ -1382,5 +1735,219 @@ mod tests {
         assert_eq!(final_qty, dec!(50));
         let final_avg = final_value / final_qty.abs();
         assert_eq!(final_avg, dec!(1.20), "Average should be maintained");
+    }
+
+    #[rstest]
+    fn test_detect_zero_crossings_identical_timestamps() {
+        let venue_order_id1 = create_test_venue_order_id("ORDER1");
+        let venue_order_id2 = create_test_venue_order_id("ORDER2");
+
+        // Two fills with identical timestamps - should process deterministically
+        let fills = vec![
+            FillSnapshot::new(1000, OrderSide::Buy, dec!(10), dec!(100), venue_order_id1),
+            FillSnapshot::new(2000, OrderSide::Sell, dec!(5), dec!(102), venue_order_id1),
+            FillSnapshot::new(2000, OrderSide::Sell, dec!(5), dec!(103), venue_order_id2), // Same ts
+        ];
+
+        let crossings = detect_zero_crossings(&fills);
+
+        // Position: +10 -> +5 -> 0 (zero crossing at last fill)
+        assert_eq!(crossings.len(), 1);
+        assert_eq!(crossings[0], 2000);
+
+        // Verify final position is flat
+        let (qty, _) = simulate_position(&fills);
+        assert_eq!(qty, dec!(0));
+    }
+
+    #[rstest]
+    fn test_detect_zero_crossings_five_lifecycles() {
+        let venue_order_id = create_test_venue_order_id("ORDER1");
+
+        // Five complete position lifecycles: open->close repeated 5 times
+        let fills = vec![
+            // Lifecycle 1: Long
+            FillSnapshot::new(1000, OrderSide::Buy, dec!(10), dec!(100), venue_order_id),
+            FillSnapshot::new(2000, OrderSide::Sell, dec!(10), dec!(101), venue_order_id),
+            // Lifecycle 2: Short
+            FillSnapshot::new(3000, OrderSide::Sell, dec!(20), dec!(102), venue_order_id),
+            FillSnapshot::new(4000, OrderSide::Buy, dec!(20), dec!(101), venue_order_id),
+            // Lifecycle 3: Long
+            FillSnapshot::new(5000, OrderSide::Buy, dec!(15), dec!(103), venue_order_id),
+            FillSnapshot::new(6000, OrderSide::Sell, dec!(15), dec!(104), venue_order_id),
+            // Lifecycle 4: Short
+            FillSnapshot::new(7000, OrderSide::Sell, dec!(25), dec!(105), venue_order_id),
+            FillSnapshot::new(8000, OrderSide::Buy, dec!(25), dec!(104), venue_order_id),
+            // Lifecycle 5: Long (still open)
+            FillSnapshot::new(9000, OrderSide::Buy, dec!(30), dec!(106), venue_order_id),
+        ];
+
+        let crossings = detect_zero_crossings(&fills);
+
+        // Should detect 4 zero-crossings (positions closing to flat)
+        assert_eq!(crossings.len(), 4);
+        assert_eq!(crossings[0], 2000);
+        assert_eq!(crossings[1], 4000);
+        assert_eq!(crossings[2], 6000);
+        assert_eq!(crossings[3], 8000);
+
+        // Final position should be +30
+        let (qty, _) = simulate_position(&fills);
+        assert_eq!(qty, dec!(30));
+    }
+
+    #[rstest]
+    fn test_adjust_fills_five_zero_crossings(instrument: InstrumentAny) {
+        let venue_order_id = create_test_venue_order_id("ORDER1");
+
+        // Complex scenario: 4 complete lifecycles + current open position
+        let fills = vec![
+            // Old lifecycles (should be filtered out)
+            FillSnapshot::new(1000, OrderSide::Buy, dec!(10), dec!(100), venue_order_id),
+            FillSnapshot::new(2000, OrderSide::Sell, dec!(10), dec!(101), venue_order_id),
+            FillSnapshot::new(3000, OrderSide::Sell, dec!(20), dec!(102), venue_order_id),
+            FillSnapshot::new(4000, OrderSide::Buy, dec!(20), dec!(101), venue_order_id),
+            FillSnapshot::new(5000, OrderSide::Buy, dec!(15), dec!(103), venue_order_id),
+            FillSnapshot::new(6000, OrderSide::Sell, dec!(15), dec!(104), venue_order_id),
+            FillSnapshot::new(7000, OrderSide::Sell, dec!(25), dec!(105), venue_order_id),
+            FillSnapshot::new(8000, OrderSide::Buy, dec!(25), dec!(104), venue_order_id),
+            // Current lifecycle (should be kept)
+            FillSnapshot::new(9000, OrderSide::Buy, dec!(30), dec!(106), venue_order_id),
+        ];
+
+        let venue_position = VenuePositionSnapshot {
+            side: OrderSide::Buy,
+            qty: dec!(30),
+            avg_px: dec!(106),
+        };
+
+        let result =
+            adjust_fills_for_partial_window(&fills, &venue_position, &instrument, dec!(0.0001));
+
+        // Should filter to current lifecycle only (after last zero-crossing at 8000)
+        match result {
+            FillAdjustmentResult::FilterToCurrentLifecycle {
+                last_zero_crossing_ts,
+                current_lifecycle_fills,
+            } => {
+                assert_eq!(last_zero_crossing_ts, 8000);
+                assert_eq!(current_lifecycle_fills.len(), 1);
+                assert_eq!(current_lifecycle_fills[0].ts_event, 9000);
+                assert_eq!(current_lifecycle_fills[0].qty, dec!(30));
+            }
+            _ => panic!("Expected FilterToCurrentLifecycle, was {result:?}"),
+        }
+    }
+
+    #[rstest]
+    fn test_adjust_fills_alternating_long_short_positions(instrument: InstrumentAny) {
+        let venue_order_id = create_test_venue_order_id("ORDER1");
+
+        // Alternating: Long -> Short -> Long -> Short -> Long
+        // These are flips (sign changes) but never go to exactly zero
+        let fills = vec![
+            FillSnapshot::new(1000, OrderSide::Buy, dec!(10), dec!(100), venue_order_id),
+            FillSnapshot::new(2000, OrderSide::Sell, dec!(20), dec!(102), venue_order_id), // Flip to -10
+            FillSnapshot::new(3000, OrderSide::Buy, dec!(20), dec!(101), venue_order_id), // Flip to +10
+            FillSnapshot::new(4000, OrderSide::Sell, dec!(20), dec!(103), venue_order_id), // Flip to -10
+            FillSnapshot::new(5000, OrderSide::Buy, dec!(20), dec!(102), venue_order_id), // Flip to +10
+        ];
+
+        // Current position: +10 @ 102
+        let venue_position = VenuePositionSnapshot {
+            side: OrderSide::Buy,
+            qty: dec!(10),
+            avg_px: dec!(102),
+        };
+
+        let result =
+            adjust_fills_for_partial_window(&fills, &venue_position, &instrument, dec!(0.0001));
+
+        // Position never went flat (0), just flipped sides. This is treated as one
+        // continuous lifecycle since no explicit close occurred. The final position
+        // matches so no adjustment needed.
+        assert!(
+            matches!(result, FillAdjustmentResult::NoAdjustment),
+            "Expected NoAdjustment (continuous lifecycle with matching position), was {result:?}"
+        );
+    }
+
+    #[rstest]
+    fn test_adjust_fills_with_flat_crossings(instrument: InstrumentAny) {
+        let venue_order_id = create_test_venue_order_id("ORDER1");
+
+        // Proper lifecycle boundaries with flat crossings (position goes to exactly 0)
+        let fills = vec![
+            FillSnapshot::new(1000, OrderSide::Buy, dec!(10), dec!(100), venue_order_id),
+            FillSnapshot::new(2000, OrderSide::Sell, dec!(10), dec!(102), venue_order_id), // Close to 0
+            FillSnapshot::new(3000, OrderSide::Sell, dec!(10), dec!(101), venue_order_id), // New short
+            FillSnapshot::new(4000, OrderSide::Buy, dec!(10), dec!(99), venue_order_id), // Close to 0
+            FillSnapshot::new(5000, OrderSide::Buy, dec!(10), dec!(98), venue_order_id), // New long
+        ];
+
+        // Current position: +10 @ 98
+        let venue_position = VenuePositionSnapshot {
+            side: OrderSide::Buy,
+            qty: dec!(10),
+            avg_px: dec!(98),
+        };
+
+        let result =
+            adjust_fills_for_partial_window(&fills, &venue_position, &instrument, dec!(0.0001));
+
+        // Position went flat at ts=2000 and ts=4000
+        // Current lifecycle starts after last flat (4000)
+        match result {
+            FillAdjustmentResult::FilterToCurrentLifecycle {
+                last_zero_crossing_ts,
+                current_lifecycle_fills,
+            } => {
+                assert_eq!(last_zero_crossing_ts, 4000);
+                assert_eq!(current_lifecycle_fills.len(), 1);
+                assert_eq!(current_lifecycle_fills[0].ts_event, 5000);
+                assert_eq!(current_lifecycle_fills[0].qty, dec!(10));
+            }
+            _ => panic!("Expected FilterToCurrentLifecycle, was {result:?}"),
+        }
+    }
+
+    #[rstest]
+    fn test_replace_current_lifecycle_uses_first_venue_order_id(instrument: InstrumentAny) {
+        let order_id_1 = create_test_venue_order_id("ORDER1");
+        let order_id_2 = create_test_venue_order_id("ORDER2");
+        let order_id_3 = create_test_venue_order_id("ORDER3");
+
+        // Previous lifecycle closes, then current lifecycle has fills from multiple orders
+        let fills = vec![
+            FillSnapshot::new(1000, OrderSide::Buy, dec!(10), dec!(100), order_id_1),
+            FillSnapshot::new(2000, OrderSide::Sell, dec!(10), dec!(102), order_id_1), // Close to 0
+            // Current lifecycle: fills from different venue order IDs
+            FillSnapshot::new(3000, OrderSide::Buy, dec!(5), dec!(103), order_id_2),
+            FillSnapshot::new(4000, OrderSide::Buy, dec!(5), dec!(104), order_id_3),
+        ];
+
+        // Venue position differs from simulated (+10 @ 103.5) to trigger replacement
+        let venue_position = VenuePositionSnapshot {
+            side: OrderSide::Buy,
+            qty: dec!(15),
+            avg_px: dec!(105),
+        };
+
+        let result =
+            adjust_fills_for_partial_window(&fills, &venue_position, &instrument, dec!(0.0001));
+
+        // Should replace with synthetic fill using first fill's venue_order_id (order_id_2)
+        match result {
+            FillAdjustmentResult::ReplaceCurrentLifecycle {
+                synthetic_fill,
+                first_venue_order_id,
+            } => {
+                assert_eq!(first_venue_order_id, order_id_2);
+                assert_eq!(synthetic_fill.venue_order_id, order_id_2);
+                assert_eq!(synthetic_fill.qty, dec!(15));
+                assert_eq!(synthetic_fill.px, dec!(105));
+            }
+            _ => panic!("Expected ReplaceCurrentLifecycle, was {result:?}"),
+        }
     }
 }

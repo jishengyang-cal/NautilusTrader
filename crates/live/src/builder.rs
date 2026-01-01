@@ -28,7 +28,7 @@ use nautilus_system::{
 
 use crate::{
     config::LiveNodeConfig,
-    execution::manager::{ExecutionManager, ExecutionManagerConfig},
+    manager::{ExecutionManager, ExecutionManagerConfig},
     node::LiveNode,
     runner::AsyncRunner,
 };

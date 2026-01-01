@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Order execution engine for [NautilusTrader](http://nautilustrader.io).
+//! Order execution system for [NautilusTrader](http://nautilustrader.io).
 //!
 //! The `nautilus-execution` crate provides a comprehensive order execution system that handles the complete
 //! order lifecycle from submission to fill processing. This includes sophisticated order matching,
@@ -69,4 +69,8 @@ pub mod models;
 pub mod order_emulator;
 pub mod order_manager;
 pub mod protection;
+pub mod reconciliation;
 pub mod trailing;
+
+#[cfg(feature = "python")]
+pub mod python;

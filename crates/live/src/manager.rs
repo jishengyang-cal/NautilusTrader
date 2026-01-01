@@ -1279,10 +1279,15 @@ mod tests {
     use nautilus_common::{cache::Cache, clock::TestClock};
     use nautilus_core::{UUID4, UnixNanos};
     use nautilus_model::{
-        enums::OrderStatus,
-        identifiers::{AccountId, ClientId, ClientOrderId, Venue, VenueOrderId},
-        reports::ExecutionMassStatus,
-        types::Quantity,
+        enums::{LiquiditySide, OrderSide, OrderStatus, OrderType, TimeInForce},
+        events::OrderEventAny,
+        identifiers::{
+            AccountId, ClientId, ClientOrderId, InstrumentId, TradeId, Venue, VenueOrderId,
+        },
+        instruments::stubs::audusd_sim,
+        orders::{Order, OrderTestBuilder},
+        reports::{ExecutionMassStatus, FillReport, OrderStatusReport},
+        types::{Money, Price, Quantity},
     };
     use rstest::rstest;
 
@@ -1505,5 +1510,169 @@ mod tests {
         assert_eq!(config.inflight_max_retries, 5);
         assert!(!config.filter_unclaimed_external);
         assert!(config.generate_missing_orders);
+    }
+
+    #[rstest]
+    fn test_create_order_fill_deduplicates_by_trade_id() {
+        let mut manager = create_test_manager();
+        let instrument = audusd_sim();
+        let mut order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from(100_000))
+            .build();
+        let trade_id = TradeId::from("T-001");
+        let fill = FillReport::new(
+            AccountId::from("SIM-001"),
+            instrument.id(),
+            VenueOrderId::from("V-001"),
+            trade_id,
+            OrderSide::Buy,
+            Quantity::from(100_000),
+            Price::from("1.00000"),
+            Money::from("1.00 USD"),
+            LiquiditySide::Maker,
+            Some(ClientOrderId::from("O-123456")),
+            None,
+            UnixNanos::from(1_000_000_000),
+            UnixNanos::from(1_000_000_000),
+            None,
+        );
+        let event1 = manager.create_order_fill(&mut order, &fill, &InstrumentAny::from(instrument));
+        assert!(event1.is_some());
+
+        // Same trade_id should be skipped
+        let event2 = manager.create_order_fill(&mut order, &fill, &InstrumentAny::from(instrument));
+        assert!(event2.is_none());
+    }
+
+    #[rstest]
+    fn test_handle_external_order_uses_claimed_strategy() {
+        let mut manager = create_test_manager();
+        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
+        let strategy_id = StrategyId::from("STRATEGY-001");
+        let account_id = AccountId::from("BINANCE-001");
+        let venue_order_id = VenueOrderId::from("V-EXT-001");
+        manager.claim_external_orders(instrument_id, strategy_id);
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None, // No client_order_id (external)
+            venue_order_id,
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Accepted,
+            Quantity::from(1),
+            Quantity::from(0),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("50000.00"));
+        let events = manager.handle_external_order(&report, &account_id);
+
+        // Initialized consumed internally, only Accepted returned
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], OrderEventAny::Accepted(_)));
+        let client_order_id = ClientOrderId::from(venue_order_id.as_str());
+        let order = manager.cache.borrow().order(&client_order_id).cloned();
+        assert!(order.is_some());
+        assert_eq!(order.unwrap().strategy_id(), strategy_id);
+    }
+
+    #[rstest]
+    fn test_handle_external_order_uses_external_strategy_when_unclaimed() {
+        let mut manager = create_test_manager();
+        let instrument_id = InstrumentId::from("ETHUSDT.BINANCE");
+        let account_id = AccountId::from("BINANCE-001");
+        let venue_order_id = VenueOrderId::from("V-EXT-002");
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None, // No client_order_id (external)
+            venue_order_id,
+            OrderSide::Sell,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Accepted,
+            Quantity::from(1),
+            Quantity::from(0),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("3000.00"));
+        let events = manager.handle_external_order(&report, &account_id);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], OrderEventAny::Accepted(_)));
+        let client_order_id = ClientOrderId::from(venue_order_id.as_str());
+        let order = manager.cache.borrow().order(&client_order_id).cloned();
+        assert!(order.is_some());
+        let order = order.unwrap();
+        assert_eq!(order.strategy_id(), StrategyId::from("EXTERNAL"));
+        assert!(
+            order
+                .tags()
+                .is_some_and(|t| t.iter().any(|s| s.as_str() == "VENUE"))
+        );
+    }
+
+    #[rstest]
+    fn test_external_order_canceled_generates_accepted_and_canceled() {
+        let mut manager = create_test_manager();
+        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
+        let account_id = AccountId::from("BINANCE-001");
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None, // No client_order_id (external)
+            VenueOrderId::from("V-EXT-003"),
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Canceled,
+            Quantity::from(1),
+            Quantity::from(0),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("50000.00"));
+        let events = manager.handle_external_order(&report, &account_id);
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], OrderEventAny::Accepted(_)));
+        assert!(matches!(events[1], OrderEventAny::Canceled(_)));
+    }
+
+    #[rstest]
+    fn test_external_order_expired_generates_accepted_and_expired() {
+        let mut manager = create_test_manager();
+        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
+        let account_id = AccountId::from("BINANCE-001");
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None, // No client_order_id (external)
+            VenueOrderId::from("V-EXT-004"),
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Expired,
+            Quantity::from(1),
+            Quantity::from(0),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("50000.00"));
+        let events = manager.handle_external_order(&report, &account_id);
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], OrderEventAny::Accepted(_)));
+        assert!(matches!(events[1], OrderEventAny::Expired(_)));
     }
 }
