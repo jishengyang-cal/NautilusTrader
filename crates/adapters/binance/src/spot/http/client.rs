@@ -31,15 +31,23 @@
 //! - `Accept: application/sbe`
 //! - `X-MBX-SBE: 3:2` (schema ID:version)
 
-use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, num::NonZeroU32, sync::Arc};
 
 use chrono::Utc;
-use nautilus_core::consts::NAUTILUS_USER_AGENT;
+use dashmap::DashMap;
+use nautilus_core::{consts::NAUTILUS_USER_AGENT, nanos::UnixNanos};
+use nautilus_model::{
+    data::TradeTick,
+    identifiers::{AccountId, InstrumentId},
+    instruments::{Instrument, any::InstrumentAny},
+    reports::{FillReport, OrderStatusReport},
+};
 use nautilus_network::{
     http::{HttpClient, HttpResponse, Method},
     ratelimiter::quota::Quota,
 };
 use serde::Serialize;
+use ustr::Ustr;
 
 use super::{
     error::{BinanceSpotHttpError, BinanceSpotHttpResult},
@@ -223,6 +231,19 @@ impl BinanceRawSpotHttpClient {
         let bytes = self.get("time", None::<&()>).await?;
         let timestamp = parse::decode_server_time(&bytes)?;
         Ok(timestamp)
+    }
+
+    /// Returns exchange information including trading symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn exchange_info(
+        &self,
+    ) -> BinanceSpotHttpResult<super::models::BinanceExchangeInfoSbe> {
+        let bytes = self.get("exchangeInfo", None::<&()>).await?;
+        let info = parse::decode_exchange_info(&bytes)?;
+        Ok(info)
     }
 
     /// Returns order book depth for a symbol.
@@ -546,9 +567,31 @@ struct RateLimitConfig {
 /// Wraps [`BinanceRawSpotHttpClient`] and provides domain-level methods:
 /// - Simple types (ping, server_time): Pass through from raw client.
 /// - Complex types (instruments, orders): Transform to Nautilus domain types.
-#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.binance")
+)]
 pub struct BinanceSpotHttpClient {
     inner: Arc<BinanceRawSpotHttpClient>,
+    instruments_cache: Arc<DashMap<Ustr, InstrumentAny>>,
+}
+
+impl Clone for BinanceSpotHttpClient {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            instruments_cache: self.instruments_cache.clone(),
+        }
+    }
+}
+
+impl Debug for BinanceSpotHttpClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BinanceSpotHttpClient")
+            .field("inner", &self.inner)
+            .field("instruments_cached", &self.instruments_cache.len())
+            .finish()
+    }
 }
 
 impl BinanceSpotHttpClient {
@@ -578,6 +621,7 @@ impl BinanceSpotHttpClient {
 
         Ok(Self {
             inner: Arc::new(inner),
+            instruments_cache: Arc::new(DashMap::new()),
         })
     }
 
@@ -597,6 +641,41 @@ impl BinanceSpotHttpClient {
     #[must_use]
     pub const fn schema_version() -> u16 {
         SBE_SCHEMA_VERSION
+    }
+
+    /// Generates a timestamp for initialization.
+    fn generate_ts_init(&self) -> UnixNanos {
+        UnixNanos::from(chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0) as u64)
+    }
+
+    /// Retrieves an instrument from the cache.
+    fn instrument_from_cache(&self, symbol: Ustr) -> anyhow::Result<InstrumentAny> {
+        self.instruments_cache
+            .get(&symbol)
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| anyhow::anyhow!("Instrument {symbol} not in cache"))
+    }
+
+    /// Caches multiple instruments.
+    pub fn cache_instruments(&self, instruments: Vec<InstrumentAny>) {
+        for inst in instruments {
+            self.instruments_cache
+                .insert(inst.raw_symbol().inner(), inst);
+        }
+    }
+
+    /// Caches a single instrument.
+    pub fn cache_instrument(&self, instrument: InstrumentAny) {
+        self.instruments_cache
+            .insert(instrument.raw_symbol().inner(), instrument);
+    }
+
+    /// Gets an instrument from the cache by symbol.
+    #[must_use]
+    pub fn get_instrument(&self, symbol: &Ustr) -> Option<InstrumentAny> {
+        self.instruments_cache
+            .get(symbol)
+            .map(|entry| entry.value().clone())
     }
 
     /// Tests connectivity to the API.
@@ -619,37 +698,92 @@ impl BinanceSpotHttpClient {
         self.inner.server_time().await
     }
 
-    /// Returns order book depth for a symbol.
+    /// Returns exchange information including trading symbols.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn depth(&self, params: &DepthParams) -> BinanceSpotHttpResult<BinanceDepth> {
-        self.inner.depth(params).await
+    pub async fn exchange_info(
+        &self,
+    ) -> BinanceSpotHttpResult<super::models::BinanceExchangeInfoSbe> {
+        self.inner.exchange_info().await
     }
 
-    /// Returns recent trades for a symbol.
+    /// Requests Nautilus instruments for all trading symbols.
+    ///
+    /// Fetches exchange info via SBE and parses each symbol into a CurrencyPair.
+    /// Non-trading symbols are skipped with a debug log.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn trades(&self, params: &TradesParams) -> BinanceSpotHttpResult<BinanceTrades> {
-        self.inner.trades(params).await
+    pub async fn request_instruments(&self) -> BinanceSpotHttpResult<Vec<InstrumentAny>> {
+        let info = self.exchange_info().await?;
+        let ts_init = self.generate_ts_init();
+
+        let mut instruments = Vec::with_capacity(info.symbols.len());
+        for symbol in &info.symbols {
+            match crate::common::parse::parse_spot_instrument_sbe(symbol, ts_init, ts_init) {
+                Ok(instrument) => instruments.push(instrument),
+                Err(e) => {
+                    tracing::debug!(
+                        symbol = %symbol.symbol,
+                        error = %e,
+                        "Skipping symbol during instrument parsing"
+                    );
+                }
+            }
+        }
+
+        // Cache instruments for use by other domain methods
+        self.cache_instruments(instruments.clone());
+
+        tracing::info!(count = instruments.len(), "Loaded spot instruments");
+        Ok(instruments)
     }
 
-    /// Creates a new order.
+    /// Requests recent trades for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, the instrument is not cached,
+    /// or trade parsing fails.
+    pub async fn request_trades(
+        &self,
+        instrument_id: InstrumentId,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<TradeTick>> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let params = TradesParams {
+            symbol: symbol.to_string(),
+            limit,
+        };
+
+        let trades = self
+            .inner
+            .trades(&params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        crate::common::parse::parse_spot_trades_sbe(&trades, &instrument, ts_init)
+    }
+
+    /// Submits a new order to the venue.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn new_order(
+    pub async fn submit_order(
         &self,
         params: &NewOrderParams,
     ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
         self.inner.new_order(params).await
     }
 
-    /// Cancels an existing order.
+    /// Cancels an existing order on the venue.
     ///
     /// # Errors
     ///
@@ -666,83 +800,173 @@ impl BinanceSpotHttpClient {
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_open_orders(
+    pub async fn cancel_all_orders(
         &self,
         params: &CancelOpenOrdersParams,
     ) -> BinanceSpotHttpResult<Vec<BinanceCancelOrderResponse>> {
         self.inner.cancel_open_orders(params).await
     }
 
-    /// Cancels an existing order and places a new order atomically.
+    /// Modifies an existing order (cancel and replace atomically).
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_replace_order(
+    pub async fn modify_order(
         &self,
         params: &CancelReplaceOrderParams,
     ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
         self.inner.cancel_replace_order(params).await
     }
 
-    /// Queries an order's status.
+    /// Requests the status of a specific order.
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn query_order(
+    /// Returns an error if the request fails, instrument is not cached,
+    /// or parsing fails.
+    pub async fn request_order_status(
         &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
         params: &QueryOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceOrderResponse> {
-        self.inner.query_order(params).await
+    ) -> anyhow::Result<OrderStatusReport> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let order = self
+            .inner
+            .query_order(params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        crate::common::parse::parse_order_status_report_sbe(
+            &order,
+            account_id,
+            &instrument,
+            ts_init,
+        )
     }
 
-    /// Returns all open orders for a symbol or all symbols.
+    /// Requests all open orders for a symbol or all symbols.
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn open_orders(
+    /// Returns an error if the request fails, instrument is not cached,
+    /// or parsing fails.
+    pub async fn request_open_orders(
         &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
         params: &OpenOrdersParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
-        self.inner.open_orders(params).await
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let orders = self
+            .inner
+            .open_orders(params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        orders
+            .iter()
+            .map(|order| {
+                crate::common::parse::parse_order_status_report_sbe(
+                    order,
+                    account_id,
+                    &instrument,
+                    ts_init,
+                )
+            })
+            .collect()
     }
 
-    /// Returns all orders (including closed) for a symbol.
+    /// Requests order history (including closed orders) for a symbol.
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn all_orders(
+    /// Returns an error if the request fails, instrument is not cached,
+    /// or parsing fails.
+    pub async fn request_order_history(
         &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
         params: &AllOrdersParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
-        self.inner.all_orders(params).await
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let orders = self
+            .inner
+            .all_orders(params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        orders
+            .iter()
+            .map(|order| {
+                crate::common::parse::parse_order_status_report_sbe(
+                    order,
+                    account_id,
+                    &instrument,
+                    ts_init,
+                )
+            })
+            .collect()
     }
 
-    /// Returns account information including balances.
+    /// Requests account state including balances.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn account(
+    pub async fn request_account_state(
         &self,
         params: &AccountInfoParams,
     ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
         self.inner.account(params).await
     }
 
-    /// Returns account trade history for a symbol.
+    /// Requests fill reports (trade history) for a symbol.
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn account_trades(
+    /// Returns an error if the request fails, instrument is not cached,
+    /// or parsing fails.
+    pub async fn request_fill_reports(
         &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
         params: &AccountTradesParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceAccountTrade>> {
-        self.inner.account_trades(params).await
+    ) -> anyhow::Result<Vec<FillReport>> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let trades = self
+            .inner
+            .account_trades(params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        trades
+            .iter()
+            .map(|trade| {
+                let commission_currency =
+                    crate::common::parse::get_currency(&trade.commission_asset);
+                crate::common::parse::parse_fill_report_sbe(
+                    trade,
+                    account_id,
+                    &instrument,
+                    commission_currency,
+                    ts_init,
+                )
+            })
+            .collect()
     }
 }
 

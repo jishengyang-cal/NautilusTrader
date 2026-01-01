@@ -104,14 +104,6 @@ impl Debug for BinanceFuturesWebSocketClient {
 impl BinanceFuturesWebSocketClient {
     /// Creates a new [`BinanceFuturesWebSocketClient`] instance.
     ///
-    /// # Arguments
-    ///
-    /// * `product_type` - Must be `UsdM` or `CoinM`.
-    /// * `environment` - Mainnet or testnet.
-    /// * `api_key` - Optional API key for user data streams.
-    /// * `api_secret` - Optional API secret for signing.
-    /// * `heartbeat` - Optional heartbeat interval in milliseconds.
-    ///
     /// # Errors
     ///
     /// Returns an error if:

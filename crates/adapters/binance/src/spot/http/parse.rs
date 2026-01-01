@@ -22,8 +22,8 @@ use super::{
     error::SbeDecodeError,
     models::{
         BinanceAccountInfo, BinanceAccountTrade, BinanceBalance, BinanceCancelOrderResponse,
-        BinanceDepth, BinanceNewOrderResponse, BinanceOrderFill, BinanceOrderResponse,
-        BinancePriceLevel, BinanceTrade, BinanceTrades,
+        BinanceDepth, BinanceExchangeInfoSbe, BinanceNewOrderResponse, BinanceOrderFill,
+        BinanceOrderResponse, BinancePriceLevel, BinanceSymbolSbe, BinanceTrade, BinanceTrades,
     },
 };
 use crate::common::sbe::{
@@ -36,6 +36,7 @@ use crate::common::sbe::{
         cancel_open_orders_response_codec::SBE_TEMPLATE_ID as CANCEL_OPEN_ORDERS_TEMPLATE_ID,
         cancel_order_response_codec::SBE_TEMPLATE_ID as CANCEL_ORDER_TEMPLATE_ID,
         depth_response_codec::SBE_TEMPLATE_ID as DEPTH_TEMPLATE_ID,
+        exchange_info_response_codec::SBE_TEMPLATE_ID as EXCHANGE_INFO_TEMPLATE_ID,
         message_header_codec::ENCODED_LENGTH as HEADER_LENGTH,
         new_order_full_response_codec::SBE_TEMPLATE_ID as NEW_ORDER_FULL_TEMPLATE_ID,
         order_response_codec::SBE_TEMPLATE_ID as ORDER_TEMPLATE_ID,
@@ -756,6 +757,128 @@ fn decode_fills_cursor(
     Ok(fills)
 }
 
+/// Symbols group block length (from SBE codec).
+const SYMBOL_BLOCK_LENGTH: usize = 19;
+
+/// Decode exchange info response.
+///
+/// ExchangeInfo response contains rate limits, exchange filters, symbols, and SOR info.
+/// We only decode the symbols array which contains instrument definitions.
+///
+/// # Errors
+///
+/// Returns error if buffer is too short, schema mismatch, or template ID mismatch.
+pub fn decode_exchange_info(buf: &[u8]) -> Result<BinanceExchangeInfoSbe, SbeDecodeError> {
+    let mut cursor = SbeCursor::new(buf);
+    let header = MessageHeader::decode_cursor(&mut cursor)?;
+    header.validate()?;
+
+    if header.template_id != EXCHANGE_INFO_TEMPLATE_ID {
+        return Err(SbeDecodeError::UnknownTemplateId(header.template_id));
+    }
+
+    // Skip rate_limits group
+    let (rate_limits_block_len, rate_limits_count) = cursor.read_group_header()?;
+    cursor.advance(rate_limits_block_len as usize * rate_limits_count as usize)?;
+
+    // Skip exchange_filters group
+    let (_exchange_filters_block_len, exchange_filters_count) = cursor.read_group_header()?;
+    for _ in 0..exchange_filters_count {
+        // Each filter is a varString8
+        cursor.read_var_string8()?;
+    }
+
+    // Decode symbols group
+    let (symbols_block_len, symbols_count) = cursor.read_group_header()?;
+
+    if symbols_block_len != SYMBOL_BLOCK_LENGTH as u16 {
+        return Err(SbeDecodeError::InvalidBlockLength {
+            expected: SYMBOL_BLOCK_LENGTH as u16,
+            actual: symbols_block_len,
+        });
+    }
+
+    let mut symbols = Vec::with_capacity(symbols_count as usize);
+
+    for _ in 0..symbols_count {
+        cursor.require(SYMBOL_BLOCK_LENGTH)?;
+
+        // Fixed fields (19 bytes)
+        let status = cursor.read_u8()?;
+        let base_asset_precision = cursor.read_u8()?;
+        let quote_asset_precision = cursor.read_u8()?;
+        let _base_commission_precision = cursor.read_u8()?;
+        let _quote_commission_precision = cursor.read_u8()?;
+        let order_types = cursor.read_u16_le()?;
+        let iceberg_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let oco_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let oto_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let quote_order_qty_market_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let allow_trailing_stop = cursor.read_u8()? == BoolEnum::True as u8;
+        let cancel_replace_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let amend_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let is_spot_trading_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let is_margin_trading_allowed = cursor.read_u8()? == BoolEnum::True as u8;
+        let _default_self_trade_prevention_mode = cursor.read_u8()?;
+        let _allowed_self_trade_prevention_modes = cursor.read_u8()?;
+        let _peg_instructions_allowed = cursor.read_u8()?;
+
+        // Filters nested group (JSON blobs)
+        let (_filters_block_len, filters_count) = cursor.read_group_header()?;
+        let mut filters = Vec::with_capacity(filters_count as usize);
+        for _ in 0..filters_count {
+            let filter_json = cursor.read_var_string8()?;
+            if let Ok(value) = serde_json::from_str(&filter_json) {
+                filters.push(value);
+            }
+        }
+
+        // Permission sets nested group
+        let (_perm_sets_block_len, perm_sets_count) = cursor.read_group_header()?;
+        let mut permissions = Vec::with_capacity(perm_sets_count as usize);
+        for _ in 0..perm_sets_count {
+            // Permissions nested group
+            let (_perms_block_len, perms_count) = cursor.read_group_header()?;
+            let mut perm_set = Vec::with_capacity(perms_count as usize);
+            for _ in 0..perms_count {
+                let perm = cursor.read_var_string8()?;
+                perm_set.push(perm);
+            }
+            permissions.push(perm_set);
+        }
+
+        // Variable-length strings
+        let symbol = cursor.read_var_string8()?;
+        let base_asset = cursor.read_var_string8()?;
+        let quote_asset = cursor.read_var_string8()?;
+
+        symbols.push(BinanceSymbolSbe {
+            symbol,
+            base_asset,
+            quote_asset,
+            base_asset_precision,
+            quote_asset_precision,
+            status,
+            order_types,
+            iceberg_allowed,
+            oco_allowed,
+            oto_allowed,
+            quote_order_qty_market_allowed,
+            allow_trailing_stop,
+            cancel_replace_allowed,
+            amend_allowed,
+            is_spot_trading_allowed,
+            is_margin_trading_allowed,
+            filters,
+            permissions,
+        });
+    }
+
+    // Skip SOR group (we don't need it)
+
+    Ok(BinanceExchangeInfoSbe { symbols })
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -1416,5 +1539,205 @@ mod tests {
 
         let trades = decode_account_trades(&buf).unwrap();
         assert!(trades.is_empty());
+    }
+
+    #[rstest]
+    fn test_decode_exchange_info_single_symbol() {
+        let header = create_header(
+            0,
+            EXCHANGE_INFO_TEMPLATE_ID,
+            SBE_SCHEMA_ID,
+            SBE_SCHEMA_VERSION,
+        );
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header);
+
+        // Empty rate_limits group
+        buf.extend_from_slice(&create_group_header(11, 0));
+
+        // Empty exchange_filters group
+        buf.extend_from_slice(&create_group_header(0, 0));
+
+        // Symbols group: 1 symbol with block_length=19
+        buf.extend_from_slice(&create_group_header(SYMBOL_BLOCK_LENGTH as u16, 1));
+
+        // Fixed block (19 bytes)
+        buf.push(0); // status (Trading)
+        buf.push(8); // base_asset_precision
+        buf.push(8); // quote_asset_precision
+        buf.push(8); // base_commission_precision
+        buf.push(8); // quote_commission_precision
+        buf.extend_from_slice(&0b0000_0111u16.to_le_bytes()); // order_types (MARKET|LIMIT|STOP_LOSS)
+        buf.push(1); // iceberg_allowed (True)
+        buf.push(1); // oco_allowed (True)
+        buf.push(0); // oto_allowed (False)
+        buf.push(1); // quote_order_qty_market_allowed (True)
+        buf.push(1); // allow_trailing_stop (True)
+        buf.push(1); // cancel_replace_allowed (True)
+        buf.push(0); // amend_allowed (False)
+        buf.push(1); // is_spot_trading_allowed (True)
+        buf.push(0); // is_margin_trading_allowed (False)
+        buf.push(0); // default_self_trade_prevention_mode
+        buf.push(0); // allowed_self_trade_prevention_modes
+        buf.push(0); // peg_instructions_allowed
+
+        // Filters nested group: 1 filter
+        buf.extend_from_slice(&create_group_header(0, 1));
+        let filter_json = r#"{"filterType":"PRICE_FILTER","minPrice":"0.01","maxPrice":"100000","tickSize":"0.01"}"#;
+        write_var_string(&mut buf, filter_json);
+
+        // Permission sets nested group: 1 set with 1 permission
+        buf.extend_from_slice(&create_group_header(0, 1));
+        buf.extend_from_slice(&create_group_header(0, 1));
+        write_var_string(&mut buf, "SPOT");
+
+        // Variable-length strings
+        write_var_string(&mut buf, "BTCUSDT");
+        write_var_string(&mut buf, "BTC");
+        write_var_string(&mut buf, "USDT");
+
+        let info = decode_exchange_info(&buf).unwrap();
+
+        assert_eq!(info.symbols.len(), 1);
+        let symbol = &info.symbols[0];
+        assert_eq!(symbol.symbol, "BTCUSDT");
+        assert_eq!(symbol.base_asset, "BTC");
+        assert_eq!(symbol.quote_asset, "USDT");
+        assert_eq!(symbol.base_asset_precision, 8);
+        assert_eq!(symbol.quote_asset_precision, 8);
+        assert_eq!(symbol.status, 0); // Trading
+        assert_eq!(symbol.order_types, 0b0000_0111);
+        assert!(symbol.iceberg_allowed);
+        assert!(symbol.oco_allowed);
+        assert!(!symbol.oto_allowed);
+        assert!(symbol.quote_order_qty_market_allowed);
+        assert!(symbol.allow_trailing_stop);
+        assert!(symbol.cancel_replace_allowed);
+        assert!(!symbol.amend_allowed);
+        assert!(symbol.is_spot_trading_allowed);
+        assert!(!symbol.is_margin_trading_allowed);
+        assert_eq!(symbol.filters.len(), 1);
+        assert_eq!(symbol.permissions.len(), 1);
+        assert_eq!(symbol.permissions[0], vec!["SPOT"]);
+    }
+
+    #[rstest]
+    fn test_decode_exchange_info_empty() {
+        let header = create_header(
+            0,
+            EXCHANGE_INFO_TEMPLATE_ID,
+            SBE_SCHEMA_ID,
+            SBE_SCHEMA_VERSION,
+        );
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header);
+
+        // Empty rate_limits group
+        buf.extend_from_slice(&create_group_header(11, 0));
+
+        // Empty exchange_filters group
+        buf.extend_from_slice(&create_group_header(0, 0));
+
+        // Empty symbols group
+        buf.extend_from_slice(&create_group_header(SYMBOL_BLOCK_LENGTH as u16, 0));
+
+        let info = decode_exchange_info(&buf).unwrap();
+        assert!(info.symbols.is_empty());
+    }
+
+    #[rstest]
+    fn test_decode_exchange_info_wrong_template() {
+        let header = create_header(0, PING_TEMPLATE_ID, SBE_SCHEMA_ID, SBE_SCHEMA_VERSION);
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header);
+
+        let err = decode_exchange_info(&buf).unwrap_err();
+        assert!(matches!(err, SbeDecodeError::UnknownTemplateId(101)));
+    }
+
+    #[rstest]
+    fn test_decode_exchange_info_multiple_symbols() {
+        let header = create_header(
+            0,
+            EXCHANGE_INFO_TEMPLATE_ID,
+            SBE_SCHEMA_ID,
+            SBE_SCHEMA_VERSION,
+        );
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header);
+
+        // Empty rate_limits group
+        buf.extend_from_slice(&create_group_header(11, 0));
+
+        // Empty exchange_filters group
+        buf.extend_from_slice(&create_group_header(0, 0));
+
+        // Symbols group: 2 symbols
+        buf.extend_from_slice(&create_group_header(SYMBOL_BLOCK_LENGTH as u16, 2));
+
+        // Symbol 1: BTCUSDT
+        buf.push(0); // status
+        buf.push(8); // base_asset_precision
+        buf.push(8); // quote_asset_precision
+        buf.push(8); // base_commission_precision
+        buf.push(8); // quote_commission_precision
+        buf.extend_from_slice(&0b0000_0011u16.to_le_bytes()); // order_types
+        buf.push(1); // iceberg_allowed
+        buf.push(1); // oco_allowed
+        buf.push(0); // oto_allowed
+        buf.push(1); // quote_order_qty_market_allowed
+        buf.push(1); // allow_trailing_stop
+        buf.push(1); // cancel_replace_allowed
+        buf.push(0); // amend_allowed
+        buf.push(1); // is_spot_trading_allowed
+        buf.push(0); // is_margin_trading_allowed
+        buf.push(0); // default_self_trade_prevention_mode
+        buf.push(0); // allowed_self_trade_prevention_modes
+        buf.push(0); // peg_instructions_allowed
+        buf.extend_from_slice(&create_group_header(0, 0)); // No filters
+        buf.extend_from_slice(&create_group_header(0, 0)); // No permission sets
+        write_var_string(&mut buf, "BTCUSDT");
+        write_var_string(&mut buf, "BTC");
+        write_var_string(&mut buf, "USDT");
+
+        // Symbol 2: ETHUSDT
+        buf.push(0); // status
+        buf.push(8); // base_asset_precision
+        buf.push(8); // quote_asset_precision
+        buf.push(8); // base_commission_precision
+        buf.push(8); // quote_commission_precision
+        buf.extend_from_slice(&0b0000_0011u16.to_le_bytes()); // order_types
+        buf.push(1); // iceberg_allowed
+        buf.push(1); // oco_allowed
+        buf.push(0); // oto_allowed
+        buf.push(1); // quote_order_qty_market_allowed
+        buf.push(1); // allow_trailing_stop
+        buf.push(1); // cancel_replace_allowed
+        buf.push(0); // amend_allowed
+        buf.push(1); // is_spot_trading_allowed
+        buf.push(1); // is_margin_trading_allowed
+        buf.push(0); // default_self_trade_prevention_mode
+        buf.push(0); // allowed_self_trade_prevention_modes
+        buf.push(0); // peg_instructions_allowed
+        buf.extend_from_slice(&create_group_header(0, 0)); // No filters
+        buf.extend_from_slice(&create_group_header(0, 0)); // No permission sets
+        write_var_string(&mut buf, "ETHUSDT");
+        write_var_string(&mut buf, "ETH");
+        write_var_string(&mut buf, "USDT");
+
+        let info = decode_exchange_info(&buf).unwrap();
+
+        assert_eq!(info.symbols.len(), 2);
+        assert_eq!(info.symbols[0].symbol, "BTCUSDT");
+        assert_eq!(info.symbols[0].base_asset, "BTC");
+        assert!(!info.symbols[0].is_margin_trading_allowed);
+
+        assert_eq!(info.symbols[1].symbol, "ETHUSDT");
+        assert_eq!(info.symbols[1].base_asset, "ETH");
+        assert!(info.symbols[1].is_margin_trading_allowed);
     }
 }

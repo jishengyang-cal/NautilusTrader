@@ -32,10 +32,6 @@ use crate::{
     spot::websocket::{client::BinanceSpotWebSocketClient, messages::NautilusWsMessage},
 };
 
-// ------------------------------------------------------------------------------------------------
-// Spot WebSocket Client
-// ------------------------------------------------------------------------------------------------
-
 #[pymethods]
 impl BinanceSpotWebSocketClient {
     #[new]
@@ -163,10 +159,6 @@ impl BinanceSpotWebSocketClient {
         })
     }
 }
-
-// ------------------------------------------------------------------------------------------------
-// Futures WebSocket Client
-// ------------------------------------------------------------------------------------------------
 
 #[pymethods]
 impl BinanceFuturesWebSocketClient {

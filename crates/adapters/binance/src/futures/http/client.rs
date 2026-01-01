@@ -138,13 +138,6 @@ pub struct BinanceFuturesHttpClient {
 impl BinanceFuturesHttpClient {
     /// Creates a new [`BinanceFuturesHttpClient`] instance.
     ///
-    /// # Arguments
-    ///
-    /// * `product_type` - Must be `UsdM` or `CoinM`.
-    /// * `environment` - Mainnet or testnet.
-    /// * `api_key` - Optional API key for authenticated endpoints.
-    /// * `api_secret` - Optional API secret for signing requests.
-    ///
     /// # Errors
     ///
     /// Returns an error if:

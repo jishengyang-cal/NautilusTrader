@@ -57,7 +57,7 @@ pub struct BinanceTrade {
     pub qty_mantissa: i64,
     /// Quote quantity mantissa (price * qty).
     pub quote_qty_mantissa: i64,
-    /// Trade timestamp in milliseconds.
+    /// Trade timestamp in microseconds (SBE precision).
     pub time: i64,
     /// Whether the buyer is the maker.
     pub is_buyer_maker: bool,
@@ -266,6 +266,54 @@ pub struct BinanceAccountInfo {
     pub account_type: String,
     /// Account balances.
     pub balances: Vec<BinanceBalance>,
+}
+
+/// Symbol information from SBE exchange info response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceSymbolSbe {
+    /// Symbol name (e.g., "BTCUSDT").
+    pub symbol: String,
+    /// Base asset (e.g., "BTC").
+    pub base_asset: String,
+    /// Quote asset (e.g., "USDT").
+    pub quote_asset: String,
+    /// Base asset precision.
+    pub base_asset_precision: u8,
+    /// Quote asset precision.
+    pub quote_asset_precision: u8,
+    /// Symbol status.
+    pub status: u8,
+    /// Order types bitset.
+    pub order_types: u16,
+    /// Whether iceberg orders are allowed.
+    pub iceberg_allowed: bool,
+    /// Whether OCO orders are allowed.
+    pub oco_allowed: bool,
+    /// Whether OTO orders are allowed.
+    pub oto_allowed: bool,
+    /// Whether quote order quantity market orders are allowed.
+    pub quote_order_qty_market_allowed: bool,
+    /// Whether trailing stop is allowed.
+    pub allow_trailing_stop: bool,
+    /// Whether cancel-replace is allowed.
+    pub cancel_replace_allowed: bool,
+    /// Whether amend is allowed.
+    pub amend_allowed: bool,
+    /// Whether spot trading is allowed.
+    pub is_spot_trading_allowed: bool,
+    /// Whether margin trading is allowed.
+    pub is_margin_trading_allowed: bool,
+    /// Symbol filters (JSON embedded in SBE).
+    pub filters: Vec<serde_json::Value>,
+    /// Permission sets.
+    pub permissions: Vec<Vec<String>>,
+}
+
+/// Exchange information from SBE response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceExchangeInfoSbe {
+    /// List of symbols.
+    pub symbols: Vec<BinanceSymbolSbe>,
 }
 
 /// Account trade history entry.
