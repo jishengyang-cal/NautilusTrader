@@ -39,7 +39,7 @@ pub enum DeribitHttpError {
 }
 
 impl fmt::Display for DeribitHttpError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingCredentials => write!(f, "Missing API credentials"),
             Self::DeribitError {

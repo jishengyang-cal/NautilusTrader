@@ -15,7 +15,7 @@
 
 //! Unified SBE decode error type for Binance adapters.
 
-use std::fmt::{self, Display};
+use std::fmt::Display;
 
 /// Maximum allowed group size to prevent DoS from malformed data.
 pub const MAX_GROUP_SIZE: u32 = 10_000;
@@ -65,7 +65,7 @@ pub enum SbeDecodeError {
 }
 
 impl Display for SbeDecodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BufferTooShort { expected, actual } => {
                 write!(

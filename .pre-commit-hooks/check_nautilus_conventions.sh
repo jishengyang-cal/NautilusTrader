@@ -196,6 +196,43 @@ if [[ -n "$fmt_import_output" ]]; then
   done <<< "$fmt_import_output"
 fi
 
+# Check 3: fmt::Formatter and fmt::Result should be std::fmt::Formatter and std::fmt::Result
+# This catches the pattern where someone does `use std::fmt;` then uses `fmt::Formatter`
+fmt_shorthand_output=$(rg -n --no-heading '\bfmt::(Formatter|Result)\b' crates --type rust 2> /dev/null | grep -v 'std::fmt::' | grep -v '::core::fmt::' | grep -v 'core::fmt::' || true)
+
+if [[ -n "$fmt_shorthand_output" ]]; then
+  echo
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([^:]+):([0-9]+):(.*)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      line_num="${BASH_REMATCH[2]}"
+      line_content="${BASH_REMATCH[3]}"
+      echo -e "${RED}Error:${NC} Use std::fmt::Formatter/Result instead of fmt::Formatter/Result in $file:$line_num"
+      echo "  ${line_content:0:100}"
+      FMT_VIOLATIONS=$((FMT_VIOLATIONS + 1))
+    fi
+  done <<< "$fmt_shorthand_output"
+fi
+
+# Check 4: Bare Formatter< usage (not preceded by std::fmt:: or core::fmt:: or fmt::)
+# This catches direct usage like `f: &mut Formatter<'_>` without qualification
+# Excludes fmt::Formatter which is caught by Check 3
+bare_formatter_output=$(rg -n --no-heading '\bFormatter<' crates --type rust 2> /dev/null | grep -v 'std::fmt::Formatter' | grep -v '::core::fmt::Formatter' | grep -v 'core::fmt::Formatter' | grep -v 'fmt::Formatter' | grep -v '/generated/' || true)
+
+if [[ -n "$bare_formatter_output" ]]; then
+  echo
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^([^:]+):([0-9]+):(.*)$ ]]; then
+      file="${BASH_REMATCH[1]}"
+      line_num="${BASH_REMATCH[2]}"
+      line_content="${BASH_REMATCH[3]}"
+      echo -e "${RED}Error:${NC} Use std::fmt::Formatter instead of bare Formatter in $file:$line_num"
+      echo "  ${line_content:0:100}"
+      FMT_VIOLATIONS=$((FMT_VIOLATIONS + 1))
+    fi
+  done <<< "$bare_formatter_output"
+fi
+
 if [ $FMT_VIOLATIONS -gt 0 ]; then
   echo
   echo -e "${RED}Found $FMT_VIOLATIONS std::fmt convention violation(s)${NC}"

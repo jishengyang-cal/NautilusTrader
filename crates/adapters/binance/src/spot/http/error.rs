@@ -15,7 +15,7 @@
 
 //! Binance Spot HTTP error types.
 
-use std::fmt::{self, Display};
+use std::fmt::Display;
 
 use nautilus_network::http::error::HttpClientError;
 
@@ -54,7 +54,7 @@ pub enum BinanceSpotHttpError {
 }
 
 impl Display for BinanceSpotHttpError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingCredentials => write!(f, "Missing API credentials"),
             Self::BinanceError { code, message } => {

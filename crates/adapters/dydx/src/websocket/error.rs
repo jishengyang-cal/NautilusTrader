@@ -15,7 +15,7 @@
 
 //! Error types for dYdX WebSocket operations.
 
-use std::fmt::{self, Display};
+use std::fmt::Display;
 
 use nautilus_network::error::SendError;
 use serde::{Deserialize, Serialize};
@@ -138,7 +138,7 @@ impl DydxWebSocketError {
 }
 
 impl Display for DydxWebSocketError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{} (channel: {:?}, id: {:?})",

@@ -43,7 +43,7 @@ use std::{
     borrow::Borrow,
     cmp::Ordering,
     ffi::{CStr, c_char},
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{Debug, Display},
     hash::{Hash, Hasher},
     ops::Deref,
 };
@@ -295,13 +295,13 @@ impl PartialOrd for StackStr {
 }
 
 impl Display for StackStr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
 impl Debug for StackStr {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.as_str())
     }
 }

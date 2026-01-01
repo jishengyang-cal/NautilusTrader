@@ -16,7 +16,7 @@
 //! Represents a valid instrument ID.
 
 use std::{
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display},
     hash::Hash,
     str::FromStr,
 };
@@ -136,13 +136,13 @@ impl From<String> for InstrumentId {
 }
 
 impl Debug for InstrumentId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "\"{}.{}\"", self.symbol, self.venue)
     }
 }
 
 impl Display for InstrumentId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}", self.symbol, self.venue)
     }
 }

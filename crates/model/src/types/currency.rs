@@ -18,7 +18,7 @@
 //! Handles up to 16 decimals of precision.
 
 use std::{
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display},
     hash::{Hash, Hasher},
     str::FromStr,
 };
@@ -237,7 +237,7 @@ impl Hash for Currency {
 }
 
 impl Debug for Currency {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{}(code='{}', precision={}, iso4217={}, name='{}', currency_type={})",
@@ -252,7 +252,7 @@ impl Debug for Currency {
 }
 
 impl Display for Currency {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.code)
     }
 }

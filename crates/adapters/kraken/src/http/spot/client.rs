@@ -17,7 +17,7 @@
 
 use std::{
     collections::HashMap,
-    fmt::{Debug, Formatter},
+    fmt::Debug,
     num::NonZeroU32,
     sync::{
         Arc, RwLock,
@@ -137,7 +137,7 @@ impl Default for KrakenSpotRawHttpClient {
 }
 
 impl Debug for KrakenSpotRawHttpClient {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(stringify!(KrakenSpotRawHttpClient))
             .field("base_url", &self.base_url)
             .field("has_credentials", &self.credential.is_some())
@@ -988,7 +988,7 @@ impl Default for KrakenSpotHttpClient {
 }
 
 impl Debug for KrakenSpotHttpClient {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(stringify!(KrakenSpotHttpClient))
             .field("inner", &self.inner)
             .finish()

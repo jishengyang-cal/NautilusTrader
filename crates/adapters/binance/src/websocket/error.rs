@@ -33,7 +33,7 @@ pub enum BinanceWsError {
 }
 
 impl fmt::Display for BinanceWsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ClientError(msg) => write!(f, "Client error: {msg}"),
             Self::AuthenticationError(msg) => write!(f, "Authentication error: {msg}"),

@@ -18,7 +18,7 @@
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashMap},
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display},
 };
 
 use nautilus_core::UnixNanos;
@@ -90,7 +90,7 @@ impl Ord for BookPrice {
 }
 
 impl Display for BookPrice {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.value)
     }
 }

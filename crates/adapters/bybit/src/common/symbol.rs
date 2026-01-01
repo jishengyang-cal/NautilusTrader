@@ -15,10 +15,7 @@
 
 //! Helpers for working with Bybit-specific symbol strings.
 
-use std::{
-    borrow::Cow,
-    fmt::{Display, Formatter},
-};
+use std::{borrow::Cow, fmt::Display};
 
 use nautilus_model::identifiers::{InstrumentId, Symbol};
 use ustr::Ustr;
@@ -99,7 +96,7 @@ impl BybitSymbol {
 }
 
 impl Display for BybitSymbol {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.value.as_str())
     }
 }

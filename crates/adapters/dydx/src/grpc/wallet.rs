@@ -18,10 +18,7 @@
 //! This module provides wallet functionality for deriving accounts from BIP-39 mnemonics
 //! and managing signing keys for Cosmos SDK transactions.
 
-use std::{
-    fmt::{Debug, Formatter},
-    str::FromStr,
-};
+use std::{fmt::Debug, str::FromStr};
 
 use cosmrs::{
     AccountId,
@@ -57,7 +54,7 @@ pub struct Wallet {
 }
 
 impl Debug for Wallet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Wallet")
             .field("seed", &"<redacted>")
             .finish()
@@ -129,7 +126,7 @@ pub struct Account {
 }
 
 impl Debug for Account {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Account")
             .field("index", &self.index)
             .field("address", &self.address)
