@@ -32,7 +32,7 @@ pub use enums::{
 pub use models::{
     ConversionError, HyperliquidAccountEvent, HyperliquidAccountState, HyperliquidBalance,
     HyperliquidDataConverter, HyperliquidInstrumentCache, HyperliquidInstrumentInfo,
-    HyperliquidPositionData, HyperliquidTradeKey, LatencyModel, parse_position_status_report,
+    HyperliquidPositionData, HyperliquidTradeKey, parse_position_status_report,
 };
 pub use parse::{
     deserialize_decimal_from_str, deserialize_optional_decimal_from_str, ensure_min_notional,

@@ -23,8 +23,6 @@ use crate::{
     websocket::messages::{WsBookData, WsLevelData},
 };
 use nautilus_core::{UUID4, UnixNanos};
-pub use nautilus_execution::models::latency::LatencyModel;
-use nautilus_execution::models::latency::StaticLatencyModel;
 use nautilus_model::{
     data::{delta::OrderBookDelta, deltas::OrderBookDeltas, order::BookOrder},
     enums::{AccountType, BookAction, OrderSide, PositionSide, RecordFlag},
@@ -184,36 +182,6 @@ impl HyperliquidDataConverter {
         Self {
             configs: HashMap::new(),
         }
-    }
-
-    /// Create a latency model for order processing simulation
-    ///
-    /// This uses the execution crate's LatencyModel for simulating order processing latencies.
-    /// For real-time latency monitoring, use standard `tracing` macros.
-    pub fn create_latency_model(
-        &self,
-        base_latency_ns: u64,
-        insert_latency_ns: u64,
-        update_latency_ns: u64,
-        delete_latency_ns: u64,
-    ) -> StaticLatencyModel {
-        StaticLatencyModel::new(
-            UnixNanos::from(base_latency_ns),
-            UnixNanos::from(insert_latency_ns),
-            UnixNanos::from(update_latency_ns),
-            UnixNanos::from(delete_latency_ns),
-        )
-    }
-
-    /// Create a default latency model for Hyperliquid (typical network latencies)
-    pub fn create_default_latency_model(&self) -> StaticLatencyModel {
-        // Typical latencies for crypto exchanges (in nanoseconds)
-        self.create_latency_model(
-            50_000_000, // 50ms base latency
-            10_000_000, // 10ms insert latency
-            5_000_000,  // 5ms update latency
-            5_000_000,  // 5ms delete latency
-        )
     }
 
     /// Normalize an order's price and quantity for Hyperliquid
@@ -1221,35 +1189,6 @@ mod tests {
         assert!(result.is_none());
         assert!(cache.is_empty());
         assert_eq!(cache.len(), 0);
-    }
-
-    #[rstest]
-    fn test_latency_model_creation() {
-        let converter = HyperliquidDataConverter::new();
-
-        // Test custom latency model
-        let latency_model = converter.create_latency_model(
-            100_000_000, // 100ms base
-            20_000_000,  // 20ms insert
-            10_000_000,  // 10ms update
-            10_000_000,  // 10ms delete
-        );
-
-        assert_eq!(latency_model.get_base_latency().as_u64(), 100_000_000);
-        assert_eq!(latency_model.get_insert_latency().as_u64(), 120_000_000);
-        assert_eq!(latency_model.get_update_latency().as_u64(), 110_000_000);
-        assert_eq!(latency_model.get_delete_latency().as_u64(), 110_000_000);
-
-        // Test default latency model
-        let default_model = converter.create_default_latency_model();
-        assert_eq!(default_model.get_base_latency().as_u64(), 50_000_000);
-        assert_eq!(default_model.get_insert_latency().as_u64(), 60_000_000);
-        assert_eq!(default_model.get_update_latency().as_u64(), 55_000_000);
-        assert_eq!(default_model.get_delete_latency().as_u64(), 55_000_000);
-
-        // Test that Display trait works
-        let display_str = format!("{default_model}");
-        assert_eq!(display_str, "LatencyModel()");
     }
 
     #[rstest]
