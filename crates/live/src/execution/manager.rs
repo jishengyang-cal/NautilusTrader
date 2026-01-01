@@ -24,6 +24,8 @@ use ahash::{AHashMap, AHashSet};
 use nautilus_common::{
     cache::Cache,
     clock::Clock,
+    enums::LogColor,
+    log_info,
     messages::execution::report::{GenerateOrderStatusReports, GeneratePositionStatusReports},
 };
 use nautilus_core::{UUID4, UnixNanos};
@@ -47,6 +49,19 @@ use rust_decimal::Decimal;
 use ustr::Ustr;
 
 use crate::config::LiveExecEngineConfig;
+
+/// Returns true if the order status represents an open/working order.
+#[inline]
+fn is_order_status_open(status: OrderStatus) -> bool {
+    matches!(
+        status,
+        OrderStatus::Accepted
+            | OrderStatus::Triggered
+            | OrderStatus::PendingCancel
+            | OrderStatus::PendingUpdate
+            | OrderStatus::PartiallyFilled
+    )
+}
 
 /// Configuration for execution manager.
 #[derive(Debug, Clone)]
@@ -294,18 +309,28 @@ impl ExecutionManager {
         &mut self,
         mass_status: ExecutionMassStatus,
     ) -> Vec<OrderEventAny> {
+        let venue = mass_status.venue;
         let order_count = mass_status.order_reports().len();
         let fill_count: usize = mass_status.fill_reports().values().map(|v| v.len()).sum();
         let position_count = mass_status.position_reports().len();
 
-        log::info!("Attempting to adjust fills for {position_count} instruments");
-        log::info!(
-            "Final order_reports contains {order_count} orders, fill_reports contains {fill_count} fills across all instruments"
+        log_info!(
+            "Reconciling ExecutionMassStatus for {}",
+            venue,
+            color = LogColor::Blue
+        );
+        log_info!(
+            "Received {} order(s), {} fill(s), {} position(s)",
+            order_count,
+            fill_count,
+            position_count,
+            color = LogColor::Blue
         );
 
         let mut events = Vec::new();
         let mut orders_reconciled = 0usize;
         let mut external_orders_created = 0usize;
+        let mut open_orders_initialized = 0usize;
         let mut orders_skipped_no_instrument = 0usize;
         let mut fills_applied = 0usize;
 
@@ -314,6 +339,15 @@ impl ExecutionManager {
             if let Some(client_order_id) = &report.client_order_id {
                 if let Some(order) = self.get_order(client_order_id) {
                     let mut order = order;
+                    log::info!(
+                        color = LogColor::Blue as u8;
+                        "Reconciling {} {} {} [{}] -> [{}]",
+                        client_order_id,
+                        report.venue_order_id,
+                        report.instrument_id,
+                        order.status(),
+                        report.order_status,
+                    );
                     if let Some(event) = self.reconcile_order_report(&mut order, report) {
                         orders_reconciled += 1;
                         events.push(event);
@@ -327,6 +361,9 @@ impl ExecutionManager {
                             self.handle_external_order(report, &mass_status.account_id);
                         if !external_events.is_empty() {
                             external_orders_created += 1;
+                            if is_order_status_open(report.order_status) {
+                                open_orders_initialized += 1;
+                            }
                             events.extend(external_events);
                         }
                     }
@@ -339,27 +376,32 @@ impl ExecutionManager {
                         self.handle_external_order(report, &mass_status.account_id);
                     if !external_events.is_empty() {
                         external_orders_created += 1;
+                        if is_order_status_open(report.order_status) {
+                            open_orders_initialized += 1;
+                        }
                         events.extend(external_events);
                     }
                 }
             }
         }
 
-        // Process fill reports
-        for fills in mass_status.fill_reports().values() {
-            for fill in fills {
-                if let Some(client_order_id) = &fill.client_order_id
-                    && let Some(order) = self.get_order(client_order_id)
-                {
-                    let mut order = order;
-                    let instrument_id = order.instrument_id();
+        // Sort fills chronologically to ensure proper position updates
+        let fill_reports = mass_status.fill_reports();
+        let mut all_fills: Vec<&FillReport> = fill_reports.values().flatten().collect();
+        all_fills.sort_by_key(|f| f.ts_event);
 
-                    if let Some(instrument) = self.get_instrument(&instrument_id)
-                        && let Some(event) = self.create_order_fill(&mut order, fill, &instrument)
-                    {
-                        fills_applied += 1;
-                        events.push(event);
-                    }
+        for fill in all_fills {
+            if let Some(client_order_id) = &fill.client_order_id
+                && let Some(order) = self.get_order(client_order_id)
+            {
+                let mut order = order;
+                let instrument_id = order.instrument_id();
+
+                if let Some(instrument) = self.get_instrument(&instrument_id)
+                    && let Some(event) = self.create_order_fill(&mut order, fill, &instrument)
+                {
+                    fills_applied += 1;
+                    events.push(event);
                 }
             }
         }
@@ -369,7 +411,8 @@ impl ExecutionManager {
         }
 
         log::info!(
-            "Mass status reconciliation complete: orders_reconciled={orders_reconciled}, external_orders_created={external_orders_created}, fills_applied={fills_applied}"
+            color = LogColor::Blue as u8;
+            "Reconciliation complete for {venue}: reconciled={orders_reconciled}, external={external_orders_created}, open={open_orders_initialized}, fills={fills_applied}",
         );
 
         events
@@ -919,8 +962,11 @@ impl ExecutionManager {
                     .client_order_id
                     .map_or_else(|| report.venue_order_id.to_string(), |id| id.to_string());
                 log::info!(
-                    "External order {order_id} for {} claimed by strategy {claimed_strategy}",
-                    report.instrument_id
+                    color = LogColor::Blue as u8;
+                    "External order {} for {} claimed by strategy {}",
+                    order_id,
+                    report.instrument_id,
+                    claimed_strategy,
                 );
                 (*claimed_strategy, None)
             } else {
@@ -997,6 +1043,7 @@ impl ExecutionManager {
         }
 
         log::info!(
+            color = LogColor::Blue as u8;
             "Created external order {} ({}) for {} [{}]",
             client_order_id,
             report.venue_order_id,
@@ -1207,9 +1254,7 @@ impl ExecutionManager {
             order.instrument_id(),
             order.client_order_id(),
             fill.venue_order_id,
-            order
-                .account_id()
-                .expect("Order should have account_id when creating filled event"),
+            fill.account_id,
             fill.trade_id,
             fill.order_side,
             order.order_type(),

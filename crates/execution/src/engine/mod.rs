@@ -56,7 +56,7 @@ use nautilus_model::{
     enums::{ContingencyType, OmsType, OrderSide, PositionSide},
     events::{
         OrderDenied, OrderEvent, OrderEventAny, OrderFilled, PositionChanged, PositionClosed,
-        PositionOpened,
+        PositionEvent, PositionOpened,
     },
     identifiers::{ClientId, ClientOrderId, InstrumentId, PositionId, StrategyId, Venue},
     instruments::{Instrument, InstrumentAny},
@@ -1228,7 +1228,7 @@ impl ExecutionEngine {
         let ts_init = self.clock.borrow().timestamp_ns();
         let event = PositionOpened::create(&position, &fill, UUID4::new(), ts_init);
         let topic = switchboard::get_event_positions_topic(event.strategy_id);
-        msgbus::publish(topic, &event);
+        msgbus::publish(topic, &PositionEvent::PositionOpened(event));
 
         Ok(())
     }
@@ -1291,10 +1291,10 @@ impl ExecutionEngine {
 
         if is_closed {
             let event = PositionClosed::create(position, &fill, UUID4::new(), ts_init);
-            msgbus::publish(topic, &event);
+            msgbus::publish(topic, &PositionEvent::PositionClosed(event));
         } else {
             let event = PositionChanged::create(position, &fill, UUID4::new(), ts_init);
-            msgbus::publish(topic, &event);
+            msgbus::publish(topic, &PositionEvent::PositionChanged(event));
         }
     }
 

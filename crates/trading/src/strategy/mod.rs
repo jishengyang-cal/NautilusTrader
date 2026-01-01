@@ -74,6 +74,14 @@ pub trait Strategy: DataActor {
     /// by returning a mutable reference to its `StrategyCore` member.
     fn core_mut(&mut self) -> &mut StrategyCore;
 
+    /// Returns the external order claims for this strategy.
+    ///
+    /// These are instrument IDs whose external orders should be claimed by this strategy
+    /// during reconciliation.
+    fn external_order_claims(&self) -> Option<Vec<InstrumentId>> {
+        None
+    }
+
     /// Submits an order.
     ///
     /// # Errors

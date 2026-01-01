@@ -45,10 +45,16 @@ use nautilus_common::{
     },
     runner::get_data_cmd_sender,
 };
-use nautilus_core::{UUID4, UnixNanos};
+use nautilus_core::{UUID4, UnixNanos, WeakCell};
 use nautilus_data::engine::DataEngine;
 use nautilus_execution::{engine::ExecutionEngine, order_emulator::adapter::OrderEmulatorAdapter};
-use nautilus_model::{events::OrderEventAny, identifiers::TraderId};
+use nautilus_model::{
+    enums::OrderStatus,
+    events::{OrderCanceled, OrderEventAny, OrderExpired},
+    identifiers::TraderId,
+    orders::Order,
+    reports::OrderStatusReport,
+};
 use nautilus_portfolio::portfolio::Portfolio;
 use nautilus_risk::engine::RiskEngine;
 use ustr::Ustr;
@@ -160,7 +166,6 @@ impl NautilusKernel {
         let data_engine = Rc::new(RefCell::new(data_engine));
 
         // Register DataEngine command execution
-        use nautilus_core::WeakCell;
 
         let data_engine_weak = WeakCell::from(Rc::downgrade(&data_engine));
         let data_engine_weak_clone1 = data_engine_weak.clone();
@@ -248,14 +253,97 @@ impl NautilusKernel {
         )));
         msgbus::register(endpoint, handler);
 
-        // TODO: Implement actual reconciliation logic in ExecEngine
+        let cache_weak = WeakCell::from(Rc::downgrade(&cache));
+        let exec_engine_weak2 = WeakCell::from(Rc::downgrade(&exec_engine));
+        let trader_id = config.trader_id();
+
         let endpoint = MessagingSwitchboard::exec_engine_reconcile_execution_report();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::with_any(
-            move |report: &dyn Any| {
-                log::debug!(
-                    "Received execution report for reconciliation: {:?}",
-                    report.type_id()
-                );
+        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
+            move |report: &OrderStatusReport| {
+                let Some(cache_rc) = cache_weak.upgrade() else {
+                    log::error!("Cache dropped, cannot reconcile order status report");
+                    return;
+                };
+                let Some(exec_engine_rc) = exec_engine_weak2.upgrade() else {
+                    log::error!("ExecEngine dropped, cannot reconcile order status report");
+                    return;
+                };
+
+                let cache = cache_rc.borrow();
+
+                let order = report
+                    .client_order_id
+                    .and_then(|id| cache.order(&id).cloned())
+                    .or_else(|| {
+                        cache
+                            .client_order_id(&report.venue_order_id)
+                            .and_then(|cid| cache.order(cid).cloned())
+                    });
+
+                let Some(order) = order else {
+                    log::debug!(
+                        "Order not found in cache for reconciliation: client_order_id={:?}, venue_order_id={}",
+                        report.client_order_id,
+                        report.venue_order_id
+                    );
+                    return;
+                };
+
+                if order.status() == report.order_status {
+                    return;
+                }
+
+                if !order.is_open() {
+                    return;
+                }
+
+                drop(cache); // Release borrow before processing
+
+                let event: Option<OrderEventAny> = match report.order_status {
+                    OrderStatus::Canceled => {
+                        log::debug!(
+                            "Reconciling canceled order: client_order_id={}, venue_order_id={}",
+                            order.client_order_id(),
+                            report.venue_order_id
+                        );
+                        Some(OrderEventAny::Canceled(OrderCanceled::new(
+                            trader_id,
+                            order.strategy_id(),
+                            order.instrument_id(),
+                            order.client_order_id(),
+                            UUID4::new(),
+                            report.ts_last,
+                            report.ts_init,
+                            true, // reconciliation
+                            Some(report.venue_order_id),
+                            Some(report.account_id),
+                        )))
+                    }
+                    OrderStatus::Expired => {
+                        log::debug!(
+                            "Reconciling expired order: client_order_id={}, venue_order_id={}",
+                            order.client_order_id(),
+                            report.venue_order_id
+                        );
+                        Some(OrderEventAny::Expired(OrderExpired::new(
+                            trader_id,
+                            order.strategy_id(),
+                            order.instrument_id(),
+                            order.client_order_id(),
+                            UUID4::new(),
+                            report.ts_last,
+                            report.ts_init,
+                            true, // reconciliation
+                            Some(report.venue_order_id),
+                            Some(report.account_id),
+                        )))
+                    }
+                    _ => None,
+                };
+
+                if let Some(evt) = event {
+                    exec_engine_rc.borrow_mut().process(&evt);
+                }
             },
         )));
         msgbus::register(endpoint, handler);

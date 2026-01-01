@@ -25,12 +25,16 @@ use std::{
 use nautilus_common::{
     actor::{Actor, DataActor},
     component::Component,
-    enums::Environment,
+    enums::{Environment, LogColor},
+    log_info,
     messages::{DataEvent, ExecutionEvent, data::DataCommand, execution::TradingCommand},
     timer::TimeEventHandlerV2,
 };
 use nautilus_core::UUID4;
-use nautilus_model::{events::OrderEventAny, identifiers::TraderId};
+use nautilus_model::{
+    events::OrderEventAny,
+    identifiers::{StrategyId, TraderId},
+};
 use nautilus_system::{config::NautilusKernelConfig, kernel::NautilusKernel};
 use nautilus_trading::strategy::Strategy;
 
@@ -346,7 +350,10 @@ impl LiveNode {
             return Ok(());
         }
 
-        log::info!("Starting execution state reconciliation...");
+        log_info!(
+            "Starting execution state reconciliation...",
+            color = LogColor::Blue
+        );
 
         let lookback_mins = self
             .config
@@ -364,7 +371,11 @@ impl LiveNode {
                 break;
             }
 
-            log::info!("Requesting mass status from {client_id}...");
+            log_info!(
+                "Requesting mass status from {}...",
+                client_id,
+                color = LogColor::Blue
+            );
 
             let mass_status_result = self
                 .kernel
@@ -375,17 +386,27 @@ impl LiveNode {
 
             match mass_status_result {
                 Ok(Some(mass_status)) => {
-                    log::info!("Reconciling ExecutionMassStatus for {client_id}");
+                    log_info!(
+                        "Reconciling ExecutionMassStatus for {}",
+                        client_id,
+                        color = LogColor::Blue
+                    );
                     let events = self
                         .exec_manager
                         .reconcile_execution_mass_status(mass_status)
                         .await;
 
                     if events.is_empty() {
-                        log::info!("Reconciliation for {client_id} succeeded");
+                        log_info!(
+                            "Reconciliation for {} succeeded",
+                            client_id,
+                            color = LogColor::Blue
+                        );
                     } else {
                         log::info!(
-                            "Reconciliation for {client_id} generated {} events",
+                            color = LogColor::Blue as u8;
+                            "Reconciliation for {} generated {} events",
+                            client_id,
                             events.len()
                         );
 
@@ -407,8 +428,15 @@ impl LiveNode {
             }
         }
 
+        self.kernel.portfolio.borrow_mut().initialize_orders();
+        self.kernel.portfolio.borrow_mut().initialize_positions();
+
         let elapsed_secs = start.elapsed().as_secs_f64();
-        log::info!("Startup reconciliation completed in {elapsed_secs:.2}s");
+        log_info!(
+            "Startup reconciliation completed in {:.2}s",
+            elapsed_secs,
+            color = LogColor::Blue
+        );
 
         Ok(())
     }
@@ -506,23 +534,46 @@ impl LiveNode {
         pending.drain();
 
         // Running phase: runs until shutdown deadline expires
+        let mut residual_events = 0usize;
+
         loop {
             let shutdown_deadline = self.shutdown_deadline;
+            let is_shutting_down = self.state() == NodeState::ShuttingDown;
 
             tokio::select! {
                 Some(handler) = time_evt_rx.recv() => {
                     AsyncRunner::handle_time_event(handler);
+                    if is_shutting_down {
+                        log::debug!("Residual time event");
+                        residual_events += 1;
+                    }
                 }
                 Some(evt) = data_evt_rx.recv() => {
+                    if is_shutting_down {
+                        log::debug!("Residual data event: {evt:?}");
+                        residual_events += 1;
+                    }
                     AsyncRunner::handle_data_event(evt);
                 }
                 Some(cmd) = data_cmd_rx.recv() => {
+                    if is_shutting_down {
+                        log::debug!("Residual data command: {cmd:?}");
+                        residual_events += 1;
+                    }
                     AsyncRunner::handle_data_command(cmd);
                 }
                 Some(evt) = exec_evt_rx.recv() => {
+                    if is_shutting_down {
+                        log::debug!("Residual exec event: {evt:?}");
+                        residual_events += 1;
+                    }
                     AsyncRunner::handle_exec_event(evt);
                 }
                 Some(cmd) = exec_cmd_rx.recv() => {
+                    if is_shutting_down {
+                        log::debug!("Residual exec command: {cmd:?}");
+                        residual_events += 1;
+                    }
                     AsyncRunner::handle_exec_command(cmd);
                 }
                 result = tokio::signal::ctrl_c(), if self.state() == NodeState::Running => {
@@ -553,6 +604,12 @@ impl LiveNode {
                 }
             }
         }
+
+        if residual_events > 0 {
+            log::debug!("Processed {residual_events} residual events during shutdown");
+        }
+
+        let _ = self.kernel.cache().borrow().check_residuals();
 
         self.finalize_stop().await?;
 
@@ -756,6 +813,21 @@ impl LiveNode {
         if self.state() != NodeState::Idle {
             anyhow::bail!(
                 "Cannot add strategy while node is running, add strategies before calling start()"
+            );
+        }
+
+        // Register external order claims before adding strategy (which moves it)
+        let strategy_id = StrategyId::from(strategy.component_id().inner().as_str());
+        if let Some(claims) = strategy.external_order_claims() {
+            for instrument_id in claims {
+                self.exec_manager
+                    .claim_external_orders(instrument_id, strategy_id);
+            }
+            log_info!(
+                "Registered external order claims for {}: {:?}",
+                strategy_id,
+                strategy.external_order_claims(),
+                color = LogColor::Blue
             );
         }
 

@@ -668,6 +668,10 @@ impl Strategy for ExecTester {
     fn core_mut(&mut self) -> &mut StrategyCore {
         &mut self.core
     }
+
+    fn external_order_claims(&self) -> Option<Vec<InstrumentId>> {
+        self.config.base.external_order_claims.clone()
+    }
 }
 
 impl ExecTester {
