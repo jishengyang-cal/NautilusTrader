@@ -127,6 +127,22 @@ impl Visitor<'_> for BoolVisitor {
     }
 }
 
+/// Serde default value function that returns `true`.
+///
+/// Use with `#[serde(default = "default_true")]` on boolean fields.
+#[must_use]
+pub const fn default_true() -> bool {
+    true
+}
+
+/// Serde default value function that returns `false`.
+///
+/// Use with `#[serde(default = "default_false")]` on boolean fields.
+#[must_use]
+pub const fn default_false() -> bool {
+    false
+}
+
 /// Deserialize the boolean value as a `u8`.
 ///
 /// # Errors
