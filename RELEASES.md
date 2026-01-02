@@ -9,8 +9,10 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
+- Fixed directory URI handling in ParquetDataCatalog for S3 and cloud storage (#3378), thanks @KaulSe
 
 ### Internal Improvements
+- Added Deribit data client (#3368), thanks @filipmacek
 
 ### Documentation Updates
 
