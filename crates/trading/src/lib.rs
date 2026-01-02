@@ -48,9 +48,14 @@
 #![deny(clippy::missing_panics_doc)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
+pub mod algorithm;
 pub mod sessions;
 pub mod strategy;
 
+pub use algorithm::{
+    ExecutionAlgorithm, ExecutionAlgorithmConfig, ExecutionAlgorithmCore, TwapAlgorithm,
+    TwapAlgorithmConfig,
+};
 pub use strategy::{Strategy, StrategyConfig, StrategyCore};
 
 #[cfg(feature = "python")]

@@ -23,6 +23,7 @@ crate-type = ["rlib", "cdylib"]
 [features]
 default = []
 defi = ["nautilus-model/defi"]
+high-precision = ["nautilus-model/high-precision"]
 extension-module = [
   "nautilus-common/extension-module",
   "nautilus-core/extension-module",

@@ -13,6 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+use nautilus_core::serialization::{default_false, default_true};
 use nautilus_model::{
     enums::OmsType,
     identifiers::{InstrumentId, StrategyId},
@@ -79,14 +80,6 @@ impl Default for StrategyConfig {
             log_rejected_due_post_only_as_warning: true,
         }
     }
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_false() -> bool {
-    false
 }
 
 #[cfg(test)]
