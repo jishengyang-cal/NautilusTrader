@@ -83,20 +83,21 @@ nautilus-trading = { path = "crates/trading", version = "0.53.0" }
 
 # -----------------------------------------------------------------------------
 # Adapters
+# Note: default-features = false to control high-precision separately (not supported on Windows)
 # -----------------------------------------------------------------------------
 nautilus-architect = { path = "crates/adapters/architect", version = "0.53.0" }
-nautilus-binance = { path = "crates/adapters/binance", version = "0.53.0" }
+nautilus-binance = { path = "crates/adapters/binance", version = "0.53.0", default-features = false }
 nautilus-blockchain = { path = "crates/adapters/blockchain", version = "0.53.0" }
-nautilus-bybit = { path = "crates/adapters/bybit", version = "0.53.0" }
-nautilus-coinbase-intx = { path = "crates/adapters/coinbase_intx", version = "0.53.0" }
-nautilus-bitmex = { path = "crates/adapters/bitmex", version = "0.53.0" }
-nautilus-databento = { path = "crates/adapters/databento", version = "0.53.0" }
-nautilus-deribit = { path = "crates/adapters/deribit", version = "0.53.0" }
-nautilus-dydx = { path = "crates/adapters/dydx", version = "0.53.0" }
-nautilus-hyperliquid = { path = "crates/adapters/hyperliquid", version = "0.53.0" }
-nautilus-kraken = { path = "crates/adapters/kraken", version = "0.53.0" }
-nautilus-okx = { path = "crates/adapters/okx", version = "0.53.0" }
-nautilus-tardis = { path = "crates/adapters/tardis", version = "0.53.0" }
+nautilus-bybit = { path = "crates/adapters/bybit", version = "0.53.0", default-features = false }
+nautilus-coinbase-intx = { path = "crates/adapters/coinbase_intx", version = "0.53.0", default-features = false }
+nautilus-bitmex = { path = "crates/adapters/bitmex", version = "0.53.0", default-features = false }
+nautilus-databento = { path = "crates/adapters/databento", version = "0.53.0", default-features = false }
+nautilus-deribit = { path = "crates/adapters/deribit", version = "0.53.0", default-features = false }
+nautilus-dydx = { path = "crates/adapters/dydx", version = "0.53.0", default-features = false }
+nautilus-hyperliquid = { path = "crates/adapters/hyperliquid", version = "0.53.0", default-features = false }
+nautilus-kraken = { path = "crates/adapters/kraken", version = "0.53.0", default-features = false }
+nautilus-okx = { path = "crates/adapters/okx", version = "0.53.0", default-features = false }
+nautilus-tardis = { path = "crates/adapters/tardis", version = "0.53.0", default-features = false }
 
 # -----------------------------------------------------------------------------
 # Dependencies
