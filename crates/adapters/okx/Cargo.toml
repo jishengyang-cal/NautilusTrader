@@ -21,7 +21,7 @@ name = "nautilus_okx"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = []
+default = ["high-precision"]
 extension-module = [
   "nautilus-common/extension-module",
   "nautilus-core/extension-module",

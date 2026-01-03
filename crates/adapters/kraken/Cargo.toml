@@ -17,7 +17,7 @@ name = "nautilus_kraken"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = []
+default = ["high-precision"]
 python = [
   "nautilus-common/python",
   "nautilus-core/python",
@@ -38,6 +38,7 @@ extension-module = [
   "nautilus-network/extension-module",
   "pyo3/extension-module",
 ]
+high-precision = ["nautilus-model/high-precision"]
 
 [dependencies]
 nautilus-common = { workspace = true, features = ["live"] }

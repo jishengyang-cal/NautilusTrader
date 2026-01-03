@@ -21,7 +21,7 @@ name = "nautilus_tardis"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["replay"]
+default = ["replay", "high-precision"]
 extension-module = [
   "nautilus-common/extension-module",
   "nautilus-core/extension-module",
@@ -41,6 +41,7 @@ python = [
   "replay",
 ]
 replay = []
+high-precision = ["nautilus-model/high-precision"]
 
 [package.metadata.docs.rs]
 all-features = true

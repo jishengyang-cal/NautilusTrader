@@ -22,7 +22,7 @@ name = "nautilus_deribit"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = []
+default = ["high-precision"]
 extension-module = [
   "nautilus-common/extension-module",
   "nautilus-core/extension-module",
@@ -41,6 +41,7 @@ python = [
   "pyo3",
   "pyo3-async-runtimes",
 ]
+high-precision = ["nautilus-model/high-precision"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -117,11 +118,13 @@ doc = false
 [[example]]
 name = "deribit-data-tester"
 path = "examples/node_data_tester.rs"
+required-features = []
 doc = false
 
 [[example]]
 name = "deribit-exec-tester"
 path = "examples/node_exec_tester.rs"
+required-features = []
 doc = false
 
 # Run with `cargo bench -p nautilus-deribit --bench websocket`

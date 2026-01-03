@@ -21,7 +21,7 @@ name = "nautilus_bitmex"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = []
+default = ["high-precision"]
 extension-module = [
   "nautilus-common/extension-module",
   "nautilus-core/extension-module",
@@ -42,6 +42,7 @@ python = [
   "pyo3",
   "pyo3-async-runtimes",
 ]
+high-precision = ["nautilus-model/high-precision"]
 
 [package.metadata.docs.rs]
 all-features = true
