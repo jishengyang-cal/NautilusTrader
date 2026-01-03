@@ -58,7 +58,7 @@ pub struct StrategyCore {
 
 impl Debug for StrategyCore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StrategyCore")
+        f.debug_struct(stringify!(StrategyCore))
             .field("actor", &self.actor)
             .field("config", &self.config)
             .field("order_manager", &self.order_manager)

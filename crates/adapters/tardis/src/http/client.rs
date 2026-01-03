@@ -48,7 +48,7 @@ pub struct TardisHttpClient {
 
 impl Debug for TardisHttpClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TardisHttpClient")
+        f.debug_struct(stringify!(TardisHttpClient))
             .field("base_url", &self.base_url)
             .field(
                 "credential",

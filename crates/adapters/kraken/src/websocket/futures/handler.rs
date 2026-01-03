@@ -119,7 +119,7 @@ pub enum HandlerCommand {
 impl Debug for HandlerCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SetClient(_) => f.debug_struct("SetClient").finish(),
+            Self::SetClient(_) => f.debug_struct(stringify!(SetClient)).finish(),
             Self::SubscribeTicker(s) => f.debug_tuple("SubscribeTicker").field(s).finish(),
             Self::UnsubscribeTicker(s) => f.debug_tuple("UnsubscribeTicker").field(s).finish(),
             Self::SubscribeTrade(s) => f.debug_tuple("SubscribeTrade").field(s).finish(),
@@ -135,13 +135,13 @@ impl Debug for HandlerCommand {
             Self::SetAccountId(id) => f.debug_tuple("SetAccountId").field(id).finish(),
             Self::RequestChallenge { api_key, .. } => {
                 let masked = &api_key[..4.min(api_key.len())];
-                f.debug_struct("RequestChallenge")
+                f.debug_struct(stringify!(RequestChallenge))
                     .field("api_key", &format!("{masked}..."))
                     .finish()
             }
             Self::SetAuthCredentials { api_key, .. } => {
                 let masked = &api_key[..4.min(api_key.len())];
-                f.debug_struct("SetAuthCredentials")
+                f.debug_struct(stringify!(SetAuthCredentials))
                     .field("api_key", &format!("{masked}..."))
                     .finish()
             }
@@ -152,7 +152,7 @@ impl Debug for HandlerCommand {
                 instrument_id,
                 ..
             } => f
-                .debug_struct("CacheClientOrder")
+                .debug_struct(stringify!(CacheClientOrder))
                 .field("client_order_id", client_order_id)
                 .field("instrument_id", instrument_id)
                 .finish(),

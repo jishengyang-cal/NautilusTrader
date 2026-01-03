@@ -24,6 +24,8 @@
 //! All decoders return `Result<T, StreamDecodeError>` to safely handle malformed
 //! or truncated network data without panicking.
 
+use std::fmt::Display;
+
 use crate::common::sbe::{cursor::SbeCursor, error::SbeDecodeError};
 
 mod best_bid_ask;
@@ -69,7 +71,7 @@ pub enum StreamDecodeError {
     UnknownTemplateId(u16),
 }
 
-impl std::fmt::Display for StreamDecodeError {
+impl Display for StreamDecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BufferTooShort { expected, actual } => {

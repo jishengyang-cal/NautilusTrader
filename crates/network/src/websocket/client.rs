@@ -820,7 +820,7 @@ impl CleanDrop for WebSocketClientInner {
 
 impl Debug for WebSocketClientInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WebSocketClientInner")
+        f.debug_struct(stringify!(WebSocketClientInner))
             .field("config", &self.config)
             .field(
                 "connection_mode",

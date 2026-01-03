@@ -18,6 +18,8 @@
 //! This module provides builder types for constructing query parameters
 //! for Binance REST API endpoints.
 
+use std::fmt::Display;
+
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -147,7 +149,7 @@ impl BinanceKlineInterval {
     }
 }
 
-impl std::fmt::Display for BinanceKlineInterval {
+impl Display for BinanceKlineInterval {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }

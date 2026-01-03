@@ -592,7 +592,7 @@ impl Clone for BinanceSpotHttpClient {
 
 impl Debug for BinanceSpotHttpClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BinanceSpotHttpClient")
+        f.debug_struct(stringify!(BinanceSpotHttpClient))
             .field("inner", &self.inner)
             .field("instruments_cached", &self.instruments_cache.len())
             .finish()

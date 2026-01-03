@@ -15,6 +15,8 @@
 
 //! Binance enumeration types for product types and environments.
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 /// Binance product type identifier.
@@ -97,7 +99,7 @@ impl BinanceProductType {
     }
 }
 
-impl std::fmt::Display for BinanceProductType {
+impl Display for BinanceProductType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
@@ -410,7 +412,7 @@ impl BinanceWsEventType {
     }
 }
 
-impl std::fmt::Display for BinanceWsEventType {
+impl Display for BinanceWsEventType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
@@ -453,7 +455,7 @@ pub enum BinanceFilterType {
     Unknown,
 }
 
-impl std::fmt::Display for BinanceEnvironment {
+impl Display for BinanceEnvironment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Mainnet => write!(f, "Mainnet"),

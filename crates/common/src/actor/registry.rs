@@ -69,7 +69,7 @@ pub struct ActorRef<T: Actor> {
 
 impl<T: Actor> Debug for ActorRef<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ActorRef")
+        f.debug_struct(stringify!(ActorRef))
             .field("actor_id", &self.deref().id())
             .finish()
     }

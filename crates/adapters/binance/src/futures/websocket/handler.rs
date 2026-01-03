@@ -65,7 +65,7 @@ pub struct BinanceFuturesWsFeedHandler {
 
 impl Debug for BinanceFuturesWsFeedHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BinanceFuturesWsFeedHandler")
+        f.debug_struct(stringify!(BinanceFuturesWsFeedHandler))
             .field("instruments_count", &self.instruments.len())
             .field("pending_requests", &self.pending_requests.len())
             .finish_non_exhaustive()

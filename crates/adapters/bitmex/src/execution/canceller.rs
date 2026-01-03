@@ -239,7 +239,7 @@ struct TransportClient {
 
 impl Debug for TransportClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TransportClient")
+        f.debug_struct(stringify!(TransportClient))
             .field("client_id", &self.client_id)
             .field("healthy", &self.healthy)
             .field("cancel_count", &self.cancel_count)

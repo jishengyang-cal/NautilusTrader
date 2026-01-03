@@ -15,6 +15,8 @@
 
 //! Data structures for Deribit WebSocket JSON-RPC messages.
 
+use std::fmt::Display;
+
 use nautilus_model::{
     data::{Data, FundingRateUpdate, OrderBookDeltas},
     instruments::InstrumentAny,
@@ -299,7 +301,7 @@ pub enum DeribitInstrumentState {
     Terminated,
 }
 
-impl std::fmt::Display for DeribitInstrumentState {
+impl Display for DeribitInstrumentState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Created => write!(f, "created"),

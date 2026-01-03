@@ -111,7 +111,7 @@ pub struct FeedHandler {
 
 impl Debug for FeedHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FeedHandler")
+        f.debug_struct(stringify!(FeedHandler))
             .field("account_id", &self.account_id)
             .field("instruments_count", &self.instruments.len())
             .field("bar_types_count", &self.bar_types.len())

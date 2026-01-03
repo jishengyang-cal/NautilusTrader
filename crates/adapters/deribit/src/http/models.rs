@@ -15,6 +15,8 @@
 
 //! Deribit HTTP API models and types.
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
@@ -215,7 +217,7 @@ impl DeribitCurrency {
     }
 }
 
-impl std::fmt::Display for DeribitCurrency {
+impl Display for DeribitCurrency {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }

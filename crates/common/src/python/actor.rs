@@ -138,7 +138,7 @@ pub struct PyDataActorInner {
 
 impl Debug for PyDataActorInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PyDataActorInner")
+        f.debug_struct(stringify!(PyDataActorInner))
             .field("core", &self.core)
             .field("py_self", &self.py_self.as_ref().map(|_| "<Py<PyAny>>"))
             .field("clock", &self.clock)
@@ -493,7 +493,7 @@ pub struct PyDataActor {
 
 impl Debug for PyDataActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PyDataActor")
+        f.debug_struct(stringify!(PyDataActor))
             .field("inner", &self.inner())
             .finish()
     }

@@ -136,7 +136,7 @@ pub struct BybitWebSocketClient {
 
 impl Debug for BybitWebSocketClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BybitWebSocketClient")
+        f.debug_struct(stringify!(BybitWebSocketClient))
             .field("url", &self.url)
             .field("environment", &self.environment)
             .field("product_type", &self.product_type)

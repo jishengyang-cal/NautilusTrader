@@ -55,7 +55,7 @@ pub struct Wallet {
 
 impl Debug for Wallet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Wallet")
+        f.debug_struct(stringify!(Wallet))
             .field("seed", &"<redacted>")
             .finish()
     }
@@ -127,7 +127,7 @@ pub struct Account {
 
 impl Debug for Account {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Account")
+        f.debug_struct(stringify!(Account))
             .field("index", &self.index)
             .field("address", &self.address)
             .field("account_id", &self.account_id)

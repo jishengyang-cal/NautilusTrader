@@ -81,7 +81,7 @@ pub struct DatabentoDataClientConfig {
 
 impl Debug for DatabentoDataClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DatabentoDataClientConfig")
+        f.debug_struct(stringify!(DatabentoDataClientConfig))
             .field("credential", &"<redacted>")
             .field("publishers_filepath", &self.publishers_filepath)
             .field("use_exchange_as_venue", &self.use_exchange_as_venue)

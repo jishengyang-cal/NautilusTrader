@@ -97,7 +97,7 @@ pub struct DeribitWebSocketClient {
 
 impl Debug for DeribitWebSocketClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DeribitWebSocketClient")
+        f.debug_struct(stringify!(DeribitWebSocketClient))
             .field("url", &self.url)
             .field("is_testnet", &self.is_testnet)
             .field("has_credentials", &self.credential.is_some())

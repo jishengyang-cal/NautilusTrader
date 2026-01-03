@@ -55,7 +55,7 @@ pub struct ExecutionAlgorithmCore {
 
 impl Debug for ExecutionAlgorithmCore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ExecutionAlgorithmCore")
+        f.debug_struct(stringify!(ExecutionAlgorithmCore))
             .field("actor", &self.actor)
             .field("config", &self.config)
             .field("exec_algorithm_id", &self.exec_algorithm_id)

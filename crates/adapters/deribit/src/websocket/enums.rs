@@ -15,6 +15,8 @@
 
 //! Enumerations for Deribit WebSocket channels and operations.
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumIter, EnumString};
 
@@ -73,7 +75,7 @@ impl DeribitUpdateInterval {
     }
 }
 
-impl std::fmt::Display for DeribitUpdateInterval {
+impl Display for DeribitUpdateInterval {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
