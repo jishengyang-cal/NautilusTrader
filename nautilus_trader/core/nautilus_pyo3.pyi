@@ -5733,6 +5733,63 @@ class BookImbalanceRatio:
 # Adapters
 ###################################################################################################
 
+# Architect
+
+class ArchitectEnvironment(Enum):
+    SANDBOX = "Sandbox"
+    PRODUCTION = "Production"
+
+class ArchitectMarketDataLevel(Enum):
+    LEVEL_1 = "Level1"
+    LEVEL_2 = "Level2"
+    LEVEL_3 = "Level3"
+
+class ArchitectHttpClient:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        orders_base_url: str | None = None,
+        timeout_secs: int | None = None,
+        max_retries: int | None = None,
+        retry_delay_ms: int | None = None,
+        retry_delay_max_ms: int | None = None,
+        proxy_url: str | None = None,
+    ) -> None: ...
+    @staticmethod
+    def with_credentials(
+        api_key: str,
+        api_secret: str,
+        base_url: str | None = None,
+        orders_base_url: str | None = None,
+        timeout_secs: int | None = None,
+        max_retries: int | None = None,
+        retry_delay_ms: int | None = None,
+        retry_delay_max_ms: int | None = None,
+        proxy_url: str | None = None,
+    ) -> ArchitectHttpClient: ...
+    @property
+    def base_url(self) -> str: ...
+    def cancel_all_requests(self) -> None: ...
+    def set_session_token(self, token: str) -> None: ...
+
+class ArchitectMdWebSocketClient:
+    def __init__(
+        self,
+        url: str,
+        auth_token: str,
+        heartbeat: int | None = None,
+    ) -> None: ...
+    @property
+    def url(self) -> str: ...
+    def is_active(self) -> bool: ...
+    def is_closed(self) -> bool: ...
+    def subscription_count(self) -> int: ...
+    async def connect(self) -> None: ...
+    async def subscribe(self, symbol: str, level: ArchitectMarketDataLevel) -> None: ...
+    async def unsubscribe(self, symbol: str) -> None: ...
+    async def disconnect(self) -> None: ...
+    async def close(self) -> None: ...
+
 # Bybit
 
 BYBIT_NAUTILUS_BROKER_ID: Final[str]

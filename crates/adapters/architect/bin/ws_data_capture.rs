@@ -1,0 +1,212 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+//! Captures real market data from Architect WebSocket and saves to test_data files.
+//!
+//! This script connects to Architect, subscribes to market data at various levels,
+//! and saves the raw JSON messages to the test_data directory for use in tests.
+//!
+//! Requires environment variables:
+//! - `ARCHITECT_API_KEY`: Your API key
+//! - `ARCHITECT_API_SECRET`: Your API secret
+//!
+//! For 2FA (if enabled on your account):
+//! - `ARCHITECT_TOTP_SECRET`: Base32 TOTP secret for auto-generating codes
+
+use std::{collections::HashMap, fs, path::PathBuf, time::Duration};
+
+use futures_util::StreamExt;
+use nautilus_architect::{
+    common::enums::{ArchitectEnvironment, ArchitectMarketDataLevel},
+    http::{client::ArchitectRawHttpClient, error::ArchitectHttpError},
+    websocket::{ArchitectMdWsMessage, data::ArchitectMdWebSocketClient},
+};
+use totp_rs::{Algorithm, Secret, TOTP};
+
+const TEST_SYMBOL: &str = "EURUSD-PERP";
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
+    let api_key = std::env::var("ARCHITECT_API_KEY")
+        .expect("ARCHITECT_API_KEY environment variable required");
+    let api_secret = std::env::var("ARCHITECT_API_SECRET")
+        .expect("ARCHITECT_API_SECRET environment variable required");
+
+    let environment = if std::env::var("ARCHITECT_IS_SANDBOX")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(true)
+    {
+        ArchitectEnvironment::Sandbox
+    } else {
+        ArchitectEnvironment::Production
+    };
+
+    tracing::info!("Environment: {environment}");
+
+    let http_client = ArchitectRawHttpClient::new(
+        Some(environment.http_url().to_string()),
+        Some(environment.orders_url().to_string()),
+        Some(30),
+        None,
+        None,
+        None,
+        None,
+    )?;
+
+    // Generate TOTP code from secret if available
+    let totp_code: Option<String> = std::env::var("ARCHITECT_TOTP_SECRET").ok().map(|secret| {
+        let secret_bytes = Secret::Encoded(secret)
+            .to_bytes()
+            .expect("Invalid base32 TOTP secret");
+        let totp =
+            TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes).expect("Invalid TOTP configuration");
+        totp.generate_current().expect("Failed to generate TOTP")
+    });
+
+    let auth_response = match http_client.authenticate(&api_key, &api_secret, 3600).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            if matches!(e, ArchitectHttpError::UnexpectedStatus { status: 400, .. }) {
+                let code = totp_code.expect("2FA required but no TOTP code available");
+                http_client
+                    .authenticate_with_totp(&api_key, &api_secret, 3600, Some(&code))
+                    .await?
+            } else {
+                return Err(format!("Authentication failed: {e:?}").into());
+            }
+        }
+    };
+    tracing::info!("Authenticated successfully");
+
+    let mut captured: HashMap<String, String> = HashMap::new();
+    let test_data_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data");
+
+    tracing::info!("=== Capturing L1 data for {TEST_SYMBOL} ===");
+    capture_level(
+        &auth_response.token,
+        &environment,
+        ArchitectMarketDataLevel::Level1,
+        &mut captured,
+    )
+    .await?;
+
+    tracing::info!("=== Capturing L2 data for {TEST_SYMBOL} ===");
+    capture_level(
+        &auth_response.token,
+        &environment,
+        ArchitectMarketDataLevel::Level2,
+        &mut captured,
+    )
+    .await?;
+
+    tracing::info!("=== Capturing L3 data for {TEST_SYMBOL} ===");
+    capture_level(
+        &auth_response.token,
+        &environment,
+        ArchitectMarketDataLevel::Level3,
+        &mut captured,
+    )
+    .await?;
+
+    tracing::info!("Saving captured data to {:?}", test_data_dir);
+
+    for (msg_type, json) in &captured {
+        let filename = match msg_type.as_str() {
+            "1" => "ws_md_book_l1_captured.json",
+            "2" => "ws_md_book_l2_captured.json",
+            "3" => "ws_md_book_l3_captured.json",
+            "s" => "ws_md_trade_captured.json",
+            "h" => "ws_md_heartbeat_captured.json",
+            "t" => "ws_md_ticker_captured.json",
+            _ => continue,
+        };
+
+        let path = test_data_dir.join(filename);
+        fs::write(&path, json)?;
+        tracing::info!("Saved {filename}");
+    }
+
+    tracing::info!("Done! Captured {} message types", captured.len());
+
+    Ok(())
+}
+
+async fn capture_level(
+    token: &str,
+    environment: &ArchitectEnvironment,
+    level: ArchitectMarketDataLevel,
+    captured: &mut HashMap<String, String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = ArchitectMdWebSocketClient::new(
+        environment.ws_md_url().to_string(),
+        token.to_string(),
+        Some(30),
+    );
+
+    client.connect().await?;
+    client.subscribe(TEST_SYMBOL, level).await?;
+
+    {
+        let stream = client.stream();
+        tokio::pin!(stream);
+
+        let timeout = Duration::from_secs(15);
+        let start = std::time::Instant::now();
+        let mut count = 0;
+
+        while let Some(msg) = stream.next().await {
+            let (msg_type, json) = match &msg {
+                ArchitectMdWsMessage::Heartbeat(hb) => {
+                    ("h".to_string(), serde_json::to_string_pretty(hb).unwrap())
+                }
+                ArchitectMdWsMessage::Ticker(t) => {
+                    ("t".to_string(), serde_json::to_string_pretty(t).unwrap())
+                }
+                ArchitectMdWsMessage::Trade(t) => {
+                    ("s".to_string(), serde_json::to_string_pretty(t).unwrap())
+                }
+                ArchitectMdWsMessage::BookL1(b) => {
+                    ("1".to_string(), serde_json::to_string_pretty(b).unwrap())
+                }
+                ArchitectMdWsMessage::BookL2(b) => {
+                    ("2".to_string(), serde_json::to_string_pretty(b).unwrap())
+                }
+                ArchitectMdWsMessage::BookL3(b) => {
+                    ("3".to_string(), serde_json::to_string_pretty(b).unwrap())
+                }
+                _ => continue,
+            };
+
+            if let std::collections::hash_map::Entry::Vacant(e) = captured.entry(msg_type) {
+                tracing::info!("Captured new message type: {}", e.key());
+                e.insert(json);
+                count += 1;
+            }
+
+            if start.elapsed() > timeout || count >= 2 {
+                break;
+            }
+        }
+    }
+
+    client.disconnect().await;
+
+    Ok(())
+}

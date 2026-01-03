@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates",
+  "crates/adapters/architect",
   "crates/adapters/binance",
   "crates/adapters/bitmex",
   "crates/adapters/blockchain",
@@ -83,6 +84,7 @@ nautilus-trading = { path = "crates/trading", version = "0.53.0" }
 # -----------------------------------------------------------------------------
 # Adapters
 # -----------------------------------------------------------------------------
+nautilus-architect = { path = "crates/adapters/architect", version = "0.53.0" }
 nautilus-binance = { path = "crates/adapters/binance", version = "0.53.0" }
 nautilus-blockchain = { path = "crates/adapters/blockchain", version = "0.53.0" }
 nautilus-bybit = { path = "crates/adapters/bybit", version = "0.53.0" }
