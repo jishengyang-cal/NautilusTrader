@@ -15,7 +15,7 @@
 
 //! Example demonstrating live data testing with the OKX adapter.
 //!
-//! Run with: `cargo run --example okx-data-tester --package nautilus-okx --features high-precision`
+//! Run with: `cargo run --example okx-data-tester --package nautilus-okx`
 
 use nautilus_common::enums::Environment;
 use nautilus_live::node::LiveNode;

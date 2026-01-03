@@ -21,7 +21,7 @@ name = "nautilus_databento"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["live"]
+default = ["live", "high-precision"]
 extension-module = [
   "nautilus-core/extension-module",
   "nautilus-model/extension-module",
@@ -85,8 +85,8 @@ path = "bin/sandbox.rs"
 required-features = ["python"]
 doc = false
 
-[[bin]]
-name = "databento-node-test"
-path = "bin/node_test.rs"
+[[example]]
+name = "databento-data-tester"
+path = "examples/node_data_tester.rs"
 required-features = ["live"]
 doc = false
