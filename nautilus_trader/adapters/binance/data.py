@@ -357,9 +357,6 @@ class BinanceCommonDataClient(LiveMarketDataClient):
     async def _subscribe_order_book_deltas(self, command: SubscribeOrderBook) -> None:
         await self._subscribe_order_book(command)
 
-    async def _subscribe_order_book_snapshots(self, command: SubscribeOrderBook) -> None:
-        await self._subscribe_order_book(command)
-
     async def _subscribe_order_book(self, command: SubscribeOrderBook) -> None:
         update_speed: int | None = command.params.get("update_speed")
 
@@ -496,9 +493,6 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         pass  # Do nothing further
 
     async def _unsubscribe_order_book_deltas(self, command: UnsubscribeOrderBook) -> None:
-        pass  # TODO: Unsubscribe from Binance if no other subscriptions
-
-    async def _unsubscribe_order_book_snapshots(self, command: UnsubscribeOrderBook) -> None:
         pass  # TODO: Unsubscribe from Binance if no other subscriptions
 
     async def _unsubscribe_quote_ticks(self, command: UnsubscribeQuoteTicks) -> None:

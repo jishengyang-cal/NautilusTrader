@@ -511,9 +511,9 @@ cdef class DataEngine(Component):
 
         return subscriptions
 
-    cpdef list subscribed_order_book_snapshots(self):
+    cpdef list subscribed_order_book_depth(self):
         """
-        Return the order book snapshot instruments subscribed to.
+        Return the order book depth instruments subscribed to.
 
         Returns
         -------
@@ -524,7 +524,7 @@ cdef class DataEngine(Component):
             list subscriptions = []
             MarketDataClient client
         for client in [c for c in self._clients.values() if isinstance(c, MarketDataClient)]:
-            subscriptions += client.subscribed_order_book_snapshots()
+            subscriptions += client.subscribed_order_book_depth()
 
         return subscriptions
 
@@ -971,7 +971,7 @@ cdef class DataEngine(Component):
             if command.instrument_id not in client.subscribed_order_book_deltas():
                 client.subscribe_order_book_deltas(command)
         elif command.data_type.type == OrderBookDepth10:
-            if command.instrument_id not in client.subscribed_order_book_snapshots():
+            if command.instrument_id not in client.subscribed_order_book_depth():
                 client.subscribe_order_book_depth(command)
         else:  # pragma: no cover (design-time error)
             raise TypeError(f"Invalid book data type, was {command.data_type}")
@@ -1283,11 +1283,8 @@ cdef class DataEngine(Component):
                 if command.instrument_id in client.subscribed_order_book_deltas():
                     client.unsubscribe_order_book_deltas(command)
             elif command.data_type.type == OrderBookDepth10:
-                if command.instrument_id in client.subscribed_order_book_snapshots():
+                if command.instrument_id in client.subscribed_order_book_depth():
                     client.unsubscribe_order_book_depth(command)
-            else:
-                if command.instrument_id in client.subscribed_order_book_snapshots():
-                    client.unsubscribe_order_book_snapshots(command)
 
         # Cancel any snapshot timers for this instrument that no longer have subscribers
         cdef:

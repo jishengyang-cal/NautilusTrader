@@ -314,32 +314,6 @@ class KrakenDataClient(LiveMarketDataClient):
 
         await ws_client.subscribe_book(pyo3_instrument_id, depth)
 
-    async def _subscribe_order_book_snapshots(self, command: SubscribeOrderBook) -> None:
-        if command.book_type != BookType.L2_MBP:
-            self._log.warning(
-                f"Book type {book_type_to_str(command.book_type)} not supported by Kraken, skipping subscription",
-            )
-            return
-
-        if command.depth not in (0, 10, 25, 100, 500, 1000):
-            self._log.error(
-                "Cannot subscribe to order book snapshots: "
-                f"invalid `depth`, was {command.depth}; "
-                "valid depths are 0 (default 10), 10, 25, 100, 500, or 1000",
-            )
-            return
-
-        symbol = command.instrument_id.symbol.value
-        ws_client = self._get_ws_client_for_symbol(symbol)
-        if ws_client is None:
-            self._log.error(f"No WebSocket client configured for {command.instrument_id}")
-            return
-
-        pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)
-        depth = command.depth if command.depth != 0 else 10
-
-        await ws_client.subscribe_book(pyo3_instrument_id, depth)
-
     async def _subscribe_quote_ticks(self, command: SubscribeQuoteTicks) -> None:
         symbol = command.instrument_id.symbol.value
         ws_client = self._get_ws_client_for_symbol(symbol)
@@ -416,15 +390,6 @@ class KrakenDataClient(LiveMarketDataClient):
             )
 
     async def _unsubscribe_order_book_deltas(self, command: UnsubscribeOrderBook) -> None:
-        symbol = command.instrument_id.symbol.value
-        ws_client = self._get_ws_client_for_symbol(symbol)
-        if ws_client is None:
-            return
-
-        pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)
-        await ws_client.unsubscribe_book(pyo3_instrument_id)
-
-    async def _unsubscribe_order_book_snapshots(self, command: UnsubscribeOrderBook) -> None:
         symbol = command.instrument_id.symbol.value
         ws_client = self._get_ws_client_for_symbol(symbol)
         if ws_client is None:

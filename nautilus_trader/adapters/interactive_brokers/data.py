@@ -194,11 +194,6 @@ class InteractiveBrokersDataClient(LiveMarketDataClient):
             is_smart_depth=is_smart_depth,
         )
 
-    async def _subscribe_order_book_snapshots(self, command: SubscribeOrderBook) -> None:
-        raise NotImplementedError(  # pragma: no cover
-            "implement the `_subscribe_order_book_snapshots` coroutine",  # pragma: no cover
-        )
-
     async def _subscribe_quote_ticks(self, command: SubscribeQuoteTicks) -> None:
         contract = self.instrument_provider.contract.get(command.instrument_id)
         if not contract:
@@ -295,11 +290,6 @@ class InteractiveBrokersDataClient(LiveMarketDataClient):
         await self._client.unsubscribe_order_book(
             instrument_id=command.instrument_id,
             is_smart_depth=is_smart_depth,
-        )
-
-    async def _unsubscribe_order_book_snapshots(self, command: UnsubscribeOrderBook) -> None:
-        raise NotImplementedError(  # pragma: no cover
-            "implement the `_unsubscribe_order_book_snapshots` coroutine",  # pragma: no cover
         )
 
     async def _unsubscribe_quote_ticks(self, command: UnsubscribeQuoteTicks) -> None:

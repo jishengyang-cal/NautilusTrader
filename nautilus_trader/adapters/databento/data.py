@@ -614,31 +614,6 @@ class DatabentoDataClient(LiveMarketDataClient):
                 "Canceled task 'subscribe_order_book_deltas_batch'",
             )
 
-    async def _subscribe_order_book_snapshots(self, command: SubscribeOrderBook) -> None:
-        try:
-            await self._ensure_subscribed_for_instrument(command.instrument_id)
-
-            match command.depth:
-                case 1:
-                    schema = DatabentoSchema.MBP_1.value
-                case 10:
-                    schema = DatabentoSchema.MBP_10.value
-                case _:
-                    self._log.error(
-                        f"Cannot subscribe for order book snapshots of depth {command.depth}, use either 1 or 10",
-                    )
-                    return
-
-            dataset: Dataset = self._loader.get_dataset_for_venue(command.instrument_id.venue)
-            live_client = self._get_live_client(dataset)
-            live_client.subscribe(
-                schema=schema,
-                instrument_ids=[instrument_id_to_pyo3(command.instrument_id)],
-            )
-            await self._check_live_client_started(dataset, live_client)
-        except asyncio.CancelledError:
-            self._log.warning("Canceled task 'subscribe_order_book_snapshots'")
-
     async def _subscribe_quote_ticks(self, command: SubscribeQuoteTicks) -> None:
         try:
             await self._ensure_subscribed_for_instrument(command.instrument_id)
@@ -773,12 +748,6 @@ class DatabentoDataClient(LiveMarketDataClient):
     async def _unsubscribe_order_book_deltas(self, command: UnsubscribeOrderBook) -> None:
         raise NotImplementedError(
             f"Cannot unsubscribe from {command.instrument_id} order book deltas, "
-            "unsubscribing not supported by Databento.",
-        )
-
-    async def _unsubscribe_order_book_snapshots(self, command: UnsubscribeOrderBook) -> None:
-        raise NotImplementedError(
-            f"Cannot unsubscribe from {command.instrument_id} order book snapshots, "
             "unsubscribing not supported by Databento.",
         )
 

@@ -335,11 +335,6 @@ class PolymarketDataClient(LiveMarketDataClient):
             f"Cannot unsubscribe from {command.instrument_id} order book deltas: unsubscribing not supported by Polymarket",
         )
 
-    async def _unsubscribe_order_book_snapshots(self, command: UnsubscribeOrderBook) -> None:
-        self._log.error(
-            f"Cannot unsubscribe from {command.instrument_id} order book snapshots: unsubscribing not supported by Polymarket",
-        )
-
     async def _unsubscribe_quote_ticks(self, command: UnsubscribeQuoteTicks) -> None:
         self._log.error(
             f"Cannot unsubscribe from {command.instrument_id} quotes: unsubscribing not supported by Polymarket",
