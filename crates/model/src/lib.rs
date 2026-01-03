@@ -77,6 +77,3 @@ pub mod stubs;
 
 #[cfg(feature = "defi")]
 pub mod defi;
-
-#[cfg(all(target_os = "windows", feature = "high-precision"))]
-compile_error!("High-precision mode is not supported on Windows (128-bit integers unavailable)");
