@@ -105,7 +105,7 @@ cdef class OptionExerciseModule(SimulationModule):
                 handler=self.on_position_event,
             )
         else:
-            self._log.error("msgbus is not available. Cannot subscribe to position events.")
+            raise RuntimeError("msgbus is not available, register_base must be called before register_venue")
 
     cpdef void pre_process(self, Data data):
         """
