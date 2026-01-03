@@ -33,12 +33,12 @@
 
 use std::{collections::HashMap, fmt::Debug, num::NonZeroU32, sync::Arc};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use nautilus_core::{consts::NAUTILUS_USER_AGENT, nanos::UnixNanos};
 use nautilus_model::{
-    data::TradeTick,
-    enums::{OrderSide, OrderType, TimeInForce},
+    data::{Bar, BarType, TradeTick},
+    enums::{AggregationSource, BarAggregation, OrderSide, OrderType, TimeInForce},
     identifiers::{AccountId, ClientOrderId, InstrumentId, VenueOrderId},
     instruments::{Instrument, any::InstrumentAny},
     reports::{FillReport, OrderStatusReport},
@@ -55,25 +55,33 @@ use super::{
     error::{BinanceSpotHttpError, BinanceSpotHttpResult},
     models::{
         BinanceAccountInfo, BinanceAccountTrade, BinanceCancelOrderResponse, BinanceDepth,
-        BinanceNewOrderResponse, BinanceOrderResponse, BinanceTrades,
+        BinanceKlines, BinanceNewOrderResponse, BinanceOrderResponse, BinanceTrades,
     },
     parse,
     query::{
         AccountInfoParams, AccountTradesParams, AllOrdersParams, CancelOpenOrdersParams,
-        CancelOrderParams, CancelReplaceOrderParams, DepthParams, NewOrderParams, OpenOrdersParams,
-        QueryOrderParams, TradesParams,
+        CancelOrderParams, CancelReplaceOrderParams, DepthParams, KlinesParams, NewOrderParams,
+        OpenOrdersParams, QueryOrderParams, TradesParams,
     },
 };
 use crate::{
     common::{
-        consts::BINANCE_SPOT_RATE_LIMITS,
+        consts::{BINANCE_SPOT_RATE_LIMITS, BinanceRateLimitQuota},
         credential::Credential,
-        enums::{BinanceEnvironment, BinanceProductType, BinanceSide, BinanceTimeInForce},
+        enums::{
+            BinanceEnvironment, BinanceProductType, BinanceRateLimitInterval, BinanceRateLimitType,
+            BinanceSide, BinanceTimeInForce,
+        },
         models::BinanceErrorResponse,
+        parse::{
+            get_currency, parse_fill_report_sbe, parse_klines_to_bars,
+            parse_new_order_response_sbe, parse_order_status_report_sbe, parse_spot_instrument_sbe,
+            parse_spot_trades_sbe,
+        },
         sbe::spot::{SBE_SCHEMA_ID, SBE_SCHEMA_VERSION},
         urls::get_http_base_url,
     },
-    spot::enums::BinanceSpotOrderType,
+    spot::enums::{BinanceCancelReplaceMode, BinanceSpotOrderType, order_type_to_binance_spot},
 };
 
 /// SBE schema header value for Spot API.
@@ -87,6 +95,12 @@ const BINANCE_GLOBAL_RATE_KEY: &str = "binance:spot:global";
 
 /// Orders rate limit key prefix.
 const BINANCE_ORDERS_RATE_KEY: &str = "binance:spot:orders";
+
+struct RateLimitConfig {
+    default_quota: Option<Quota>,
+    keyed_quotas: Vec<(String, Quota)>,
+    order_keys: Vec<String>,
+}
 
 /// Low-level HTTP client for Binance Spot REST API with SBE encoding.
 ///
@@ -188,215 +202,6 @@ impl BinanceRawSpotHttpClient {
         P: Serialize + ?Sized,
     {
         self.request(Method::GET, path, params, true, false).await
-    }
-
-    /// Performs a signed POST request for order operations.
-    pub async fn post_order<P>(
-        &self,
-        path: &str,
-        params: Option<&P>,
-    ) -> BinanceSpotHttpResult<Vec<u8>>
-    where
-        P: Serialize + ?Sized,
-    {
-        self.request(Method::POST, path, params, true, true).await
-    }
-
-    /// Performs a signed DELETE request for cancel operations.
-    pub async fn delete_order<P>(
-        &self,
-        path: &str,
-        params: Option<&P>,
-    ) -> BinanceSpotHttpResult<Vec<u8>>
-    where
-        P: Serialize + ?Sized,
-    {
-        self.request(Method::DELETE, path, params, true, true).await
-    }
-
-    /// Tests connectivity to the API.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn ping(&self) -> BinanceSpotHttpResult<()> {
-        let bytes = self.get("ping", None::<&()>).await?;
-        parse::decode_ping(&bytes)?;
-        Ok(())
-    }
-
-    /// Returns the server time in **microseconds** since epoch.
-    ///
-    /// Note: SBE provides microsecond precision vs JSON's milliseconds.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn server_time(&self) -> BinanceSpotHttpResult<i64> {
-        let bytes = self.get("time", None::<&()>).await?;
-        let timestamp = parse::decode_server_time(&bytes)?;
-        Ok(timestamp)
-    }
-
-    /// Returns exchange information including trading symbols.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn exchange_info(
-        &self,
-    ) -> BinanceSpotHttpResult<super::models::BinanceExchangeInfoSbe> {
-        let bytes = self.get("exchangeInfo", None::<&()>).await?;
-        let info = parse::decode_exchange_info(&bytes)?;
-        Ok(info)
-    }
-
-    /// Returns order book depth for a symbol.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn depth(&self, params: &DepthParams) -> BinanceSpotHttpResult<BinanceDepth> {
-        let bytes = self.get("depth", Some(params)).await?;
-        let depth = parse::decode_depth(&bytes)?;
-        Ok(depth)
-    }
-
-    /// Returns recent trades for a symbol.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn trades(&self, params: &TradesParams) -> BinanceSpotHttpResult<BinanceTrades> {
-        let bytes = self.get("trades", Some(params)).await?;
-        let trades = parse::decode_trades(&bytes)?;
-        Ok(trades)
-    }
-
-    /// Creates a new order.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn new_order(
-        &self,
-        params: &NewOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
-        let bytes = self.post_order("order", Some(params)).await?;
-        let response = parse::decode_new_order_full(&bytes)?;
-        Ok(response)
-    }
-
-    /// Cancels an existing order.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_order(
-        &self,
-        params: &CancelOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceCancelOrderResponse> {
-        let bytes = self.delete_order("order", Some(params)).await?;
-        let response = parse::decode_cancel_order(&bytes)?;
-        Ok(response)
-    }
-
-    /// Cancels all open orders for a symbol.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_open_orders(
-        &self,
-        params: &CancelOpenOrdersParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceCancelOrderResponse>> {
-        let bytes = self.delete_order("openOrders", Some(params)).await?;
-        let response = parse::decode_cancel_open_orders(&bytes)?;
-        Ok(response)
-    }
-
-    /// Cancels an existing order and places a new order atomically.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_replace_order(
-        &self,
-        params: &CancelReplaceOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
-        let bytes = self.post_order("order/cancelReplace", Some(params)).await?;
-        let response = parse::decode_new_order_full(&bytes)?;
-        Ok(response)
-    }
-
-    /// Queries an order's status.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn query_order(
-        &self,
-        params: &QueryOrderParams,
-    ) -> BinanceSpotHttpResult<BinanceOrderResponse> {
-        let bytes = self.get_signed("order", Some(params)).await?;
-        let response = parse::decode_order(&bytes)?;
-        Ok(response)
-    }
-
-    /// Returns all open orders for a symbol or all symbols.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn open_orders(
-        &self,
-        params: &OpenOrdersParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
-        let bytes = self.get_signed("openOrders", Some(params)).await?;
-        let response = parse::decode_orders(&bytes)?;
-        Ok(response)
-    }
-
-    /// Returns all orders (including closed) for a symbol.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn all_orders(
-        &self,
-        params: &AllOrdersParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
-        let bytes = self.get_signed("allOrders", Some(params)).await?;
-        let response = parse::decode_orders(&bytes)?;
-        Ok(response)
-    }
-
-    /// Returns account information including balances.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn account(
-        &self,
-        params: &AccountInfoParams,
-    ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
-        let bytes = self.get_signed("account", Some(params)).await?;
-        let response = parse::decode_account(&bytes)?;
-        Ok(response)
-    }
-
-    /// Returns account trade history for a symbol.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn account_trades(
-        &self,
-        params: &AccountTradesParams,
-    ) -> BinanceSpotHttpResult<Vec<BinanceAccountTrade>> {
-        let bytes = self.get_signed("myTrades", Some(params)).await?;
-        let response = parse::decode_account_trades(&bytes)?;
-        Ok(response)
     }
 
     async fn request<P>(
@@ -527,12 +332,16 @@ impl BinanceRawSpotHttpClient {
 
         for quota in quotas {
             if let Some(q) = Self::quota_from(quota) {
-                if quota.rate_limit_type == "REQUEST_WEIGHT" && default.is_none() {
-                    default = Some(q);
-                } else if quota.rate_limit_type == "ORDERS" {
-                    let key = format!("{}:{}", BINANCE_ORDERS_RATE_KEY, quota.interval);
-                    order_keys.push(key.clone());
-                    keyed.push((key, q));
+                match quota.rate_limit_type {
+                    BinanceRateLimitType::RequestWeight if default.is_none() => {
+                        default = Some(q);
+                    }
+                    BinanceRateLimitType::Orders => {
+                        let key = format!("{}:{:?}", BINANCE_ORDERS_RATE_KEY, quota.interval);
+                        order_keys.push(key.clone());
+                        keyed.push((key, q));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -549,22 +358,356 @@ impl BinanceRawSpotHttpClient {
         }
     }
 
-    fn quota_from(quota: &crate::common::consts::BinanceRateLimitQuota) -> Option<Quota> {
+    fn quota_from(quota: &BinanceRateLimitQuota) -> Option<Quota> {
         let burst = NonZeroU32::new(quota.limit)?;
         match quota.interval {
-            "SECOND" => Some(Quota::per_second(burst)),
-            "MINUTE" => Some(Quota::per_minute(burst)),
-            "DAY" => Quota::with_period(std::time::Duration::from_secs(86_400))
-                .map(|q| q.allow_burst(burst)),
-            _ => None,
+            BinanceRateLimitInterval::Second => Some(Quota::per_second(burst)),
+            BinanceRateLimitInterval::Minute => Some(Quota::per_minute(burst)),
+            BinanceRateLimitInterval::Day => {
+                Quota::with_period(std::time::Duration::from_secs(86_400))
+                    .map(|q| q.allow_burst(burst))
+            }
         }
     }
-}
 
-struct RateLimitConfig {
-    default_quota: Option<Quota>,
-    keyed_quotas: Vec<(String, Quota)>,
-    order_keys: Vec<String>,
+    /// Tests connectivity to the API.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn ping(&self) -> BinanceSpotHttpResult<()> {
+        let bytes = self.get("ping", None::<&()>).await?;
+        parse::decode_ping(&bytes)?;
+        Ok(())
+    }
+
+    /// Returns the server time in **microseconds** since epoch.
+    ///
+    /// Note: SBE provides microsecond precision vs JSON's milliseconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn server_time(&self) -> BinanceSpotHttpResult<i64> {
+        let bytes = self.get("time", None::<&()>).await?;
+        let timestamp = parse::decode_server_time(&bytes)?;
+        Ok(timestamp)
+    }
+
+    /// Returns exchange information including trading symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn exchange_info(
+        &self,
+    ) -> BinanceSpotHttpResult<super::models::BinanceExchangeInfoSbe> {
+        let bytes = self.get("exchangeInfo", None::<&()>).await?;
+        let info = parse::decode_exchange_info(&bytes)?;
+        Ok(info)
+    }
+
+    /// Returns order book depth for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn depth(&self, params: &DepthParams) -> BinanceSpotHttpResult<BinanceDepth> {
+        let bytes = self.get("depth", Some(params)).await?;
+        let depth = parse::decode_depth(&bytes)?;
+        Ok(depth)
+    }
+
+    /// Returns recent trades for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn trades(
+        &self,
+        symbol: &str,
+        limit: Option<u32>,
+    ) -> BinanceSpotHttpResult<BinanceTrades> {
+        let params = TradesParams {
+            symbol: symbol.to_string(),
+            limit,
+        };
+        let bytes = self.get("trades", Some(&params)).await?;
+        let trades = parse::decode_trades(&bytes)?;
+        Ok(trades)
+    }
+
+    /// Returns kline (candlestick) data for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn klines(
+        &self,
+        symbol: &str,
+        interval: &str,
+        start_time: Option<i64>,
+        end_time: Option<i64>,
+        limit: Option<u32>,
+    ) -> BinanceSpotHttpResult<BinanceKlines> {
+        let params = KlinesParams {
+            symbol: symbol.to_string(),
+            interval: interval.to_string(),
+            start_time,
+            end_time,
+            time_zone: None,
+            limit,
+        };
+        let bytes = self.get("klines", Some(&params)).await?;
+        let klines = parse::decode_klines(&bytes)?;
+        Ok(klines)
+    }
+
+    /// Returns account information including balances.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn account(
+        &self,
+        params: &AccountInfoParams,
+    ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
+        let bytes = self.get_signed("account", Some(params)).await?;
+        let response = parse::decode_account(&bytes)?;
+        Ok(response)
+    }
+
+    /// Returns account trade history for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn account_trades(
+        &self,
+        symbol: &str,
+        order_id: Option<i64>,
+        start_time: Option<i64>,
+        end_time: Option<i64>,
+        limit: Option<u32>,
+    ) -> BinanceSpotHttpResult<Vec<BinanceAccountTrade>> {
+        let params = AccountTradesParams {
+            symbol: symbol.to_string(),
+            order_id,
+            start_time,
+            end_time,
+            from_id: None,
+            limit,
+        };
+        let bytes = self.get_signed("myTrades", Some(&params)).await?;
+        let response = parse::decode_account_trades(&bytes)?;
+        Ok(response)
+    }
+
+    /// Queries an order's status.
+    ///
+    /// Either `order_id` or `client_order_id` must be provided.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn query_order(
+        &self,
+        symbol: &str,
+        order_id: Option<i64>,
+        client_order_id: Option<&str>,
+    ) -> BinanceSpotHttpResult<BinanceOrderResponse> {
+        let params = QueryOrderParams {
+            symbol: symbol.to_string(),
+            order_id,
+            orig_client_order_id: client_order_id.map(|s| s.to_string()),
+        };
+        let bytes = self.get_signed("order", Some(&params)).await?;
+        let response = parse::decode_order(&bytes)?;
+        Ok(response)
+    }
+
+    /// Returns all open orders for a symbol or all symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn open_orders(
+        &self,
+        symbol: Option<&str>,
+    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
+        let params = OpenOrdersParams {
+            symbol: symbol.map(|s| s.to_string()),
+        };
+        let bytes = self.get_signed("openOrders", Some(&params)).await?;
+        let response = parse::decode_orders(&bytes)?;
+        Ok(response)
+    }
+
+    /// Returns all orders (including closed) for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn all_orders(
+        &self,
+        symbol: &str,
+        start_time: Option<i64>,
+        end_time: Option<i64>,
+        limit: Option<u32>,
+    ) -> BinanceSpotHttpResult<Vec<BinanceOrderResponse>> {
+        let params = AllOrdersParams {
+            symbol: symbol.to_string(),
+            order_id: None,
+            start_time,
+            end_time,
+            limit,
+        };
+        let bytes = self.get_signed("allOrders", Some(&params)).await?;
+        let response = parse::decode_orders(&bytes)?;
+        Ok(response)
+    }
+
+    /// Performs a signed POST request for order operations.
+    async fn post_order<P>(&self, path: &str, params: Option<&P>) -> BinanceSpotHttpResult<Vec<u8>>
+    where
+        P: Serialize + ?Sized,
+    {
+        self.request(Method::POST, path, params, true, true).await
+    }
+
+    /// Performs a signed DELETE request for cancel operations.
+    async fn delete_order<P>(
+        &self,
+        path: &str,
+        params: Option<&P>,
+    ) -> BinanceSpotHttpResult<Vec<u8>>
+    where
+        P: Serialize + ?Sized,
+    {
+        self.request(Method::DELETE, path, params, true, true).await
+    }
+
+    /// Creates a new order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new_order(
+        &self,
+        symbol: &str,
+        side: BinanceSide,
+        order_type: BinanceSpotOrderType,
+        time_in_force: Option<BinanceTimeInForce>,
+        quantity: Option<&str>,
+        price: Option<&str>,
+        client_order_id: Option<&str>,
+        stop_price: Option<&str>,
+    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
+        let params = NewOrderParams {
+            symbol: symbol.to_string(),
+            side,
+            order_type,
+            time_in_force,
+            quantity: quantity.map(|s| s.to_string()),
+            quote_order_qty: None,
+            price: price.map(|s| s.to_string()),
+            new_client_order_id: client_order_id.map(|s| s.to_string()),
+            stop_price: stop_price.map(|s| s.to_string()),
+            trailing_delta: None,
+            iceberg_qty: None,
+            new_order_resp_type: None,
+            self_trade_prevention_mode: None,
+        };
+        let bytes = self.post_order("order", Some(&params)).await?;
+        let response = parse::decode_new_order_full(&bytes)?;
+        Ok(response)
+    }
+
+    /// Cancels an existing order and places a new order atomically.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn cancel_replace_order(
+        &self,
+        symbol: &str,
+        side: BinanceSide,
+        order_type: BinanceSpotOrderType,
+        time_in_force: Option<BinanceTimeInForce>,
+        quantity: Option<&str>,
+        price: Option<&str>,
+        cancel_order_id: Option<i64>,
+        cancel_client_order_id: Option<&str>,
+        new_client_order_id: Option<&str>,
+    ) -> BinanceSpotHttpResult<BinanceNewOrderResponse> {
+        let params = CancelReplaceOrderParams {
+            symbol: symbol.to_string(),
+            side,
+            order_type,
+            cancel_replace_mode: BinanceCancelReplaceMode::StopOnFailure,
+            time_in_force,
+            quantity: quantity.map(|s| s.to_string()),
+            quote_order_qty: None,
+            price: price.map(|s| s.to_string()),
+            cancel_order_id,
+            cancel_orig_client_order_id: cancel_client_order_id.map(|s| s.to_string()),
+            new_client_order_id: new_client_order_id.map(|s| s.to_string()),
+            stop_price: None,
+            trailing_delta: None,
+            iceberg_qty: None,
+            new_order_resp_type: None,
+            self_trade_prevention_mode: None,
+        };
+        let bytes = self
+            .post_order("order/cancelReplace", Some(&params))
+            .await?;
+        let response = parse::decode_new_order_full(&bytes)?;
+        Ok(response)
+    }
+
+    /// Cancels an existing order.
+    ///
+    /// Either `order_id` or `client_order_id` must be provided.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_order(
+        &self,
+        symbol: &str,
+        order_id: Option<i64>,
+        client_order_id: Option<&str>,
+    ) -> BinanceSpotHttpResult<BinanceCancelOrderResponse> {
+        let params = match (order_id, client_order_id) {
+            (Some(id), _) => CancelOrderParams::by_order_id(symbol, id),
+            (None, Some(id)) => CancelOrderParams::by_client_order_id(symbol, id.to_string()),
+            (None, None) => {
+                return Err(BinanceSpotHttpError::ValidationError(
+                    "Either order_id or client_order_id must be provided".to_string(),
+                ));
+            }
+        };
+        let bytes = self.delete_order("order", Some(&params)).await?;
+        let response = parse::decode_cancel_order(&bytes)?;
+        Ok(response)
+    }
+
+    /// Cancels all open orders for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_open_orders(
+        &self,
+        symbol: &str,
+    ) -> BinanceSpotHttpResult<Vec<BinanceCancelOrderResponse>> {
+        let params = CancelOpenOrdersParams::new(symbol.to_string());
+        let bytes = self.delete_order("openOrders", Some(&params)).await?;
+        let response = parse::decode_cancel_open_orders(&bytes)?;
+        Ok(response)
+    }
 }
 
 /// High-level HTTP client for Binance Spot API.
@@ -728,7 +871,7 @@ impl BinanceSpotHttpClient {
 
         let mut instruments = Vec::with_capacity(info.symbols.len());
         for symbol in &info.symbols {
-            match crate::common::parse::parse_spot_instrument_sbe(symbol, ts_init, ts_init) {
+            match parse_spot_instrument_sbe(symbol, ts_init, ts_init) {
                 Ok(instrument) => instruments.push(instrument),
                 Err(e) => {
                     tracing::debug!(
@@ -762,18 +905,214 @@ impl BinanceSpotHttpClient {
         let instrument = self.instrument_from_cache(symbol)?;
         let ts_init = self.generate_ts_init();
 
-        let params = TradesParams {
-            symbol: symbol.to_string(),
-            limit,
-        };
-
         let trades = self
             .inner
-            .trades(&params)
+            .trades(symbol.as_str(), limit)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        crate::common::parse::parse_spot_trades_sbe(&trades, &instrument, ts_init)
+        parse_spot_trades_sbe(&trades, &instrument, ts_init)
+    }
+
+    /// Requests bar (kline/candlestick) data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bar type is not supported, instrument is not cached,
+    /// or the request fails.
+    pub async fn request_bars(
+        &self,
+        bar_type: BarType,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<Bar>> {
+        anyhow::ensure!(
+            bar_type.aggregation_source() == AggregationSource::External,
+            "Only EXTERNAL aggregation is supported"
+        );
+
+        let spec = bar_type.spec();
+        let step = spec.step.get();
+        let interval = match spec.aggregation {
+            BarAggregation::Second => {
+                anyhow::bail!("Binance Spot does not support second-level kline intervals")
+            }
+            BarAggregation::Minute => format!("{step}m"),
+            BarAggregation::Hour => format!("{step}h"),
+            BarAggregation::Day => format!("{step}d"),
+            BarAggregation::Week => format!("{step}w"),
+            BarAggregation::Month => format!("{step}M"),
+            a => anyhow::bail!("Binance does not support {a:?} aggregation"),
+        };
+
+        let symbol = bar_type.instrument_id().symbol;
+        let instrument = self.instrument_from_cache(symbol.inner())?;
+        let ts_init = self.generate_ts_init();
+
+        let klines = self
+            .inner
+            .klines(
+                symbol.as_str(),
+                &interval,
+                start.map(|dt| dt.timestamp_millis()),
+                end.map(|dt| dt.timestamp_millis()),
+                limit,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        parse_klines_to_bars(&klines, bar_type, &instrument, ts_init)
+    }
+
+    /// Requests account state including balances.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn request_account_state(
+        &self,
+        params: &AccountInfoParams,
+    ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
+        self.inner.account(params).await
+    }
+
+    /// Requests the status of a specific order.
+    ///
+    /// Either `venue_order_id` or `client_order_id` must be provided.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if neither identifier is provided, the request fails,
+    /// instrument is not cached, or parsing fails.
+    pub async fn request_order_status(
+        &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        venue_order_id: Option<VenueOrderId>,
+        client_order_id: Option<ClientOrderId>,
+    ) -> anyhow::Result<OrderStatusReport> {
+        anyhow::ensure!(
+            venue_order_id.is_some() || client_order_id.is_some(),
+            "Either venue_order_id or client_order_id must be provided"
+        );
+
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache(symbol)?;
+        let ts_init = self.generate_ts_init();
+
+        let order_id = venue_order_id
+            .map(|id| id.inner().parse::<i64>())
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("Invalid venue order ID"))?;
+
+        let client_id_str = client_order_id.map(|id| id.to_string());
+
+        let order = self
+            .inner
+            .query_order(symbol.as_str(), order_id, client_id_str.as_deref())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        parse_order_status_report_sbe(&order, account_id, &instrument, ts_init)
+    }
+
+    /// Requests order status reports.
+    ///
+    /// When `open_only` is true, returns only open orders (instrument_id optional).
+    /// When `open_only` is false, returns order history (instrument_id required).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, any order's instrument is not cached,
+    /// or parsing fails.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn request_order_status_reports(
+        &self,
+        account_id: AccountId,
+        instrument_id: Option<InstrumentId>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        open_only: bool,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let ts_init = self.generate_ts_init();
+        let symbol = instrument_id.map(|id| id.symbol.to_string());
+
+        let orders = if open_only {
+            self.inner
+                .open_orders(symbol.as_deref())
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+        } else {
+            let symbol = symbol
+                .ok_or_else(|| anyhow::anyhow!("instrument_id is required when open_only=false"))?;
+            self.inner
+                .all_orders(
+                    &symbol,
+                    start.map(|dt| dt.timestamp_millis()),
+                    end.map(|dt| dt.timestamp_millis()),
+                    limit,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?
+        };
+
+        orders
+            .iter()
+            .map(|order| {
+                let symbol = Ustr::from(&order.symbol);
+                let instrument = self.instrument_from_cache(symbol)?;
+                parse_order_status_report_sbe(order, account_id, &instrument, ts_init)
+            })
+            .collect()
+    }
+
+    /// Requests fill reports (trade history) for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, any trade's instrument is not cached,
+    /// or parsing fails.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn request_fill_reports(
+        &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        venue_order_id: Option<VenueOrderId>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<FillReport>> {
+        let ts_init = self.generate_ts_init();
+        let symbol = instrument_id.symbol.inner();
+
+        let order_id = venue_order_id
+            .map(|id| id.inner().parse::<i64>())
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("Invalid venue order ID"))?;
+
+        let trades = self
+            .inner
+            .account_trades(
+                symbol.as_str(),
+                order_id,
+                start.map(|dt| dt.timestamp_millis()),
+                end.map(|dt| dt.timestamp_millis()),
+                limit,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        trades
+            .iter()
+            .map(|trade| {
+                let symbol = Ustr::from(&trade.symbol);
+                let instrument = self.instrument_from_cache(symbol)?;
+                let commission_currency = get_currency(&trade.commission_asset);
+                parse_fill_report_sbe(trade, account_id, &instrument, commission_currency, ts_init)
+            })
+            .collect()
     }
 
     /// Submits a new order to the venue.
@@ -806,138 +1145,61 @@ impl BinanceSpotHttpClient {
         let instrument = self.instrument_from_cache(symbol)?;
         let ts_init = self.generate_ts_init();
 
-        let binance_side = match order_side {
-            OrderSide::Buy => BinanceSide::Buy,
-            OrderSide::Sell => BinanceSide::Sell,
-            _ => anyhow::bail!("Invalid order side: {order_side:?}"),
-        };
+        let binance_side = BinanceSide::try_from(order_side)?;
+        let binance_order_type = order_type_to_binance_spot(order_type, post_only)?;
 
+        // Validate trigger price for stop orders
         let is_stop_order = matches!(order_type, OrderType::StopMarket | OrderType::StopLimit);
         if is_stop_order && trigger_price.is_none() {
             anyhow::bail!("Stop orders require a trigger price");
         }
 
-        let binance_order_type = match (order_type, post_only) {
-            (OrderType::Market, _) => BinanceSpotOrderType::Market,
-            (OrderType::Limit, true) => BinanceSpotOrderType::LimitMaker,
-            (OrderType::Limit, false) => BinanceSpotOrderType::Limit,
-            (OrderType::StopMarket, _) => BinanceSpotOrderType::StopLoss,
-            (OrderType::StopLimit, _) => BinanceSpotOrderType::StopLossLimit,
-            _ => anyhow::bail!("Unsupported order type: {order_type:?}"),
+        // Validate price for order types that require it
+        let requires_price = matches!(
+            binance_order_type,
+            BinanceSpotOrderType::Limit
+                | BinanceSpotOrderType::StopLossLimit
+                | BinanceSpotOrderType::TakeProfitLimit
+                | BinanceSpotOrderType::LimitMaker
+        );
+        if requires_price && price.is_none() {
+            anyhow::bail!("{binance_order_type:?} orders require a price");
+        }
+
+        // Only send TIF for order types that support it
+        let supports_tif = matches!(
+            binance_order_type,
+            BinanceSpotOrderType::Limit
+                | BinanceSpotOrderType::StopLossLimit
+                | BinanceSpotOrderType::TakeProfitLimit
+        );
+        let binance_tif = if supports_tif {
+            Some(BinanceTimeInForce::try_from(time_in_force)?)
+        } else {
+            None
         };
 
-        let binance_tif = match time_in_force {
-            TimeInForce::Gtc => BinanceTimeInForce::Gtc,
-            TimeInForce::Ioc => BinanceTimeInForce::Ioc,
-            TimeInForce::Fok => BinanceTimeInForce::Fok,
-            TimeInForce::Gtd => BinanceTimeInForce::Gtd,
-            _ => anyhow::bail!("Unsupported time in force: {time_in_force:?}"),
-        };
-
-        let params = NewOrderParams {
-            symbol: symbol.to_string(),
-            side: binance_side,
-            order_type: binance_order_type,
-            time_in_force: Some(binance_tif),
-            quantity: Some(quantity.to_string()),
-            quote_order_qty: None,
-            price: price.map(|p| p.to_string()),
-            new_client_order_id: Some(client_order_id.to_string()),
-            stop_price: trigger_price.map(|p| p.to_string()),
-            trailing_delta: None,
-            iceberg_qty: None,
-            new_order_resp_type: None,
-            self_trade_prevention_mode: None,
-        };
+        let qty_str = quantity.to_string();
+        let price_str = price.map(|p| p.to_string());
+        let stop_price_str = trigger_price.map(|p| p.to_string());
+        let client_id_str = client_order_id.to_string();
 
         let response = self
             .inner
-            .new_order(&params)
+            .new_order(
+                symbol.as_str(),
+                binance_side,
+                binance_order_type,
+                binance_tif,
+                Some(&qty_str),
+                price_str.as_deref(),
+                Some(&client_id_str),
+                stop_price_str.as_deref(),
+            )
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        crate::common::parse::parse_new_order_response_sbe(
-            &response,
-            account_id,
-            &instrument,
-            ts_init,
-        )
-    }
-
-    /// Cancels an existing order on the venue by venue order ID.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_order(
-        &self,
-        instrument_id: InstrumentId,
-        venue_order_id: VenueOrderId,
-    ) -> anyhow::Result<VenueOrderId> {
-        let symbol = instrument_id.symbol.inner().to_string();
-
-        let order_id: i64 = venue_order_id
-            .inner()
-            .parse()
-            .map_err(|_| anyhow::anyhow!("Invalid venue order ID: {venue_order_id}"))?;
-
-        let params = CancelOrderParams::by_order_id(&symbol, order_id);
-
-        let response = self
-            .inner
-            .cancel_order(&params)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-
-        Ok(VenueOrderId::new(response.order_id.to_string()))
-    }
-
-    /// Cancels an existing order on the venue by client order ID.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_order_by_client_id(
-        &self,
-        instrument_id: InstrumentId,
-        client_order_id: ClientOrderId,
-    ) -> anyhow::Result<VenueOrderId> {
-        let symbol = instrument_id.symbol.inner().to_string();
-        let params = CancelOrderParams::by_client_order_id(&symbol, client_order_id.to_string());
-
-        let response = self
-            .inner
-            .cancel_order(&params)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-
-        Ok(VenueOrderId::new(response.order_id.to_string()))
-    }
-
-    /// Cancels all open orders for a symbol.
-    ///
-    /// Returns the venue order IDs of all canceled orders.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn cancel_all_orders(
-        &self,
-        instrument_id: InstrumentId,
-    ) -> anyhow::Result<Vec<VenueOrderId>> {
-        let symbol = instrument_id.symbol.inner().to_string();
-        let params = CancelOpenOrdersParams::new(symbol);
-
-        let responses = self
-            .inner
-            .cancel_open_orders(&params)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-
-        Ok(responses
-            .into_iter()
-            .map(|r| VenueOrderId::new(r.order_id.to_string()))
-            .collect())
+        parse_new_order_response_sbe(&response, account_id, &instrument, ts_init)
     }
 
     /// Modifies an existing order (cancel and replace atomically).
@@ -965,209 +1227,92 @@ impl BinanceSpotHttpClient {
         let instrument = self.instrument_from_cache(symbol)?;
         let ts_init = self.generate_ts_init();
 
-        let binance_side = match order_side {
-            OrderSide::Buy => BinanceSide::Buy,
-            OrderSide::Sell => BinanceSide::Sell,
-            _ => anyhow::bail!("Invalid order side: {order_side:?}"),
-        };
-
-        let binance_order_type = match order_type {
-            OrderType::Market => BinanceSpotOrderType::Market,
-            OrderType::Limit => BinanceSpotOrderType::Limit,
-            _ => anyhow::bail!("Unsupported order type for modify: {order_type:?}"),
-        };
-
-        let binance_tif = match time_in_force {
-            TimeInForce::Gtc => BinanceTimeInForce::Gtc,
-            TimeInForce::Ioc => BinanceTimeInForce::Ioc,
-            TimeInForce::Fok => BinanceTimeInForce::Fok,
-            TimeInForce::Gtd => BinanceTimeInForce::Gtd,
-            _ => anyhow::bail!("Unsupported time in force: {time_in_force:?}"),
-        };
+        let binance_side = BinanceSide::try_from(order_side)?;
+        let binance_order_type = order_type_to_binance_spot(order_type, false)?;
+        let binance_tif = BinanceTimeInForce::try_from(time_in_force)?;
 
         let cancel_order_id: i64 = venue_order_id
             .inner()
             .parse()
             .map_err(|_| anyhow::anyhow!("Invalid venue order ID: {venue_order_id}"))?;
 
-        let params = CancelReplaceOrderParams {
-            symbol: symbol.to_string(),
-            side: binance_side,
-            order_type: binance_order_type,
-            cancel_replace_mode: crate::spot::enums::BinanceCancelReplaceMode::StopOnFailure,
-            time_in_force: Some(binance_tif),
-            quantity: Some(quantity.to_string()),
-            quote_order_qty: None,
-            price: price.map(|p| p.to_string()),
-            cancel_order_id: Some(cancel_order_id),
-            cancel_orig_client_order_id: None,
-            new_client_order_id: Some(client_order_id.to_string()),
-            stop_price: None,
-            trailing_delta: None,
-            iceberg_qty: None,
-            new_order_resp_type: None,
-            self_trade_prevention_mode: None,
-        };
+        let qty_str = quantity.to_string();
+        let price_str = price.map(|p| p.to_string());
+        let client_id_str = client_order_id.to_string();
 
         let response = self
             .inner
-            .cancel_replace_order(&params)
+            .cancel_replace_order(
+                symbol.as_str(),
+                binance_side,
+                binance_order_type,
+                Some(binance_tif),
+                Some(&qty_str),
+                price_str.as_deref(),
+                Some(cancel_order_id),
+                None,
+                Some(&client_id_str),
+            )
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        crate::common::parse::parse_new_order_response_sbe(
-            &response,
-            account_id,
-            &instrument,
-            ts_init,
-        )
+        parse_new_order_response_sbe(&response, account_id, &instrument, ts_init)
     }
 
-    /// Requests the status of a specific order.
+    /// Cancels an existing order on the venue.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails, instrument is not cached,
-    /// or parsing fails.
-    pub async fn request_order_status(
-        &self,
-        account_id: AccountId,
-        instrument_id: InstrumentId,
-        params: &QueryOrderParams,
-    ) -> anyhow::Result<OrderStatusReport> {
-        let symbol = instrument_id.symbol.inner();
-        let instrument = self.instrument_from_cache(symbol)?;
-        let ts_init = self.generate_ts_init();
-
-        let order = self
-            .inner
-            .query_order(params)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-
-        crate::common::parse::parse_order_status_report_sbe(
-            &order,
-            account_id,
-            &instrument,
-            ts_init,
-        )
-    }
-
-    /// Requests all open orders for a symbol or all symbols.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails, any order's instrument is not cached,
-    /// or parsing fails.
-    pub async fn request_open_orders(
-        &self,
-        account_id: AccountId,
-        params: &OpenOrdersParams,
-    ) -> anyhow::Result<Vec<OrderStatusReport>> {
-        let ts_init = self.generate_ts_init();
-
-        let orders = self
-            .inner
-            .open_orders(params)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-
-        orders
-            .iter()
-            .map(|order| {
-                let symbol = Ustr::from(&order.symbol);
-                let instrument = self.instrument_from_cache(symbol)?;
-                crate::common::parse::parse_order_status_report_sbe(
-                    order,
-                    account_id,
-                    &instrument,
-                    ts_init,
-                )
-            })
-            .collect()
-    }
-
-    /// Requests order history (including closed orders) for a symbol.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails, any order's instrument is not cached,
-    /// or parsing fails.
-    pub async fn request_order_history(
-        &self,
-        account_id: AccountId,
-        params: &AllOrdersParams,
-    ) -> anyhow::Result<Vec<OrderStatusReport>> {
-        let ts_init = self.generate_ts_init();
-
-        let orders = self
-            .inner
-            .all_orders(params)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-
-        orders
-            .iter()
-            .map(|order| {
-                let symbol = Ustr::from(&order.symbol);
-                let instrument = self.instrument_from_cache(symbol)?;
-                crate::common::parse::parse_order_status_report_sbe(
-                    order,
-                    account_id,
-                    &instrument,
-                    ts_init,
-                )
-            })
-            .collect()
-    }
-
-    /// Requests account state including balances.
+    /// Either `venue_order_id` or `client_order_id` must be provided.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
-    pub async fn request_account_state(
+    pub async fn cancel_order(
         &self,
-        params: &AccountInfoParams,
-    ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
-        self.inner.account(params).await
-    }
+        instrument_id: InstrumentId,
+        venue_order_id: Option<VenueOrderId>,
+        client_order_id: Option<ClientOrderId>,
+    ) -> anyhow::Result<VenueOrderId> {
+        let symbol = instrument_id.symbol.inner();
 
-    /// Requests fill reports (trade history) for a symbol.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails, any trade's instrument is not cached,
-    /// or parsing fails.
-    pub async fn request_fill_reports(
-        &self,
-        account_id: AccountId,
-        params: &AccountTradesParams,
-    ) -> anyhow::Result<Vec<FillReport>> {
-        let ts_init = self.generate_ts_init();
+        let order_id = venue_order_id
+            .map(|id| id.inner().parse::<i64>())
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("Invalid venue order ID"))?;
 
-        let trades = self
+        let client_id_str = client_order_id.map(|id| id.to_string());
+
+        let response = self
             .inner
-            .account_trades(params)
+            .cancel_order(symbol.as_str(), order_id, client_id_str.as_deref())
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        trades
-            .iter()
-            .map(|trade| {
-                let symbol = Ustr::from(&trade.symbol);
-                let instrument = self.instrument_from_cache(symbol)?;
-                let commission_currency =
-                    crate::common::parse::get_currency(&trade.commission_asset);
-                crate::common::parse::parse_fill_report_sbe(
-                    trade,
-                    account_id,
-                    &instrument,
-                    commission_currency,
-                    ts_init,
-                )
-            })
-            .collect()
+        Ok(VenueOrderId::new(response.order_id.to_string()))
+    }
+
+    /// Cancels all open orders for a symbol.
+    ///
+    /// Returns the venue order IDs of all canceled orders.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or SBE decoding fails.
+    pub async fn cancel_all_orders(
+        &self,
+        instrument_id: InstrumentId,
+    ) -> anyhow::Result<Vec<VenueOrderId>> {
+        let symbol = instrument_id.symbol.inner();
+
+        let responses = self
+            .inner
+            .cancel_open_orders(symbol.as_str())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        Ok(responses
+            .into_iter()
+            .map(|r| VenueOrderId::new(r.order_id.to_string()))
+            .collect())
     }
 }
 

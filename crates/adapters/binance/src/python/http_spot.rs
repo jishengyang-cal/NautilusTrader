@@ -15,8 +15,10 @@
 
 //! Python bindings for the Binance Spot HTTP client.
 
+use chrono::{DateTime, Utc};
 use nautilus_core::python::to_pyvalue_err;
 use nautilus_model::{
+    data::BarType,
     enums::{OrderSide, OrderType, TimeInForce},
     identifiers::{AccountId, ClientOrderId, InstrumentId, VenueOrderId},
     python::instruments::instrument_any_to_pyobject,
@@ -24,19 +26,20 @@ use nautilus_model::{
 };
 use pyo3::{IntoPyObjectExt, prelude::*, types::PyList};
 
-use crate::{
-    common::enums::BinanceEnvironment,
-    spot::http::{
-        client::BinanceSpotHttpClient,
-        query::{AccountTradesParams, AllOrdersParams, OpenOrdersParams, QueryOrderParams},
-    },
-};
+use crate::{common::enums::BinanceEnvironment, spot::http::client::BinanceSpotHttpClient};
 
 #[pymethods]
 impl BinanceSpotHttpClient {
-    /// Creates a new Binance Spot HTTP client.
     #[new]
-    #[pyo3(signature = (environment=BinanceEnvironment::Mainnet, api_key=None, api_secret=None, base_url=None, recv_window=None, timeout_secs=None, proxy_url=None))]
+    #[pyo3(signature = (
+        environment=BinanceEnvironment::Mainnet,
+        api_key=None,
+        api_secret=None,
+        base_url=None,
+        recv_window=None,
+        timeout_secs=None,
+        proxy_url=None,
+    ))]
     #[allow(clippy::too_many_arguments)]
     fn py_new(
         environment: BinanceEnvironment,
@@ -59,7 +62,6 @@ impl BinanceSpotHttpClient {
         .map_err(to_pyvalue_err)
     }
 
-    /// Returns the SBE schema ID.
     #[getter]
     #[pyo3(name = "schema_id")]
     #[must_use]
@@ -67,7 +69,6 @@ impl BinanceSpotHttpClient {
         Self::schema_id()
     }
 
-    /// Returns the SBE schema version.
     #[getter]
     #[pyo3(name = "schema_version")]
     #[must_use]
@@ -75,7 +76,6 @@ impl BinanceSpotHttpClient {
         Self::schema_version()
     }
 
-    /// Tests connectivity to the API.
     #[pyo3(name = "ping")]
     fn py_ping<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
@@ -85,7 +85,6 @@ impl BinanceSpotHttpClient {
         })
     }
 
-    /// Returns the server time in microseconds since epoch.
     #[pyo3(name = "server_time")]
     fn py_server_time<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
@@ -95,10 +94,10 @@ impl BinanceSpotHttpClient {
         })
     }
 
-    /// Requests Nautilus instruments for all trading symbols.
     #[pyo3(name = "request_instruments")]
     fn py_request_instruments<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let instruments = client.request_instruments().await.map_err(to_pyvalue_err)?;
 
@@ -113,7 +112,6 @@ impl BinanceSpotHttpClient {
         })
     }
 
-    /// Requests recent trades for an instrument.
     #[pyo3(name = "request_trades", signature = (instrument_id, limit=None))]
     fn py_request_trades<'py>(
         &self,
@@ -122,6 +120,7 @@ impl BinanceSpotHttpClient {
         limit: Option<u32>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let trades = client
                 .request_trades(instrument_id, limit)
@@ -139,88 +138,67 @@ impl BinanceSpotHttpClient {
         })
     }
 
-    /// Requests the status of a specific order.
-    ///
-    /// Returns an OrderStatusReport.
-    #[pyo3(name = "request_order_status", signature = (account_id, instrument_id, symbol, order_id=None, client_order_id=None))]
+    #[pyo3(name = "request_order_status")]
+    #[pyo3(signature = (
+        account_id,
+        instrument_id,
+        venue_order_id=None,
+        client_order_id=None,
+    ))]
     fn py_request_order_status<'py>(
         &self,
         py: Python<'py>,
         account_id: AccountId,
         instrument_id: InstrumentId,
-        symbol: String,
-        order_id: Option<i64>,
-        client_order_id: Option<String>,
+        venue_order_id: Option<VenueOrderId>,
+        client_order_id: Option<ClientOrderId>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
-        let params = QueryOrderParams {
-            symbol,
-            order_id,
-            orig_client_order_id: client_order_id,
-        };
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let report = client
-                .request_order_status(account_id, instrument_id, &params)
+                .request_order_status(account_id, instrument_id, venue_order_id, client_order_id)
                 .await
                 .map_err(to_pyvalue_err)?;
             Python::attach(|py| report.into_py_any(py))
         })
     }
 
-    /// Requests all open orders for a symbol or all symbols.
-    ///
-    /// Returns a list of OrderStatusReport.
-    #[pyo3(name = "request_open_orders", signature = (account_id, symbol=None))]
-    fn py_request_open_orders<'py>(
-        &self,
-        py: Python<'py>,
-        account_id: AccountId,
-        symbol: Option<String>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let client = self.clone();
-        let params = OpenOrdersParams { symbol };
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let reports = client
-                .request_open_orders(account_id, &params)
-                .await
-                .map_err(to_pyvalue_err)?;
-            Python::attach(|py| {
-                let py_reports: PyResult<Vec<_>> =
-                    reports.into_iter().map(|r| r.into_py_any(py)).collect();
-                let pylist = PyList::new(py, py_reports?)?.into_any().unbind();
-                Ok(pylist)
-            })
-        })
-    }
-
-    /// Requests order history (including closed orders) for a symbol.
-    ///
-    /// Returns a list of OrderStatusReport.
-    #[pyo3(name = "request_order_history", signature = (account_id, symbol, order_id=None, start_time=None, end_time=None, limit=None))]
+    #[pyo3(name = "request_order_status_reports")]
+    #[pyo3(signature = (
+        account_id,
+        instrument_id=None,
+        start=None,
+        end=None,
+        open_only=false,
+        limit=None,
+    ))]
     #[allow(clippy::too_many_arguments)]
-    fn py_request_order_history<'py>(
+    fn py_request_order_status_reports<'py>(
         &self,
         py: Python<'py>,
         account_id: AccountId,
-        symbol: String,
-        order_id: Option<i64>,
-        start_time: Option<i64>,
-        end_time: Option<i64>,
+        instrument_id: Option<InstrumentId>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        open_only: bool,
         limit: Option<u32>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
-        let params = AllOrdersParams {
-            symbol,
-            order_id,
-            start_time,
-            end_time,
-            limit,
-        };
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let reports = client
-                .request_order_history(account_id, &params)
+                .request_order_status_reports(
+                    account_id,
+                    instrument_id,
+                    start,
+                    end,
+                    open_only,
+                    limit,
+                )
                 .await
                 .map_err(to_pyvalue_err)?;
+
             Python::attach(|py| {
                 let py_reports: PyResult<Vec<_>> =
                     reports.into_iter().map(|r| r.into_py_any(py)).collect();
@@ -230,34 +208,31 @@ impl BinanceSpotHttpClient {
         })
     }
 
-    /// Requests fill reports (trade history) for a symbol.
-    ///
-    /// Returns a list of FillReport.
-    #[pyo3(name = "request_fill_reports", signature = (account_id, symbol, order_id=None, start_time=None, end_time=None, from_id=None, limit=None))]
+    #[pyo3(name = "request_fill_reports")]
+    #[pyo3(signature = (
+        account_id,
+        instrument_id,
+        venue_order_id=None,
+        start=None,
+        end=None,
+        limit=None,
+    ))]
     #[allow(clippy::too_many_arguments)]
     fn py_request_fill_reports<'py>(
         &self,
         py: Python<'py>,
         account_id: AccountId,
-        symbol: String,
-        order_id: Option<i64>,
-        start_time: Option<i64>,
-        end_time: Option<i64>,
-        from_id: Option<i64>,
+        instrument_id: InstrumentId,
+        venue_order_id: Option<VenueOrderId>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
         limit: Option<u32>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
-        let params = AccountTradesParams {
-            symbol,
-            order_id,
-            start_time,
-            end_time,
-            from_id,
-            limit,
-        };
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let reports = client
-                .request_fill_reports(account_id, &params)
+                .request_fill_reports(account_id, instrument_id, venue_order_id, start, end, limit)
                 .await
                 .map_err(to_pyvalue_err)?;
             Python::attach(|py| {
@@ -269,9 +244,37 @@ impl BinanceSpotHttpClient {
         })
     }
 
-    /// Submits a new order to the venue.
-    ///
-    /// Returns an `OrderStatusReport`.
+    #[pyo3(name = "request_bars")]
+    #[pyo3(signature = (
+        bar_type,
+        start=None,
+        end=None,
+        limit=None,
+    ))]
+    fn py_request_bars<'py>(
+        &self,
+        py: Python<'py>,
+        bar_type: BarType,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let bars = client
+                .request_bars(bar_type, start, end, limit)
+                .await
+                .map_err(to_pyvalue_err)?;
+            Python::attach(|py| {
+                let py_bars: PyResult<Vec<_>> =
+                    bars.into_iter().map(|b| b.into_py_any(py)).collect();
+                let pylist = PyList::new(py, py_bars?)?.into_any().unbind();
+                Ok(pylist)
+            })
+        })
+    }
+
     #[pyo3(name = "submit_order", signature = (account_id, instrument_id, client_order_id, order_side, order_type, quantity, time_in_force, price=None, trigger_price=None, post_only=false))]
     #[allow(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
@@ -289,6 +292,7 @@ impl BinanceSpotHttpClient {
         post_only: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let report = client
                 .submit_order(
@@ -309,73 +313,6 @@ impl BinanceSpotHttpClient {
         })
     }
 
-    /// Cancels an existing order on the venue by venue order ID.
-    ///
-    /// Returns the venue order ID of the canceled order.
-    #[pyo3(name = "cancel_order")]
-    fn py_cancel_order<'py>(
-        &self,
-        py: Python<'py>,
-        instrument_id: InstrumentId,
-        venue_order_id: VenueOrderId,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let client = self.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let order_id = client
-                .cancel_order(instrument_id, venue_order_id)
-                .await
-                .map_err(to_pyvalue_err)?;
-            Python::attach(|py| order_id.into_py_any(py))
-        })
-    }
-
-    /// Cancels an existing order on the venue by client order ID.
-    ///
-    /// Returns the venue order ID of the canceled order.
-    #[pyo3(name = "cancel_order_by_client_id")]
-    fn py_cancel_order_by_client_id<'py>(
-        &self,
-        py: Python<'py>,
-        instrument_id: InstrumentId,
-        client_order_id: ClientOrderId,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let client = self.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let order_id = client
-                .cancel_order_by_client_id(instrument_id, client_order_id)
-                .await
-                .map_err(to_pyvalue_err)?;
-            Python::attach(|py| order_id.into_py_any(py))
-        })
-    }
-
-    /// Cancels all open orders for a symbol.
-    ///
-    /// Returns a list of venue order IDs for all canceled orders.
-    #[pyo3(name = "cancel_all_orders")]
-    fn py_cancel_all_orders<'py>(
-        &self,
-        py: Python<'py>,
-        instrument_id: InstrumentId,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let client = self.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let order_ids = client
-                .cancel_all_orders(instrument_id)
-                .await
-                .map_err(to_pyvalue_err)?;
-            Python::attach(|py| {
-                let py_ids: PyResult<Vec<_>> =
-                    order_ids.into_iter().map(|id| id.into_py_any(py)).collect();
-                let pylist = PyList::new(py, py_ids?)?.into_any().unbind();
-                Ok(pylist)
-            })
-        })
-    }
-
-    /// Modifies an existing order (cancel and replace atomically).
-    ///
-    /// Returns an `OrderStatusReport` for the new order.
     #[pyo3(name = "modify_order", signature = (account_id, instrument_id, venue_order_id, client_order_id, order_side, order_type, quantity, time_in_force, price=None))]
     #[allow(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
@@ -392,6 +329,7 @@ impl BinanceSpotHttpClient {
         price: Option<Price>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let report = client
                 .modify_order(
@@ -408,6 +346,52 @@ impl BinanceSpotHttpClient {
                 .await
                 .map_err(to_pyvalue_err)?;
             Python::attach(|py| report.into_py_any(py))
+        })
+    }
+
+    #[pyo3(name = "cancel_order")]
+    #[pyo3(signature = (
+        instrument_id,
+        venue_order_id=None,
+        client_order_id=None,
+    ))]
+    fn py_cancel_order<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+        venue_order_id: Option<VenueOrderId>,
+        client_order_id: Option<ClientOrderId>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let order_id = client
+                .cancel_order(instrument_id, venue_order_id, client_order_id)
+                .await
+                .map_err(to_pyvalue_err)?;
+            Python::attach(|py| order_id.into_py_any(py))
+        })
+    }
+
+    #[pyo3(name = "cancel_all_orders")]
+    fn py_cancel_all_orders<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let order_ids = client
+                .cancel_all_orders(instrument_id)
+                .await
+                .map_err(to_pyvalue_err)?;
+            Python::attach(|py| {
+                let py_ids: PyResult<Vec<_>> =
+                    order_ids.into_iter().map(|id| id.into_py_any(py)).collect();
+                let pylist = PyList::new(py, py_ids?)?.into_any().unbind();
+                Ok(pylist)
+            })
         })
     }
 }

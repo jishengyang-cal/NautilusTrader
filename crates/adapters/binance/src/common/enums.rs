@@ -17,6 +17,7 @@
 
 use std::fmt::Display;
 
+use nautilus_model::enums::{OrderSide, TimeInForce};
 use serde::{Deserialize, Serialize};
 
 /// Binance product type identifier.
@@ -137,6 +138,18 @@ pub enum BinanceSide {
     Sell,
 }
 
+impl TryFrom<OrderSide> for BinanceSide {
+    type Error = anyhow::Error;
+
+    fn try_from(value: OrderSide) -> Result<Self, Self::Error> {
+        match value {
+            OrderSide::Buy => Ok(Self::Buy),
+            OrderSide::Sell => Ok(Self::Sell),
+            _ => anyhow::bail!("Unsupported `OrderSide` for Binance: {value:?}"),
+        }
+    }
+}
+
 /// Position side for dual-side position mode.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -247,6 +260,20 @@ pub enum BinanceTimeInForce {
     /// Unknown or undocumented value.
     #[serde(other)]
     Unknown,
+}
+
+impl TryFrom<TimeInForce> for BinanceTimeInForce {
+    type Error = anyhow::Error;
+
+    fn try_from(value: TimeInForce) -> Result<Self, Self::Error> {
+        match value {
+            TimeInForce::Gtc => Ok(Self::Gtc),
+            TimeInForce::Ioc => Ok(Self::Ioc),
+            TimeInForce::Fok => Ok(Self::Fok),
+            TimeInForce::Gtd => Ok(Self::Gtd),
+            _ => anyhow::bail!("Unsupported `TimeInForce` for Binance: {value:?}"),
+        }
+    }
 }
 
 /// Income type for account income history.
@@ -462,6 +489,78 @@ impl Display for BinanceEnvironment {
             Self::Testnet => write!(f, "Testnet"),
         }
     }
+}
+
+/// Rate limit type for API request quotas.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BinanceRateLimitType {
+    RequestWeight,
+    Orders,
+}
+
+/// Rate limit time interval.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BinanceRateLimitInterval {
+    Second,
+    Minute,
+    Day,
+}
+
+/// Kline (candlestick) interval.
+///
+/// # References
+/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BinanceKlineInterval {
+    /// 1 second (only for spot).
+    #[serde(rename = "1s")]
+    Second1,
+    /// 1 minute.
+    #[default]
+    #[serde(rename = "1m")]
+    Minute1,
+    /// 3 minutes.
+    #[serde(rename = "3m")]
+    Minute3,
+    /// 5 minutes.
+    #[serde(rename = "5m")]
+    Minute5,
+    /// 15 minutes.
+    #[serde(rename = "15m")]
+    Minute15,
+    /// 30 minutes.
+    #[serde(rename = "30m")]
+    Minute30,
+    /// 1 hour.
+    #[serde(rename = "1h")]
+    Hour1,
+    /// 2 hours.
+    #[serde(rename = "2h")]
+    Hour2,
+    /// 4 hours.
+    #[serde(rename = "4h")]
+    Hour4,
+    /// 6 hours.
+    #[serde(rename = "6h")]
+    Hour6,
+    /// 8 hours.
+    #[serde(rename = "8h")]
+    Hour8,
+    /// 12 hours.
+    #[serde(rename = "12h")]
+    Hour12,
+    /// 1 day.
+    #[serde(rename = "1d")]
+    Day1,
+    /// 3 days.
+    #[serde(rename = "3d")]
+    Day3,
+    /// 1 week.
+    #[serde(rename = "1w")]
+    Week1,
+    /// 1 month.
+    #[serde(rename = "1M")]
+    Month1,
 }
 
 #[cfg(test)]

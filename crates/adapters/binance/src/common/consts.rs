@@ -19,6 +19,8 @@ use std::sync::LazyLock;
 
 use nautilus_model::identifiers::Venue;
 
+use super::enums::{BinanceRateLimitInterval, BinanceRateLimitType};
+
 /// The Binance venue identifier string.
 pub const BINANCE: &str = "BINANCE";
 
@@ -108,10 +110,10 @@ pub const BINANCE_EAPI_PATH: &str = "/eapi/v1";
 /// Describes a static rate limit quota for a product type.
 #[derive(Clone, Copy, Debug)]
 pub struct BinanceRateLimitQuota {
-    /// Rate limit type identifier (REQUEST_WEIGHT or ORDERS).
-    pub rate_limit_type: &'static str,
-    /// Time interval unit (SECOND, MINUTE, DAY).
-    pub interval: &'static str,
+    /// Rate limit type.
+    pub rate_limit_type: BinanceRateLimitType,
+    /// Time interval unit.
+    pub interval: BinanceRateLimitInterval,
     /// Number of intervals.
     pub interval_num: u32,
     /// Maximum allowed requests for the interval.
@@ -124,20 +126,20 @@ pub struct BinanceRateLimitQuota {
 /// - <https://developers.binance.com/docs/binance-spot-api-docs/limits>
 pub const BINANCE_SPOT_RATE_LIMITS: &[BinanceRateLimitQuota] = &[
     BinanceRateLimitQuota {
-        rate_limit_type: "REQUEST_WEIGHT",
-        interval: "MINUTE",
+        rate_limit_type: BinanceRateLimitType::RequestWeight,
+        interval: BinanceRateLimitInterval::Minute,
         interval_num: 1,
         limit: 1_200,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "SECOND",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Second,
         interval_num: 1,
         limit: 10,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "DAY",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Day,
         interval_num: 1,
         limit: 100_000,
     },
@@ -149,20 +151,20 @@ pub const BINANCE_SPOT_RATE_LIMITS: &[BinanceRateLimitQuota] = &[
 /// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info#limits>
 pub const BINANCE_FAPI_RATE_LIMITS: &[BinanceRateLimitQuota] = &[
     BinanceRateLimitQuota {
-        rate_limit_type: "REQUEST_WEIGHT",
-        interval: "MINUTE",
+        rate_limit_type: BinanceRateLimitType::RequestWeight,
+        interval: BinanceRateLimitInterval::Minute,
         interval_num: 1,
         limit: 2_400,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "SECOND",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Second,
         interval_num: 1,
         limit: 50,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "MINUTE",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Minute,
         interval_num: 1,
         limit: 1_200,
     },
@@ -174,20 +176,20 @@ pub const BINANCE_FAPI_RATE_LIMITS: &[BinanceRateLimitQuota] = &[
 /// - <https://developers.binance.com/docs/derivatives/coin-margined-futures/general-info#limits>
 pub const BINANCE_DAPI_RATE_LIMITS: &[BinanceRateLimitQuota] = &[
     BinanceRateLimitQuota {
-        rate_limit_type: "REQUEST_WEIGHT",
-        interval: "MINUTE",
+        rate_limit_type: BinanceRateLimitType::RequestWeight,
+        interval: BinanceRateLimitInterval::Minute,
         interval_num: 1,
         limit: 1_200,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "SECOND",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Second,
         interval_num: 1,
         limit: 20,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "MINUTE",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Minute,
         interval_num: 1,
         limit: 1_200,
     },
@@ -199,20 +201,20 @@ pub const BINANCE_DAPI_RATE_LIMITS: &[BinanceRateLimitQuota] = &[
 /// - <https://developers.binance.com/docs/derivatives/european-options/general-info#limits>
 pub const BINANCE_EAPI_RATE_LIMITS: &[BinanceRateLimitQuota] = &[
     BinanceRateLimitQuota {
-        rate_limit_type: "REQUEST_WEIGHT",
-        interval: "MINUTE",
+        rate_limit_type: BinanceRateLimitType::RequestWeight,
+        interval: BinanceRateLimitInterval::Minute,
         interval_num: 1,
         limit: 3_000,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "SECOND",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Second,
         interval_num: 1,
         limit: 5,
     },
     BinanceRateLimitQuota {
-        rate_limit_type: "ORDERS",
-        interval: "MINUTE",
+        rate_limit_type: BinanceRateLimitType::Orders,
+        interval: BinanceRateLimitInterval::Minute,
         interval_num: 1,
         limit: 200,
     },

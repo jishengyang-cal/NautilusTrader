@@ -40,7 +40,6 @@ use nautilus_model::{
     enums::{AggressorSide, BookAction, OrderSide, RecordFlag},
     identifiers::TradeId,
     instruments::{Instrument, InstrumentAny},
-    types::{Price, Quantity},
 };
 use nautilus_network::{
     RECONNECTED,
@@ -53,9 +52,12 @@ use super::messages::{
     BinanceWsErrorMsg, BinanceWsErrorResponse, BinanceWsResponse, BinanceWsSubscription,
     HandlerCommand, NautilusWsMessage,
 };
-use crate::common::sbe::stream::{
-    BestBidAskStreamEvent, DepthDiffStreamEvent, DepthSnapshotStreamEvent, MessageHeader,
-    StreamDecodeError, TradesStreamEvent, mantissa_to_f64, template_id,
+use crate::common::{
+    fixed::{mantissa_to_price, mantissa_to_quantity},
+    sbe::stream::{
+        BestBidAskStreamEvent, DepthDiffStreamEvent, DepthSnapshotStreamEvent, MessageHeader,
+        StreamDecodeError, TradesStreamEvent, template_id,
+    },
 };
 
 /// Decoded market data message.
@@ -312,14 +314,15 @@ impl BinanceSpotWsFeedHandler {
             .trades
             .iter()
             .map(|t| {
-                let price_f64 = mantissa_to_f64(t.price_mantissa, event.price_exponent);
-                let qty_f64 = mantissa_to_f64(t.qty_mantissa, event.qty_exponent);
+                let price =
+                    mantissa_to_price(t.price_mantissa, event.price_exponent, price_precision);
+                let size = mantissa_to_quantity(t.qty_mantissa, event.qty_exponent, size_precision);
                 let ts_event = UnixNanos::from(event.transact_time_us as u64 * 1000); // us to ns
 
                 let trade = TradeTick::new(
                     instrument_id,
-                    Price::new(price_f64, price_precision),
-                    Quantity::new(qty_f64, size_precision),
+                    price,
+                    size,
                     if t.is_buyer_maker {
                         AggressorSide::Seller
                     } else {
@@ -353,18 +356,28 @@ impl BinanceSpotWsFeedHandler {
         let price_precision = instrument.price_precision();
         let size_precision = instrument.size_precision();
 
-        let bid_price = mantissa_to_f64(event.bid_price_mantissa, event.price_exponent);
-        let bid_size = mantissa_to_f64(event.bid_qty_mantissa, event.qty_exponent);
-        let ask_price = mantissa_to_f64(event.ask_price_mantissa, event.price_exponent);
-        let ask_size = mantissa_to_f64(event.ask_qty_mantissa, event.qty_exponent);
+        let bid_price = mantissa_to_price(
+            event.bid_price_mantissa,
+            event.price_exponent,
+            price_precision,
+        );
+        let bid_size =
+            mantissa_to_quantity(event.bid_qty_mantissa, event.qty_exponent, size_precision);
+        let ask_price = mantissa_to_price(
+            event.ask_price_mantissa,
+            event.price_exponent,
+            price_precision,
+        );
+        let ask_size =
+            mantissa_to_quantity(event.ask_qty_mantissa, event.qty_exponent, size_precision);
         let ts_event = UnixNanos::from(event.event_time_us as u64 * 1000); // us to ns
 
         let quote = QuoteTick::new(
             instrument_id,
-            Price::new(bid_price, price_precision),
-            Price::new(ask_price, price_precision),
-            Quantity::new(bid_size, size_precision),
-            Quantity::new(ask_size, size_precision),
+            bid_price,
+            ask_price,
+            bid_size,
+            ask_size,
             ts_event,
             ts_event,
         );
@@ -393,8 +406,9 @@ impl BinanceSpotWsFeedHandler {
 
         // Add bid levels
         for (i, level) in event.bids.iter().enumerate() {
-            let price = mantissa_to_f64(level.price_mantissa, event.price_exponent);
-            let size = mantissa_to_f64(level.qty_mantissa, event.qty_exponent);
+            let price =
+                mantissa_to_price(level.price_mantissa, event.price_exponent, price_precision);
+            let size = mantissa_to_quantity(level.qty_mantissa, event.qty_exponent, size_precision);
             let flags = if i == event.bids.len() - 1 && event.asks.is_empty() {
                 RecordFlag::F_LAST as u8
             } else {
@@ -403,8 +417,8 @@ impl BinanceSpotWsFeedHandler {
 
             let order = BookOrder::new(
                 OrderSide::Buy,
-                Price::new(price, price_precision),
-                Quantity::new(size, size_precision),
+                price,
+                size,
                 0, // order_id
             );
 
@@ -421,8 +435,9 @@ impl BinanceSpotWsFeedHandler {
 
         // Add ask levels
         for (i, level) in event.asks.iter().enumerate() {
-            let price = mantissa_to_f64(level.price_mantissa, event.price_exponent);
-            let size = mantissa_to_f64(level.qty_mantissa, event.qty_exponent);
+            let price =
+                mantissa_to_price(level.price_mantissa, event.price_exponent, price_precision);
+            let size = mantissa_to_quantity(level.qty_mantissa, event.qty_exponent, size_precision);
             let flags = if i == event.asks.len() - 1 {
                 RecordFlag::F_LAST as u8
             } else {
@@ -431,8 +446,8 @@ impl BinanceSpotWsFeedHandler {
 
             let order = BookOrder::new(
                 OrderSide::Sell,
-                Price::new(price, price_precision),
-                Quantity::new(size, size_precision),
+                price,
+                size,
                 0, // order_id
             );
 
@@ -475,11 +490,12 @@ impl BinanceSpotWsFeedHandler {
 
         // Add bid updates
         for (i, level) in event.bids.iter().enumerate() {
-            let price = mantissa_to_f64(level.price_mantissa, event.price_exponent);
-            let size = mantissa_to_f64(level.qty_mantissa, event.qty_exponent);
+            let price =
+                mantissa_to_price(level.price_mantissa, event.price_exponent, price_precision);
+            let size = mantissa_to_quantity(level.qty_mantissa, event.qty_exponent, size_precision);
 
             // Zero size means delete, otherwise update
-            let action = if size == 0.0 {
+            let action = if level.qty_mantissa == 0 {
                 BookAction::Delete
             } else {
                 BookAction::Update
@@ -493,8 +509,8 @@ impl BinanceSpotWsFeedHandler {
 
             let order = BookOrder::new(
                 OrderSide::Buy,
-                Price::new(price, price_precision),
-                Quantity::new(size, size_precision),
+                price,
+                size,
                 0, // order_id
             );
 
@@ -511,10 +527,11 @@ impl BinanceSpotWsFeedHandler {
 
         // Add ask updates
         for (i, level) in event.asks.iter().enumerate() {
-            let price = mantissa_to_f64(level.price_mantissa, event.price_exponent);
-            let size = mantissa_to_f64(level.qty_mantissa, event.qty_exponent);
+            let price =
+                mantissa_to_price(level.price_mantissa, event.price_exponent, price_precision);
+            let size = mantissa_to_quantity(level.qty_mantissa, event.qty_exponent, size_precision);
 
-            let action = if size == 0.0 {
+            let action = if level.qty_mantissa == 0 {
                 BookAction::Delete
             } else {
                 BookAction::Update
@@ -528,8 +545,8 @@ impl BinanceSpotWsFeedHandler {
 
             let order = BookOrder::new(
                 OrderSide::Sell,
-                Price::new(price, price_precision),
-                Quantity::new(size, size_precision),
+                price,
+                size,
                 0, // order_id
             );
 

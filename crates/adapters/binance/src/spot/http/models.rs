@@ -352,3 +352,41 @@ pub struct BinanceAccountTrade {
     /// Commission asset.
     pub commission_asset: String,
 }
+
+/// Kline (candlestick) data response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceKlines {
+    /// Price exponent for all klines.
+    pub price_exponent: i8,
+    /// Quantity exponent for all klines.
+    pub qty_exponent: i8,
+    /// List of klines.
+    pub klines: Vec<BinanceKline>,
+}
+
+/// A single kline (candlestick) from Binance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceKline {
+    /// Kline open time in milliseconds.
+    pub open_time: i64,
+    /// Open price mantissa.
+    pub open_price: i64,
+    /// High price mantissa.
+    pub high_price: i64,
+    /// Low price mantissa.
+    pub low_price: i64,
+    /// Close price mantissa.
+    pub close_price: i64,
+    /// Volume (base asset) as 128-bit bytes.
+    pub volume: [u8; 16],
+    /// Kline close time in milliseconds.
+    pub close_time: i64,
+    /// Quote volume as 128-bit bytes.
+    pub quote_volume: [u8; 16],
+    /// Number of trades.
+    pub num_trades: i64,
+    /// Taker buy base volume as 128-bit bytes.
+    pub taker_buy_base_volume: [u8; 16],
+    /// Taker buy quote volume as 128-bit bytes.
+    pub taker_buy_quote_volume: [u8; 16],
+}

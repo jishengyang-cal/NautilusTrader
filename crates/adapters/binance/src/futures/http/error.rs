@@ -13,15 +13,15 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Binance HTTP error types.
+//! Binance Futures HTTP error types.
 
 use std::fmt::Display;
 
 use nautilus_network::http::error::HttpClientError;
 
-/// Binance HTTP client error type.
+/// Binance Futures HTTP client error type.
 #[derive(Debug)]
-pub enum BinanceHttpError {
+pub enum BinanceFuturesHttpError {
     /// Missing API credentials for authenticated request.
     MissingCredentials,
     /// Binance API returned an error response.
@@ -50,7 +50,7 @@ pub enum BinanceHttpError {
     },
 }
 
-impl Display for BinanceHttpError {
+impl Display for BinanceFuturesHttpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingCredentials => write!(f, "Missing API credentials"),
@@ -69,21 +69,21 @@ impl Display for BinanceHttpError {
     }
 }
 
-impl std::error::Error for BinanceHttpError {}
+impl std::error::Error for BinanceFuturesHttpError {}
 
-impl From<serde_json::Error> for BinanceHttpError {
+impl From<serde_json::Error> for BinanceFuturesHttpError {
     fn from(err: serde_json::Error) -> Self {
         Self::JsonError(err.to_string())
     }
 }
 
-impl From<anyhow::Error> for BinanceHttpError {
+impl From<anyhow::Error> for BinanceFuturesHttpError {
     fn from(err: anyhow::Error) -> Self {
         Self::NetworkError(err.to_string())
     }
 }
 
-impl From<HttpClientError> for BinanceHttpError {
+impl From<HttpClientError> for BinanceFuturesHttpError {
     fn from(err: HttpClientError) -> Self {
         match err {
             HttpClientError::TimeoutError(msg) => Self::Timeout(msg),
@@ -95,5 +95,5 @@ impl From<HttpClientError> for BinanceHttpError {
     }
 }
 
-/// Result type for Binance HTTP operations.
-pub type BinanceHttpResult<T> = Result<T, BinanceHttpError>;
+/// Result type for Binance Futures HTTP operations.
+pub type BinanceFuturesHttpResult<T> = Result<T, BinanceFuturesHttpError>;

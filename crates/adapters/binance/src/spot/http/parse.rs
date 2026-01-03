@@ -22,8 +22,9 @@ use super::{
     error::SbeDecodeError,
     models::{
         BinanceAccountInfo, BinanceAccountTrade, BinanceBalance, BinanceCancelOrderResponse,
-        BinanceDepth, BinanceExchangeInfoSbe, BinanceNewOrderResponse, BinanceOrderFill,
-        BinanceOrderResponse, BinancePriceLevel, BinanceSymbolSbe, BinanceTrade, BinanceTrades,
+        BinanceDepth, BinanceExchangeInfoSbe, BinanceKline, BinanceKlines, BinanceNewOrderResponse,
+        BinanceOrderFill, BinanceOrderResponse, BinancePriceLevel, BinanceSymbolSbe, BinanceTrade,
+        BinanceTrades,
     },
 };
 use crate::common::sbe::{
@@ -37,6 +38,7 @@ use crate::common::sbe::{
         cancel_order_response_codec::SBE_TEMPLATE_ID as CANCEL_ORDER_TEMPLATE_ID,
         depth_response_codec::SBE_TEMPLATE_ID as DEPTH_TEMPLATE_ID,
         exchange_info_response_codec::SBE_TEMPLATE_ID as EXCHANGE_INFO_TEMPLATE_ID,
+        klines_response_codec::SBE_TEMPLATE_ID as KLINES_TEMPLATE_ID,
         message_header_codec::ENCODED_LENGTH as HEADER_LENGTH,
         new_order_full_response_codec::SBE_TEMPLATE_ID as NEW_ORDER_FULL_TEMPLATE_ID,
         order_response_codec::SBE_TEMPLATE_ID as ORDER_TEMPLATE_ID,
@@ -207,6 +209,90 @@ pub fn decode_trades(buf: &[u8]) -> Result<BinanceTrades, SbeDecodeError> {
         price_exponent,
         qty_exponent,
         trades,
+    })
+}
+
+/// Klines group item block length (from SBE codec).
+const KLINES_BLOCK_LENGTH: u16 = 120;
+
+/// Decode a klines (candlestick) response.
+///
+/// Returns the list of klines with their price and quantity exponents.
+///
+/// # Errors
+///
+/// Returns error if buffer is too short, schema mismatch, or group size exceeded.
+pub fn decode_klines(buf: &[u8]) -> Result<BinanceKlines, SbeDecodeError> {
+    let mut cursor = SbeCursor::new(buf);
+    let header = MessageHeader::decode_cursor(&mut cursor)?;
+    header.validate()?;
+
+    if header.template_id != KLINES_TEMPLATE_ID {
+        return Err(SbeDecodeError::UnknownTemplateId(header.template_id));
+    }
+
+    let price_exponent = cursor.read_i8()?;
+    let qty_exponent = cursor.read_i8()?;
+
+    let (block_len, count) = cursor.read_group_header()?;
+
+    if block_len != KLINES_BLOCK_LENGTH {
+        return Err(SbeDecodeError::InvalidBlockLength {
+            expected: KLINES_BLOCK_LENGTH,
+            actual: block_len,
+        });
+    }
+
+    let mut klines = Vec::with_capacity(count as usize);
+
+    for _ in 0..count {
+        cursor.require(KLINES_BLOCK_LENGTH as usize)?;
+
+        let open_time = cursor.read_i64_le()?;
+        let open_price = cursor.read_i64_le()?;
+        let high_price = cursor.read_i64_le()?;
+        let low_price = cursor.read_i64_le()?;
+        let close_price = cursor.read_i64_le()?;
+
+        let volume_slice = cursor.read_bytes(16)?;
+        let mut volume = [0u8; 16];
+        volume.copy_from_slice(volume_slice);
+
+        let close_time = cursor.read_i64_le()?;
+
+        let quote_volume_slice = cursor.read_bytes(16)?;
+        let mut quote_volume = [0u8; 16];
+        quote_volume.copy_from_slice(quote_volume_slice);
+
+        let num_trades = cursor.read_i64_le()?;
+
+        let taker_buy_base_volume_slice = cursor.read_bytes(16)?;
+        let mut taker_buy_base_volume = [0u8; 16];
+        taker_buy_base_volume.copy_from_slice(taker_buy_base_volume_slice);
+
+        let taker_buy_quote_volume_slice = cursor.read_bytes(16)?;
+        let mut taker_buy_quote_volume = [0u8; 16];
+        taker_buy_quote_volume.copy_from_slice(taker_buy_quote_volume_slice);
+
+        klines.push(BinanceKline {
+            open_time,
+            open_price,
+            high_price,
+            low_price,
+            close_price,
+            volume,
+            close_time,
+            quote_volume,
+            num_trades,
+            taker_buy_base_volume,
+            taker_buy_quote_volume,
+        });
+    }
+
+    Ok(BinanceKlines {
+        price_exponent,
+        qty_exponent,
+        klines,
     })
 }
 

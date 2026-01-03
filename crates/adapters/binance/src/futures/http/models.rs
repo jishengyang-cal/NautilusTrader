@@ -13,9 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Binance HTTP response models.
-//!
-//! This module contains data transfer objects for deserializing Binance REST API responses.
+//! Binance Futures HTTP response models.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -30,10 +28,7 @@ use crate::common::{
     models::BinanceRateLimit,
 };
 
-/// Server time response from `GET /api/v3/time`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-endpoints>
+/// Server time response from `GET /fapi/v1/time`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceServerTime {
@@ -41,87 +36,7 @@ pub struct BinanceServerTime {
     pub server_time: i64,
 }
 
-/// Spot exchange information response from `GET /api/v3/exchangeInfo`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-endpoints>
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BinanceSpotExchangeInfo {
-    /// Server timezone.
-    pub timezone: String,
-    /// Server timestamp in milliseconds.
-    pub server_time: i64,
-    /// Rate limit definitions.
-    pub rate_limits: Vec<BinanceRateLimit>,
-    /// Exchange-level filters.
-    #[serde(default)]
-    pub exchange_filters: Vec<Value>,
-    /// Trading symbols.
-    pub symbols: Vec<BinanceSpotSymbol>,
-}
-
-/// Spot symbol definition.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-endpoints>
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BinanceSpotSymbol {
-    /// Symbol name (e.g., "BTCUSDT").
-    pub symbol: Ustr,
-    /// Trading status.
-    pub status: BinanceTradingStatus,
-    /// Base asset (e.g., "BTC").
-    pub base_asset: Ustr,
-    /// Base asset precision.
-    pub base_asset_precision: i32,
-    /// Quote asset (e.g., "USDT").
-    pub quote_asset: Ustr,
-    /// Quote asset precision.
-    pub quote_precision: i32,
-    /// Quote asset precision (duplicate field in some responses).
-    #[serde(default)]
-    pub quote_asset_precision: Option<i32>,
-    /// Allowed order types.
-    pub order_types: Vec<String>,
-    /// Whether iceberg orders are allowed.
-    pub iceberg_allowed: bool,
-    /// Whether OCO orders are allowed.
-    #[serde(default)]
-    pub oco_allowed: Option<bool>,
-    /// Whether quote order quantity market orders are allowed.
-    #[serde(default)]
-    pub quote_order_qty_market_allowed: Option<bool>,
-    /// Whether trailing delta is allowed.
-    #[serde(default)]
-    pub allow_trailing_stop: Option<bool>,
-    /// Whether spot trading is allowed.
-    #[serde(default)]
-    pub is_spot_trading_allowed: Option<bool>,
-    /// Whether margin trading is allowed.
-    #[serde(default)]
-    pub is_margin_trading_allowed: Option<bool>,
-    /// Symbol filters (price, lot size, notional, etc.).
-    pub filters: Vec<Value>,
-    /// Permissions for the symbol.
-    #[serde(default)]
-    pub permissions: Vec<String>,
-    /// Permission sets.
-    #[serde(default)]
-    pub permission_sets: Vec<Vec<String>>,
-    /// Default self trade prevention mode.
-    #[serde(default)]
-    pub default_self_trade_prevention_mode: Option<String>,
-    /// Allowed self trade prevention modes.
-    #[serde(default)]
-    pub allowed_self_trade_prevention_modes: Vec<String>,
-}
-
 /// USD-M Futures exchange information response from `GET /fapi/v1/exchangeInfo`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesUsdExchangeInfo {
@@ -155,9 +70,6 @@ pub struct BinanceFuturesAsset {
 }
 
 /// USD-M Futures symbol definition.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Exchange-Information>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesUsdSymbol {
@@ -218,9 +130,6 @@ pub struct BinanceFuturesUsdSymbol {
 }
 
 /// COIN-M Futures exchange information response from `GET /dapi/v1/exchangeInfo`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/coin-margined-futures/market-data/Exchange-Information>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesCoinExchangeInfo {
@@ -238,9 +147,6 @@ pub struct BinanceFuturesCoinExchangeInfo {
 }
 
 /// COIN-M Futures symbol definition.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/coin-margined-futures/market-data/Exchange-Information>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesCoinSymbol {
@@ -297,68 +203,7 @@ pub struct BinanceFuturesCoinSymbol {
     pub filters: Vec<Value>,
 }
 
-/// 24hr ticker price change statistics for spot.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BinanceSpotTicker24hr {
-    /// Symbol name.
-    pub symbol: Ustr,
-    /// Price change in quote asset.
-    pub price_change: String,
-    /// Price change percentage.
-    pub price_change_percent: String,
-    /// Weighted average price.
-    pub weighted_avg_price: String,
-    /// Previous close price.
-    #[serde(default)]
-    pub prev_close_price: Option<String>,
-    /// Last traded price.
-    pub last_price: String,
-    /// Last traded quantity.
-    #[serde(default)]
-    pub last_qty: Option<String>,
-    /// Best bid price.
-    pub bid_price: String,
-    /// Best bid quantity.
-    #[serde(default)]
-    pub bid_qty: Option<String>,
-    /// Best ask price.
-    pub ask_price: String,
-    /// Best ask quantity.
-    #[serde(default)]
-    pub ask_qty: Option<String>,
-    /// Opening price.
-    pub open_price: String,
-    /// Highest price.
-    pub high_price: String,
-    /// Lowest price.
-    pub low_price: String,
-    /// Total traded base asset volume.
-    pub volume: String,
-    /// Total traded quote asset volume.
-    pub quote_volume: String,
-    /// Statistics open time.
-    pub open_time: i64,
-    /// Statistics close time.
-    pub close_time: i64,
-    /// First trade ID.
-    #[serde(default)]
-    pub first_id: Option<i64>,
-    /// Last trade ID.
-    #[serde(default)]
-    pub last_id: Option<i64>,
-    /// Total number of trades.
-    #[serde(default)]
-    pub count: Option<i64>,
-}
-
 /// 24hr ticker price change statistics for futures.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/24hr-Ticker-Price-Change-Statistics>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesTicker24hr {
@@ -401,9 +246,6 @@ pub struct BinanceFuturesTicker24hr {
 }
 
 /// Mark price and funding rate for futures.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Mark-Price>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesMarkPrice {
@@ -430,135 +272,7 @@ pub struct BinanceFuturesMarkPrice {
     pub time: i64,
 }
 
-/// Recent trade from `GET /api/v3/trades` or `GET /fapi/v1/trades`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BinanceTrade {
-    /// Trade ID.
-    pub id: i64,
-    /// Trade price.
-    pub price: String,
-    /// Trade quantity.
-    pub qty: String,
-    /// Quote asset quantity.
-    #[serde(default)]
-    pub quote_qty: Option<String>,
-    /// Trade timestamp in milliseconds.
-    pub time: i64,
-    /// Was the buyer the maker?
-    pub is_buyer_maker: bool,
-    /// Was this the best price match?
-    #[serde(default)]
-    pub is_best_match: Option<bool>,
-}
-
-/// Aggregated trade from `GET /api/v3/aggTrades` or `GET /fapi/v1/aggTrades`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BinanceAggTrade {
-    /// Aggregate trade ID.
-    #[serde(rename = "a")]
-    pub agg_trade_id: i64,
-    /// Trade price.
-    #[serde(rename = "p")]
-    pub price: String,
-    /// Trade quantity.
-    #[serde(rename = "q")]
-    pub qty: String,
-    /// First trade ID.
-    #[serde(rename = "f")]
-    pub first_trade_id: i64,
-    /// Last trade ID.
-    #[serde(rename = "l")]
-    pub last_trade_id: i64,
-    /// Trade timestamp in milliseconds.
-    #[serde(rename = "T")]
-    pub time: i64,
-    /// Was the buyer the maker?
-    #[serde(rename = "m")]
-    pub is_buyer_maker: bool,
-    /// Was this the best price match? (spot only)
-    #[serde(default, rename = "M")]
-    pub is_best_match: Option<bool>,
-}
-
-/// Raw kline data as returned by Binance (array format).
-///
-/// Binance returns klines as arrays: `[openTime, open, high, low, close, volume, closeTime,
-/// quoteVolume, trades, takerBuyBaseVol, takerBuyQuoteVol, ignore]`
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
-pub type BinanceKlineRaw = (
-    i64,    // 0: Open time
-    String, // 1: Open price
-    String, // 2: High price
-    String, // 3: Low price
-    String, // 4: Close price
-    String, // 5: Volume
-    i64,    // 6: Close time
-    String, // 7: Quote asset volume
-    i64,    // 8: Number of trades
-    String, // 9: Taker buy base asset volume
-    String, // 10: Taker buy quote asset volume
-    String, // 11: Ignore
-);
-
-/// Parsed kline/candlestick data.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BinanceKline {
-    /// Kline open timestamp in milliseconds.
-    pub open_time: i64,
-    /// Open price.
-    pub open: String,
-    /// High price.
-    pub high: String,
-    /// Low price.
-    pub low: String,
-    /// Close price.
-    pub close: String,
-    /// Base asset volume.
-    pub volume: String,
-    /// Kline close timestamp in milliseconds.
-    pub close_time: i64,
-    /// Quote asset volume.
-    pub quote_volume: String,
-    /// Number of trades.
-    pub trade_count: i64,
-    /// Taker buy base asset volume.
-    pub taker_buy_base_volume: String,
-    /// Taker buy quote asset volume.
-    pub taker_buy_quote_volume: String,
-}
-
-impl From<BinanceKlineRaw> for BinanceKline {
-    fn from(raw: BinanceKlineRaw) -> Self {
-        Self {
-            open_time: raw.0,
-            open: raw.1,
-            high: raw.2,
-            low: raw.3,
-            close: raw.4,
-            volume: raw.5,
-            close_time: raw.6,
-            quote_volume: raw.7,
-            trade_count: raw.8,
-            taker_buy_base_volume: raw.9,
-            taker_buy_quote_volume: raw.10,
-        }
-    }
-}
-
-/// Order book depth snapshot from `GET /api/v3/depth` or `GET /fapi/v1/depth`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
+/// Order book depth snapshot.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceOrderBook {
@@ -568,18 +282,15 @@ pub struct BinanceOrderBook {
     pub bids: Vec<(String, String)>,
     /// Ask levels as `[price, quantity]` arrays.
     pub asks: Vec<(String, String)>,
-    /// Message output time (futures only).
+    /// Message output time.
     #[serde(default, rename = "E")]
     pub event_time: Option<i64>,
-    /// Transaction time (futures only).
+    /// Transaction time.
     #[serde(default, rename = "T")]
     pub transaction_time: Option<i64>,
 }
 
-/// Best bid/ask from `GET /api/v3/ticker/bookTicker` or `GET /fapi/v1/ticker/bookTicker`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
+/// Best bid/ask from book ticker endpoint.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceBookTicker {
@@ -593,15 +304,12 @@ pub struct BinanceBookTicker {
     pub ask_price: String,
     /// Best ask quantity.
     pub ask_qty: String,
-    /// Event time (futures only).
+    /// Event time.
     #[serde(default)]
     pub time: Option<i64>,
 }
 
-/// Price ticker from `GET /api/v3/ticker/price` or `GET /fapi/v1/ticker/price`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>
+/// Price ticker.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinancePriceTicker {
@@ -609,15 +317,12 @@ pub struct BinancePriceTicker {
     pub symbol: Ustr,
     /// Current price.
     pub price: String,
-    /// Event time (futures only).
+    /// Event time.
     #[serde(default)]
     pub time: Option<i64>,
 }
 
-/// Funding rate history record from `GET /fapi/v1/fundingRate` or `GET /dapi/v1/fundingRate`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Get-Funding-Rate-History>
+/// Funding rate history record.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFundingRate {
@@ -635,10 +340,7 @@ pub struct BinanceFundingRate {
     pub index_price: Option<String>,
 }
 
-/// Open interest record from `GET /fapi/v1/openInterest` or `GET /dapi/v1/openInterest`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Open-Interest>
+/// Open interest record.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceOpenInterest {
@@ -650,11 +352,7 @@ pub struct BinanceOpenInterest {
     pub time: i64,
 }
 
-/// Futures account balance entry from `GET /fapi/v2/balance` or `GET /dapi/v1/balance`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/user-data/account>
-/// - <https://developers.binance.com/docs/derivatives/coin-margined-futures/user-data/account>
+/// Futures account balance entry.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesBalance {
@@ -686,10 +384,7 @@ pub struct BinanceFuturesBalance {
     pub withdraw_available: Option<String>,
 }
 
-/// Position risk record from `GET /fapi/v2/positionRisk` or `GET /dapi/v1/positionRisk`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/user-data/account#position-information-v2-user_data>
+/// Position risk record.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinancePositionRisk {
@@ -744,10 +439,7 @@ pub struct BinancePositionRisk {
     pub bust_price: Option<String>,
 }
 
-/// Income history record from `GET /fapi/v1/income` or `GET /dapi/v1/income`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/user-data/account#income-history-user_data>
+/// Income history record.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceIncomeRecord {
@@ -773,10 +465,7 @@ pub struct BinanceIncomeRecord {
     pub trade_id: Option<i64>,
 }
 
-/// User trade record from `GET /fapi/v1/userTrades` or `GET /dapi/v1/userTrades`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/user-data/trade#account-trade-list-user_data>
+/// User trade record.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceUserTrade {
@@ -817,10 +506,7 @@ pub struct BinanceUserTrade {
     pub margin_asset: Option<Ustr>,
 }
 
-/// Futures order information returned by `GET /fapi/v1/order` or `GET /fapi/v1/openOrders`.
-///
-/// # References
-/// - <https://developers.binance.com/docs/derivatives/usds-margined-futures/user-data/order#query-order-user_data>
+/// Futures order information.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesOrder {
@@ -883,7 +569,7 @@ pub struct BinanceFuturesOrder {
     /// Good till date (for GTD orders).
     #[serde(default)]
     pub good_till_date: Option<i64>,
-    /// Price match mode (futures only).
+    /// Price match mode.
     #[serde(default)]
     pub price_match: Option<BinancePriceMatch>,
     /// Self-trade prevention mode.

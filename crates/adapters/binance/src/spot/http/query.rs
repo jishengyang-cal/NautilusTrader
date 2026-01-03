@@ -688,3 +688,24 @@ impl AccountTradesParams {
         self
     }
 }
+
+/// Query parameters for klines (candlestick) data.
+#[derive(Debug, Clone, Serialize)]
+pub struct KlinesParams {
+    /// Trading pair symbol (e.g., "BTCUSDT").
+    pub symbol: String,
+    /// Kline interval (e.g., "1m", "1h", "1d").
+    pub interval: String,
+    /// Filter by start time (milliseconds).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "startTime")]
+    pub start_time: Option<i64>,
+    /// Filter by end time (milliseconds).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "endTime")]
+    pub end_time: Option<i64>,
+    /// Kline time zone offset (+/- hours, default 0 UTC).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "timeZone")]
+    pub time_zone: Option<String>,
+    /// Maximum number of klines to return (default 500, max 1000).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}

@@ -26,7 +26,7 @@
 
 use nautilus_binance::{
     common::{enums::BinanceEnvironment, fixed::mantissa_to_f64},
-    spot::http::{BinanceSpotHttpClient, DepthParams, TradesParams},
+    spot::http::{BinanceSpotHttpClient, DepthParams},
 };
 use tracing_subscriber::EnvFilter;
 
@@ -108,8 +108,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Test 4: Recent Trades
     tracing::info!("=== Test 4: Trades (BTCUSDT) ===");
-    let trades_params = TradesParams::new("BTCUSDT").with_limit(5);
-    match client.inner().trades(&trades_params).await {
+    match client.inner().trades("BTCUSDT", Some(5)).await {
         Ok(trades) => {
             tracing::info!(
                 "Price exponent: {}, Qty exponent: {}",

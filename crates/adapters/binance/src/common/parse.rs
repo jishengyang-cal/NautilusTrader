@@ -23,7 +23,7 @@ use std::str::FromStr;
 use anyhow::Context;
 use nautilus_core::nanos::UnixNanos;
 use nautilus_model::{
-    data::TradeTick,
+    data::{Bar, BarType, TradeTick},
     enums::{
         AggressorSide, LiquiditySide, OrderSide, OrderStatus, OrderType, TimeInForce, TriggerType,
     },
@@ -42,16 +42,17 @@ use serde_json::Value;
 
 use crate::{
     common::{
-        enums::BinanceTradingStatus,
+        enums::BinanceContractStatus,
+        fixed::{mantissa_to_price, mantissa_to_quantity},
         sbe::spot::{
             order_side::OrderSide as SbeOrderSide, order_status::OrderStatus as SbeOrderStatus,
             order_type::OrderType as SbeOrderType, time_in_force::TimeInForce as SbeTimeInForce,
         },
     },
-    http::models::{BinanceFuturesUsdSymbol, BinanceSpotSymbol},
+    futures::http::models::{BinanceFuturesCoinSymbol, BinanceFuturesUsdSymbol},
     spot::http::models::{
-        BinanceAccountTrade, BinanceNewOrderResponse, BinanceOrderResponse, BinanceSymbolSbe,
-        BinanceTrades,
+        BinanceAccountTrade, BinanceKlines, BinanceNewOrderResponse, BinanceOrderResponse,
+        BinanceSymbolSbe, BinanceTrades,
     },
 };
 
@@ -174,6 +175,101 @@ pub fn parse_usdm_instrument(
     Ok(InstrumentAny::CryptoPerpetual(instrument))
 }
 
+/// Parses a COIN-M Futures symbol definition into a Nautilus CryptoPerpetual instrument.
+///
+/// COIN-M perpetuals are inverse contracts settled in base currency (e.g., BTC).
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Required filter values are missing (PRICE_FILTER, LOT_SIZE).
+/// - Price or quantity values cannot be parsed.
+/// - The contract type is not PERPETUAL.
+/// - The contract is not in TRADING status.
+pub fn parse_coinm_instrument(
+    symbol: &BinanceFuturesCoinSymbol,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
+    if symbol.contract_type != CONTRACT_TYPE_PERPETUAL {
+        anyhow::bail!(
+            "Unsupported contract type '{}' for symbol '{}', expected '{}'",
+            symbol.contract_type,
+            symbol.symbol,
+            CONTRACT_TYPE_PERPETUAL
+        );
+    }
+
+    if symbol.contract_status != Some(BinanceContractStatus::Trading) {
+        anyhow::bail!(
+            "Symbol '{}' is not trading (status: {:?})",
+            symbol.symbol,
+            symbol.contract_status
+        );
+    }
+
+    let base_currency = get_currency(symbol.base_asset.as_str());
+    let quote_currency = get_currency(symbol.quote_asset.as_str());
+
+    // COIN-M contracts are settled in the base currency (inverse)
+    let settlement_currency = get_currency(symbol.margin_asset.as_str());
+
+    let instrument_id = InstrumentId::new(
+        Symbol::from_str_unchecked(format!("{}-PERP", symbol.symbol)),
+        Venue::new(BINANCE_VENUE),
+    );
+    let raw_symbol = Symbol::new(symbol.symbol.as_str());
+
+    let price_filter = get_filter(&symbol.filters, "PRICE_FILTER")
+        .context("Missing PRICE_FILTER in symbol filters")?;
+
+    let tick_size = parse_filter_price(price_filter, "tickSize")?;
+    let max_price = parse_filter_price(price_filter, "maxPrice").ok();
+    let min_price = parse_filter_price(price_filter, "minPrice").ok();
+
+    let lot_filter =
+        get_filter(&symbol.filters, "LOT_SIZE").context("Missing LOT_SIZE in symbol filters")?;
+
+    let step_size = parse_filter_quantity(lot_filter, "stepSize")?;
+    let max_quantity = parse_filter_quantity(lot_filter, "maxQty").ok();
+    let min_quantity = parse_filter_quantity(lot_filter, "minQty").ok();
+
+    // COIN-M has contract_size as the multiplier
+    let multiplier = Quantity::new(symbol.contract_size as f64, 0);
+
+    // Default margin (0.1 = 10x leverage)
+    let default_margin = Decimal::new(1, 1);
+
+    let instrument = CryptoPerpetual::new(
+        instrument_id,
+        raw_symbol,
+        base_currency,
+        quote_currency,
+        settlement_currency,
+        true, // is_inverse (COIN-M contracts are inverse)
+        tick_size.precision,
+        step_size.precision,
+        tick_size,
+        step_size,
+        Some(multiplier),
+        Some(step_size),
+        max_quantity,
+        min_quantity,
+        None, // max_notional
+        None, // min_notional
+        max_price,
+        min_price,
+        Some(default_margin),
+        Some(default_margin),
+        None, // maker_fee
+        None, // taker_fee
+        ts_event,
+        ts_init,
+    );
+
+    Ok(InstrumentAny::CryptoPerpetual(instrument))
+}
+
 /// SBE status value for Trading.
 const SBE_STATUS_TRADING: u8 = 0;
 
@@ -252,81 +348,6 @@ pub fn parse_spot_instrument_sbe(
     Ok(InstrumentAny::CurrencyPair(instrument))
 }
 
-/// Parses a Binance Spot symbol definition into a Nautilus CurrencyPair instrument.
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - Required filter values are missing (PRICE_FILTER, LOT_SIZE).
-/// - Price or quantity values cannot be parsed.
-/// - The symbol is not actively trading.
-pub fn parse_spot_instrument(
-    symbol: &BinanceSpotSymbol,
-    ts_event: UnixNanos,
-    ts_init: UnixNanos,
-) -> anyhow::Result<InstrumentAny> {
-    if symbol.status != BinanceTradingStatus::Trading {
-        anyhow::bail!(
-            "Symbol '{}' is not trading (status: {:?})",
-            symbol.symbol,
-            symbol.status
-        );
-    }
-
-    let base_currency = get_currency(symbol.base_asset.as_str());
-    let quote_currency = get_currency(symbol.quote_asset.as_str());
-
-    let instrument_id = InstrumentId::new(
-        Symbol::from_str_unchecked(symbol.symbol.as_str()),
-        Venue::new(BINANCE_VENUE),
-    );
-    let raw_symbol = Symbol::new(symbol.symbol.as_str());
-
-    let price_filter = get_filter(&symbol.filters, "PRICE_FILTER")
-        .context("Missing PRICE_FILTER in symbol filters")?;
-
-    let tick_size = parse_filter_price(price_filter, "tickSize")?;
-    let max_price = parse_filter_price(price_filter, "maxPrice").ok();
-    let min_price = parse_filter_price(price_filter, "minPrice").ok();
-
-    let lot_filter =
-        get_filter(&symbol.filters, "LOT_SIZE").context("Missing LOT_SIZE in symbol filters")?;
-
-    let step_size = parse_filter_quantity(lot_filter, "stepSize")?;
-    let max_quantity = parse_filter_quantity(lot_filter, "maxQty").ok();
-    let min_quantity = parse_filter_quantity(lot_filter, "minQty").ok();
-
-    // Spot has no leverage, use 1.0 margin
-    let default_margin = Decimal::new(1, 0);
-
-    let instrument = CurrencyPair::new(
-        instrument_id,
-        raw_symbol,
-        base_currency,
-        quote_currency,
-        tick_size.precision,
-        step_size.precision,
-        tick_size,
-        step_size,
-        None, // multiplier
-        Some(step_size),
-        max_quantity,
-        min_quantity,
-        None, // max_notional
-        None, // min_notional
-        max_price,
-        min_price,
-        Some(default_margin),
-        Some(default_margin),
-        None, // maker_fee
-        None, // taker_fee
-        ts_event,
-        ts_init,
-    );
-
-    Ok(InstrumentAny::CurrencyPair(instrument))
-}
-
 /// Parses Binance SBE trades into Nautilus TradeTick objects.
 ///
 /// Uses mantissa/exponent encoding from SBE to construct proper Price and Quantity.
@@ -346,15 +367,8 @@ pub fn parse_spot_trades_sbe(
     let mut result = Vec::with_capacity(trades.trades.len());
 
     for trade in &trades.trades {
-        // Convert mantissa + exponent to decimal value
-        let price_exp = trades.price_exponent as i32;
-        let qty_exp = trades.qty_exponent as i32;
-
-        let price_dec = Decimal::new(trade.price_mantissa, (-price_exp) as u32);
-        let qty_dec = Decimal::new(trade.qty_mantissa, (-qty_exp) as u32);
-
-        let price = Price::new(price_dec.to_f64().unwrap_or(0.0), price_precision);
-        let size = Quantity::new(qty_dec.to_f64().unwrap_or(0.0), size_precision);
+        let price = mantissa_to_price(trade.price_mantissa, trades.price_exponent, price_precision);
+        let size = mantissa_to_quantity(trade.qty_mantissa, trades.qty_exponent, size_precision);
 
         // is_buyer_maker means the buyer was the maker, so the aggressor was selling
         let aggressor_side = if trade.is_buyer_maker {
@@ -449,33 +463,38 @@ pub fn parse_order_status_report_sbe(
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
-    // Convert mantissa + exponent to values
-    let price_exp = order.price_exponent as i32;
-    let qty_exp = order.qty_exponent as i32;
-
-    let price_dec = Decimal::new(order.price_mantissa, (-price_exp) as u32);
-    let qty_dec = Decimal::new(order.orig_qty_mantissa, (-qty_exp) as u32);
-    let filled_dec = Decimal::new(order.executed_qty_mantissa, (-qty_exp) as u32);
-
     let price = if order.price_mantissa != 0 {
-        Some(Price::new(
-            price_dec.to_f64().unwrap_or(0.0),
+        Some(mantissa_to_price(
+            order.price_mantissa,
+            order.price_exponent,
             price_precision,
         ))
     } else {
         None
     };
 
-    let quantity = Quantity::new(qty_dec.to_f64().unwrap_or(0.0), size_precision);
-    let filled_qty = Quantity::new(filled_dec.to_f64().unwrap_or(0.0), size_precision);
+    let quantity =
+        mantissa_to_quantity(order.orig_qty_mantissa, order.qty_exponent, size_precision);
+    let filled_qty = mantissa_to_quantity(
+        order.executed_qty_mantissa,
+        order.qty_exponent,
+        size_precision,
+    );
 
     // Calculate average price from cumulative quote qty / executed qty
-    // Quote qty = price * qty, so its exponent is (price_exp + qty_exp)
+    // This requires decimal arithmetic since we're dividing two mantissas
     let avg_px = if order.executed_qty_mantissa > 0 {
-        let quote_exp = price_exp + qty_exp;
+        let quote_exp = (order.price_exponent as i32) + (order.qty_exponent as i32);
         let cum_quote_dec = Decimal::new(order.cummulative_quote_qty_mantissa, (-quote_exp) as u32);
+        let filled_dec = Decimal::new(
+            order.executed_qty_mantissa,
+            (-order.qty_exponent as i32) as u32,
+        );
         let avg_dec = cum_quote_dec / filled_dec;
-        Some(Price::new(avg_dec.to_f64().unwrap_or(0.0), price_precision))
+        Some(
+            Price::from_decimal_dp(avg_dec, price_precision)
+                .unwrap_or(Price::zero(price_precision)),
+        )
     } else {
         None
     };
@@ -483,9 +502,9 @@ pub fn parse_order_status_report_sbe(
     // Parse trigger price for stop orders
     let trigger_price = order.stop_price_mantissa.and_then(|mantissa| {
         if mantissa != 0 {
-            let stop_dec = Decimal::new(mantissa, (-price_exp) as u32);
-            Some(Price::new(
-                stop_dec.to_f64().unwrap_or(0.0),
+            Some(mantissa_to_price(
+                mantissa,
+                order.price_exponent,
                 price_precision,
             ))
         } else {
@@ -579,41 +598,51 @@ pub fn parse_new_order_response_sbe(
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
-    let price_exp = response.price_exponent as i32;
-    let qty_exp = response.qty_exponent as i32;
-
-    let price_dec = Decimal::new(response.price_mantissa, (-price_exp) as u32);
-    let qty_dec = Decimal::new(response.orig_qty_mantissa, (-qty_exp) as u32);
-    let filled_dec = Decimal::new(response.executed_qty_mantissa, (-qty_exp) as u32);
-
     let price = if response.price_mantissa != 0 {
-        Some(Price::new(
-            price_dec.to_f64().unwrap_or(0.0),
+        Some(mantissa_to_price(
+            response.price_mantissa,
+            response.price_exponent,
             price_precision,
         ))
     } else {
         None
     };
 
-    let quantity = Quantity::new(qty_dec.to_f64().unwrap_or(0.0), size_precision);
-    let filled_qty = Quantity::new(filled_dec.to_f64().unwrap_or(0.0), size_precision);
+    let quantity = mantissa_to_quantity(
+        response.orig_qty_mantissa,
+        response.qty_exponent,
+        size_precision,
+    );
+    let filled_qty = mantissa_to_quantity(
+        response.executed_qty_mantissa,
+        response.qty_exponent,
+        size_precision,
+    );
 
-    // Quote qty = price * qty, so exponent is (price_exp + qty_exp)
+    // Calculate average price from cumulative quote qty / executed qty
+    // This requires decimal arithmetic since we're dividing two mantissas
     let avg_px = if response.executed_qty_mantissa > 0 {
-        let quote_exp = price_exp + qty_exp;
+        let quote_exp = (response.price_exponent as i32) + (response.qty_exponent as i32);
         let cum_quote_dec =
             Decimal::new(response.cummulative_quote_qty_mantissa, (-quote_exp) as u32);
+        let filled_dec = Decimal::new(
+            response.executed_qty_mantissa,
+            (-response.qty_exponent as i32) as u32,
+        );
         let avg_dec = cum_quote_dec / filled_dec;
-        Some(Price::new(avg_dec.to_f64().unwrap_or(0.0), price_precision))
+        Some(
+            Price::from_decimal_dp(avg_dec, price_precision)
+                .unwrap_or(Price::zero(price_precision)),
+        )
     } else {
         None
     };
 
     let trigger_price = response.stop_price_mantissa.and_then(|mantissa| {
         if mantissa != 0 {
-            let stop_dec = Decimal::new(mantissa, (-price_exp) as u32);
-            Some(Price::new(
-                stop_dec.to_f64().unwrap_or(0.0),
+            Some(mantissa_to_price(
+                mantissa,
+                response.price_exponent,
                 price_precision,
             ))
         } else {
@@ -702,17 +731,12 @@ pub fn parse_fill_report_sbe(
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
-    // Convert mantissa + exponent to values
-    let price_exp = trade.price_exponent as i32;
-    let qty_exp = trade.qty_exponent as i32;
+    let last_px = mantissa_to_price(trade.price_mantissa, trade.price_exponent, price_precision);
+    let last_qty = mantissa_to_quantity(trade.qty_mantissa, trade.qty_exponent, size_precision);
+
+    // Commission still uses Decimal → f64 since Money::new takes f64
     let comm_exp = trade.commission_exponent as i32;
-
-    let price_dec = Decimal::new(trade.price_mantissa, (-price_exp) as u32);
-    let qty_dec = Decimal::new(trade.qty_mantissa, (-qty_exp) as u32);
     let comm_dec = Decimal::new(trade.commission_mantissa, (-comm_exp) as u32);
-
-    let last_px = Price::new(price_dec.to_f64().unwrap_or(0.0), price_precision);
-    let last_qty = Quantity::new(qty_dec.to_f64().unwrap_or(0.0), size_precision);
     let commission = Money::new(comm_dec.to_f64().unwrap_or(0.0), commission_currency);
 
     // Determine order side from is_buyer
@@ -750,6 +774,43 @@ pub fn parse_fill_report_sbe(
     ))
 }
 
+/// Parses Binance klines (candlesticks) into Nautilus Bar objects.
+///
+/// # Errors
+///
+/// Returns an error if any kline cannot be parsed.
+pub fn parse_klines_to_bars(
+    klines: &BinanceKlines,
+    bar_type: BarType,
+    instrument: &InstrumentAny,
+    ts_init: UnixNanos,
+) -> anyhow::Result<Vec<Bar>> {
+    let price_precision = instrument.price_precision();
+    let size_precision = instrument.size_precision();
+
+    let mut bars = Vec::with_capacity(klines.klines.len());
+
+    for kline in &klines.klines {
+        let open = mantissa_to_price(kline.open_price, klines.price_exponent, price_precision);
+        let high = mantissa_to_price(kline.high_price, klines.price_exponent, price_precision);
+        let low = mantissa_to_price(kline.low_price, klines.price_exponent, price_precision);
+        let close = mantissa_to_price(kline.close_price, klines.price_exponent, price_precision);
+
+        // Volume is 128-bit so we still use Decimal path for now
+        let volume_mantissa = i128::from_le_bytes(kline.volume);
+        let volume_dec =
+            Decimal::from_i128_with_scale(volume_mantissa, (-klines.qty_exponent as i32) as u32);
+        let volume = Quantity::new(volume_dec.to_f64().unwrap_or(0.0), size_precision);
+
+        let ts_event = UnixNanos::from(kline.open_time as u64 * 1_000_000);
+
+        let bar = Bar::new(bar_type, open, high, low, close, volume, ts_event, ts_init);
+        bars.push(bar);
+    }
+
+    Ok(bars)
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -757,7 +818,7 @@ mod tests {
     use ustr::Ustr;
 
     use super::*;
-    use crate::http::models::BinanceSpotSymbol;
+    use crate::common::enums::BinanceTradingStatus;
 
     fn sample_usdm_symbol() -> BinanceFuturesUsdSymbol {
         BinanceFuturesUsdSymbol {
@@ -860,75 +921,5 @@ mod tests {
                 .to_string()
                 .contains("Missing PRICE_FILTER")
         );
-    }
-
-    fn sample_spot_symbol() -> BinanceSpotSymbol {
-        BinanceSpotSymbol {
-            symbol: Ustr::from("BTCUSDT"),
-            status: BinanceTradingStatus::Trading,
-            base_asset: Ustr::from("BTC"),
-            base_asset_precision: 8,
-            quote_asset: Ustr::from("USDT"),
-            quote_precision: 8,
-            quote_asset_precision: Some(8),
-            order_types: vec!["LIMIT".to_string(), "MARKET".to_string()],
-            iceberg_allowed: true,
-            oco_allowed: Some(true),
-            quote_order_qty_market_allowed: Some(true),
-            allow_trailing_stop: Some(true),
-            is_spot_trading_allowed: Some(true),
-            is_margin_trading_allowed: Some(false),
-            filters: vec![
-                json!({
-                    "filterType": "PRICE_FILTER",
-                    "tickSize": "0.01",
-                    "maxPrice": "1000000.00",
-                    "minPrice": "0.01"
-                }),
-                json!({
-                    "filterType": "LOT_SIZE",
-                    "stepSize": "0.00001",
-                    "maxQty": "9000.00000",
-                    "minQty": "0.00001"
-                }),
-            ],
-            permissions: vec!["SPOT".to_string()],
-            permission_sets: vec![],
-            default_self_trade_prevention_mode: Some("EXPIRE_MAKER".to_string()),
-            allowed_self_trade_prevention_modes: vec!["EXPIRE_MAKER".to_string()],
-        }
-    }
-
-    #[rstest]
-    fn test_parse_spot_instrument() {
-        let symbol = sample_spot_symbol();
-        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
-
-        let result = parse_spot_instrument(&symbol, ts, ts);
-        assert!(result.is_ok(), "Failed: {:?}", result.err());
-
-        let instrument = result.unwrap();
-        match instrument {
-            InstrumentAny::CurrencyPair(pair) => {
-                assert_eq!(pair.id.to_string(), "BTCUSDT.BINANCE");
-                assert_eq!(pair.raw_symbol.to_string(), "BTCUSDT");
-                assert_eq!(pair.base_currency.code.as_str(), "BTC");
-                assert_eq!(pair.quote_currency.code.as_str(), "USDT");
-                assert_eq!(pair.price_increment, Price::from_str("0.01").unwrap());
-                assert_eq!(pair.size_increment, Quantity::from_str("0.00001").unwrap());
-            }
-            other => panic!("Expected CurrencyPair, got {other:?}"),
-        }
-    }
-
-    #[rstest]
-    fn test_parse_spot_non_trading_fails() {
-        let mut symbol = sample_spot_symbol();
-        symbol.status = BinanceTradingStatus::Break;
-        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
-
-        let result = parse_spot_instrument(&symbol, ts, ts);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("is not trading"));
     }
 }

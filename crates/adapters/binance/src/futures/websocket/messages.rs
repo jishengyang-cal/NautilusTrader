@@ -25,12 +25,9 @@ use nautilus_network::websocket::WebSocketClient;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
-use crate::{
-    common::enums::{
-        BinanceFuturesOrderType, BinanceOrderStatus, BinanceSide, BinanceTimeInForce,
-        BinanceWsMethod,
-    },
-    http::query::BinanceKlineInterval,
+use crate::common::enums::{
+    BinanceFuturesOrderType, BinanceKlineInterval, BinanceOrderStatus, BinanceSide,
+    BinanceTimeInForce, BinanceWsMethod,
 };
 
 /// Output message from the Futures WebSocket handler.

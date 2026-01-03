@@ -13,6 +13,28 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Binance Futures HTTP client module.
+//! Binance Futures HTTP client with JSON encoding.
 
 pub mod client;
+pub mod error;
+pub mod models;
+pub mod query;
+
+pub use client::{
+    BinanceFundingRate, BinanceFuturesHttpClient, BinanceFuturesInstrument, BinanceOpenInterest,
+    BinanceRawFuturesHttpClient, FundingRateParams, ListenKeyResponse, MarkPriceParams,
+    OpenInterestParams,
+};
+pub use error::{BinanceFuturesHttpError, BinanceFuturesHttpResult};
+pub use models::{
+    BinanceBookTicker, BinanceFuturesAsset, BinanceFuturesCoinExchangeInfo,
+    BinanceFuturesCoinSymbol, BinanceFuturesMarkPrice, BinanceFuturesOrder,
+    BinanceFuturesTicker24hr, BinanceFuturesUsdExchangeInfo, BinanceFuturesUsdSymbol,
+    BinanceOrderBook, BinancePriceTicker, BinanceServerTime,
+};
+pub use query::{
+    BinanceBookTickerParams, BinanceDepthParams, BinanceFundingRateParams,
+    BinanceIncomeHistoryParams, BinanceMarkPriceParams, BinanceOpenInterestParams,
+    BinanceOpenOrdersParams, BinanceOrderQueryParams, BinancePositionRiskParams,
+    BinanceTicker24hrParams, BinanceUserTradesParams,
+};

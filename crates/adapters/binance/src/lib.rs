@@ -61,10 +61,8 @@
 pub mod common;
 pub mod config;
 pub mod data;
-pub mod error;
 pub mod execution;
 pub mod futures;
-pub mod http;
 pub mod spot;
 pub mod websocket;
 

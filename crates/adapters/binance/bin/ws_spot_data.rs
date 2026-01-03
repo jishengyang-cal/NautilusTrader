@@ -31,20 +31,17 @@
 
 use futures_util::StreamExt;
 use nautilus_binance::{
-    common::{
-        enums::{BinanceEnvironment, BinanceProductType},
-        parse::parse_spot_instrument,
-        sbe::stream::mantissa_to_f64,
-    },
-    http::client::{BinanceHttpClient, BinanceInstrument},
-    spot::websocket::{
-        client::BinanceSpotWebSocketClient,
-        handler::{MarketDataMessage, decode_market_data},
-        messages::NautilusWsMessage,
+    common::{enums::BinanceEnvironment, sbe::stream::mantissa_to_f64},
+    spot::{
+        http::client::BinanceSpotHttpClient,
+        websocket::{
+            client::BinanceSpotWebSocketClient,
+            handler::{MarketDataMessage, decode_market_data},
+            messages::NautilusWsMessage,
+        },
     },
 };
-use nautilus_core::nanos::UnixNanos;
-use nautilus_model::{data::Data, instruments::InstrumentAny};
+use nautilus_model::data::Data;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -65,10 +62,8 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing::info!("Using Ed25519 authentication for SBE streams");
 
-    // Fetch instruments via HTTP (JSON API)
     tracing::info!("Fetching instruments from Binance Spot API...");
-    let http_client = BinanceHttpClient::new(
-        BinanceProductType::Spot,
+    let http_client = BinanceSpotHttpClient::new(
         BinanceEnvironment::Mainnet,
         None, // api_key (not needed for public endpoints)
         None, // api_secret
@@ -77,10 +72,8 @@ async fn main() -> anyhow::Result<()> {
         None, // timeout_secs
         None, // proxy_url
     )?;
-    http_client.exchange_info().await?;
 
-    // Get cached symbols and parse to instruments
-    let instruments = parse_spot_instruments(&http_client);
+    let instruments = http_client.request_instruments().await?;
     tracing::info!(count = instruments.len(), "Parsed instruments");
 
     tracing::info!("Creating Binance Spot WebSocket client...");
@@ -222,23 +215,6 @@ async fn main() -> anyhow::Result<()> {
     );
 
     Ok(())
-}
-
-/// Parse instruments from HTTP client cache.
-fn parse_spot_instruments(http_client: &BinanceHttpClient) -> Vec<InstrumentAny> {
-    let ts = UnixNanos::default();
-    let mut instruments = Vec::new();
-
-    for entry in http_client.instruments() {
-        if let BinanceInstrument::Spot(symbol) = entry.value() {
-            match parse_spot_instrument(symbol, ts, ts) {
-                Ok(instrument) => instruments.push(instrument),
-                Err(e) => tracing::trace!(symbol = %symbol.symbol, error = %e, "Skipped symbol"),
-            }
-        }
-    }
-
-    instruments
 }
 
 /// Decode and display raw SBE binary data.
