@@ -12,10 +12,14 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
+- Fixed trailing stops default price type (#3379), thanks @KaulSe
+- Fixed registering msgbus with OptionExerciseModule (#3383), thanks @davidsblom
 - Fixed directory URI handling in ParquetDataCatalog for S3 and cloud storage (#3378), thanks @KaulSe
+- Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 
 ### Internal Improvements
 - Added Deribit data client (#3368), thanks @filipmacek
+- Upgraded `tokio` crate to v1.49.0
 
 ### Documentation Updates
 

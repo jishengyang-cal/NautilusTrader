@@ -463,7 +463,7 @@ version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.base64ct]]
-version = "1.8.1"
+version = "1.8.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.bech32]]
@@ -591,11 +591,11 @@ version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap]]
-version = "4.5.53"
+version = "4.5.54"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap_builder]]
-version = "4.5.53"
+version = "4.5.54"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap_derive]]
@@ -1383,7 +1383,7 @@ version = "1.0.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.libc]]
-version = "0.2.178"
+version = "0.2.179"
 criteria = "safe-to-deploy"
 
 [[exemptions.libm]]
@@ -1715,7 +1715,7 @@ version = "0.7.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.pest]]
-version = "2.8.4"
+version = "2.8.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.petgraph]]
@@ -2315,7 +2315,7 @@ version = "1.0.109"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn]]
-version = "2.0.112"
+version = "2.0.113"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn-solidity]]
@@ -2403,7 +2403,7 @@ version = "1.10.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
-version = "1.48.0"
+version = "1.49.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-macros]]
@@ -2935,7 +2935,7 @@ version = "0.5.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.zmij]]
-version = "1.0.8"
+version = "1.0.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd]]

@@ -142,7 +142,7 @@ chrono = { version = "0.4.42", default-features = false, features = [
   "clock",
 ] }
 chrono-tz = "0.10.4"
-clap = { version = "4.5.53", features = ["derive", "env"] }
+clap = { version = "4.5.54", features = ["derive", "env"] }
 compare = "0.1.0"
 cosmrs = { version = "0.22.0", default-features = false, features = ["bip32"] }
 csv = "1.4.0"
@@ -288,7 +288,7 @@ time = { version = "0.3.44", default-features = false, features = [
   "serde",
   "std",
 ] }
-tokio = { version = "1.48.0", default-features = false, features = [
+tokio = { version = "1.49.0", default-features = false, features = [
   "rt-multi-thread",
   "sync",
   "fs",
