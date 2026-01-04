@@ -28,9 +28,8 @@ use nautilus_common::{
         data::{
             BarsResponse, DataResponse, InstrumentResponse, InstrumentsResponse, RequestBars,
             RequestInstrument, RequestInstruments, RequestTrades, SubscribeBars,
-            SubscribeBookDeltas, SubscribeBookSnapshots, SubscribeQuotes, SubscribeTrades,
-            TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeBookSnapshots,
-            UnsubscribeQuotes, UnsubscribeTrades,
+            SubscribeBookDeltas, SubscribeQuotes, SubscribeTrades, TradesResponse, UnsubscribeBars,
+            UnsubscribeBookDeltas, UnsubscribeQuotes, UnsubscribeTrades,
         },
     },
 };
@@ -718,52 +717,6 @@ impl DataClient for HyperliquidDataClient {
         get_runtime().spawn(async move {
             if let Err(e) = ws.unsubscribe_book(instrument_id).await {
                 tracing::error!("Failed to unsubscribe from book deltas: {e:?}");
-            }
-        });
-
-        Ok(())
-    }
-
-    fn subscribe_book_snapshots(
-        &mut self,
-        subscription: &SubscribeBookSnapshots,
-    ) -> anyhow::Result<()> {
-        tracing::debug!(
-            "Subscribing to book snapshots: {}",
-            subscription.instrument_id
-        );
-
-        if subscription.book_type != BookType::L2_MBP {
-            anyhow::bail!("Hyperliquid only supports L2_MBP order book snapshots");
-        }
-
-        let ws = self.ws_client.clone();
-        let instrument_id = subscription.instrument_id;
-
-        get_runtime().spawn(async move {
-            if let Err(e) = ws.subscribe_quotes(instrument_id).await {
-                tracing::error!("Failed to subscribe to book snapshots: {e:?}");
-            }
-        });
-
-        Ok(())
-    }
-
-    fn unsubscribe_book_snapshots(
-        &mut self,
-        unsubscription: &UnsubscribeBookSnapshots,
-    ) -> anyhow::Result<()> {
-        tracing::debug!(
-            "Unsubscribing from book snapshots: {}",
-            unsubscription.instrument_id
-        );
-
-        let ws = self.ws_client.clone();
-        let instrument_id = unsubscription.instrument_id;
-
-        get_runtime().spawn(async move {
-            if let Err(e) = ws.unsubscribe_quotes(instrument_id).await {
-                tracing::error!("Failed to unsubscribe from book snapshots: {e:?}");
             }
         });
 

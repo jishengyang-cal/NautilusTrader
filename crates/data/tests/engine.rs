@@ -38,12 +38,12 @@ use nautilus_common::{
     messages::data::{
         DataCommand, RequestBars, RequestBookDepth, RequestBookSnapshot, RequestCommand,
         RequestCustomData, RequestInstrument, RequestInstruments, RequestQuotes, RequestTrades,
-        SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10, SubscribeBookSnapshots,
-        SubscribeCommand, SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices,
-        SubscribeInstrument, SubscribeMarkPrices, SubscribeQuotes, SubscribeTrades,
-        UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeBookSnapshots, UnsubscribeCommand,
-        UnsubscribeCustomData, UnsubscribeFundingRates, UnsubscribeIndexPrices,
-        UnsubscribeInstrument, UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
+        SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10, SubscribeCommand,
+        SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
+        SubscribeMarkPrices, SubscribeQuotes, SubscribeTrades, UnsubscribeBars,
+        UnsubscribeBookDeltas, UnsubscribeCommand, UnsubscribeCustomData, UnsubscribeFundingRates,
+        UnsubscribeIndexPrices, UnsubscribeInstrument, UnsubscribeMarkPrices, UnsubscribeQuotes,
+        UnsubscribeTrades,
     },
     msgbus::{
         self, MessageBus,
@@ -54,6 +54,8 @@ use nautilus_common::{
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_data::{client::DataClientAdapter, engine::DataEngine};
+#[cfg(feature = "defi")]
+use nautilus_model::defi::tick_map::tick_math::get_tick_at_sqrt_ratio;
 #[cfg(feature = "defi")]
 use nautilus_model::defi::{AmmType, Dex, DexType, chain::chains};
 #[cfg(feature = "defi")]
@@ -69,7 +71,6 @@ use nautilus_model::{
         OrderBookDeltas, OrderBookDeltas_API, OrderBookDepth10, QuoteTick, TradeTick,
         stubs::{stub_delta, stub_deltas, stub_depth10},
     },
-    defi::tick_map::tick_math::get_tick_at_sqrt_ratio,
     enums::{BookType, PriceType},
     identifiers::{ClientId, TraderId, Venue},
     instruments::{CurrencyPair, Instrument, InstrumentAny, stubs::audusd_sim},
@@ -432,72 +433,6 @@ fn test_execute_subscribe_book_deltas(
     assert!(
         !data_engine
             .subscribed_book_deltas()
-            .contains(&audusd_sim.id)
-    );
-    assert_eq!(recorder.borrow().as_slice(), &[sub_cmd, unsub_cmd]);
-}
-
-#[rstest]
-fn test_execute_subscribe_book_snapshots(
-    audusd_sim: CurrencyPair,
-    data_engine: Rc<RefCell<DataEngine>>,
-    clock: Rc<RefCell<TestClock>>,
-    cache: Rc<RefCell<Cache>>,
-    client_id: ClientId,
-    venue: Venue,
-) {
-    let mut data_engine = data_engine.borrow_mut();
-    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
-    register_mock_client(
-        clock,
-        cache,
-        client_id,
-        venue,
-        None,
-        &recorder,
-        &mut data_engine,
-    );
-
-    let inst_any = InstrumentAny::CurrencyPair(audusd_sim);
-    data_engine.process(&inst_any as &dyn Any);
-
-    let sub = SubscribeBookSnapshots::new(
-        audusd_sim.id,
-        BookType::L2_MBP,
-        Some(client_id),
-        Some(venue),
-        UUID4::new(),
-        UnixNanos::default(),
-        None,
-        NonZeroUsize::new(1_000).unwrap(),
-        None,
-    );
-    let sub_cmd = DataCommand::Subscribe(SubscribeCommand::BookSnapshots(sub));
-    data_engine.execute(&sub_cmd);
-
-    assert!(
-        data_engine
-            .subscribed_book_snapshots()
-            .contains(&audusd_sim.id)
-    );
-    {
-        assert_eq!(recorder.borrow().as_slice(), std::slice::from_ref(&sub_cmd));
-    }
-
-    let unsub = UnsubscribeBookSnapshots::new(
-        audusd_sim.id,
-        Some(client_id),
-        Some(venue),
-        UUID4::new(),
-        UnixNanos::default(),
-        None,
-    );
-    let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::BookSnapshots(unsub));
-    data_engine.execute(&unsub_cmd);
-
-    assert!(
-        !data_engine
-            .subscribed_book_snapshots()
             .contains(&audusd_sim.id)
     );
     assert_eq!(recorder.borrow().as_slice(), &[sub_cmd, unsub_cmd]);

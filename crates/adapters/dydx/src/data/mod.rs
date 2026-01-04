@@ -29,10 +29,9 @@ use nautilus_common::{
         data::{
             BarsResponse, InstrumentResponse, InstrumentsResponse, RequestBars, RequestInstrument,
             RequestInstruments, RequestTrades, SubscribeBars, SubscribeBookDeltas,
-            SubscribeBookSnapshots, SubscribeInstrument, SubscribeInstruments, SubscribeQuotes,
-            SubscribeTrades, TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas,
-            UnsubscribeBookSnapshots, UnsubscribeInstrument, UnsubscribeInstruments,
-            UnsubscribeQuotes, UnsubscribeTrades,
+            SubscribeInstrument, SubscribeInstruments, SubscribeQuotes, SubscribeTrades,
+            TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeInstrument,
+            UnsubscribeInstruments, UnsubscribeQuotes, UnsubscribeTrades,
         },
     },
 };
@@ -487,31 +486,6 @@ impl DataClient for DydxDataClient {
         Ok(())
     }
 
-    fn subscribe_book_snapshots(&mut self, cmd: &SubscribeBookSnapshots) -> anyhow::Result<()> {
-        if cmd.book_type != BookType::L2_MBP {
-            anyhow::bail!(
-                "dYdX only supports L2_MBP order book snapshots, received {:?}",
-                cmd.book_type
-            );
-        }
-
-        // Track active subscription for periodic refresh
-        self.active_orderbook_subs.insert(cmd.instrument_id, ());
-
-        let ws = self.ws_client()?.clone();
-        let instrument_id = cmd.instrument_id;
-
-        get_runtime().spawn(async move {
-            if let Err(e) = ws.subscribe_orderbook(instrument_id).await {
-                tracing::error!(
-                    "Failed to subscribe to orderbook snapshot for {instrument_id}: {e:?}"
-                );
-            }
-        });
-
-        Ok(())
-    }
-
     fn subscribe_quotes(&mut self, cmd: &SubscribeQuotes) -> anyhow::Result<()> {
         // dYdX doesn't have a dedicated quotes channel
         // Quotes are synthesized from order book deltas
@@ -612,27 +586,6 @@ impl DataClient for DydxDataClient {
                     .context("orderbook unsubscription")
             },
             "dYdX orderbook unsubscription",
-        );
-
-        Ok(())
-    }
-
-    fn unsubscribe_book_snapshots(&mut self, cmd: &UnsubscribeBookSnapshots) -> anyhow::Result<()> {
-        // dYdX orderbook channel provides both snapshots and deltas.
-        // Unsubscribing snapshots uses the same underlying channel as deltas.
-        // Remove from active subscription tracking
-        self.active_orderbook_subs.remove(&cmd.instrument_id);
-
-        let ws = self.ws_client()?.clone();
-        let instrument_id = cmd.instrument_id;
-
-        self.spawn_ws(
-            async move {
-                ws.unsubscribe_orderbook(instrument_id)
-                    .await
-                    .context("orderbook snapshot unsubscription")
-            },
-            "dYdX orderbook snapshot unsubscription",
         );
 
         Ok(())

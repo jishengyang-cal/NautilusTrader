@@ -30,10 +30,9 @@ use nautilus_common::{
         data::{
             BarsResponse, DataResponse, InstrumentResponse, InstrumentsResponse, RequestBars,
             RequestInstrument, RequestInstruments, RequestTrades, SubscribeBars,
-            SubscribeBookDeltas, SubscribeBookSnapshots, SubscribeFundingRates,
-            SubscribeIndexPrices, SubscribeInstrument, SubscribeInstruments, SubscribeMarkPrices,
-            SubscribeQuotes, SubscribeTrades, TradesResponse, UnsubscribeBars,
-            UnsubscribeBookDeltas, UnsubscribeBookSnapshots, UnsubscribeFundingRates,
+            SubscribeBookDeltas, SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
+            SubscribeInstruments, SubscribeMarkPrices, SubscribeQuotes, SubscribeTrades,
+            TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeFundingRates,
             UnsubscribeIndexPrices, UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
         },
     },
@@ -612,29 +611,6 @@ impl DataClient for OKXDataClient {
         Ok(())
     }
 
-    fn subscribe_book_snapshots(&mut self, cmd: &SubscribeBookSnapshots) -> anyhow::Result<()> {
-        if cmd.book_type != BookType::L2_MBP {
-            anyhow::bail!("OKX only supports L2_MBP order book snapshots");
-        }
-        let depth = cmd.depth.map_or(5, |d| d.get());
-        if depth != 5 {
-            anyhow::bail!("OKX only supports depth=5 snapshots");
-        }
-
-        let ws = self.public_ws()?.clone();
-        let instrument_id = cmd.instrument_id;
-
-        self.spawn_ws(
-            async move {
-                ws.subscribe_book_depth5(instrument_id)
-                    .await
-                    .context("books5 subscription")
-            },
-            "order book snapshot subscription",
-        );
-        Ok(())
-    }
-
     fn subscribe_quotes(&mut self, cmd: &SubscribeQuotes) -> anyhow::Result<()> {
         let ws = self.public_ws()?.clone();
         let instrument_id = cmd.instrument_id;
@@ -761,21 +737,6 @@ impl DataClient for OKXDataClient {
                 Ok(())
             },
             "order book unsubscribe",
-        );
-        Ok(())
-    }
-
-    fn unsubscribe_book_snapshots(&mut self, cmd: &UnsubscribeBookSnapshots) -> anyhow::Result<()> {
-        let ws = self.public_ws()?.clone();
-        let instrument_id = cmd.instrument_id;
-
-        self.spawn_ws(
-            async move {
-                ws.unsubscribe_book_depth5(instrument_id)
-                    .await
-                    .context("book depth5 unsubscribe")
-            },
-            "order book snapshot unsubscribe",
         );
         Ok(())
     }

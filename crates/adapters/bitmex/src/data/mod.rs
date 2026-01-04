@@ -33,10 +33,9 @@ use nautilus_common::{
         data::{
             BarsResponse, DataResponse, InstrumentResponse, InstrumentsResponse, RequestBars,
             RequestInstrument, RequestInstruments, RequestTrades, SubscribeBars,
-            SubscribeBookDeltas, SubscribeBookDepth10, SubscribeBookSnapshots,
-            SubscribeFundingRates, SubscribeIndexPrices, SubscribeMarkPrices, SubscribeQuotes,
-            SubscribeTrades, TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas,
-            UnsubscribeBookDepth10, UnsubscribeBookSnapshots, UnsubscribeFundingRates,
+            SubscribeBookDeltas, SubscribeBookDepth10, SubscribeFundingRates, SubscribeIndexPrices,
+            SubscribeMarkPrices, SubscribeQuotes, SubscribeTrades, TradesResponse, UnsubscribeBars,
+            UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeFundingRates,
             UnsubscribeIndexPrices, UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
         },
     },
@@ -527,36 +526,6 @@ impl DataClient for BitmexDataClient {
         Ok(())
     }
 
-    fn subscribe_book_snapshots(&mut self, cmd: &SubscribeBookSnapshots) -> anyhow::Result<()> {
-        if cmd.book_type != BookType::L2_MBP {
-            anyhow::bail!("BitMEX only supports L2_MBP order book snapshots");
-        }
-
-        let depth = cmd.depth.map_or(10, |d| d.get());
-        if depth != 10 {
-            tracing::warn!("BitMEX orderBook10 provides 10 levels; requested depth={depth}");
-        }
-
-        let instrument_id = cmd.instrument_id;
-        let ws = self.ws_client()?.clone();
-        let book_channels = Arc::clone(&self.book_channels);
-
-        self.spawn_ws(
-            async move {
-                ws.subscribe_book_depth10(instrument_id)
-                    .await
-                    .map_err(|err| anyhow::anyhow!(err))?;
-                book_channels
-                    .write()
-                    .expect("book channel cache lock poisoned")
-                    .insert(instrument_id, BitmexBookChannel::OrderBook10);
-                Ok(())
-            },
-            "BitMEX book snapshot subscription",
-        );
-        Ok(())
-    }
-
     fn subscribe_quotes(&mut self, cmd: &SubscribeQuotes) -> anyhow::Result<()> {
         let instrument_id = cmd.instrument_id;
         let ws = self.ws_client()?.clone();
@@ -696,26 +665,6 @@ impl DataClient for BitmexDataClient {
                     .map_err(|err| anyhow::anyhow!(err))
             },
             "BitMEX book depth10 unsubscribe",
-        );
-        Ok(())
-    }
-
-    fn unsubscribe_book_snapshots(&mut self, cmd: &UnsubscribeBookSnapshots) -> anyhow::Result<()> {
-        let instrument_id = cmd.instrument_id;
-        let ws = self.ws_client()?.clone();
-        let book_channels = Arc::clone(&self.book_channels);
-
-        self.spawn_ws(
-            async move {
-                book_channels
-                    .write()
-                    .expect("book channel cache lock poisoned")
-                    .remove(&instrument_id);
-                ws.unsubscribe_book_depth10(instrument_id)
-                    .await
-                    .map_err(|err| anyhow::anyhow!(err))
-            },
-            "BitMEX book snapshot unsubscribe",
         );
         Ok(())
     }

@@ -488,7 +488,10 @@ impl DataEngine {
     /// Returns all instrument IDs for which book snapshot subscriptions exist.
     #[must_use]
     pub fn subscribed_book_snapshots(&self) -> Vec<InstrumentId> {
-        self.collect_subscriptions(|client| &client.subscriptions_book_snapshots)
+        self.book_intervals
+            .values()
+            .flat_map(|set| set.iter().copied())
+            .collect()
     }
 
     /// Returns all instrument IDs for which quote subscriptions exist.
@@ -945,10 +948,6 @@ impl DataEngine {
     }
 
     fn subscribe_book_snapshots(&mut self, cmd: &SubscribeBookSnapshots) -> anyhow::Result<()> {
-        if self.subscribed_book_deltas().contains(&cmd.instrument_id) {
-            return Ok(());
-        }
-
         if cmd.instrument_id.is_synthetic() {
             anyhow::bail!("Cannot subscribe for synthetic instrument `OrderBookDelta` data");
         }
@@ -1008,7 +1007,10 @@ impl DataEngine {
                 .expect(FAILED);
         }
 
-        self.setup_book_updater(&cmd.instrument_id, cmd.book_type, false, true)?;
+        // Only set up book updater if not already subscribed to deltas
+        if !self.subscribed_book_deltas().contains(&cmd.instrument_id) {
+            self.setup_book_updater(&cmd.instrument_id, cmd.book_type, false, true)?;
+        }
 
         Ok(())
     }
@@ -1069,7 +1071,12 @@ impl DataEngine {
     }
 
     fn unsubscribe_book_snapshots(&mut self, cmd: &UnsubscribeBookSnapshots) -> anyhow::Result<()> {
-        if !self.subscribed_book_deltas().contains(&cmd.instrument_id) {
+        let is_subscribed = self
+            .book_intervals
+            .values()
+            .any(|set| set.contains(&cmd.instrument_id));
+
+        if !is_subscribed {
             log::warn!("Cannot unsubscribe from `OrderBook` snapshots: not subscribed");
             return Ok(());
         }

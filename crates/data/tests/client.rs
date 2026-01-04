@@ -38,7 +38,6 @@ use nautilus_common::{
             SubscribeBars,
             SubscribeBookDeltas,
             SubscribeBookDepth10,
-            SubscribeBookSnapshots,
             SubscribeCustomData,
             SubscribeFundingRates,
             SubscribeIndexPrices,
@@ -52,7 +51,6 @@ use nautilus_common::{
             UnsubscribeBars,
             UnsubscribeBookDeltas,
             UnsubscribeBookDepth10,
-            UnsubscribeBookSnapshots,
             UnsubscribeCustomData,
             UnsubscribeFundingRates,
             UnsubscribeIndexPrices,
@@ -71,7 +69,7 @@ use nautilus_data::client::DataClientAdapter;
 use nautilus_model::{
     data::{BarType, DataType},
     enums::BookType,
-    identifiers::{ClientId, InstrumentId, Venue},
+    identifiers::{ClientId, Venue},
     instruments::stubs::audusd_sim,
     stubs::TestDefault,
 };
@@ -82,7 +80,7 @@ use {
         DefiSubscribeCommand, DefiUnsubscribeCommand, SubscribeBlocks, SubscribePoolSwaps,
         UnsubscribeBlocks, UnsubscribePoolSwaps,
     },
-    nautilus_model::defi::Blockchain,
+    nautilus_model::{defi::Blockchain, identifiers::InstrumentId},
 };
 
 #[fixture]
@@ -317,51 +315,6 @@ fn test_book_depth10_subscription(
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(!adapter.subscriptions_book_depth10.contains(&inst_id));
-}
-
-#[rstest]
-fn test_book_snapshots_subscription(
-    clock: Rc<RefCell<TestClock>>,
-    cache: Rc<RefCell<Cache>>,
-    client_id: ClientId,
-    venue: Venue,
-) {
-    let client = Box::new(MockDataClient::new(clock, cache, client_id, Some(venue)));
-    let mut adapter = DataClientAdapter::new(client_id, Some(venue), false, false, client);
-
-    let instrument = audusd_sim();
-    let inst_id = instrument.id;
-    let depth = NonZeroUsize::new(10);
-    let interval_ms = NonZeroUsize::new(1000).unwrap();
-
-    let sub = SubscribeCommand::BookSnapshots(SubscribeBookSnapshots::new(
-        inst_id,
-        BookType::L2_MBP,
-        Some(client_id),
-        Some(venue),
-        UUID4::new(),
-        UnixNanos::default(),
-        depth,
-        interval_ms,
-        None,
-    ));
-    adapter.execute_subscribe(&sub);
-    assert!(adapter.subscriptions_book_snapshots.contains(&inst_id));
-
-    // Idempotency check
-    adapter.execute_subscribe(&sub);
-    assert_eq!(adapter.subscriptions_book_snapshots.len(), 1);
-
-    let unsub = UnsubscribeCommand::BookSnapshots(UnsubscribeBookSnapshots::new(
-        inst_id,
-        Some(client_id),
-        Some(venue),
-        UUID4::new(),
-        UnixNanos::default(),
-        None,
-    ));
-    adapter.execute_unsubscribe(&unsub);
-    assert!(!adapter.subscriptions_book_snapshots.contains(&inst_id));
 }
 
 #[rstest]
@@ -975,63 +928,6 @@ fn test_book_depth10_unsubscribe_idempotent(
     adapter.execute_unsubscribe(&unsub);
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_book_depth10.is_empty());
-}
-
-#[rstest]
-fn test_book_snapshots_unsubscribe_noop(
-    clock: Rc<RefCell<TestClock>>,
-    cache: Rc<RefCell<Cache>>,
-    client_id: ClientId,
-    venue: Venue,
-) {
-    let client = Box::new(MockDataClient::new(clock, cache, client_id, Some(venue)));
-    let mut adapter = DataClientAdapter::new(client_id, Some(venue), false, false, client);
-    let inst_id = audusd_sim().id;
-    let unsub = UnsubscribeCommand::BookSnapshots(UnsubscribeBookSnapshots::new(
-        inst_id,
-        Some(client_id),
-        Some(venue),
-        UUID4::new(),
-        UnixNanos::default(),
-        None,
-    ));
-    adapter.execute_unsubscribe(&unsub);
-    assert!(adapter.subscriptions_book_snapshots.is_empty());
-}
-
-#[rstest]
-fn test_book_snapshots_unsubscribe_idempotent(
-    clock: Rc<RefCell<TestClock>>,
-    cache: Rc<RefCell<Cache>>,
-    client_id: ClientId,
-    venue: Venue,
-) {
-    let client = Box::new(MockDataClient::new(clock, cache, client_id, Some(venue)));
-    let mut adapter = DataClientAdapter::new(client_id, Some(venue), false, false, client);
-    let inst_id = audusd_sim().id;
-    let sub = SubscribeCommand::BookSnapshots(SubscribeBookSnapshots::new(
-        inst_id,
-        BookType::L2_MBP,
-        Some(client_id),
-        Some(venue),
-        UUID4::new(),
-        UnixNanos::default(),
-        Some(NonZeroUsize::new(10).unwrap()),
-        NonZeroUsize::new(1000).unwrap(),
-        None,
-    ));
-    adapter.execute_subscribe(&sub);
-    let unsub = UnsubscribeCommand::BookSnapshots(UnsubscribeBookSnapshots::new(
-        inst_id,
-        Some(client_id),
-        Some(venue),
-        UUID4::new(),
-        UnixNanos::default(),
-        None,
-    ));
-    adapter.execute_unsubscribe(&unsub);
-    adapter.execute_unsubscribe(&unsub);
-    assert!(adapter.subscriptions_book_snapshots.is_empty());
 }
 
 #[rstest]
