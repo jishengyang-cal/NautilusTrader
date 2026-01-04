@@ -249,7 +249,7 @@ impl DatabaseQueries {
     ) -> anyhow::Result<AHashMap<Ustr, Currency>> {
         let mut currencies = AHashMap::new();
         let pattern = format!("{trader_key}{REDIS_DELIMITER}{CURRENCIES}*");
-        tracing::debug!("Loading {pattern}");
+        log::debug!("Loading {pattern}");
 
         let mut con = con.clone();
         let keys = Self::scan_keys(&mut con, pattern).await?;
@@ -284,7 +284,7 @@ impl DatabaseQueries {
             }
         }
 
-        tracing::debug!("Loaded {} currencies(s)", currencies.len());
+        log::debug!("Loaded {} currencies(s)", currencies.len());
 
         Ok(currencies)
     }
@@ -306,7 +306,7 @@ impl DatabaseQueries {
     ) -> anyhow::Result<AHashMap<InstrumentId, InstrumentAny>> {
         let mut instruments = AHashMap::new();
         let pattern = format!("{trader_key}{REDIS_DELIMITER}{INSTRUMENTS}*");
-        tracing::debug!("Loading {pattern}");
+        log::debug!("Loading {pattern}");
 
         let mut con = con.clone();
         let keys = Self::scan_keys(&mut con, pattern).await?;
@@ -353,7 +353,7 @@ impl DatabaseQueries {
 
         // Insert all Instrument_id (key) and Instrument (value) into the HashMap, filtering out None values.
         instruments.extend(join_all(futures).await.into_iter().flatten());
-        tracing::debug!("Loaded {} instruments(s)", instruments.len());
+        log::debug!("Loaded {} instruments(s)", instruments.len());
 
         Ok(instruments)
     }
@@ -375,7 +375,7 @@ impl DatabaseQueries {
     ) -> anyhow::Result<AHashMap<InstrumentId, SyntheticInstrument>> {
         let mut synthetics = AHashMap::new();
         let pattern = format!("{trader_key}{REDIS_DELIMITER}{SYNTHETICS}*");
-        tracing::debug!("Loading {pattern}");
+        log::debug!("Loading {pattern}");
 
         let mut con = con.clone();
         let keys = Self::scan_keys(&mut con, pattern).await?;
@@ -422,7 +422,7 @@ impl DatabaseQueries {
 
         // Insert all Instrument_id (key) and Synthetic (value) into the HashMap, filtering out None values.
         synthetics.extend(join_all(futures).await.into_iter().flatten());
-        tracing::debug!("Loaded {} synthetics(s)", synthetics.len());
+        log::debug!("Loaded {} synthetics(s)", synthetics.len());
 
         Ok(synthetics)
     }
@@ -444,7 +444,7 @@ impl DatabaseQueries {
     ) -> anyhow::Result<AHashMap<AccountId, AccountAny>> {
         let mut accounts = AHashMap::new();
         let pattern = format!("{trader_key}{REDIS_DELIMITER}{ACCOUNTS}*");
-        tracing::debug!("Loading {pattern}");
+        log::debug!("Loading {pattern}");
 
         let mut con = con.clone();
         let keys = Self::scan_keys(&mut con, pattern).await?;
@@ -478,7 +478,7 @@ impl DatabaseQueries {
 
         // Insert all Account_id (key) and Account (value) into the HashMap, filtering out None values.
         accounts.extend(join_all(futures).await.into_iter().flatten());
-        tracing::debug!("Loaded {} accounts(s)", accounts.len());
+        log::debug!("Loaded {} accounts(s)", accounts.len());
 
         Ok(accounts)
     }
@@ -500,7 +500,7 @@ impl DatabaseQueries {
     ) -> anyhow::Result<AHashMap<ClientOrderId, OrderAny>> {
         let mut orders = AHashMap::new();
         let pattern = format!("{trader_key}{REDIS_DELIMITER}{ORDERS}*");
-        tracing::debug!("Loading {pattern}");
+        log::debug!("Loading {pattern}");
 
         let mut con = con.clone();
         let keys = Self::scan_keys(&mut con, pattern).await?;
@@ -534,7 +534,7 @@ impl DatabaseQueries {
 
         // Insert all Client-Order-Id (key) and Order (value) into the HashMap, filtering out None values.
         orders.extend(join_all(futures).await.into_iter().flatten());
-        tracing::debug!("Loaded {} order(s)", orders.len());
+        log::debug!("Loaded {} order(s)", orders.len());
 
         Ok(orders)
     }
@@ -556,7 +556,7 @@ impl DatabaseQueries {
     ) -> anyhow::Result<AHashMap<PositionId, Position>> {
         let mut positions = AHashMap::new();
         let pattern = format!("{trader_key}{REDIS_DELIMITER}{POSITIONS}*");
-        tracing::debug!("Loading {pattern}");
+        log::debug!("Loading {pattern}");
 
         let mut con = con.clone();
         let keys = Self::scan_keys(&mut con, pattern).await?;
@@ -590,7 +590,7 @@ impl DatabaseQueries {
 
         // Insert all Position_id (key) and Position (value) into the HashMap, filtering out None values.
         positions.extend(join_all(futures).await.into_iter().flatten());
-        tracing::debug!("Loaded {} position(s)", positions.len());
+        log::debug!("Loaded {} position(s)", positions.len());
 
         Ok(positions)
     }

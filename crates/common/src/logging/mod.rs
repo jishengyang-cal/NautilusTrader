@@ -149,9 +149,8 @@ pub fn logging_clock_set_static_time(time_ns: u64) {
 
 /// Initialize tracing.
 ///
-/// Tracing is meant to be used to trace/debug async Rust code. It can be
-/// configured to filter modules and write up to a specific level by passing
-/// a configuration using the `RUST_LOG` environment variable.
+/// Tracing is used by adapter crates for async Rust debugging. It can be
+/// configured via the `RUST_LOG` environment variable.
 ///
 /// # Safety
 ///
@@ -162,7 +161,6 @@ pub fn logging_clock_set_static_time(time_ns: u64) {
 ///
 /// Returns an error if tracing subscriber fails to initialize.
 pub fn init_tracing() -> anyhow::Result<()> {
-    // Skip tracing initialization if `RUST_LOG` is not set
     if let Ok(v) = env::var("RUST_LOG") {
         let env_filter = EnvFilter::new(v.clone());
 
@@ -258,29 +256,29 @@ pub fn parse_component_levels(
     }
 }
 
-/// Logs that a task has started using `tracing::debug!`.
+/// Logs that a task has started.
 pub fn log_task_started(task_name: &str) {
-    tracing::debug!("Started task '{task_name}'");
+    log::debug!("Started task '{task_name}'");
 }
 
-/// Logs that a task has stopped using `tracing::debug!`.
+/// Logs that a task has stopped.
 pub fn log_task_stopped(task_name: &str) {
-    tracing::debug!("Stopped task '{task_name}'");
+    log::debug!("Stopped task '{task_name}'");
 }
 
-/// Logs that a task is being awaited using `tracing::debug!`.
+/// Logs that a task is being awaited.
 pub fn log_task_awaiting(task_name: &str) {
-    tracing::debug!("Awaiting task '{task_name}'");
+    log::debug!("Awaiting task '{task_name}'");
 }
 
-/// Logs that a task was aborted using `tracing::debug!`.
+/// Logs that a task was aborted.
 pub fn log_task_aborted(task_name: &str) {
-    tracing::debug!("Aborted task '{task_name}'");
+    log::debug!("Aborted task '{task_name}'");
 }
 
-/// Logs that there was an error in a task `tracing::error!`.
+/// Logs that there was an error in a task.
 pub fn log_task_error(task_name: &str, e: &anyhow::Error) {
-    tracing::error!("Error in task '{task_name}': {e}");
+    log::error!("Error in task '{task_name}': {e}");
 }
 
 #[cfg(test)]

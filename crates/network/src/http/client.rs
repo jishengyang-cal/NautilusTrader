@@ -362,7 +362,7 @@ impl InnerHttpClient {
                     .parse()
                     .map_err(|e| HttpClientError::from(format!("Invalid header value: {e}")))?,
             ) {
-                tracing::trace!("Replaced header '{key}': old={old_value:?}, new={header_value}");
+                log::trace!("Replaced header '{key}': old={old_value:?}, new={header_value}");
             }
         }
 
@@ -384,7 +384,7 @@ impl InnerHttpClient {
             None => request_builder.build().map_err(HttpClientError::from)?,
         };
 
-        tracing::trace!("{request:?}");
+        log::trace!("{request:?}");
 
         let response = self
             .client
@@ -401,7 +401,7 @@ impl InnerHttpClient {
     ///
     /// Returns an error if unable to send request or times out.
     pub async fn to_response(&self, response: Response) -> Result<HttpResponse, HttpClientError> {
-        tracing::trace!("{response:?}");
+        log::trace!("{response:?}");
 
         let headers: HashMap<String, String> = self
             .header_keys

@@ -23,6 +23,8 @@ use std::{
     },
 };
 
+#[cfg(feature = "python")]
+use nautilus_core::consts::NAUTILUS_PREFIX;
 use nautilus_core::{
     UUID4, UnixNanos,
     correctness::{FAILED, check_valid_string_utf8},
@@ -279,7 +281,7 @@ fn call_python_with_time_event(event: TimeEvent, callback: &Py<PyAny>) {
 
         match callback.call1(py, (capsule,)) {
             Ok(_) => {}
-            Err(e) => tracing::error!("Error on callback: {e:?}"),
+            Err(e) => eprintln!("{NAUTILUS_PREFIX} Error on callback: {e:?}"),
         }
     });
 }

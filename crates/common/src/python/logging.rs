@@ -63,9 +63,8 @@ impl FileWriterConfig {
 
 /// Initialize tracing.
 ///
-/// Tracing is meant to be used to trace/debug async Rust code. It can be
-/// configured to filter modules and write up to a specific level only using
-/// by passing a configuration using the `RUST_LOG` environment variable.
+/// Tracing is used by adapter crates for async Rust debugging. It can be
+/// configured via the `RUST_LOG` environment variable.
 ///
 /// # Safety
 ///

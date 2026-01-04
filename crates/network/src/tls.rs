@@ -196,9 +196,8 @@ pub fn create_tls_config_from_certs_dir(
         );
     }
 
-    tracing::warn!(
-        "No TLS client certificate/key found in {:?}; proceeding without client authentication",
-        certs_dir
+    log::warn!(
+        "No TLS client certificate/key found in {certs_dir:?}; proceeding without client authentication"
     );
 
     Ok(builder.with_no_client_auth())

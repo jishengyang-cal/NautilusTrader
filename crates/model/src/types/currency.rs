@@ -185,7 +185,7 @@ impl Currency {
             let currency = Self::new(code_str, 8, 0, code_str, CurrencyType::Crypto);
 
             if let Err(e) = Self::register(currency, false) {
-                tracing::error!("Failed to register currency '{code_str}': {e}");
+                log::error!("Failed to register currency '{code_str}': {e}");
             }
 
             currency
@@ -214,7 +214,7 @@ impl Currency {
         let ctx = context.unwrap_or("unknown");
 
         if trimmed.is_empty() {
-            tracing::warn!(
+            log::warn!(
                 "get_or_create_crypto_with_context called with empty code (context: {ctx}), using USDT as fallback"
             );
             return Self::USDT();

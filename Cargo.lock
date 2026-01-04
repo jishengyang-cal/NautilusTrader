@@ -5156,12 +5156,12 @@ dependencies = [
  "criterion",
  "ed25519-dalek",
  "hex",
+ "log",
  "nautilus-core",
  "pem",
  "pyo3",
  "rstest",
  "rustls",
- "tracing",
  "webpki-roots 1.0.5",
 ]
 
@@ -5454,7 +5454,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "tracing",
  "ustr",
 ]
 
@@ -5531,7 +5530,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tracing",
  "ustr",
 ]
 
@@ -5565,7 +5563,6 @@ dependencies = [
  "strum",
  "tabled",
  "thiserror 2.0.17",
- "tracing",
  "ustr",
 ]
 
@@ -5582,6 +5579,7 @@ dependencies = [
  "futures",
  "futures-util",
  "http",
+ "log",
  "memchr",
  "nautilus-common",
  "nautilus-core",
@@ -5603,8 +5601,6 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
- "tracing",
- "tracing-test",
  "turmoil",
  "url",
  "ustr",

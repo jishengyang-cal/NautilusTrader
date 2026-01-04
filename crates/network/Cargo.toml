@@ -58,7 +58,7 @@ tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
+log = { workspace = true }
 url = { workspace = true }
 ustr = { workspace = true }
 webpki-roots = { workspace = true }
@@ -75,5 +75,4 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 rstest = { workspace = true }
 serde_json = { workspace = true }
-tracing-test = { workspace = true }
 turmoil = { workspace = true }

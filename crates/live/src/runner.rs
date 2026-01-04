@@ -216,7 +216,7 @@ impl AsyncRunner {
         loop {
             tokio::select! {
                 Some(()) = self.signal_rx.recv() => {
-                    tracing::info!("AsyncRunner received signal, shutting down");
+                    log::info!("AsyncRunner received signal, shutting down");
                     return;
                 },
                 Some(handler) = self.channels.time_evt_rx.recv() => {
@@ -235,7 +235,7 @@ impl AsyncRunner {
                     Self::handle_exec_event(evt);
                 },
                 else => {
-                    tracing::debug!("AsyncRunner all channels closed, exiting");
+                    log::debug!("AsyncRunner all channels closed, exiting");
                     return;
                 }
             };
