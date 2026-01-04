@@ -41,7 +41,10 @@ use std::{
     collections::HashMap,
     env,
     str::FromStr,
-    sync::atomic::{AtomicBool, AtomicU8, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
 };
 
 use ahash::AHashMap;
@@ -73,10 +76,42 @@ static LOGGING_BYPASSED: AtomicBool = AtomicBool::new(false);
 static LOGGING_REALTIME: AtomicBool = AtomicBool::new(true);
 static LOGGING_COLORED: AtomicBool = AtomicBool::new(true);
 static LOGGING_GUARDS_ACTIVE: AtomicU8 = AtomicU8::new(0);
+static LAZY_GUARD: OnceLock<Option<LogGuard>> = OnceLock::new();
 
 /// Returns whether the core logger is enabled.
 pub fn logging_is_initialized() -> bool {
     LOGGING_INITIALIZED.load(Ordering::Relaxed)
+}
+
+/// Ensures logging is initialized on first use.
+///
+/// If `NAUTILUS_LOG` is set and valid, initializes the logger with a default
+/// trader ID and instance ID. This enables lazy initialization for Rust-only
+/// binaries that don't go through the Python kernel initialization.
+///
+/// Returns `true` if logging is available (either already initialized or
+/// successfully lazy-initialized), `false` otherwise.
+pub fn ensure_logging_initialized() -> bool {
+    if LOGGING_INITIALIZED.load(Ordering::SeqCst) {
+        return true;
+    }
+
+    LAZY_GUARD.get_or_init(|| {
+        env::var("NAUTILUS_LOG")
+            .ok()
+            .and_then(|spec| LoggerConfig::from_spec(&spec).ok())
+            .and_then(|config| {
+                Logger::init_with_config(
+                    TraderId::default(),
+                    UUID4::default(),
+                    config,
+                    FileWriterConfig::default(),
+                )
+                .ok()
+            })
+    });
+
+    LOGGING_INITIALIZED.load(Ordering::SeqCst)
 }
 
 /// Sets the logging subsystem to bypass mode.
@@ -392,5 +427,43 @@ mod tests {
             LevelFilter::Warn
         );
         assert_eq!(map_log_level_to_filter(LogLevel::Error), LevelFilter::Error);
+    }
+
+    #[rstest]
+    fn test_ensure_logging_initialized_returns_consistent_value() {
+        // This test verifies ensure_logging_initialized() can be called safely.
+        // Due to Once semantics, we can only test one code path per process.
+        //
+        // With nextest (process isolation per test):
+        // - If NAUTILUS_LOG is unset, this returns false.
+        // - If NAUTILUS_LOG is set externally, it may return true.
+        //
+        // The key invariant: multiple calls return the same value.
+        let first_call = ensure_logging_initialized();
+        let second_call = ensure_logging_initialized();
+
+        assert_eq!(
+            first_call, second_call,
+            "ensure_logging_initialized must be idempotent"
+        );
+        assert_eq!(
+            first_call,
+            logging_is_initialized(),
+            "ensure_logging_initialized return value must match logging_is_initialized()"
+        );
+    }
+
+    #[rstest]
+    fn test_ensure_logging_initialized_fast_path() {
+        // If logging is already initialized, the fast path returns true immediately.
+        // This test documents the expected behavior.
+        if logging_is_initialized() {
+            assert!(
+                ensure_logging_initialized(),
+                "Fast path should return true when already initialized"
+            );
+        }
+        // If not initialized, we can't test the initialization path here
+        // without side effects that affect other tests.
     }
 }

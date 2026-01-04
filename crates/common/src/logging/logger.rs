@@ -18,6 +18,7 @@ use std::{
     sync::{Mutex, OnceLock, atomic::Ordering, mpsc::SendError},
 };
 
+use ahash::AHashMap;
 use indexmap::IndexMap;
 use log::{
     Level, LevelFilter, Log, STATIC_MAX_LEVEL,
@@ -273,6 +274,12 @@ impl Logger {
         config: LoggerConfig,
         file_config: FileWriterConfig,
     ) -> anyhow::Result<LogGuard> {
+        // Fast path: already initialized
+        if super::LOGGING_INITIALIZED.load(Ordering::SeqCst) {
+            return LogGuard::new()
+                .ok_or_else(|| anyhow::anyhow!("Logging already initialized but sender missing"));
+        }
+
         let (tx, rx) = std::sync::mpsc::channel::<LogEvent>();
 
         let logger_tx = tx.clone();
@@ -345,10 +352,16 @@ impl Logger {
             stdout_level,
             fileout_level,
             component_level,
+            module_level,
             log_components_only,
             is_colored,
             print_config: _,
         } = config;
+
+        // Pre-sort module filters by descending path length for O(n) longest-prefix lookup
+        let mut module_filters_sorted: Vec<(Ustr, LevelFilter)> =
+            module_level.into_iter().collect();
+        module_filters_sorted.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
 
         let trader_id_cache = Ustr::from(&trader_id);
 
@@ -369,15 +382,13 @@ impl Logger {
                              file_writer_opt: &mut Option<FileWriter>| {
             match event {
                 LogEvent::Log(line) => {
-                    let component_filter_level = component_level.get(&line.component);
-
-                    if log_components_only && component_filter_level.is_none() {
-                        return;
-                    }
-
-                    if let Some(&filter_level) = component_filter_level
-                        && line.level > filter_level
-                    {
+                    if should_filter_log(
+                        &line.component,
+                        line.level,
+                        &module_filters_sorted,
+                        &component_level,
+                        log_components_only,
+                    ) {
                         return;
                     }
 
@@ -468,6 +479,46 @@ impl Logger {
             }
         }
     }
+}
+
+/// Determines if a log line should be filtered out based on module and component filters.
+///
+/// Returns `true` if the line should be skipped (filtered out), `false` if it should be logged.
+///
+/// The `module_filters_sorted` slice must be pre-sorted by descending path length so the
+/// first `starts_with` match is the longest prefix.
+#[must_use]
+pub fn should_filter_log(
+    component: &Ustr,
+    line_level: log::Level,
+    module_filters_sorted: &[(Ustr, LevelFilter)],
+    component_level: &AHashMap<Ustr, LevelFilter>,
+    log_components_only: bool,
+) -> bool {
+    if module_filters_sorted.is_empty() && component_level.is_empty() {
+        return log_components_only;
+    }
+
+    // Module filter: first match in sorted list is longest prefix
+    let module_filter = module_filters_sorted
+        .iter()
+        .find(|(path, _)| component.starts_with(path.as_str()))
+        .map(|(_, level)| *level);
+
+    let component_filter = component_level.get(component).copied();
+
+    if log_components_only && module_filter.is_none() && component_filter.is_none() {
+        return true;
+    }
+
+    // Module filter takes precedence over component filter
+    if let Some(filter_level) = module_filter.or(component_filter)
+        && line_level > filter_level
+    {
+        return true;
+    }
+
+    false
 }
 
 /// Gracefully shuts down the logging subsystem.
@@ -681,6 +732,7 @@ mod tests {
                     Ustr::from("RiskEngine"),
                     LevelFilter::Error
                 )]),
+                module_level: AHashMap::new(),
                 log_components_only: false,
                 is_colored: true,
                 print_config: false,
@@ -697,6 +749,7 @@ mod tests {
                 stdout_level: LevelFilter::Warn,
                 fileout_level: LevelFilter::Error,
                 component_level: AHashMap::new(),
+                module_level: AHashMap::new(),
                 log_components_only: false,
                 is_colored: true,
                 print_config: true,
@@ -717,6 +770,7 @@ mod tests {
                     Ustr::from("RiskEngine"),
                     LevelFilter::Debug
                 )]),
+                module_level: AHashMap::new(),
                 log_components_only: true,
                 is_colored: true,
                 print_config: false,
@@ -817,6 +871,220 @@ mod tests {
 
         let display = format!("{line}");
         assert_eq!(display, "[ERROR] Component: Error occurred");
+    }
+
+    /// Helper to convert module level map to sorted vec (descending by path length)
+    fn sorted_module_filters(map: AHashMap<Ustr, LevelFilter>) -> Vec<(Ustr, LevelFilter)> {
+        let mut v: Vec<_> = map.into_iter().collect();
+        v.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        v
+    }
+
+    #[rstest]
+    fn test_filter_no_filters_passes_all() {
+        let module_filters = vec![];
+        let component_level = AHashMap::new();
+
+        assert!(!should_filter_log(
+            &Ustr::from("anything"),
+            Level::Trace,
+            &module_filters,
+            &component_level,
+            false
+        ));
+    }
+
+    #[rstest]
+    fn test_filter_component_exact_match() {
+        let module_filters = vec![];
+        let component_level = AHashMap::from_iter([(Ustr::from("RiskEngine"), LevelFilter::Error)]);
+
+        assert!(should_filter_log(
+            &Ustr::from("RiskEngine"),
+            Level::Info,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(!should_filter_log(
+            &Ustr::from("RiskEngine"),
+            Level::Error,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(!should_filter_log(
+            &Ustr::from("Portfolio"),
+            Level::Info,
+            &module_filters,
+            &component_level,
+            false
+        ));
+    }
+
+    #[rstest]
+    fn test_filter_module_prefix_match() {
+        let module_filters = vec![(Ustr::from("nautilus_okx::websocket"), LevelFilter::Debug)];
+        let component_level = AHashMap::new();
+
+        assert!(!should_filter_log(
+            &Ustr::from("nautilus_okx::websocket"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(!should_filter_log(
+            &Ustr::from("nautilus_okx::websocket::handler"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(should_filter_log(
+            &Ustr::from("nautilus_okx::websocket::handler"),
+            Level::Trace,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(!should_filter_log(
+            &Ustr::from("nautilus_binance::data"),
+            Level::Trace,
+            &module_filters,
+            &component_level,
+            false
+        ));
+    }
+
+    #[rstest]
+    fn test_filter_longest_prefix_wins() {
+        let module_filters = sorted_module_filters(AHashMap::from_iter([
+            (Ustr::from("nautilus_okx"), LevelFilter::Error),
+            (Ustr::from("nautilus_okx::websocket"), LevelFilter::Debug),
+        ]));
+        let component_level = AHashMap::new();
+
+        assert!(!should_filter_log(
+            &Ustr::from("nautilus_okx::websocket::handler"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(should_filter_log(
+            &Ustr::from("nautilus_okx::data"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(!should_filter_log(
+            &Ustr::from("nautilus_okx::data"),
+            Level::Error,
+            &module_filters,
+            &component_level,
+            false
+        ));
+    }
+
+    #[rstest]
+    fn test_filter_module_precedence_over_component() {
+        let module_filters = vec![(Ustr::from("nautilus_okx::websocket"), LevelFilter::Debug)];
+        let component_level =
+            AHashMap::from_iter([(Ustr::from("nautilus_okx::websocket"), LevelFilter::Error)]);
+
+        assert!(!should_filter_log(
+            &Ustr::from("nautilus_okx::websocket"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            false
+        ));
+    }
+
+    #[rstest]
+    fn test_filter_log_components_only_blocks_unknown() {
+        let module_filters = vec![];
+        let component_level = AHashMap::from_iter([(Ustr::from("RiskEngine"), LevelFilter::Debug)]);
+
+        assert!(should_filter_log(
+            &Ustr::from("Portfolio"),
+            Level::Info,
+            &module_filters,
+            &component_level,
+            true
+        ));
+        assert!(!should_filter_log(
+            &Ustr::from("RiskEngine"),
+            Level::Info,
+            &module_filters,
+            &component_level,
+            true
+        ));
+    }
+
+    #[rstest]
+    fn test_filter_log_components_only_with_module() {
+        let module_filters = vec![(Ustr::from("nautilus_okx"), LevelFilter::Debug)];
+        let component_level = AHashMap::new();
+
+        assert!(!should_filter_log(
+            &Ustr::from("nautilus_okx::websocket"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            true
+        ));
+        assert!(should_filter_log(
+            &Ustr::from("nautilus_binance::data"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            true
+        ));
+    }
+
+    #[rstest]
+    fn test_filter_level_comparison() {
+        let module_filters = vec![];
+        let component_level = AHashMap::from_iter([(Ustr::from("Test"), LevelFilter::Warn)]);
+
+        assert!(!should_filter_log(
+            &Ustr::from("Test"),
+            Level::Error,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(!should_filter_log(
+            &Ustr::from("Test"),
+            Level::Warn,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(should_filter_log(
+            &Ustr::from("Test"),
+            Level::Info,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(should_filter_log(
+            &Ustr::from("Test"),
+            Level::Debug,
+            &module_filters,
+            &component_level,
+            false
+        ));
+        assert!(should_filter_log(
+            &Ustr::from("Test"),
+            Level::Trace,
+            &module_filters,
+            &component_level,
+            false
+        ));
     }
 
     // These tests use global logging state (one logger per process).
@@ -1140,6 +1408,107 @@ mod tests {
 
             // Bypass flag remains permanently set (no reset mechanism)
             assert!(LOGGING_BYPASSED.load(Ordering::Relaxed));
+        }
+
+        #[rstest]
+        fn test_module_level_filtering() {
+            // Configure module-level filters (note: requires :: to be a module filter):
+            // - nautilus::adapters=Warn (general adapter logs at Warn+)
+            // - nautilus::adapters::okx=Debug (OKX adapter logs at Debug+)
+            let config = LoggerConfig::from_spec(
+                "stdout=Off;fileout=Trace;nautilus::adapters=Warn;nautilus::adapters::okx=Debug",
+            )
+            .unwrap();
+
+            let temp_dir = tempdir().expect("Failed to create temporary directory");
+            let file_config = FileWriterConfig {
+                directory: Some(temp_dir.path().to_str().unwrap().to_string()),
+                ..Default::default()
+            };
+
+            let log_guard = Logger::init_with_config(
+                TraderId::from("TRADER-MOD"),
+                UUID4::new(),
+                config,
+                file_config,
+            )
+            .expect("Failed to initialize logger");
+
+            logging_clock_set_static_mode();
+            logging_clock_set_static_time(1_650_000_000_000_000);
+
+            // Log from nautilus::adapters::okx::websocket - should pass (Debug allowed)
+            log::debug!(
+                component = "nautilus::adapters::okx::websocket";
+                "OKX debug message"
+            );
+
+            // Log from nautilus::adapters::okx - should pass (Debug allowed)
+            log::info!(
+                component = "nautilus::adapters::okx";
+                "OKX info message"
+            );
+
+            // Log from nautilus::adapters::binance - should be filtered (only Warn+ allowed)
+            log::info!(
+                component = "nautilus::adapters::binance";
+                "Binance info message SHOULD NOT APPEAR"
+            );
+
+            // Log from nautilus::adapters::binance at Warn - should pass
+            log::warn!(
+                component = "nautilus::adapters::binance";
+                "Binance warn message"
+            );
+
+            // Log from unrelated component - should pass (no filter)
+            log::trace!(
+                component = "Portfolio";
+                "Portfolio trace message"
+            );
+
+            drop(log_guard);
+
+            wait_until(
+                || {
+                    std::fs::read_dir(&temp_dir)
+                        .expect("Failed to read directory")
+                        .filter_map(Result::ok)
+                        .any(|entry| entry.path().is_file())
+                },
+                Duration::from_secs(3),
+            );
+
+            let log_file_path = std::fs::read_dir(&temp_dir)
+                .expect("Failed to read directory")
+                .filter_map(Result::ok)
+                .find(|entry| entry.path().is_file())
+                .expect("No log file found")
+                .path();
+
+            let log_contents =
+                std::fs::read_to_string(log_file_path).expect("Error reading log file");
+
+            assert!(
+                log_contents.contains("OKX debug message"),
+                "OKX debug should pass (longer prefix wins)"
+            );
+            assert!(
+                log_contents.contains("OKX info message"),
+                "OKX info should pass"
+            );
+            assert!(
+                log_contents.contains("Binance warn message"),
+                "Binance warn should pass"
+            );
+            assert!(
+                log_contents.contains("Portfolio trace message"),
+                "Unfiltered component should pass"
+            );
+            assert!(
+                !log_contents.contains("SHOULD NOT APPEAR"),
+                "Binance info should be filtered (adapters=Warn)"
+            );
         }
     }
 }

@@ -124,6 +124,7 @@ pub fn py_init_logging(
         map_log_level_to_filter(level_stdout),
         level_file,
         component_levels,
+        AHashMap::new(), // module_level - not exposed to Python
         log_components_only.unwrap_or(false),
         is_colored.unwrap_or(true),
         print_config.unwrap_or(false),

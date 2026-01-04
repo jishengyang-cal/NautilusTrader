@@ -18,6 +18,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use ahash::AHashMap;
 use nautilus_core::{
     UUID4,
     ffi::{
@@ -113,6 +114,7 @@ pub unsafe extern "C" fn logging_init(
         level_stdout,
         level_file,
         component_levels,
+        AHashMap::new(), // module_level - not exposed to FFI
         u8_as_bool(log_components_only),
         u8_as_bool(is_colored),
         u8_as_bool(print_config),
