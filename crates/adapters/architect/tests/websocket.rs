@@ -47,6 +47,7 @@ use nautilus_model::{
 };
 use rstest::rstest;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde_json::json;
 use ustr::Ustr;
 
@@ -1134,7 +1135,7 @@ async fn test_orders_place_order() {
             Ustr::from("BTCUSD-PERP"),
             ArchitectOrderSide::Buy,
             100000, // qty in minor units
-            "50000.00".to_string(),
+            dec!(50000.00),
             ArchitectTimeInForce::Gtc,
             false,
             None,

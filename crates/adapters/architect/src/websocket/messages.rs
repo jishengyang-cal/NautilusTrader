@@ -18,19 +18,24 @@
 //! This module contains request and response message structures for both
 //! market data and order management WebSocket streams.
 
+use nautilus_core::serialization::serialize_decimal_as_str;
 use nautilus_model::{
     data::{Bar, Data, OrderBookDeltas},
     events::{OrderCancelRejected, OrderRejected},
     identifiers::ClientOrderId,
     reports::{FillReport, OrderStatusReport},
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
 use super::error::ArchitectWsErrorResponse;
-use crate::common::enums::{
-    ArchitectCandleWidth, ArchitectMarketDataLevel, ArchitectOrderSide, ArchitectOrderStatus,
-    ArchitectTimeInForce,
+use crate::common::{
+    enums::{
+        ArchitectCandleWidth, ArchitectMarketDataLevel, ArchitectOrderSide, ArchitectOrderStatus,
+        ArchitectTimeInForce,
+    },
+    parse::deserialize_decimal_or_zero,
 };
 
 /// Subscribe request for market data.
@@ -128,15 +133,19 @@ pub struct ArchitectMdTicker {
     /// Instrument symbol.
     pub s: Ustr,
     /// Last price.
-    pub p: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub p: Decimal,
     /// Last quantity.
     pub q: i64,
     /// Open price (24h).
-    pub o: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub o: Decimal,
     /// Low price (24h).
-    pub l: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub l: Decimal,
     /// High price (24h).
-    pub h: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub h: Decimal,
     /// Volume (24h).
     pub v: i64,
     /// Open interest.
@@ -161,7 +170,8 @@ pub struct ArchitectMdTrade {
     /// Instrument symbol.
     pub s: Ustr,
     /// Trade price.
-    pub p: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub p: Decimal,
     /// Trade quantity.
     pub q: i64,
     /// Trade direction: "B" (buy) or "S" (sell).
@@ -181,13 +191,17 @@ pub struct ArchitectMdCandle {
     /// Candle timestamp (Unix epoch).
     pub ts: i64,
     /// Open price.
-    pub open: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub open: Decimal,
     /// Low price.
-    pub low: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub low: Decimal,
     /// High price.
-    pub high: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub high: Decimal,
     /// Close price.
-    pub close: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub close: Decimal,
     /// Total volume.
     pub volume: i64,
     /// Buy volume.
@@ -202,7 +216,8 @@ pub struct ArchitectMdCandle {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArchitectBookLevel {
     /// Price at this level.
-    pub p: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub p: Decimal,
     /// Quantity at this level.
     pub q: i64,
 }
@@ -211,7 +226,8 @@ pub struct ArchitectBookLevel {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArchitectBookLevelL3 {
     /// Price at this level.
-    pub p: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub p: Decimal,
     /// Total quantity at this level.
     pub q: i64,
     /// Individual order quantities at this price.
@@ -295,7 +311,11 @@ pub struct ArchitectWsPlaceOrder {
     /// Order quantity.
     pub q: i64,
     /// Order price.
-    pub p: String,
+    #[serde(
+        serialize_with = "serialize_decimal_as_str",
+        deserialize_with = "deserialize_decimal_or_zero"
+    )]
+    pub p: Decimal,
     /// Time in force.
     pub tif: ArchitectTimeInForce,
     /// Post-only flag (maker-or-cancel).
@@ -391,7 +411,8 @@ pub struct ArchitectWsOrder {
     /// Instrument symbol.
     pub s: Ustr,
     /// Order price.
-    pub p: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub p: Decimal,
     /// Order quantity.
     pub q: i64,
     /// Executed quantity.
@@ -455,7 +476,8 @@ pub struct ArchitectWsTradeExecution {
     /// Executed quantity.
     pub q: i64,
     /// Execution price.
-    pub p: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub p: Decimal,
     /// Trade direction.
     pub d: ArchitectOrderSide,
     /// Whether this was an aggressor (taker) order.
@@ -760,6 +782,7 @@ pub struct OrderMetadata {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use rust_decimal_macros::dec;
 
     use super::*;
 
@@ -837,7 +860,7 @@ mod tests {
             s: "BTCUSD-PERP".to_string(),
             d: ArchitectOrderSide::Buy,
             q: 100,
-            p: "50000.50".to_string(),
+            p: dec!(50000.50),
             tif: ArchitectTimeInForce::Gtc,
             po: false,
             tag: Some("trade001".to_string()),
@@ -851,7 +874,7 @@ mod tests {
         assert_eq!(parsed["s"], "BTCUSD-PERP");
         assert_eq!(parsed["d"], "B");
         assert_eq!(parsed["q"], 100);
-        assert_eq!(parsed["p"], "50000.50");
+        assert_eq!(parsed["p"], "50000.5");
         assert_eq!(parsed["tif"], "GTC");
         assert_eq!(parsed["po"], false);
         assert_eq!(parsed["tag"], "trade001");
@@ -1012,7 +1035,7 @@ mod tests {
         let json = include_str!("../../test_data/ws_order_replaced.json");
         let msg: ArchitectWsOrderReplaced = serde_json::from_str(json).unwrap();
         assert_eq!(msg.t, "r");
-        assert_eq!(msg.o.p, "50500.00");
+        assert_eq!(msg.o.p, dec!(50500.00));
     }
 
     #[rstest]

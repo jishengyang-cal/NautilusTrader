@@ -24,6 +24,7 @@ use nautilus_model::{
     instruments::{Instrument, any::InstrumentAny},
     types::{Price, Quantity},
 };
+use rust_decimal::Decimal;
 
 use crate::websocket::messages::{
     ArchitectBookLevel, ArchitectBookLevelL3, ArchitectMdBookL1, ArchitectMdBookL2,
@@ -32,12 +33,9 @@ use crate::websocket::messages::{
 
 const NANOSECONDS_IN_SECOND: u64 = 1_000_000_000;
 
-/// Parses a price string with specified precision.
-fn parse_price_with_precision(value: &str, precision: u8, field: &str) -> anyhow::Result<Price> {
-    let parsed = value
-        .parse::<f64>()
-        .with_context(|| format!("Failed to parse {field}='{value}' as f64"))?;
-    Price::new_checked(parsed, precision).with_context(|| {
+/// Converts a Decimal to Price with specified precision.
+fn decimal_to_price_dp(value: Decimal, precision: u8, field: &str) -> anyhow::Result<Price> {
+    Price::from_decimal_dp(value, precision).with_context(|| {
         format!("Failed to construct Price for {field} with precision {precision}")
     })
 }
@@ -59,7 +57,7 @@ pub fn parse_book_l1_quote(
 
     let (bid_price, bid_size) = if let Some(bid) = book.b.first() {
         (
-            parse_price_with_precision(&bid.p, price_precision, "book.bid.price")?,
+            decimal_to_price_dp(bid.p, price_precision, "book.bid.price")?,
             Quantity::new(bid.q as f64, size_precision),
         )
     } else {
@@ -71,7 +69,7 @@ pub fn parse_book_l1_quote(
 
     let (ask_price, ask_size) = if let Some(ask) = book.a.first() {
         (
-            parse_price_with_precision(&ask.p, price_precision, "book.ask.price")?,
+            decimal_to_price_dp(ask.p, price_precision, "book.ask.price")?,
             Quantity::new(ask.q as f64, size_precision),
         )
     } else {
@@ -101,7 +99,7 @@ fn parse_book_level(
     price_precision: u8,
     size_precision: u8,
 ) -> anyhow::Result<(Price, Quantity)> {
-    let price = parse_price_with_precision(&level.p, price_precision, "book.level.price")?;
+    let price = decimal_to_price_dp(level.p, price_precision, "book.level.price")?;
     let size = Quantity::new(level.q as f64, size_precision);
     Ok((price, size))
 }
@@ -204,7 +202,7 @@ fn parse_book_level_l3(
     price_precision: u8,
     size_precision: u8,
 ) -> anyhow::Result<(Price, Quantity)> {
-    let price = parse_price_with_precision(&level.p, price_precision, "book.level.price")?;
+    let price = decimal_to_price_dp(level.p, price_precision, "book.level.price")?;
     let size = Quantity::new(level.q as f64, size_precision);
     Ok((price, size))
 }
@@ -328,7 +326,7 @@ pub fn parse_trade_tick(
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
-    let price = parse_price_with_precision(&trade.p, price_precision, "trade.price")?;
+    let price = decimal_to_price_dp(trade.p, price_precision, "trade.price")?;
     let size = Quantity::new(trade.q as f64, size_precision);
     let aggressor_side: AggressorSide = trade.d.into();
 
@@ -359,6 +357,7 @@ mod tests {
     };
     use rstest::rstest;
     use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
     use ustr::Ustr;
 
     use super::*;
@@ -422,11 +421,11 @@ mod tests {
             tn: 12345,
             s: Ustr::from("BTC-PERP"),
             b: vec![ArchitectBookLevel {
-                p: "50000.50".to_string(),
+                p: dec!(50000.50),
                 q: 100,
             }],
             a: vec![ArchitectBookLevel {
-                p: "50001.00".to_string(),
+                p: dec!(50001.00),
                 q: 150,
             }],
         };
@@ -451,21 +450,21 @@ mod tests {
             s: Ustr::from("BTC-PERP"),
             b: vec![
                 ArchitectBookLevel {
-                    p: "50000.50".to_string(),
+                    p: dec!(50000.50),
                     q: 100,
                 },
                 ArchitectBookLevel {
-                    p: "50000.00".to_string(),
+                    p: dec!(50000.00),
                     q: 200,
                 },
             ],
             a: vec![
                 ArchitectBookLevel {
-                    p: "50001.00".to_string(),
+                    p: dec!(50001.00),
                     q: 150,
                 },
                 ArchitectBookLevel {
-                    p: "50001.50".to_string(),
+                    p: dec!(50001.50),
                     q: 250,
                 },
             ],
@@ -491,12 +490,12 @@ mod tests {
             tn: 12345,
             s: Ustr::from("BTC-PERP"),
             b: vec![ArchitectBookLevelL3 {
-                p: "50000.50".to_string(),
+                p: dec!(50000.50),
                 q: 300,
                 o: vec![100, 200],
             }],
             a: vec![ArchitectBookLevelL3 {
-                p: "50001.00".to_string(),
+                p: dec!(50001.00),
                 q: 250,
                 o: vec![150, 100],
             }],
@@ -519,7 +518,7 @@ mod tests {
             ts: 1700000000,
             tn: 12345,
             s: Ustr::from("BTC-PERP"),
-            p: "50000.50".to_string(),
+            p: dec!(50000.50),
             q: 100,
             d: ArchitectOrderSide::Buy,
         };
@@ -632,7 +631,7 @@ mod tests {
         let trade: ArchitectMdTrade = serde_json::from_str(json).unwrap();
 
         assert_eq!(trade.s.as_str(), "EURUSD-PERP");
-        assert_eq!(trade.p, "1.1719");
+        assert_eq!(trade.p, dec!(1.1719));
         assert_eq!(trade.q, 400);
         assert_eq!(trade.d, ArchitectOrderSide::Buy);
 

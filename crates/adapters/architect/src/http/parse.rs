@@ -15,8 +15,6 @@
 
 //! Parsing functions to convert Architect HTTP responses to Nautilus domain types.
 
-use std::str::FromStr;
-
 use anyhow::Context;
 use nautilus_core::{UUID4, nanos::UnixNanos};
 use nautilus_model::{
@@ -37,36 +35,31 @@ use super::models::{
     ArchitectBalancesResponse, ArchitectCandle, ArchitectFill, ArchitectInstrument,
     ArchitectOpenOrder, ArchitectPosition,
 };
-use crate::common::{consts::ARCHITECT_VENUE, enums::ArchitectCandleWidth, parse::parse_decimal};
+use crate::common::{consts::ARCHITECT_VENUE, enums::ArchitectCandleWidth};
 
-/// Parses a Price from a string field.
+/// Converts a Decimal value to a Price.
 ///
 /// # Errors
 ///
-/// Returns an error if the string cannot be parsed or converted to Price.
-fn parse_price(value: &str, field_name: &str) -> anyhow::Result<Price> {
-    let decimal = parse_decimal(value)
-        .with_context(|| format!("Failed to parse price from field '{field_name}'"))?;
-    Price::from_decimal(decimal).context("Failed to convert decimal to Price")
+/// Returns an error if the Decimal cannot be converted to Price.
+fn decimal_to_price(value: Decimal, field_name: &str) -> anyhow::Result<Price> {
+    Price::from_decimal(value)
+        .with_context(|| format!("Failed to convert {field_name} Decimal to Price"))
 }
 
-/// Parses a Quantity from a string field.
+/// Converts a Decimal value to a Quantity.
 ///
 /// # Errors
 ///
-/// Returns an error if the string cannot be parsed or converted to Quantity.
-fn parse_quantity(value: &str, field_name: &str) -> anyhow::Result<Quantity> {
-    let decimal = parse_decimal(value)
-        .with_context(|| format!("Failed to parse quantity from field '{field_name}'"))?;
-    Quantity::from_decimal(decimal).context("Failed to convert decimal to Quantity")
+/// Returns an error if the Decimal cannot be converted to Quantity.
+fn decimal_to_quantity(value: Decimal, field_name: &str) -> anyhow::Result<Quantity> {
+    Quantity::from_decimal(value)
+        .with_context(|| format!("Failed to convert {field_name} Decimal to Quantity"))
 }
 
-/// Parses a Price with specific precision.
-fn parse_price_with_precision(value: &str, precision: u8, field: &str) -> anyhow::Result<Price> {
-    let parsed = value
-        .parse::<f64>()
-        .with_context(|| format!("Failed to parse {field}='{value}' as f64"))?;
-    Price::new_checked(parsed, precision).with_context(|| {
+/// Converts a Decimal to a Price with specific precision.
+fn decimal_to_price_dp(value: Decimal, precision: u8, field: &str) -> anyhow::Result<Price> {
+    Price::from_decimal_dp(value, precision).with_context(|| {
         format!("Failed to construct Price for {field} with precision {precision}")
     })
 }
@@ -118,10 +111,10 @@ pub fn parse_bar(
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
-    let open = parse_price_with_precision(&candle.open, price_precision, "candle.open")?;
-    let high = parse_price_with_precision(&candle.high, price_precision, "candle.high")?;
-    let low = parse_price_with_precision(&candle.low, price_precision, "candle.low")?;
-    let close = parse_price_with_precision(&candle.close, price_precision, "candle.close")?;
+    let open = decimal_to_price_dp(candle.open, price_precision, "candle.open")?;
+    let high = decimal_to_price_dp(candle.high, price_precision, "candle.high")?;
+    let low = decimal_to_price_dp(candle.low, price_precision, "candle.low")?;
+    let close = decimal_to_price_dp(candle.close, price_precision, "candle.close")?;
 
     // Architect provides volume as i64 contracts
     let volume = Quantity::new(candle.volume as f64, size_precision);
@@ -161,16 +154,14 @@ pub fn parse_perp_instrument(
     let quote_currency = get_currency(&definition.quote_currency);
     let settlement_currency = quote_currency;
 
-    let price_increment = parse_price(&definition.tick_size, "tick_size")?;
-    let size_increment = parse_quantity(&definition.minimum_order_size, "minimum_order_size")?;
+    let price_increment = decimal_to_price(definition.tick_size, "tick_size")?;
+    let size_increment = decimal_to_quantity(definition.minimum_order_size, "minimum_order_size")?;
 
     let lot_size = Some(size_increment);
     let min_quantity = Some(size_increment);
 
-    let margin_init = Decimal::from_str(&definition.initial_margin_pct)
-        .context("Failed to parse initial_margin_pct")?;
-    let margin_maint = Decimal::from_str(&definition.maintenance_margin_pct)
-        .context("Failed to parse maintenance_margin_pct")?;
+    let margin_init = definition.initial_margin_pct;
+    let margin_maint = definition.maintenance_margin_pct;
 
     let instrument = CryptoPerpetual::new(
         instrument_id,
@@ -227,12 +218,8 @@ pub fn parse_account_state(
 
         let currency = Currency::from(symbol_str);
 
-        let amount = balance
-            .amount
-            .parse::<f64>()
-            .with_context(|| format!("Failed to parse balance amount for {symbol_str}"))?;
-
-        let total = Money::new(amount, currency);
+        let total = Money::from_decimal(balance.amount, currency)
+            .with_context(|| format!("Failed to convert balance for {symbol_str}"))?;
         let locked = Money::new(0.0, currency);
         let free = total;
 
@@ -285,7 +272,7 @@ pub fn parse_order_status_report(
     let filled_qty = Quantity::new(order.xq as f64, instrument.size_precision());
 
     // Parse price
-    let price = parse_price_with_precision(&order.p, instrument.price_precision(), "order.p")?;
+    let price = decimal_to_price_dp(order.p, instrument.price_precision(), "order.p")?;
 
     // Architect timestamps are in Unix epoch seconds
     let ts_event = UnixNanos::from((order.ts as u64) * 1_000_000_000);
@@ -355,20 +342,16 @@ pub fn parse_fill_report(
         OrderSide::Sell
     };
 
-    let last_px =
-        parse_price_with_precision(&fill.price, instrument.price_precision(), "fill.price")?;
+    let last_px = decimal_to_price_dp(fill.price, instrument.price_precision(), "fill.price")?;
     let last_qty = Quantity::new(
         fill.quantity.unsigned_abs() as f64,
         instrument.size_precision(),
     );
 
     // Parse fee (Architect returns positive fee, Nautilus uses negative for costs)
-    let fee_f64 = fill
-        .fee
-        .parse::<f64>()
-        .with_context(|| format!("Failed to parse fee='{}'", fill.fee))?;
     let currency = Currency::USD();
-    let commission = Money::new(-fee_f64, currency);
+    let commission = Money::from_decimal(-fill.fee, currency)
+        .context("Failed to convert fill.fee Decimal to Money")?;
 
     let liquidity_side = if fill.is_taker {
         LiquiditySide::Taker
@@ -439,10 +422,8 @@ pub fn parse_position_status_report(
 
     // Calculate average entry price from notional / quantity
     let avg_px_open = if position.open_quantity != 0 {
-        let notional =
-            Decimal::from_str(&position.open_notional).context("Failed to parse open_notional")?;
         let qty_dec = Decimal::from(position.open_quantity.abs());
-        Some(notional / qty_dec)
+        Some(position.open_notional / qty_dec)
     } else {
         None
     };
@@ -472,6 +453,7 @@ pub fn parse_position_status_report(
 mod tests {
     use nautilus_core::nanos::UnixNanos;
     use rstest::rstest;
+    use rust_decimal_macros::dec;
     use ustr::Ustr;
 
     use super::*;
@@ -483,37 +465,37 @@ mod tests {
         ArchitectInstrument {
             symbol: Ustr::from("BTC-PERP"),
             state: ArchitectInstrumentState::Open,
-            multiplier: "1.0".to_string(),
-            minimum_order_size: "0.001".to_string(),
-            tick_size: "0.5".to_string(),
+            multiplier: dec!(1.0),
+            minimum_order_size: dec!(0.001),
+            tick_size: dec!(0.5),
             quote_currency: Ustr::from("USD"),
             finding_settlement_currency: Ustr::from("USD"),
-            maintenance_margin_pct: "0.005".to_string(),
-            initial_margin_pct: "0.01".to_string(),
-            contract_mark_price: Some("45000.50".to_string()),
-            contract_size: Some("1.0".to_string()),
+            maintenance_margin_pct: dec!(0.005),
+            initial_margin_pct: dec!(0.01),
+            contract_mark_price: Some(dec!(45000.50)),
+            contract_size: Some(dec!(1.0)),
             description: Some("Bitcoin Perpetual Futures".to_string()),
             funding_calendar_schedule: Some("0,8,16".to_string()),
             funding_frequency: Some("8h".to_string()),
-            funding_rate_cap_lower_pct: Some("-0.0075".to_string()),
-            funding_rate_cap_upper_pct: Some("0.0075".to_string()),
-            price_band_lower_deviation_pct: Some("0.05".to_string()),
-            price_band_upper_deviation_pct: Some("0.05".to_string()),
+            funding_rate_cap_lower_pct: Some(dec!(-0.0075)),
+            funding_rate_cap_upper_pct: Some(dec!(0.0075)),
+            price_band_lower_deviation_pct: Some(dec!(0.05)),
+            price_band_upper_deviation_pct: Some(dec!(0.05)),
             price_bands: Some("dynamic".to_string()),
             price_quotation: Some("USD".to_string()),
-            underlying_benchmark_price: Some("45000.00".to_string()),
+            underlying_benchmark_price: Some(dec!(45000.00)),
         }
     }
 
     #[rstest]
-    fn test_parse_price() {
-        let price = parse_price("100.50", "test_field").unwrap();
+    fn test_decimal_to_price() {
+        let price = decimal_to_price(dec!(100.50), "test_field").unwrap();
         assert_eq!(price.as_f64(), 100.50);
     }
 
     #[rstest]
-    fn test_parse_quantity() {
-        let qty = parse_quantity("1.5", "test_field").unwrap();
+    fn test_decimal_to_quantity() {
+        let qty = decimal_to_quantity(dec!(1.5), "test_field").unwrap();
         assert_eq!(qty.as_f64(), 1.5);
     }
 
@@ -557,8 +539,8 @@ mod tests {
         let btc = &response.instruments[0];
         assert_eq!(btc.symbol.as_str(), "BTC-PERP");
         assert_eq!(btc.state, ArchitectInstrumentState::Open);
-        assert_eq!(btc.tick_size, "0.5");
-        assert_eq!(btc.minimum_order_size, "0.001");
+        assert_eq!(btc.tick_size, dec!(0.5));
+        assert_eq!(btc.minimum_order_size, dec!(0.001));
         assert!(btc.contract_mark_price.is_some());
 
         let eth = &response.instruments[1];

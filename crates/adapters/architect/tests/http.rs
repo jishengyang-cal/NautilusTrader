@@ -27,6 +27,7 @@ use nautilus_model::instruments::InstrumentAny;
 use nautilus_network::http::HttpClient;
 use rstest::rstest;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use serde_json::{Value, json};
 
 /// Wait for the test server to be ready by polling a health endpoint.
@@ -159,7 +160,7 @@ async fn test_raw_http_get_instrument_returns_data() {
     let instrument = client.get_instrument("BTC-PERP").await.unwrap();
 
     assert_eq!(instrument.symbol.as_str(), "BTC-PERP");
-    assert_eq!(instrument.tick_size, "0.5");
+    assert_eq!(instrument.tick_size, dec!(0.5));
 }
 
 #[rstest]
@@ -261,8 +262,8 @@ async fn test_raw_http_get_ticker_returns_data() {
     let ticker = client.get_ticker("BTC-PERP").await.unwrap();
 
     assert_eq!(ticker.symbol.as_str(), "BTC-PERP");
-    assert_eq!(ticker.bid.as_deref(), Some("45000.00"));
-    assert_eq!(ticker.ask.as_deref(), Some("45001.00"));
+    assert_eq!(ticker.bid, Some(dec!(45000.00)));
+    assert_eq!(ticker.ask, Some(dec!(45001.00)));
 }
 
 #[rstest]

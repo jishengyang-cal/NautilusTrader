@@ -18,12 +18,16 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
-use crate::common::enums::{
-    ArchitectCandleWidth, ArchitectInstrumentState, ArchitectOrderSide, ArchitectOrderStatus,
-    ArchitectTimeInForce,
+use crate::common::{
+    enums::{
+        ArchitectCandleWidth, ArchitectInstrumentState, ArchitectOrderSide, ArchitectOrderStatus,
+        ArchitectTimeInForce,
+    },
+    parse::{deserialize_decimal_or_zero, deserialize_optional_decimal_from_str},
 };
 
 /// Default instrument state when not provided by API.
@@ -54,10 +58,12 @@ pub struct ArchitectWhoAmI {
     pub is_admin: bool,
     /// Whether the account is in close-only mode.
     pub is_close_only: bool,
-    /// Maker fee rate as string.
-    pub maker_fee: String,
-    /// Taker fee rate as string.
-    pub taker_fee: String,
+    /// Maker fee rate.
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub maker_fee: Decimal,
+    /// Taker fee rate.
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub taker_fee: Decimal,
 }
 
 /// Individual instrument definition.
@@ -73,11 +79,14 @@ pub struct ArchitectInstrument {
     #[serde(default = "default_instrument_state")]
     pub state: ArchitectInstrumentState,
     /// Contract multiplier.
-    pub multiplier: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub multiplier: Decimal,
     /// Minimum order size.
-    pub minimum_order_size: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub minimum_order_size: Decimal,
     /// Price tick size.
-    pub tick_size: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub tick_size: Decimal,
     /// Quote currency symbol.
     pub quote_currency: Ustr,
     // TODO: Rename to `funding_settlement_currency` once fixed
@@ -85,15 +94,17 @@ pub struct ArchitectInstrument {
     #[serde(alias = "funding_settlement_currency")]
     pub finding_settlement_currency: Ustr,
     /// Maintenance margin percentage.
-    pub maintenance_margin_pct: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub maintenance_margin_pct: Decimal,
     /// Initial margin percentage.
-    pub initial_margin_pct: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub initial_margin_pct: Decimal,
     /// Current mark price for the contract (optional).
-    #[serde(default)]
-    pub contract_mark_price: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub contract_mark_price: Option<Decimal>,
     /// Contract size (optional).
-    #[serde(default)]
-    pub contract_size: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub contract_size: Option<Decimal>,
     /// Instrument description (optional).
     #[serde(default)]
     pub description: Option<String>,
@@ -104,17 +115,17 @@ pub struct ArchitectInstrument {
     #[serde(default)]
     pub funding_frequency: Option<String>,
     /// Lower cap for funding rate percentage (optional).
-    #[serde(default)]
-    pub funding_rate_cap_lower_pct: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub funding_rate_cap_lower_pct: Option<Decimal>,
     /// Upper cap for funding rate percentage (optional).
-    #[serde(default)]
-    pub funding_rate_cap_upper_pct: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub funding_rate_cap_upper_pct: Option<Decimal>,
     /// Lower deviation percentage for price bands (optional).
-    #[serde(default)]
-    pub price_band_lower_deviation_pct: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub price_band_lower_deviation_pct: Option<Decimal>,
     /// Upper deviation percentage for price bands (optional).
-    #[serde(default)]
-    pub price_band_upper_deviation_pct: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub price_band_upper_deviation_pct: Option<Decimal>,
     /// Price bands configuration (optional).
     #[serde(default)]
     pub price_bands: Option<String>,
@@ -122,8 +133,8 @@ pub struct ArchitectInstrument {
     #[serde(default)]
     pub price_quotation: Option<String>,
     /// Underlying benchmark price (optional).
-    #[serde(default)]
-    pub underlying_benchmark_price: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub underlying_benchmark_price: Option<Decimal>,
 }
 
 /// Response payload returned by `GET /instruments`.
@@ -147,7 +158,8 @@ pub struct ArchitectBalance {
     /// Asset symbol.
     pub symbol: Ustr,
     /// Available balance amount.
-    pub amount: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub amount: Decimal,
 }
 
 /// Response payload returned by `GET /balances`.
@@ -175,11 +187,13 @@ pub struct ArchitectPosition {
     /// Open quantity (positive for long, negative for short).
     pub open_quantity: i64,
     /// Open notional value.
-    pub open_notional: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub open_notional: Decimal,
     /// Position timestamp.
     pub timestamp: DateTime<Utc>,
     /// Realized profit and loss.
-    pub realized_pnl: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub realized_pnl: Decimal,
 }
 
 /// Response payload returned by `GET /positions`.
@@ -203,29 +217,29 @@ pub struct ArchitectTicker {
     /// Instrument symbol.
     pub symbol: Ustr,
     /// Best bid price.
-    #[serde(default)]
-    pub bid: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub bid: Option<Decimal>,
     /// Best ask price.
-    #[serde(default)]
-    pub ask: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub ask: Option<Decimal>,
     /// Last trade price.
-    #[serde(default)]
-    pub last: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub last: Option<Decimal>,
     /// Mark price.
-    #[serde(default)]
-    pub mark: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub mark: Option<Decimal>,
     /// Index price.
-    #[serde(default)]
-    pub index: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub index: Option<Decimal>,
     /// 24-hour volume.
-    #[serde(default)]
-    pub volume_24h: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub volume_24h: Option<Decimal>,
     /// 24-hour high price.
-    #[serde(default)]
-    pub high_24h: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub high_24h: Option<Decimal>,
     /// 24-hour low price.
-    #[serde(default)]
-    pub low_24h: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub low_24h: Option<Decimal>,
     /// Ticker timestamp.
     #[serde(default)]
     pub timestamp: Option<DateTime<Utc>>,
@@ -290,7 +304,8 @@ pub struct ArchitectOpenOrder {
     /// Order ID.
     pub oid: String,
     /// Price.
-    pub p: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub p: Decimal,
     /// Quantity.
     pub q: i64,
     /// Remaining quantity.
@@ -326,11 +341,13 @@ pub struct ArchitectFill {
     /// Execution ID.
     pub execution_id: String,
     /// Fee amount.
-    pub fee: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub fee: Decimal,
     /// Whether this was a taker order.
     pub is_taker: bool,
     /// Execution price.
-    pub price: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub price: Decimal,
     /// Executed quantity.
     pub quantity: i64,
     /// Instrument symbol.
@@ -364,13 +381,17 @@ pub struct ArchitectCandle {
     /// Candle timestamp.
     pub tn: DateTime<Utc>,
     /// Open price.
-    pub open: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub open: Decimal,
     /// High price.
-    pub high: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub high: Decimal,
     /// Low price.
-    pub low: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub low: Decimal,
     /// Close price.
-    pub close: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub close: Decimal,
     /// Buy volume.
     pub buy_volume: i64,
     /// Sell volume.
@@ -416,13 +437,17 @@ pub struct ArchitectFundingRate {
     /// Timestamp in nanoseconds.
     pub timestamp_ns: i64,
     /// Funding rate.
-    pub funding_rate: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub funding_rate: Decimal,
     /// Funding amount.
-    pub funding_amount: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub funding_amount: Decimal,
     /// Benchmark price.
-    pub benchmark_price: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub benchmark_price: Decimal,
     /// Settlement price.
-    pub settlement_price: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub settlement_price: Decimal,
 }
 
 /// Response payload returned by `GET /funding-rates`.
@@ -446,21 +471,23 @@ pub struct ArchitectPerSymbolRisk {
     /// Open quantity.
     pub open_quantity: i64,
     /// Open notional value.
-    pub open_notional: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub open_notional: Decimal,
     /// Average entry price.
-    pub average_price: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub average_price: Decimal,
     /// Liquidation price.
-    #[serde(default)]
-    pub liquidation_price: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub liquidation_price: Option<Decimal>,
     /// Initial margin required.
-    #[serde(default)]
-    pub initial_margin_required: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub initial_margin_required: Option<Decimal>,
     /// Maintenance margin required.
-    #[serde(default)]
-    pub maintenance_margin_required: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub maintenance_margin_required: Option<Decimal>,
     /// Unrealized P&L.
-    #[serde(default)]
-    pub unrealized_pnl: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
+    pub unrealized_pnl: Option<Decimal>,
 }
 
 /// Risk snapshot data.
@@ -471,23 +498,32 @@ pub struct ArchitectPerSymbolRisk {
 #[serde(rename_all = "snake_case")]
 pub struct ArchitectRiskSnapshot {
     /// USD account balance.
-    pub balance_usd: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub balance_usd: Decimal,
     /// Total equity value.
-    pub equity: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub equity: Decimal,
     /// Available initial margin.
-    pub initial_margin_available: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub initial_margin_available: Decimal,
     /// Margin required for open orders.
-    pub initial_margin_required_for_open_orders: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub initial_margin_required_for_open_orders: Decimal,
     /// Margin required for positions.
-    pub initial_margin_required_for_positions: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub initial_margin_required_for_positions: Decimal,
     /// Total initial margin requirement.
-    pub initial_margin_required_total: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub initial_margin_required_total: Decimal,
     /// Available maintenance margin.
-    pub maintenance_margin_available: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub maintenance_margin_available: Decimal,
     /// Required maintenance margin.
-    pub maintenance_margin_required: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub maintenance_margin_required: Decimal,
     /// Unrealized profit/loss.
-    pub unrealized_pnl: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub unrealized_pnl: Decimal,
     /// Snapshot timestamp.
     pub timestamp_ns: DateTime<Utc>,
     /// User identifier.
@@ -516,7 +552,8 @@ pub struct ArchitectRiskSnapshotResponse {
 #[serde(rename_all = "snake_case")]
 pub struct ArchitectTransaction {
     /// Transaction amount.
-    pub amount: String,
+    #[serde(deserialize_with = "deserialize_decimal_or_zero")]
+    pub amount: Decimal,
     /// Unique event identifier.
     pub event_id: String,
     /// Asset symbol.

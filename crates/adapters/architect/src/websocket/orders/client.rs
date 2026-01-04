@@ -39,6 +39,7 @@ use nautilus_network::{
         AuthTracker, PingHandler, WebSocketClient, WebSocketConfig, channel_message_handler,
     },
 };
+use rust_decimal::Decimal;
 use ustr::Ustr;
 
 use super::handler::{FeedHandler, HandlerCommand};
@@ -388,7 +389,7 @@ impl ArchitectOrdersWebSocketClient {
         symbol: Ustr,
         side: ArchitectOrderSide,
         quantity: i64,
-        price: String,
+        price: Decimal,
         time_in_force: ArchitectTimeInForce,
         post_only: bool,
         tag: Option<String>,

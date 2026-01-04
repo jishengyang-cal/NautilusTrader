@@ -17,5 +17,6 @@
 
 pub use nautilus_core::serialization::{
     deserialize_decimal_or_zero, deserialize_optional_decimal,
-    deserialize_optional_decimal_or_zero, parse_decimal, parse_optional_decimal,
+    deserialize_optional_decimal_from_str, deserialize_optional_decimal_or_zero, parse_decimal,
+    parse_optional_decimal,
 };
