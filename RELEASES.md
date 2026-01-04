@@ -12,9 +12,11 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
+- Fixed order updated panic during reconciliation (#3380), thanks for reporting @santivazq
 - Fixed trailing stops default price type (#3379), thanks @KaulSe
 - Fixed registering msgbus with OptionExerciseModule (#3383), thanks @davidsblom
 - Fixed directory URI handling in ParquetDataCatalog for S3 and cloud storage (#3378), thanks @KaulSe
+- Fixed quickstart MACD strategy logic (#3377), thanks for reporting @SisyphusCoin
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 
 ### Internal Improvements

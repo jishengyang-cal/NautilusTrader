@@ -3072,22 +3072,18 @@ class LiveExecutionEngine(ExecutionEngine):
         Check if order should be updated based on quantity, price, or trigger price
         differences from the report.
         """
-        if report.quantity != order.quantity:
-            return True
+        if report.quantity != order.quantity and report.quantity >= order.filled_qty:
+            return True  # Valid quantity update
 
-        if order.order_type == OrderType.LIMIT and report.price != order.price:
-            return True
-
-        if (
-            order.order_type in [OrderType.STOP_MARKET, OrderType.TRAILING_STOP_MARKET]
-            and report.trigger_price != order.trigger_price
-        ):
-            return True
-
-        return bool(
-            order.order_type in [OrderType.STOP_LIMIT, OrderType.TRAILING_STOP_LIMIT]
-            and (report.trigger_price != order.trigger_price or report.price != order.price),
-        )
+        match order.order_type:
+            case OrderType.LIMIT:
+                return report.price != order.price
+            case OrderType.STOP_MARKET | OrderType.TRAILING_STOP_MARKET:
+                return report.trigger_price != order.trigger_price
+            case OrderType.STOP_LIMIT | OrderType.TRAILING_STOP_LIMIT:
+                return report.trigger_price != order.trigger_price or report.price != order.price
+            case _:
+                return False
 
     def _reconcile_fill_report(
         self,
