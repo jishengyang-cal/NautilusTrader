@@ -102,10 +102,14 @@ impl BinanceSpotWebSocketClient {
                             });
                         }
                         NautilusWsMessage::Error(err) => {
-                            tracing::warn!(code = err.code, msg = %err.msg, "Binance WebSocket error");
+                            log::warn!(
+                                "Binance WebSocket error: code={}, msg={}",
+                                err.code,
+                                err.msg
+                            );
                         }
                         NautilusWsMessage::Reconnected => {
-                            tracing::info!("Binance Spot WebSocket reconnected");
+                            log::info!("Binance Spot WebSocket reconnected");
                         }
                         _ => {}
                     }
@@ -122,7 +126,7 @@ impl BinanceSpotWebSocketClient {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             if let Err(e) = client.close().await {
-                tracing::error!("Error on close: {e}");
+                log::error!("Error on close: {e}");
             }
             Ok(())
         })
@@ -246,10 +250,14 @@ impl BinanceFuturesWebSocketClient {
                             });
                         }
                         NautilusFuturesWsMessage::Error(err) => {
-                            tracing::warn!(code = err.code, msg = %err.msg, "Binance WebSocket error");
+                            log::warn!(
+                                "Binance WebSocket error: code={}, msg={}",
+                                err.code,
+                                err.msg
+                            );
                         }
                         NautilusFuturesWsMessage::Reconnected => {
-                            tracing::info!("Binance Futures WebSocket reconnected");
+                            log::info!("Binance Futures WebSocket reconnected");
                         }
                         _ => {}
                     }
@@ -266,7 +274,7 @@ impl BinanceFuturesWebSocketClient {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             if let Err(e) = client.close().await {
-                tracing::error!("Error on close: {e}");
+                log::error!("Error on close: {e}");
             }
             Ok(())
         })
@@ -306,6 +314,6 @@ impl BinanceFuturesWebSocketClient {
 
 fn call_python(py: Python, callback: &Py<PyAny>, py_obj: Py<PyAny>) {
     if let Err(e) = callback.call1(py, (py_obj,)) {
-        tracing::error!("Error calling Python callback: {e}");
+        log::error!("Error calling Python callback: {e}");
     }
 }

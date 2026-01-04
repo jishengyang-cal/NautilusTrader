@@ -142,9 +142,9 @@ impl DeribitWebSocketClient {
         // Resolve credential from config or environment variables
         let credential = Credential::resolve(api_key, api_secret, is_testnet);
         if credential.is_some() {
-            tracing::info!("Deribit credentials loaded (testnet={})", is_testnet);
+            log::info!("Deribit credentials loaded (testnet={is_testnet})");
         } else {
-            tracing::debug!("No Deribit credentials configured - unauthenticated mode");
+            log::debug!("No Deribit credentials configured - unauthenticated mode");
         }
 
         let signal = Arc::new(AtomicBool::new(false));
@@ -280,7 +280,7 @@ impl DeribitWebSocketClient {
             self.instruments_cache
                 .insert(inst.raw_symbol().inner(), inst);
         }
-        tracing::debug!("Cached {} instruments", self.instruments_cache.len());
+        log::debug!("Cached {} instruments", self.instruments_cache.len());
     }
 
     /// Caches a single instrument.
@@ -309,7 +309,7 @@ impl DeribitWebSocketClient {
     ///
     /// Returns an error if the connection fails.
     pub async fn connect(&mut self) -> anyhow::Result<()> {
-        tracing::info!("Connecting to Deribit WebSocket: {}", self.url);
+        log::info!("Connecting to Deribit WebSocket: {}", self.url);
 
         // Reset stop signal
         self.signal.store(false, Ordering::Relaxed);
@@ -401,7 +401,7 @@ impl DeribitWebSocketClient {
                 match handler.next().await {
                     Some(msg) => match msg {
                         NautilusWsMessage::Reconnected => {
-                            tracing::info!("Reconnected to Deribit WebSocket");
+                            log::info!("Reconnected to Deribit WebSocket");
 
                             // Get all subscriptions that should be restored
                             // all_topics() returns confirmed + pending_subscribe, excluding pending_unsubscribe
@@ -414,7 +414,7 @@ impl DeribitWebSocketClient {
 
                             // Check if we need to re-authenticate
                             if let Some(cred) = &credential {
-                                tracing::info!("Re-authenticating after reconnection...");
+                                log::info!("Re-authenticating after reconnection...");
 
                                 // Reset authenticated state
                                 is_authenticated.store(false, Ordering::Release);
@@ -451,7 +451,7 @@ impl DeribitWebSocketClient {
                             if pending_reauth {
                                 pending_reauth = false;
                                 is_authenticated.store(true, Ordering::Release);
-                                tracing::info!(
+                                log::info!(
                                     "Re-authentication successful (scope: {}), resubscribing to channels",
                                     result.scope
                                 );
@@ -465,7 +465,7 @@ impl DeribitWebSocketClient {
                             } else {
                                 // Initial authentication completed
                                 is_authenticated.store(true, Ordering::Release);
-                                tracing::debug!(
+                                log::debug!(
                                     "Auth state stored: scope={}, expires_in={}s",
                                     result.scope,
                                     result.expires_in
@@ -475,7 +475,7 @@ impl DeribitWebSocketClient {
                         _ => {}
                     },
                     None => {
-                        tracing::debug!("Handler returned None, stopping task");
+                        log::debug!("Handler returned None, stopping task");
                         break;
                     }
                 }
@@ -483,7 +483,7 @@ impl DeribitWebSocketClient {
         });
 
         self.task_handle = Some(Arc::new(task_handle));
-        tracing::info!("Connected to Deribit WebSocket");
+        log::info!("Connected to Deribit WebSocket");
 
         Ok(())
     }
@@ -494,7 +494,7 @@ impl DeribitWebSocketClient {
     ///
     /// Returns an error if the close operation fails.
     pub async fn close(&self) -> DeribitWsResult<()> {
-        tracing::info!("Closing Deribit WebSocket connection");
+        log::info!("Closing Deribit WebSocket connection");
         self.signal.store(true, Ordering::Relaxed);
 
         let _ = self.cmd_tx.read().await.send(HandlerCommand::Disconnect);
@@ -568,7 +568,7 @@ impl DeribitWebSocketClient {
         // Determine scope
         let scope = session_name.map(|name| format!("session:{name}"));
 
-        tracing::info!(
+        log::info!(
             "Authenticating WebSocket with API key: {}, scope: {}",
             credential.api_key_masked(),
             scope.as_deref().unwrap_or("connection (default)")
@@ -589,11 +589,11 @@ impl DeribitWebSocketClient {
         {
             Ok(()) => {
                 self.is_authenticated.store(true, Ordering::Release);
-                tracing::info!("WebSocket authenticated successfully");
+                log::info!("WebSocket authenticated successfully");
                 Ok(())
             }
             Err(e) => {
-                tracing::error!(error = %e, "WebSocket authentication failed");
+                log::error!("WebSocket authentication failed: error={e}");
                 Err(e)
             }
         }
@@ -640,7 +640,7 @@ impl DeribitWebSocketClient {
                 self.subscriptions_state.mark_subscribe(&channel);
                 channels_to_subscribe.push(channel);
             } else {
-                tracing::debug!("Already subscribed to {channel}, skipping duplicate subscription");
+                log::debug!("Already subscribed to {channel}, skipping duplicate subscription");
             }
         }
 
@@ -656,7 +656,7 @@ impl DeribitWebSocketClient {
             })
             .map_err(|e| DeribitWsError::Send(e.to_string()))?;
 
-        tracing::debug!(
+        log::debug!(
             "Sent subscribe for {} channels",
             channels_to_subscribe.len()
         );
@@ -671,7 +671,7 @@ impl DeribitWebSocketClient {
                 self.subscriptions_state.mark_unsubscribe(&channel);
                 channels_to_unsubscribe.push(channel);
             } else {
-                tracing::debug!("Still has references to {channel}, skipping unsubscription");
+                log::debug!("Still has references to {channel}, skipping unsubscription");
             }
         }
 
@@ -687,7 +687,7 @@ impl DeribitWebSocketClient {
             })
             .map_err(|e| DeribitWsError::Send(e.to_string()))?;
 
-        tracing::debug!(
+        log::debug!(
             "Sent unsubscribe for {} channels",
             channels_to_unsubscribe.len()
         );

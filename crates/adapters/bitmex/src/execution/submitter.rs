@@ -293,12 +293,12 @@ impl TransportClient {
                 true
             }
             Ok(Err(e)) => {
-                tracing::warn!("Health check failed for client {}: {e:?}", self.client_id);
+                log::warn!("Health check failed for client {}: {e:?}", self.client_id);
                 self.mark_unhealthy();
                 false
             }
             Err(_) => {
-                tracing::warn!("Health check timeout for client {}", self.client_id);
+                log::warn!("Health check timeout for client {}", self.client_id);
                 self.mark_unhealthy();
                 false
             }
@@ -465,7 +465,7 @@ impl SubmitBroadcaster {
                 let results = future::join_all(tasks).await;
                 let healthy_count = results.iter().filter(|&&r| r).count();
 
-                tracing::debug!(
+                log::debug!(
                     "Health check complete: {healthy_count}/{} clients healthy",
                     results.len()
                 );
@@ -474,7 +474,7 @@ impl SubmitBroadcaster {
 
         *self.health_check_task.write().await = Some(task);
 
-        tracing::info!(
+        log::info!(
             "SubmitBroadcaster started with {} clients",
             self.transports.len()
         );
@@ -494,7 +494,7 @@ impl SubmitBroadcaster {
             task.abort();
         }
 
-        tracing::info!("SubmitBroadcaster stopped");
+        log::info!("SubmitBroadcaster stopped");
     }
 
     async fn run_health_checks(&self) {
@@ -507,7 +507,7 @@ impl SubmitBroadcaster {
         let results = future::join_all(tasks).await;
         let healthy_count = results.iter().filter(|&&r| r).count();
 
-        tracing::debug!(
+        log::debug!(
             "Health check complete: {healthy_count}/{} clients healthy",
             results.len()
         );
@@ -546,7 +546,7 @@ impl SubmitBroadcaster {
                         handle.abort();
                     }
                     self.successful_submits.fetch_add(1, Ordering::Relaxed);
-                    tracing::debug!("{} broadcast succeeded [{client_id}] {params}", operation,);
+                    log::debug!("{operation} broadcast succeeded [{client_id}] {params}",);
                     return Ok(result);
                 }
                 Ok((client_id, Err(e))) => {
@@ -554,21 +554,20 @@ impl SubmitBroadcaster {
 
                     if self.is_expected_reject(&error_msg) {
                         self.expected_rejects.fetch_add(1, Ordering::Relaxed);
-                        tracing::debug!(
+                        log::debug!(
                             "Expected {} rejection [{client_id}]: {error_msg} {params}",
                             operation.to_lowercase(),
                         );
                         errors.push(error_msg);
                     } else {
-                        tracing::warn!(
-                            "{} request failed [{client_id}]: {error_msg} {params}",
-                            operation,
+                        log::warn!(
+                            "{operation} request failed [{client_id}]: {error_msg} {params}",
                         );
                         errors.push(error_msg);
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("{} task join error: {e:?}", operation);
+                    log::warn!("{operation} task join error: {e:?}");
                     errors.push(format!("Task panicked: {e:?}"));
                 }
             }
@@ -576,7 +575,7 @@ impl SubmitBroadcaster {
 
         // All tasks failed
         self.failed_submits.fetch_add(1, Ordering::Relaxed);
-        tracing::error!(
+        log::error!(
             "All {} requests failed: {errors:?} {params}",
             operation.to_lowercase(),
         );
@@ -629,7 +628,7 @@ impl SubmitBroadcaster {
             pool_size
         };
 
-        tracing::debug!(
+        log::debug!(
             "Submit broadcast requested for client_order_id={client_order_id} (tries={actual_tries}/{pool_size})",
         );
 
@@ -646,7 +645,7 @@ impl SubmitBroadcaster {
             anyhow::bail!("No healthy transport clients available");
         }
 
-        tracing::debug!(
+        log::debug!(
             "Broadcasting submit to {} clients: client_order_id={client_order_id}, instrument_id={instrument_id}",
             healthy_transports.len(),
         );

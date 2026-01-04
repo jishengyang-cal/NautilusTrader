@@ -128,14 +128,12 @@ pub fn spawn_token_refresh_task(
     let refresh_delay_secs = (expires_in as f64 * 0.8) as u64;
 
     get_runtime().spawn(async move {
-        tracing::debug!(
-            "Token refresh scheduled in {}s (token expires in {}s)",
-            refresh_delay_secs,
-            expires_in
+        log::debug!(
+            "Token refresh scheduled in {refresh_delay_secs}s (token expires in {expires_in}s)"
         );
         tokio::time::sleep(Duration::from_secs(refresh_delay_secs)).await;
 
-        tracing::info!("Refreshing authentication token...");
+        log::info!("Refreshing authentication token...");
         let refresh_params = DeribitRefreshTokenParams {
             grant_type: "refresh_token".to_string(),
             refresh_token,

@@ -53,7 +53,6 @@ use log::LevelFilter;
 pub use macros::{log_debug, log_error, log_info, log_trace, log_warn};
 use nautilus_core::{UUID4, time::get_atomic_clock_static};
 use nautilus_model::identifiers::TraderId;
-use tracing_subscriber::EnvFilter;
 use ustr::Ustr;
 
 use self::{
@@ -85,9 +84,10 @@ pub fn logging_is_initialized() -> bool {
 
 /// Ensures logging is initialized on first use.
 ///
-/// If `NAUTILUS_LOG` is set and valid, initializes the logger with a default
-/// trader ID and instance ID. This enables lazy initialization for Rust-only
-/// binaries that don't go through the Python kernel initialization.
+/// If `NAUTILUS_LOG` is set, initializes the logger with the specified config.
+/// Otherwise, initializes with INFO level to stdout. This enables lazy
+/// initialization for Rust-only binaries that don't go through the Python
+/// kernel initialization.
 ///
 /// Returns `true` if logging is available (either already initialized or
 /// successfully lazy-initialized), `false` otherwise.
@@ -97,18 +97,18 @@ pub fn ensure_logging_initialized() -> bool {
     }
 
     LAZY_GUARD.get_or_init(|| {
-        env::var("NAUTILUS_LOG")
+        let config = env::var("NAUTILUS_LOG")
             .ok()
             .and_then(|spec| LoggerConfig::from_spec(&spec).ok())
-            .and_then(|config| {
-                Logger::init_with_config(
-                    TraderId::default(),
-                    UUID4::default(),
-                    config,
-                    FileWriterConfig::default(),
-                )
-                .ok()
-            })
+            .unwrap_or_default();
+
+        Logger::init_with_config(
+            TraderId::default(),
+            UUID4::default(),
+            config,
+            FileWriterConfig::default(),
+        )
+        .ok()
     });
 
     LOGGING_INITIALIZED.load(Ordering::SeqCst)
@@ -145,34 +145,6 @@ pub fn logging_clock_set_static_mode() {
 pub fn logging_clock_set_static_time(time_ns: u64) {
     let clock = get_atomic_clock_static();
     clock.set_time(time_ns.into());
-}
-
-/// Initialize tracing.
-///
-/// Tracing is used by adapter crates for async Rust debugging. It can be
-/// configured via the `RUST_LOG` environment variable.
-///
-/// # Safety
-///
-/// Should only be called once during an applications run, ideally at the
-/// beginning of the run.
-///
-/// # Errors
-///
-/// Returns an error if tracing subscriber fails to initialize.
-pub fn init_tracing() -> anyhow::Result<()> {
-    if let Ok(v) = env::var("RUST_LOG") {
-        let env_filter = EnvFilter::new(v.clone());
-
-        if tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .try_init()
-            .is_ok()
-        {
-            println!("Initialized tracing logs with RUST_LOG={v}");
-        }
-    }
-    Ok(())
 }
 
 /// Initialize logging.

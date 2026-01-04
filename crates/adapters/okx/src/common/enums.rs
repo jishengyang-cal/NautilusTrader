@@ -698,7 +698,7 @@ impl From<u8> for OKXVipLevel {
             8 => Self::Vip8,
             9 => Self::Vip9,
             _ => {
-                tracing::warn!("Invalid VIP level {value}, defaulting to Vip0");
+                log::warn!("Invalid VIP level {value}, defaulting to Vip0");
                 Self::Vip0
             }
         }

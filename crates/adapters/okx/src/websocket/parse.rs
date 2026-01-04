@@ -955,7 +955,7 @@ pub fn parse_order_msg_vec(
             ts_init,
         ) {
             Ok(report) => order_reports.push(report),
-            Err(e) => tracing::error!("Failed to parse execution report from message: {e}"),
+            Err(e) => log::error!("Failed to parse execution report from message: {e}"),
         }
     }
 
@@ -1269,21 +1269,21 @@ pub fn parse_order_status_report(
     let is_adl = msg.category == OKXOrderCategory::Adl;
 
     if is_liquidation {
-        tracing::warn!(
-            order_id = msg.ord_id.as_str(),
-            category = ?msg.category,
-            inst_id = msg.inst_id.as_str(),
-            state = ?msg.state,
-            "Liquidation order status update"
+        log::warn!(
+            "Liquidation order status update: order_id={}, category={:?}, inst_id={}, state={:?}",
+            msg.ord_id.as_str(),
+            msg.category,
+            msg.inst_id.as_str(),
+            msg.state,
         );
     }
 
     if is_adl {
-        tracing::warn!(
-            order_id = msg.ord_id.as_str(),
-            inst_id = msg.inst_id.as_str(),
-            state = ?msg.state,
-            "ADL (Auto-Deleveraging) order status update"
+        log::warn!(
+            "ADL (Auto-Deleveraging) order status update: order_id={}, inst_id={}, state={:?}",
+            msg.ord_id.as_str(),
+            msg.inst_id.as_str(),
+            msg.state,
         );
     }
 
@@ -1468,12 +1468,12 @@ pub fn parse_fill_report(
         let incremental = total_fee - previous_fee;
 
         if incremental < Money::zero(fee_currency) {
-            tracing::debug!(
-                order_id = msg.ord_id.as_str(),
-                total_fee = %total_fee,
-                previous_fee = %previous_fee,
-                incremental = %incremental,
-                "Negative incremental fee detected - likely a maker rebate or fee refund"
+            log::debug!(
+                "Negative incremental fee detected - likely a maker rebate or fee refund: order_id={}, total_fee={}, previous_fee={}, incremental={}",
+                msg.ord_id.as_str(),
+                total_fee,
+                previous_fee,
+                incremental,
             );
         }
 
@@ -1483,12 +1483,12 @@ pub fn parse_fill_report(
             && total_fee > Money::zero(fee_currency)
             && incremental > total_fee
         {
-            tracing::error!(
-                order_id = msg.ord_id.as_str(),
-                total_fee = %total_fee,
-                previous_fee = %previous_fee,
-                incremental = %incremental,
-                "Incremental fee exceeds total fee - likely fee cache corruption, using total fee as fallback"
+            log::error!(
+                "Incremental fee exceeds total fee - likely fee cache corruption, using total fee as fallback: order_id={}, total_fee={}, previous_fee={}, incremental={}",
+                msg.ord_id.as_str(),
+                total_fee,
+                previous_fee,
+                incremental,
             );
             total_fee
         } else {
@@ -1509,25 +1509,25 @@ pub fn parse_fill_report(
     let is_adl = msg.category == OKXOrderCategory::Adl;
 
     if is_liquidation {
-        tracing::warn!(
-            order_id = msg.ord_id.as_str(),
-            category = ?msg.category,
-            inst_id = msg.inst_id.as_str(),
-            side = ?msg.side,
-            fill_sz = %msg.fill_sz,
-            fill_px = %msg.fill_px,
-            "Liquidation order detected"
+        log::warn!(
+            "Liquidation order detected: order_id={}, category={:?}, inst_id={}, side={:?}, fill_sz={}, fill_px={}",
+            msg.ord_id.as_str(),
+            msg.category,
+            msg.inst_id.as_str(),
+            msg.side,
+            msg.fill_sz,
+            msg.fill_px,
         );
     }
 
     if is_adl {
-        tracing::warn!(
-            order_id = msg.ord_id.as_str(),
-            inst_id = msg.inst_id.as_str(),
-            side = ?msg.side,
-            fill_sz = %msg.fill_sz,
-            fill_px = %msg.fill_px,
-            "ADL (Auto-Deleveraging) order detected"
+        log::warn!(
+            "ADL (Auto-Deleveraging) order detected: order_id={}, inst_id={}, side={:?}, fill_sz={}, fill_px={}",
+            msg.ord_id.as_str(),
+            msg.inst_id.as_str(),
+            msg.side,
+            msg.fill_sz,
+            msg.fill_px,
         );
     }
 
@@ -1594,7 +1594,7 @@ pub fn parse_ws_message_data(
                 )? {
                     Some(inst_any) => Ok(Some(NautilusWsMessage::Instrument(Box::new(inst_any)))),
                     None => {
-                        tracing::warn!("Empty instrument payload: {:?}", msg);
+                        log::warn!("Empty instrument payload: {msg:?}");
                         Ok(None)
                     }
                 }
@@ -1675,7 +1675,7 @@ pub fn parse_ws_message_data(
             }
         }
         _ => {
-            tracing::warn!("Unsupported channel for message parsing: {channel:?}");
+            log::warn!("Unsupported channel for message parsing: {channel:?}");
             Ok(None)
         }
     }

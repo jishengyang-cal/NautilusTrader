@@ -225,7 +225,7 @@ impl Iterator for DeltaStreamIterator {
             ) {
                 Ok(d) => d,
                 Err(e) => {
-                    tracing::warn!("Skipping invalid delta record: {e}");
+                    log::warn!("Skipping invalid delta record: {e}");
                     continue;
                 }
             };
@@ -423,7 +423,7 @@ impl Iterator for BatchedDeltasStreamIterator {
                         ) {
                             Ok(d) => d,
                             Err(e) => {
-                                tracing::warn!("Skipping invalid delta record: {e}");
+                                log::warn!("Skipping invalid delta record: {e}");
                                 continue;
                             }
                         },

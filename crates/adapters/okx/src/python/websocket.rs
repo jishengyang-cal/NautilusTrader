@@ -316,7 +316,7 @@ impl OKXWebSocketClient {
                             call_python_with_data(&callback, |py| msg.into_py_any(py));
                         }
                         NautilusWsMessage::Raw(msg) => {
-                            tracing::debug!("Received raw message, skipping: {msg}");
+                            log::debug!("Received raw message, skipping: {msg}");
                         }
                     }
                 }
@@ -1194,7 +1194,7 @@ impl OKXWebSocketClient {
 
 pub fn call_python(py: Python, callback: &Py<PyAny>, py_obj: Py<PyAny>) {
     if let Err(e) = callback.call1(py, (py_obj,)) {
-        tracing::error!("Error calling Python: {e}");
+        log::error!("Error calling Python: {e}");
     }
 }
 
@@ -1204,6 +1204,6 @@ where
 {
     Python::attach(|py| match data_converter(py) {
         Ok(py_obj) => call_python(py, callback, py_obj),
-        Err(e) => tracing::error!("Failed to convert data to Python object: {e}"),
+        Err(e) => log::error!("Failed to convert data to Python object: {e}"),
     });
 }

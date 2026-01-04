@@ -315,7 +315,7 @@ impl KrakenFuturesRawHttpClient {
                     })?;
 
                     let base_url = &self.base_url;
-                    tracing::debug!(
+                    log::debug!(
                         "Kraken Futures auth: endpoint={endpoint}, nonce={nonce}, base_url={base_url}"
                     );
 
@@ -412,7 +412,7 @@ impl KrakenFuturesRawHttpClient {
                 KrakenHttpError::AuthenticationError(format!("Failed to sign request: {e}"))
             })?;
 
-        tracing::debug!(
+        log::debug!(
             "Kraken Futures GET with query: endpoint={endpoint}, query={query_string}, nonce={nonce}"
         );
 
@@ -506,7 +506,7 @@ impl KrakenFuturesRawHttpClient {
         })?;
 
         let nonce = self.generate_nonce();
-        tracing::debug!("Generated nonce {nonce} for {endpoint}");
+        log::debug!("Generated nonce {nonce} for {endpoint}");
 
         let signature = credential
             .sign_futures(endpoint, &post_data, nonce)
@@ -553,7 +553,7 @@ impl KrakenFuturesRawHttpClient {
         })?;
 
         serde_json::from_str(&response_text).map_err(|e| {
-            tracing::error!("Failed to parse response from {endpoint}: {response_text}");
+            log::error!("Failed to parse response from {endpoint}: {response_text}");
             KrakenHttpError::ParseError(format!("Failed to deserialize response: {e}"))
         })
     }
@@ -1095,7 +1095,7 @@ impl KrakenFuturesHttpClient {
                     Ok(instrument) => Some(instrument),
                     Err(e) => {
                         let symbol = &fut_instrument.symbol;
-                        tracing::warn!("Failed to parse futures instrument {symbol}: {e}");
+                        log::warn!("Failed to parse futures instrument {symbol}: {e}");
                         None
                     }
                 }
@@ -1209,7 +1209,7 @@ impl KrakenFuturesHttpClient {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to parse futures trade tick: {e}");
+                    log::warn!("Failed to parse futures trade tick: {e}");
                 }
             }
         }
@@ -1278,7 +1278,7 @@ impl KrakenFuturesHttpClient {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to parse futures bar: {e}");
+                    log::warn!("Failed to parse futures bar: {e}");
                 }
             }
         }
@@ -1420,7 +1420,7 @@ impl KrakenFuturesHttpClient {
                 }
                 _ => {
                     let account_type = &account.account_type;
-                    tracing::debug!("Unknown account type: {account_type}");
+                    log::debug!("Unknown account type: {account_type}");
                 }
             }
         }
@@ -1476,7 +1476,7 @@ impl KrakenFuturesHttpClient {
                     Ok(report) => all_reports.push(report),
                     Err(e) => {
                         let order_id = &order.order_id;
-                        tracing::warn!("Failed to parse futures order {order_id}: {e}");
+                        log::warn!("Failed to parse futures order {order_id}: {e}");
                     }
                 }
             }
@@ -1513,7 +1513,7 @@ impl KrakenFuturesHttpClient {
                         Ok(report) => all_reports.push(report),
                         Err(e) => {
                             let order_id = &event.order_id;
-                            tracing::warn!("Failed to parse futures order event {order_id}: {e}");
+                            log::warn!("Failed to parse futures order event {order_id}: {e}");
                         }
                     }
                 }
@@ -1576,7 +1576,7 @@ impl KrakenFuturesHttpClient {
                     Ok(report) => all_reports.push(report),
                     Err(e) => {
                         let fill_id = &fill.fill_id;
-                        tracing::warn!("Failed to parse futures fill {fill_id}: {e}");
+                        log::warn!("Failed to parse futures fill {fill_id}: {e}");
                     }
                 }
             }
@@ -1621,7 +1621,7 @@ impl KrakenFuturesHttpClient {
                     Ok(report) => all_reports.push(report),
                     Err(e) => {
                         let symbol = &position.symbol;
-                        tracing::warn!("Failed to parse futures position {symbol}: {e}");
+                        log::warn!("Failed to parse futures position {symbol}: {e}");
                     }
                 }
             }

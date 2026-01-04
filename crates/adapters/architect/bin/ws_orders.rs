@@ -46,9 +46,7 @@ use totp_rs::{Algorithm, Secret, TOTP};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .init();
+    nautilus_common::logging::ensure_logging_initialized();
 
     let api_key = std::env::var("ARCHITECT_API_KEY")
         .expect("ARCHITECT_API_KEY environment variable required");
@@ -65,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ArchitectEnvironment::Production
     };
 
-    tracing::info!("Environment: {environment}");
+    log::info!("Environment: {environment}");
 
     let http_client = ArchitectRawHttpClient::new(
         Some(environment.http_url().to_string()),
@@ -77,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    tracing::info!(
+    log::info!(
         "Authenticating via HTTP to {}/authenticate ...",
         environment.http_url()
     );
@@ -90,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let totp =
             TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes).expect("Invalid TOTP configuration");
         let code = totp.generate_current().expect("Failed to generate TOTP");
-        tracing::info!("Generated TOTP code from secret");
+        log::info!("Generated TOTP code from secret");
         code
     });
 
@@ -103,34 +101,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let code = match totp_code {
                     Some(code) => code,
                     None => {
-                        tracing::error!("2FA required but ARCHITECT_TOTP_SECRET not set");
+                        log::error!("2FA required but ARCHITECT_TOTP_SECRET not set");
                         return Err("2FA required but ARCHITECT_TOTP_SECRET not provided".into());
                     }
                 };
 
-                tracing::info!("2FA required, using provided code...");
+                log::info!("2FA required, using provided code...");
                 match http_client
                     .authenticate_with_totp(&api_key, &api_secret, 3600, Some(&code))
                     .await
                 {
                     Ok(resp) => resp,
                     Err(e) => {
-                        tracing::error!("Authentication with 2FA failed: {e:?}");
+                        log::error!("Authentication with 2FA failed: {e:?}");
                         return Err(format!("Authentication failed: {e:?}").into());
                     }
                 }
             } else {
-                tracing::error!("Authentication failed: {e:?}");
+                log::error!("Authentication failed: {e:?}");
                 return Err(format!("Authentication failed: {e:?}").into());
             }
         }
     };
-    tracing::info!("Authenticated successfully");
+    log::info!("Authenticated successfully");
 
     let account_id = AccountId::new("ARCHITECT-001");
-    tracing::info!("Account ID: {account_id}");
+    log::info!("Account ID: {account_id}");
 
-    tracing::info!(
+    log::info!(
         "Connecting to orders WebSocket: {}",
         environment.ws_orders_url()
     );
@@ -141,12 +139,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     client.connect(&auth_response.token).await?;
-    tracing::info!("Connected and authenticated");
+    log::info!("Connected and authenticated");
 
-    tracing::info!("Requesting open orders...");
+    log::info!("Requesting open orders...");
     client.get_open_orders().await?;
 
-    tracing::info!("Listening for messages (30 seconds)...");
+    log::info!("Listening for messages (30 seconds)...");
     let timeout = Duration::from_secs(30);
     let start = std::time::Instant::now();
     let mut message_count = 0;
@@ -160,13 +158,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match &msg {
                 ArchitectOrdersWsMessage::Authenticated => {
-                    tracing::info!("WebSocket authenticated");
+                    log::info!("WebSocket authenticated");
                 }
                 ArchitectOrdersWsMessage::OrderAcknowledged(ack) => {
-                    tracing::info!("Order acknowledged: {} {}", ack.o.oid, ack.o.s);
+                    log::info!("Order acknowledged: {} {}", ack.o.oid, ack.o.s);
                 }
                 ArchitectOrdersWsMessage::OrderPartiallyFilled(fill) => {
-                    tracing::info!(
+                    log::info!(
                         "Order partially filled: {} {} @ {}",
                         fill.o.oid,
                         fill.xs.q,
@@ -174,44 +172,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 }
                 ArchitectOrdersWsMessage::OrderFilled(fill) => {
-                    tracing::info!("Order filled: {} {} @ {}", fill.o.oid, fill.xs.q, fill.xs.p);
+                    log::info!("Order filled: {} {} @ {}", fill.o.oid, fill.xs.q, fill.xs.p);
                 }
                 ArchitectOrdersWsMessage::OrderCanceled(cancel) => {
-                    tracing::info!("Order canceled: {} reason={}", cancel.o.oid, cancel.xr);
+                    log::info!("Order canceled: {} reason={}", cancel.o.oid, cancel.xr);
                 }
                 ArchitectOrdersWsMessage::OrderRejectedRaw(reject) => {
-                    tracing::warn!("Order rejected: {} reason={}", reject.o.oid, reject.r);
+                    log::warn!("Order rejected: {} reason={}", reject.o.oid, reject.r);
                 }
                 ArchitectOrdersWsMessage::OrderExpired(expired) => {
-                    tracing::info!("Order expired: {}", expired.o.oid);
+                    log::info!("Order expired: {}", expired.o.oid);
                 }
                 ArchitectOrdersWsMessage::OrderReplaced(replaced) => {
-                    tracing::info!("Order replaced: {}", replaced.o.oid);
+                    log::info!("Order replaced: {}", replaced.o.oid);
                 }
                 ArchitectOrdersWsMessage::OrderDoneForDay(done) => {
-                    tracing::info!("Order done for day: {}", done.o.oid);
+                    log::info!("Order done for day: {}", done.o.oid);
                 }
                 ArchitectOrdersWsMessage::CancelRejected(reject) => {
-                    tracing::warn!("Cancel rejected: {} reason={}", reject.oid, reject.r);
+                    log::warn!("Cancel rejected: {} reason={}", reject.oid, reject.r);
                 }
                 ArchitectOrdersWsMessage::PlaceOrderResponse(resp) => {
-                    tracing::info!(
+                    log::info!(
                         "Place order response: rid={} oid={}",
                         resp.rid,
                         resp.res.oid
                     );
                 }
                 ArchitectOrdersWsMessage::CancelOrderResponse(resp) => {
-                    tracing::info!(
+                    log::info!(
                         "Cancel order response: rid={} accepted={}",
                         resp.rid,
                         resp.res.cxl_rx
                     );
                 }
                 ArchitectOrdersWsMessage::OpenOrdersResponse(resp) => {
-                    tracing::info!("Open orders: {} orders", resp.res.len());
+                    log::info!("Open orders: {} orders", resp.res.len());
                     for order in &resp.res {
-                        tracing::info!(
+                        log::info!(
                             "  {} {} {:?} {} @ {} ({:?})",
                             order.oid,
                             order.s,
@@ -223,37 +221,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 ArchitectOrdersWsMessage::OrderStatusReports(reports) => {
-                    tracing::info!("Order status reports: {} items", reports.len());
+                    log::info!("Order status reports: {} items", reports.len());
                 }
                 ArchitectOrdersWsMessage::FillReports(reports) => {
-                    tracing::info!("Fill reports: {} items", reports.len());
+                    log::info!("Fill reports: {} items", reports.len());
                 }
                 ArchitectOrdersWsMessage::OrderRejected(reject) => {
-                    tracing::warn!("Order rejected: {}", reject.client_order_id);
+                    log::warn!("Order rejected: {}", reject.client_order_id);
                 }
                 ArchitectOrdersWsMessage::OrderCancelRejected(reject) => {
-                    tracing::warn!("Cancel rejected: {}", reject.client_order_id);
+                    log::warn!("Cancel rejected: {}", reject.client_order_id);
                 }
                 ArchitectOrdersWsMessage::Error(err) => {
-                    tracing::error!("Error: {}", err.message);
+                    log::error!("Error: {}", err.message);
                 }
                 ArchitectOrdersWsMessage::Reconnected => {
-                    tracing::warn!("Reconnected");
+                    log::warn!("Reconnected");
                 }
             }
 
             if start.elapsed() > timeout {
-                tracing::info!("Timeout reached");
+                log::info!("Timeout reached");
                 break;
             }
         }
     }
 
-    tracing::info!("Disconnecting...");
+    log::info!("Disconnecting...");
     client.disconnect().await;
 
-    tracing::info!("Received {message_count} messages");
-    tracing::info!("Done");
+    log::info!("Received {message_count} messages");
+    log::info!("Done");
 
     Ok(())
 }

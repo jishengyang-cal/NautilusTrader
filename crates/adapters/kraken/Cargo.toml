@@ -51,6 +51,7 @@ nautilus-network = { workspace = true }
 
 ahash = { workspace = true }
 anyhow = { workspace = true }
+log = { workspace = true }
 arc-swap = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
@@ -71,8 +72,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 ustr = { workspace = true }
 zeroize = { workspace = true }
 
@@ -84,7 +83,6 @@ nautilus-testkit = { workspace = true }
 axum = { workspace = true }
 criterion = { workspace = true }
 rstest = { workspace = true }
-tracing-test = { workspace = true }
 url = { workspace = true }
 
 [[bin]]

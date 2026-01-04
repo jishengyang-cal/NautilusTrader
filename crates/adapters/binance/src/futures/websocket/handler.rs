@@ -151,7 +151,7 @@ impl BinanceFuturesWsFeedHandler {
 
     async fn send_subscribe(&mut self, streams: Vec<String>) {
         let Some(client) = &self.client else {
-            tracing::warn!("Cannot subscribe: no client connected");
+            log::warn!("Cannot subscribe: no client connected");
             return;
         };
 
@@ -174,19 +174,19 @@ impl BinanceFuturesWsFeedHandler {
         let json = match serde_json::to_string(&request) {
             Ok(j) => j,
             Err(e) => {
-                tracing::error!(error = %e, "Failed to serialize subscribe request");
+                log::error!("Failed to serialize subscribe request: {e}");
                 return;
             }
         };
 
         if let Err(e) = client.send_text(json, None).await {
-            tracing::error!(error = %e, "Failed to send subscribe request");
+            log::error!("Failed to send subscribe request: {e}");
         }
     }
 
     async fn send_unsubscribe(&mut self, streams: Vec<String>) {
         let Some(client) = &self.client else {
-            tracing::warn!("Cannot unsubscribe: no client connected");
+            log::warn!("Cannot unsubscribe: no client connected");
             return;
         };
 
@@ -201,13 +201,13 @@ impl BinanceFuturesWsFeedHandler {
         let json = match serde_json::to_string(&request) {
             Ok(j) => j,
             Err(e) => {
-                tracing::error!(error = %e, "Failed to serialize unsubscribe request");
+                log::error!("Failed to serialize unsubscribe request: {e}");
                 return;
             }
         };
 
         if let Err(e) = client.send_text(json, None).await {
-            tracing::error!(error = %e, "Failed to send unsubscribe request");
+            log::error!("Failed to send unsubscribe request: {e}");
         }
 
         // Mark as unsubscribed
@@ -221,7 +221,7 @@ impl BinanceFuturesWsFeedHandler {
         if let Ok(text) = std::str::from_utf8(&raw)
             && text == RECONNECTED
         {
-            tracing::info!("WebSocket reconnected signal received");
+            log::info!("WebSocket reconnected signal received");
             return Some(NautilusFuturesWsMessage::Reconnected);
         }
 
@@ -229,7 +229,7 @@ impl BinanceFuturesWsFeedHandler {
         let json: serde_json::Value = match serde_json::from_slice(&raw) {
             Ok(j) => j,
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to parse JSON message");
+                log::warn!("Failed to parse JSON message: {e}");
                 return None;
             }
         };
@@ -269,13 +269,16 @@ impl BinanceFuturesWsFeedHandler {
                     for stream in &streams {
                         self.subscriptions_state.confirm_subscribe(stream);
                     }
-                    tracing::debug!(streams = ?streams, "Subscription confirmed");
+                    log::debug!("Subscription confirmed: streams={streams:?}");
                 } else {
                     // Failure - mark streams as failed
                     for stream in &streams {
                         self.subscriptions_state.mark_failure(stream);
                     }
-                    tracing::warn!(streams = ?streams, result = ?response.result, "Subscription failed");
+                    log::warn!(
+                        "Subscription failed: streams={streams:?}, result={:?}",
+                        response.result
+                    );
                 }
             }
         } else if let Ok(error) =
@@ -288,7 +291,11 @@ impl BinanceFuturesWsFeedHandler {
                     self.subscriptions_state.mark_failure(stream);
                 }
             }
-            tracing::warn!(code = error.code, msg = %error.msg, "WebSocket error response");
+            log::warn!(
+                "WebSocket error response: code={}, msg={}",
+                error.code,
+                error.msg
+            );
         }
     }
 
@@ -298,10 +305,8 @@ impl BinanceFuturesWsFeedHandler {
 
         // Look up instrument
         let Some(instrument) = self.instruments.get(&symbol) else {
-            tracing::warn!(
-                symbol = %symbol,
-                event_type = ?event_type,
-                "No instrument in cache, dropping message"
+            log::warn!(
+                "No instrument in cache, dropping message: symbol={symbol}, event_type={event_type:?}"
             );
             return None;
         };
@@ -314,7 +319,7 @@ impl BinanceFuturesWsFeedHandler {
                             return Some(NautilusFuturesWsMessage::Data(vec![Data::Trade(trade)]));
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "Failed to parse aggregate trade");
+                            log::warn!("Failed to parse aggregate trade: {e}");
                         }
                     }
                 }
@@ -326,7 +331,7 @@ impl BinanceFuturesWsFeedHandler {
                             return Some(NautilusFuturesWsMessage::Data(vec![Data::Trade(trade)]));
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "Failed to parse trade");
+                            log::warn!("Failed to parse trade: {e}");
                         }
                     }
                 }
@@ -339,7 +344,7 @@ impl BinanceFuturesWsFeedHandler {
                             return Some(NautilusFuturesWsMessage::Data(vec![Data::Quote(quote)]));
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "Failed to parse book ticker");
+                            log::warn!("Failed to parse book ticker: {e}");
                         }
                     }
                 }
@@ -353,7 +358,7 @@ impl BinanceFuturesWsFeedHandler {
                             return Some(NautilusFuturesWsMessage::Deltas(deltas));
                         }
                         Err(e) => {
-                            tracing::warn!(error = %e, "Failed to parse depth update");
+                            log::warn!("Failed to parse depth update: {e}");
                         }
                     }
                 }
@@ -367,7 +372,7 @@ impl BinanceFuturesWsFeedHandler {
                 return Some(NautilusFuturesWsMessage::RawJson(json.clone()));
             }
             BinanceWsEventType::Unknown => {
-                tracing::debug!(event_type = ?json.get("e"), "Unknown event type");
+                log::debug!("Unknown event type: {:?}", json.get("e"));
             }
         }
 

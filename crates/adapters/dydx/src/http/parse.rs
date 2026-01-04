@@ -1159,9 +1159,8 @@ pub fn parse_account_state(
             let instrument = match instruments.get(&instrument_id) {
                 Some(inst) => inst,
                 None => {
-                    tracing::warn!(
-                        "Cannot calculate margin for position {}: instrument not found",
-                        market_str
+                    log::warn!(
+                        "Cannot calculate margin for position {market_str}: instrument not found"
                     );
                     continue;
                 }
@@ -1171,9 +1170,8 @@ pub fn parse_account_state(
             let (margin_init, margin_maint) = match instrument {
                 InstrumentAny::CryptoPerpetual(perp) => (perp.margin_init, perp.margin_maint),
                 _ => {
-                    tracing::warn!(
-                        "Instrument {} is not a CryptoPerpetual, skipping margin calculation",
-                        instrument_id
+                    log::warn!(
+                        "Instrument {instrument_id} is not a CryptoPerpetual, skipping margin calculation"
                     );
                     continue;
                 }
@@ -1183,7 +1181,7 @@ pub fn parse_account_state(
             let position_size = match Decimal::from_str(&position.size) {
                 Ok(size) => size.abs(),
                 Err(e) => {
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to parse position size '{}' for {}: {}",
                         position.size,
                         market_str,
@@ -1206,10 +1204,7 @@ pub fn parse_account_state(
                 .unwrap_or(Decimal::ZERO);
 
             if oracle_price.is_zero() {
-                tracing::warn!(
-                    "No valid price for position {}, skipping margin calculation",
-                    market_str
-                );
+                log::warn!("No valid price for position {market_str}, skipping margin calculation");
                 continue;
             }
 

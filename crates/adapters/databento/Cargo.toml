@@ -28,7 +28,7 @@ extension-module = [
   "python",
   "pyo3/extension-module",
 ]
-live = ["nautilus-live", "nautilus-system", "dotenvy", "tracing-subscriber"]
+live = ["nautilus-live", "nautilus-system", "dotenvy"]
 python = [
   "nautilus-core/ffi", # Temporary as python currently relies on the ffi CVec
   "nautilus-core/python",
@@ -65,19 +65,16 @@ strum = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
 ustr = { workspace = true }
 zeroize = { workspace = true }
 
 dotenvy = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 pyo3-async-runtimes = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
 nautilus-testkit = { workspace = true }
 rstest = { workspace = true }
-tracing-test = { workspace = true }
 
 [[bin]]
 name = "databento-sandbox"

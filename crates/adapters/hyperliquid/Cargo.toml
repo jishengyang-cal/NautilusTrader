@@ -91,8 +91,6 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true } # Needed for example binaries
 url = { workspace = true }
 ustr = { workspace = true }
 uuid = { workspace = true }
@@ -107,7 +105,6 @@ axum = { workspace = true }
 criterion = { workspace = true }
 futures-util = { workspace = true }
 rstest = { workspace = true }
-tracing-test = { workspace = true }
 
 [[bin]]
 name = "hyperliquid-http-public"

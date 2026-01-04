@@ -155,25 +155,25 @@ impl KrakenFuturesWebSocketClient {
                             KrakenFuturesWsMessage::MarkPrice(update) => {
                                 let py_obj = data_to_pycapsule(py, Data::from(update));
                                 if let Err(e) = callback.call1(py, (py_obj,)) {
-                                    tracing::error!("Error calling Python callback: {e}");
+                                    log::error!("Error calling Python callback: {e}");
                                 }
                             }
                             KrakenFuturesWsMessage::IndexPrice(update) => {
                                 let py_obj = data_to_pycapsule(py, Data::from(update));
                                 if let Err(e) = callback.call1(py, (py_obj,)) {
-                                    tracing::error!("Error calling Python callback: {e}");
+                                    log::error!("Error calling Python callback: {e}");
                                 }
                             }
                             KrakenFuturesWsMessage::Quote(quote) => {
                                 let py_obj = data_to_pycapsule(py, Data::from(quote));
                                 if let Err(e) = callback.call1(py, (py_obj,)) {
-                                    tracing::error!("Error calling Python callback: {e}");
+                                    log::error!("Error calling Python callback: {e}");
                                 }
                             }
                             KrakenFuturesWsMessage::Trade(trade) => {
                                 let py_obj = data_to_pycapsule(py, Data::from(trade));
                                 if let Err(e) = callback.call1(py, (py_obj,)) {
-                                    tracing::error!("Error calling Python callback: {e}");
+                                    log::error!("Error calling Python callback: {e}");
                                 }
                             }
                             KrakenFuturesWsMessage::BookDeltas(deltas) => {
@@ -182,18 +182,18 @@ impl KrakenFuturesWebSocketClient {
                                     Data::Deltas(OrderBookDeltas_API::new(deltas)),
                                 );
                                 if let Err(e) = callback.call1(py, (py_obj,)) {
-                                    tracing::error!("Error calling Python callback: {e}");
+                                    log::error!("Error calling Python callback: {e}");
                                 }
                             }
                             KrakenFuturesWsMessage::OrderAccepted(event) => {
                                 match event.into_py_any(py) {
                                     Ok(py_obj) => {
                                         if let Err(e) = callback.call1(py, (py_obj,)) {
-                                            tracing::error!("Error calling Python callback: {e}");
+                                            log::error!("Error calling Python callback: {e}");
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
+                                        log::error!(
                                             "Failed to convert OrderAccepted to Python: {e}"
                                         );
                                     }
@@ -203,11 +203,11 @@ impl KrakenFuturesWebSocketClient {
                                 match event.into_py_any(py) {
                                     Ok(py_obj) => {
                                         if let Err(e) = callback.call1(py, (py_obj,)) {
-                                            tracing::error!("Error calling Python callback: {e}");
+                                            log::error!("Error calling Python callback: {e}");
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
+                                        log::error!(
                                             "Failed to convert OrderCanceled to Python: {e}"
                                         );
                                     }
@@ -217,11 +217,11 @@ impl KrakenFuturesWebSocketClient {
                                 match event.into_py_any(py) {
                                     Ok(py_obj) => {
                                         if let Err(e) = callback.call1(py, (py_obj,)) {
-                                            tracing::error!("Error calling Python callback: {e}");
+                                            log::error!("Error calling Python callback: {e}");
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
+                                        log::error!(
                                             "Failed to convert OrderExpired to Python: {e}"
                                         );
                                     }
@@ -231,11 +231,11 @@ impl KrakenFuturesWebSocketClient {
                                 match event.into_py_any(py) {
                                     Ok(py_obj) => {
                                         if let Err(e) = callback.call1(py, (py_obj,)) {
-                                            tracing::error!("Error calling Python callback: {e}");
+                                            log::error!("Error calling Python callback: {e}");
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
+                                        log::error!(
                                             "Failed to convert OrderUpdated to Python: {e}"
                                         );
                                     }
@@ -245,11 +245,11 @@ impl KrakenFuturesWebSocketClient {
                                 match (*report).into_py_any(py) {
                                     Ok(py_obj) => {
                                         if let Err(e) = callback.call1(py, (py_obj,)) {
-                                            tracing::error!("Error calling Python callback: {e}");
+                                            log::error!("Error calling Python callback: {e}");
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
+                                        log::error!(
                                             "Failed to convert OrderStatusReport to Python: {e}"
                                         );
                                     }
@@ -259,18 +259,16 @@ impl KrakenFuturesWebSocketClient {
                                 match (*report).into_py_any(py) {
                                     Ok(py_obj) => {
                                         if let Err(e) = callback.call1(py, (py_obj,)) {
-                                            tracing::error!("Error calling Python callback: {e}");
+                                            log::error!("Error calling Python callback: {e}");
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!(
-                                            "Failed to convert FillReport to Python: {e}"
-                                        );
+                                        log::error!("Failed to convert FillReport to Python: {e}");
                                     }
                                 }
                             }
                             KrakenFuturesWsMessage::Reconnected => {
-                                tracing::info!("WebSocket reconnected");
+                                log::info!("WebSocket reconnected");
                             }
                         });
                     }

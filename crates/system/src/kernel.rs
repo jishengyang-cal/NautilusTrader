@@ -32,7 +32,7 @@ use nautilus_common::{
     component::Component,
     enums::Environment,
     logging::{
-        headers, init_logging, init_tracing,
+        headers, init_logging,
         logger::{LogGuard, LoggerConfig},
         writer::FileWriterConfig,
     },
@@ -405,8 +405,6 @@ impl NautilusKernel {
             config,
             FileWriterConfig::default(), // TODO: Properly incorporate file writer config
         )?;
-
-        init_tracing()?;
 
         Ok(log_guard)
     }

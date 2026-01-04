@@ -126,7 +126,7 @@ impl DydxWebSocketClient {
                                         use nautilus_model::python::data::data_to_pycapsule;
                                         let py_obj = data_to_pycapsule(py, data);
                                         if let Err(e) = callback.call1(py, (py_obj,)) {
-                                            tracing::error!("Error calling Python callback: {e}");
+                                            log::error!("Error calling Python callback: {e}");
                                         }
                                     }
                                 });
@@ -140,15 +140,15 @@ impl DydxWebSocketClient {
                                     let data = Data::Deltas(OrderBookDeltas_API::new(*deltas));
                                     let py_obj = data_to_pycapsule(py, data);
                                     if let Err(e) = callback.call1(py, (py_obj,)) {
-                                        tracing::error!("Error calling Python callback: {e}");
+                                        log::error!("Error calling Python callback: {e}");
                                     }
                                 });
                             }
                             crate::websocket::enums::NautilusWsMessage::Error(err) => {
-                                tracing::error!("dYdX WebSocket error: {err}");
+                                log::error!("dYdX WebSocket error: {err}");
                             }
                             crate::websocket::enums::NautilusWsMessage::Reconnected => {
-                                tracing::info!("dYdX WebSocket reconnected");
+                                log::info!("dYdX WebSocket reconnected");
                             }
                             _ => {
                                 // Handle other message types if needed

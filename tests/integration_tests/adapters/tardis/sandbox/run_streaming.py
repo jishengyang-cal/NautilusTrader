@@ -110,7 +110,6 @@ def run():
     """
     Download Tardis data, loads it, and runs a backtest.
     """
-    nautilus_pyo3.init_tracing()
     _guard = init_logging(level_stdout=LogLevel.INFO)
 
     api_key = os.getenv("TARDIS_API_KEY") or os.getenv("TM_API_KEY")

@@ -470,10 +470,7 @@ pub fn parse_account_state(
 
         // Skip balances with empty currency codes
         if ccy_str.is_empty() {
-            tracing::debug!(
-                "Skipping balance detail with empty currency code | raw_data={:?}",
-                summary
-            );
+            log::debug!("Skipping balance detail with empty currency code | raw_data={summary:?}");
             continue;
         }
 
@@ -725,7 +722,7 @@ pub fn bar_spec_to_resolution(bar_type: &BarType) -> String {
         }
         BarAggregation::Day => "1D".to_string(),
         _ => {
-            tracing::warn!(
+            log::warn!(
                 "Unsupported bar aggregation {:?}, defaulting to 1 minute",
                 spec.aggregation
             );

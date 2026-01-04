@@ -353,7 +353,7 @@ impl KrakenSpotRawHttpClient {
 
                 let final_body = if authenticate {
                     let nonce = self.generate_nonce();
-                    tracing::debug!("Generated nonce {nonce} for {endpoint}");
+                    log::debug!("Generated nonce {nonce} for {endpoint}");
 
                     let params: HashMap<String, String> = if let Some(ref body_bytes) = body {
                         let body_str = std::str::from_utf8(body_bytes).map_err(|e| {
@@ -1181,7 +1181,7 @@ impl KrakenSpotHttpClient {
                 match parse_spot_instrument(pair_name, definition, ts_init, ts_init) {
                     Ok(instrument) => Some(instrument),
                     Err(e) => {
-                        tracing::warn!("Failed to parse instrument {pair_name}: {e}");
+                        log::warn!("Failed to parse instrument {pair_name}: {e}");
                         None
                     }
                 }
@@ -1235,7 +1235,7 @@ impl KrakenSpotHttpClient {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to parse trade tick: {e}");
+                        log::warn!("Failed to parse trade tick: {e}");
                     }
                 }
             }
@@ -1280,7 +1280,7 @@ impl KrakenSpotHttpClient {
             for ohlc_array in ohlc_arrays {
                 if ohlc_array.len() < 8 {
                     let len = ohlc_array.len();
-                    tracing::warn!("OHLC array too short: {len}");
+                    log::warn!("OHLC array too short: {len}");
                     continue;
                 }
 
@@ -1311,7 +1311,7 @@ impl KrakenSpotHttpClient {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to parse bar: {e}");
+                        log::warn!("Failed to parse bar: {e}");
                     }
                 }
             }
@@ -1401,7 +1401,7 @@ impl KrakenSpotHttpClient {
                 match parse_order_status_report(order_id, order, &instrument, account_id, ts_init) {
                     Ok(report) => all_reports.push(report),
                     Err(e) => {
-                        tracing::warn!("Failed to parse order {order_id}: {e}");
+                        log::warn!("Failed to parse order {order_id}: {e}");
                     }
                 }
             }
@@ -1450,7 +1450,7 @@ impl KrakenSpotHttpClient {
                     ) {
                         Ok(report) => all_reports.push(report),
                         Err(e) => {
-                            tracing::warn!("Failed to parse order {order_id}: {e}");
+                            log::warn!("Failed to parse order {order_id}: {e}");
                         }
                     }
                 }
@@ -1504,7 +1504,7 @@ impl KrakenSpotHttpClient {
                     match parse_fill_report(trade_id, trade, &instrument, account_id, ts_init) {
                         Ok(report) => all_reports.push(report),
                         Err(e) => {
-                            tracing::warn!("Failed to parse trade {trade_id}: {e}");
+                            log::warn!("Failed to parse trade {trade_id}: {e}");
                         }
                     }
                 }
@@ -1625,7 +1625,7 @@ impl KrakenSpotHttpClient {
                     continue;
                 }
 
-                tracing::debug!(
+                log::debug!(
                     "Spot position: {} {} (quote: {})",
                     quantity,
                     base_currency.code,
@@ -1716,7 +1716,7 @@ impl KrakenSpotHttpClient {
         }
 
         if reduce_only {
-            tracing::warn!("reduce_only is not supported by Kraken Spot API, ignoring");
+            log::warn!("reduce_only is not supported by Kraken Spot API, ignoring");
         }
 
         let mut builder = KrakenSpotAddOrderParamsBuilder::default();

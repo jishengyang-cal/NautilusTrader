@@ -212,7 +212,7 @@ pub fn parse_account_state(
     for balance in &response.balances {
         let symbol_str = balance.symbol.as_str().trim();
         if symbol_str.is_empty() {
-            tracing::debug!("Skipping balance with empty symbol");
+            log::debug!("Skipping balance with empty symbol");
             continue;
         }
 

@@ -184,7 +184,7 @@ impl BitmexExecutionClient {
     {
         let handle = get_runtime().spawn(async move {
             if let Err(e) = fut.await {
-                tracing::error!("{label}: {e:?}");
+                log::error!("{label}: {e:?}");
             }
         });
 
@@ -317,17 +317,17 @@ impl ExecutionClient for BitmexExecutionClient {
 
         self.ensure_instruments_initialized()?;
         self.started = true;
-        tracing::info!(
-            client_id = %self.core.client_id,
-            account_id = %self.core.account_id,
-            use_testnet = self.config.use_testnet,
-            submitter_pool_size = ?self.config.submitter_pool_size,
-            canceller_pool_size = ?self.config.canceller_pool_size,
-            http_proxy_url = ?self.config.http_proxy_url,
-            ws_proxy_url = ?self.config.ws_proxy_url,
-            submitter_proxy_urls = ?self.config.submitter_proxy_urls,
-            canceller_proxy_urls = ?self.config.canceller_proxy_urls,
-            "BitMEX execution client started"
+        log::info!(
+            "BitMEX execution client started: client_id={}, account_id={}, use_testnet={}, submitter_pool_size={:?}, canceller_pool_size={:?}, http_proxy_url={:?}, ws_proxy_url={:?}, submitter_proxy_urls={:?}, canceller_proxy_urls={:?}",
+            self.core.client_id,
+            self.core.account_id,
+            self.config.use_testnet,
+            self.config.submitter_pool_size,
+            self.config.canceller_pool_size,
+            self.config.http_proxy_url,
+            self.config.ws_proxy_url,
+            self.config.submitter_proxy_urls,
+            self.config.canceller_proxy_urls,
         );
         Ok(())
     }
@@ -343,7 +343,7 @@ impl ExecutionClient for BitmexExecutionClient {
             handle.abort();
         }
         self.abort_pending_tasks();
-        tracing::info!("BitMEX execution client {} stopped", self.core.client_id);
+        log::info!("BitMEX execution client {} stopped", self.core.client_id);
         Ok(())
     }
 
@@ -365,7 +365,7 @@ impl ExecutionClient for BitmexExecutionClient {
         self.ws_client.subscribe_positions().await?;
         self.ws_client.subscribe_wallet().await?;
         if let Err(e) = self.ws_client.subscribe_margin().await {
-            tracing::debug!("Margin subscription unavailable: {e:?}");
+            log::debug!("Margin subscription unavailable: {e:?}");
         }
 
         self.start_ws_stream()?;
@@ -373,7 +373,7 @@ impl ExecutionClient for BitmexExecutionClient {
 
         self.connected = true;
         self.core.set_connected(true);
-        tracing::info!(client_id = %self.core.client_id, "Connected");
+        log::info!("Connected: client_id={}", self.core.client_id);
         Ok(())
     }
 
@@ -387,7 +387,7 @@ impl ExecutionClient for BitmexExecutionClient {
         self._canceller.stop().await;
 
         if let Err(e) = self.ws_client.close().await {
-            tracing::warn!("Error while closing BitMEX execution websocket: {e:?}");
+            log::warn!("Error while closing BitMEX execution websocket: {e:?}");
         }
 
         if let Some(handle) = self.ws_stream_handle.take() {
@@ -397,7 +397,7 @@ impl ExecutionClient for BitmexExecutionClient {
         self.abort_pending_tasks();
         self.connected = false;
         self.core.set_connected(false);
-        tracing::info!(client_id = %self.core.client_id, "Disconnected");
+        log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
     }
 
@@ -469,7 +469,7 @@ impl ExecutionClient for BitmexExecutionClient {
         &self,
         _lookback_mins: Option<u64>,
     ) -> anyhow::Result<Option<ExecutionMassStatus>> {
-        tracing::warn!("generate_mass_status not yet implemented for BitMEX execution client");
+        log::warn!("generate_mass_status not yet implemented for BitMEX execution client");
         Ok(None)
     }
 
@@ -489,7 +489,7 @@ impl ExecutionClient for BitmexExecutionClient {
                 .await
             {
                 Ok(report) => dispatch_order_status_report(report),
-                Err(e) => tracing::error!("BitMEX query order failed: {e:?}"),
+                Err(e) => log::error!("BitMEX query order failed: {e:?}"),
             }
             Ok(())
         });
@@ -501,7 +501,7 @@ impl ExecutionClient for BitmexExecutionClient {
         let order = cmd.order.clone();
 
         if order.is_closed() {
-            tracing::warn!("Cannot submit closed order {}", order.client_order_id());
+            log::warn!("Cannot submit closed order {}", order.client_order_id());
             return Ok(());
         }
 
@@ -610,7 +610,7 @@ impl ExecutionClient for BitmexExecutionClient {
     }
 
     fn submit_order_list(&self, cmd: &SubmitOrderList) -> anyhow::Result<()> {
-        tracing::warn!(
+        log::warn!(
             "submit_order_list not yet implemented for BitMEX execution client ({} orders)",
             cmd.order_list.orders.len()
         );
@@ -639,7 +639,7 @@ impl ExecutionClient for BitmexExecutionClient {
                 .await
             {
                 Ok(report) => dispatch_order_status_report(report),
-                Err(e) => tracing::error!("BitMEX modify order failed: {e:?}"),
+                Err(e) => log::error!("BitMEX modify order failed: {e:?}"),
             }
             Ok(())
         });
@@ -661,9 +661,9 @@ impl ExecutionClient for BitmexExecutionClient {
                 Ok(Some(report)) => dispatch_order_status_report(report),
                 Ok(None) => {
                     // Idempotent success - order already cancelled
-                    tracing::debug!("Order already cancelled: {:?}", client_order_id);
+                    log::debug!("Order already cancelled: {client_order_id:?}");
                 }
-                Err(e) => tracing::error!("BitMEX cancel order failed: {e:?}"),
+                Err(e) => log::error!("BitMEX cancel order failed: {e:?}"),
             }
             Ok(())
         });
@@ -686,7 +686,7 @@ impl ExecutionClient for BitmexExecutionClient {
                         dispatch_order_status_report(report);
                     }
                 }
-                Err(e) => tracing::error!("BitMEX cancel all failed: {e:?}"),
+                Err(e) => log::error!("BitMEX cancel all failed: {e:?}"),
             }
             Ok(())
         });
@@ -713,7 +713,7 @@ impl ExecutionClient for BitmexExecutionClient {
                         dispatch_order_status_report(report);
                     }
                 }
-                Err(e) => tracing::error!("BitMEX batch cancel failed: {e:?}"),
+                Err(e) => log::error!("BitMEX batch cancel failed: {e:?}"),
             }
             Ok(())
         });
@@ -744,13 +744,13 @@ fn dispatch_ws_message(message: NautilusWsMessage) {
         NautilusWsMessage::Data(_)
         | NautilusWsMessage::Instruments(_)
         | NautilusWsMessage::FundingRateUpdates(_) => {
-            tracing::debug!("Ignoring BitMEX data message on execution stream");
+            log::debug!("Ignoring BitMEX data message on execution stream");
         }
         NautilusWsMessage::Reconnected => {
-            tracing::info!("BitMEX execution websocket reconnected");
+            log::info!("BitMEX execution websocket reconnected");
         }
         NautilusWsMessage::Authenticated => {
-            tracing::debug!("BitMEX execution websocket authenticated");
+            log::debug!("BitMEX execution websocket authenticated");
         }
     }
 }
@@ -763,7 +763,7 @@ fn dispatch_order_status_report(report: OrderStatusReport) {
     let sender = get_exec_event_sender();
     let exec_report = ExecutionReport::OrderStatus(Box::new(report));
     if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
-        tracing::warn!("Failed to send order status report: {e}");
+        log::warn!("Failed to send order status report: {e}");
     }
 }
 
@@ -771,7 +771,7 @@ fn dispatch_fill_report(report: FillReport) {
     let sender = get_exec_event_sender();
     let exec_report = ExecutionReport::Fill(Box::new(report));
     if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
-        tracing::warn!("Failed to send fill report: {e}");
+        log::warn!("Failed to send fill report: {e}");
     }
 }
 
@@ -779,13 +779,13 @@ fn dispatch_position_status_report(report: PositionStatusReport) {
     let sender = get_exec_event_sender();
     let exec_report = ExecutionReport::Position(Box::new(report));
     if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
-        tracing::warn!("Failed to send position status report: {e}");
+        log::warn!("Failed to send position status report: {e}");
     }
 }
 
 fn dispatch_order_event(event: OrderEventAny) {
     let sender = get_exec_event_sender();
     if let Err(e) = sender.send(ExecutionEvent::Order(event)) {
-        tracing::warn!("Failed to send order event: {e}");
+        log::warn!("Failed to send order event: {e}");
     }
 }

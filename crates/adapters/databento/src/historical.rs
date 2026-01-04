@@ -203,7 +203,7 @@ impl DatabentoHistoricalClient {
 
             match decode_instrument_def_msg(msg, instrument_id, None) {
                 Ok(instrument) => instruments.push(instrument),
-                Err(e) => tracing::error!("Failed to decode instrument: {e:?}"),
+                Err(e) => log::error!("Failed to decode instrument: {e:?}"),
             }
         }
 

@@ -189,7 +189,7 @@ impl TardisMachineClient {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error in WebSocket stream: {e:?}");
+                        log::error!("Error in WebSocket stream: {e:?}");
                         break;
                     }
                 }
@@ -255,9 +255,7 @@ pub fn py_run_tardis_machine_replay(
     py: Python<'_>,
     config_filepath: String,
 ) -> PyResult<Bound<'_, PyAny>> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .init();
+    nautilus_common::logging::ensure_logging_initialized();
 
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let config_filepath = Path::new(&config_filepath);
@@ -329,7 +327,7 @@ async fn handle_python_stream<S>(
                 }
             }
             Err(e) => {
-                tracing::error!("Error in WebSocket stream: {e:?}");
+                log::error!("Error in WebSocket stream: {e:?}");
                 break;
             }
         }
@@ -338,6 +336,6 @@ async fn handle_python_stream<S>(
 
 fn call_python(py: Python, callback: &Py<PyAny>, py_obj: Py<PyAny>) {
     if let Err(e) = callback.call1(py, (py_obj,)) {
-        tracing::error!("Error calling Python: {e}");
+        log::error!("Error calling Python: {e}");
     }
 }

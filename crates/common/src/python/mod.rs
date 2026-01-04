@@ -65,7 +65,6 @@ pub fn common(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::logging::logger::LoggerConfig>()?;
     m.add_class::<crate::logging::logger::LogGuard>()?;
     m.add_class::<crate::logging::writer::FileWriterConfig>()?;
-    m.add_function(wrap_pyfunction!(logging::py_init_tracing, m)?)?;
     m.add_function(wrap_pyfunction!(logging::py_init_logging, m)?)?;
     m.add_function(wrap_pyfunction!(logging::py_logger_flush, m)?)?;
     m.add_function(wrap_pyfunction!(logging::py_logger_log, m)?)?;

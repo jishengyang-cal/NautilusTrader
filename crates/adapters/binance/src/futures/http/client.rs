@@ -587,18 +587,17 @@ impl BinanceFuturesHttpClient {
                     match parse_usdm_instrument(symbol, ts_init, ts_init) {
                         Ok(instrument) => instruments.push(instrument),
                         Err(e) => {
-                            tracing::debug!(
-                                symbol = %symbol.symbol,
-                                error = %e,
-                                "Skipping symbol during instrument parsing"
+                            log::debug!(
+                                "Skipping symbol during instrument parsing: symbol={}, error={e}",
+                                symbol.symbol
                             );
                         }
                     }
                 }
 
-                tracing::info!(
-                    count = instruments.len(),
-                    "Loaded USD-M perpetual instruments"
+                log::info!(
+                    "Loaded USD-M perpetual instruments: count={}",
+                    instruments.len()
                 );
                 instruments
             }
@@ -613,18 +612,17 @@ impl BinanceFuturesHttpClient {
                     match parse_coinm_instrument(symbol, ts_init, ts_init) {
                         Ok(instrument) => instruments.push(instrument),
                         Err(e) => {
-                            tracing::debug!(
-                                symbol = %symbol.symbol,
-                                error = %e,
-                                "Skipping symbol during instrument parsing"
+                            log::debug!(
+                                "Skipping symbol during instrument parsing: symbol={}, error={e}",
+                                symbol.symbol
                             );
                         }
                     }
                 }
 
-                tracing::info!(
-                    count = instruments.len(),
-                    "Loaded COIN-M perpetual instruments"
+                log::info!(
+                    "Loaded COIN-M perpetual instruments: count={}",
+                    instruments.len()
                 );
                 instruments
             }

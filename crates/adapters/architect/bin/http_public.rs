@@ -33,9 +33,7 @@ use nautilus_architect::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
+    nautilus_common::logging::ensure_logging_initialized();
 
     let is_sandbox = std::env::var("ARCHITECT_IS_SANDBOX")
         .ok()
@@ -48,8 +46,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (ARCHITECT_HTTP_URL, ARCHITECT_ORDERS_URL)
     };
 
-    tracing::info!("Connecting to Architect HTTP API: {base_url}");
-    tracing::info!(
+    log::info!("Connecting to Architect HTTP API: {base_url}");
+    log::info!(
         "Environment: {}",
         if is_sandbox { "SANDBOX" } else { "PRODUCTION" }
     );
@@ -64,19 +62,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    tracing::info!("Fetching all instruments...");
+    log::info!("Fetching all instruments...");
     let start = std::time::Instant::now();
     let instruments_response = client.get_instruments().await?;
     let elapsed = start.elapsed();
 
-    tracing::info!(
+    log::info!(
         "Fetched {} instruments in {:.2}s",
         instruments_response.instruments.len(),
         elapsed.as_secs_f64()
     );
 
     for inst in instruments_response.instruments.iter().take(5) {
-        tracing::info!(
+        log::info!(
             "  {} ({:?}) tick={} min_size={}",
             inst.symbol,
             inst.state,
@@ -85,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     if instruments_response.instruments.len() > 5 {
-        tracing::info!(
+        log::info!(
             "  ... and {} more",
             instruments_response.instruments.len() - 5
         );
@@ -96,23 +94,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .first()
         .map_or("EURUSD-PERP", |i| i.symbol.as_str());
 
-    tracing::info!("Fetching single instrument: {test_symbol}");
+    log::info!("Fetching single instrument: {test_symbol}");
     let start = std::time::Instant::now();
     let instrument = client.get_instrument(test_symbol).await?;
     let elapsed = start.elapsed();
 
-    tracing::info!(
+    log::info!(
         "Fetched {} in {:.2}s",
         instrument.symbol,
         elapsed.as_secs_f64()
     );
-    tracing::info!("  State: {:?}", instrument.state);
-    tracing::info!("  Tick size: {}", instrument.tick_size);
-    tracing::info!("  Min order size: {}", instrument.minimum_order_size);
-    tracing::info!("  Quote currency: {}", instrument.quote_currency);
-    tracing::info!("  Multiplier: {}", instrument.multiplier);
+    log::info!("  State: {:?}", instrument.state);
+    log::info!("  Tick size: {}", instrument.tick_size);
+    log::info!("  Min order size: {}", instrument.minimum_order_size);
+    log::info!("  Quote currency: {}", instrument.quote_currency);
+    log::info!("  Multiplier: {}", instrument.multiplier);
 
-    tracing::info!("Done");
+    log::info!("Done");
 
     Ok(())
 }

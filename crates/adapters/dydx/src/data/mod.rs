@@ -223,7 +223,7 @@ impl DydxDataClient {
     {
         get_runtime().spawn(async move {
             if let Err(e) = fut.await {
-                tracing::error!("{context}: {e:?}");
+                log::error!("{context}: {e:?}");
             }
         });
     }
@@ -243,7 +243,7 @@ impl DydxDataClient {
     /// - Instrument parsing fails.
     ///
     async fn bootstrap_instruments(&mut self) -> anyhow::Result<Vec<InstrumentAny>> {
-        tracing::info!("Bootstrapping dYdX instruments");
+        log::info!("Bootstrapping dYdX instruments");
 
         // Populates all HTTP cache layers (instruments, clob_pair_id, market_params)
         self.http_client
@@ -259,11 +259,11 @@ impl DydxDataClient {
             .collect();
 
         if instruments.is_empty() {
-            tracing::warn!("No dYdX instruments were loaded");
+            log::warn!("No dYdX instruments were loaded");
             return Ok(instruments);
         }
 
-        tracing::info!("Loaded {} dYdX instruments", instruments.len());
+        log::info!("Loaded {} dYdX instruments", instruments.len());
 
         if let Some(ref ws) = self.ws_client {
             ws.cache_instruments(instruments.clone());
@@ -284,23 +284,23 @@ impl DataClient for DydxDataClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        tracing::info!(
-            client_id = %self.client_id,
-            is_testnet = self.http_client.is_testnet(),
-            "Starting dYdX data client"
+        log::info!(
+            "Starting dYdX data client: client_id={}, is_testnet={}",
+            self.client_id,
+            self.http_client.is_testnet()
         );
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        tracing::info!("Stopping dYdX data client {}", self.client_id);
+        log::info!("Stopping dYdX data client {}", self.client_id);
         self.cancellation_token.cancel();
         self.is_connected.store(false, Ordering::Relaxed);
         Ok(())
     }
 
     fn reset(&mut self) -> anyhow::Result<()> {
-        tracing::debug!("Resetting dYdX data client {}", self.client_id);
+        log::debug!("Resetting dYdX data client {}", self.client_id);
         self.is_connected.store(false, Ordering::Relaxed);
         self.cancellation_token = CancellationToken::new();
         self.tasks.clear();
@@ -308,7 +308,7 @@ impl DataClient for DydxDataClient {
     }
 
     fn dispose(&mut self) -> anyhow::Result<()> {
-        tracing::debug!("Disposing dYdX data client {}", self.client_id);
+        log::debug!("Disposing dYdX data client {}", self.client_id);
         self.stop()
     }
 
@@ -317,7 +317,7 @@ impl DataClient for DydxDataClient {
             return Ok(());
         }
 
-        tracing::info!("Connecting dYdX data client");
+        log::info!("Connecting dYdX data client");
 
         // Bootstrap instruments first
         self.bootstrap_instruments().await?;
@@ -365,7 +365,7 @@ impl DataClient for DydxDataClient {
                 });
                 self.tasks.push(task);
             } else {
-                tracing::warn!("No inbound WS receiver available after connect");
+                log::warn!("No inbound WS receiver available after connect");
             }
         }
 
@@ -376,7 +376,7 @@ impl DataClient for DydxDataClient {
         self.start_instrument_refresh_task()?;
 
         self.is_connected.store(true, Ordering::Relaxed);
-        tracing::info!("Connected dYdX data client");
+        log::info!("Connected dYdX data client");
 
         Ok(())
     }
@@ -386,7 +386,7 @@ impl DataClient for DydxDataClient {
             return Ok(());
         }
 
-        tracing::info!("Disconnecting dYdX data client");
+        log::info!("Disconnecting dYdX data client");
 
         // Disconnect WebSocket client if present
         if let Some(ref mut ws) = self.ws_client {
@@ -396,7 +396,7 @@ impl DataClient for DydxDataClient {
         }
 
         self.is_connected.store(false, Ordering::Relaxed);
-        tracing::info!("Disconnected dYdX data client");
+        log::info!("Disconnected dYdX data client");
 
         Ok(())
     }
@@ -413,28 +413,28 @@ impl DataClient for DydxDataClient {
         // dYdX uses a global markets channel which streams instruments implicitly.
         // There is no dedicated instruments subscription, so this is a no-op to
         // mirror the behaviour of `subscribe_instruments`.
-        tracing::debug!("unsubscribe_instruments: dYdX markets channel is global; no-op");
+        log::debug!("unsubscribe_instruments: dYdX markets channel is global; no-op");
         Ok(())
     }
 
     fn unsubscribe_instrument(&mut self, _cmd: &UnsubscribeInstrument) -> anyhow::Result<()> {
         // dYdX does not support per-instrument instrument feed subscriptions.
         // The markets channel always streams all instruments, so this is a no-op.
-        tracing::debug!("unsubscribe_instrument: dYdX markets channel is global; no-op");
+        log::debug!("unsubscribe_instrument: dYdX markets channel is global; no-op");
         Ok(())
     }
 
     fn subscribe_instruments(&mut self, _cmd: &SubscribeInstruments) -> anyhow::Result<()> {
         // dYdX markets channel auto-subscribes to all instruments
         // No explicit subscription needed - already handled in connect()
-        tracing::debug!("subscribe_instruments: dYdX auto-subscribes via markets channel");
+        log::debug!("subscribe_instruments: dYdX auto-subscribes via markets channel");
         Ok(())
     }
 
     fn subscribe_instrument(&mut self, _cmd: &SubscribeInstrument) -> anyhow::Result<()> {
         // dYdX markets channel auto-subscribes to all instruments
         // Individual instrument subscriptions not supported - full feed only
-        tracing::debug!("subscribe_instrument: dYdX auto-subscribes via markets channel");
+        log::debug!("subscribe_instrument: dYdX auto-subscribes via markets channel");
         Ok(())
     }
 
@@ -489,7 +489,7 @@ impl DataClient for DydxDataClient {
     fn subscribe_quotes(&mut self, cmd: &SubscribeQuotes) -> anyhow::Result<()> {
         // dYdX doesn't have a dedicated quotes channel
         // Quotes are synthesized from order book deltas
-        tracing::debug!(
+        log::debug!(
             "subscribe_quotes for {}: delegating to subscribe_book_deltas (no native quotes channel)",
             cmd.instrument_id
         );
@@ -594,7 +594,7 @@ impl DataClient for DydxDataClient {
 
     fn unsubscribe_quotes(&mut self, cmd: &UnsubscribeQuotes) -> anyhow::Result<()> {
         // dYdX doesn't have a dedicated quotes channel; quotes are derived from book deltas.
-        tracing::debug!(
+        log::debug!(
             "unsubscribe_quotes for {}: delegating to unsubscribe_book_deltas (no native quotes channel)",
             cmd.instrument_id
         );
@@ -672,7 +672,7 @@ impl DataClient for DydxDataClient {
         if let Err(e) =
             ws.send_command(crate::websocket::handler::HandlerCommand::UnregisterBarType { topic })
         {
-            tracing::warn!("Failed to unregister bar type: {e}");
+            log::warn!("Failed to unregister bar type: {e}");
         }
 
         self.spawn_ws(
@@ -705,11 +705,11 @@ impl DataClient for DydxDataClient {
             // First try to get from cache
             let symbol = Ustr::from(instrument_id.symbol.as_str());
             let instrument = if let Some(cached) = instruments_cache.get(&symbol) {
-                tracing::debug!("Found instrument {instrument_id} in cache");
+                log::debug!("Found instrument {instrument_id} in cache");
                 Some(cached.clone())
             } else {
                 // Not in cache, fetch from API
-                tracing::debug!("Instrument {instrument_id} not in cache, fetching from API");
+                log::debug!("Instrument {instrument_id} not in cache, fetching from API");
                 match http.request_instruments(None, None, None).await {
                     Ok(instruments) => {
                         // Cache all fetched instruments
@@ -720,7 +720,7 @@ impl DataClient for DydxDataClient {
                         instruments.into_iter().find(|i| i.id() == instrument_id)
                     }
                     Err(e) => {
-                        tracing::error!("Failed to fetch instruments from dYdX: {e:?}");
+                        log::error!("Failed to fetch instruments from dYdX: {e:?}");
                         None
                     }
                 }
@@ -739,10 +739,10 @@ impl DataClient for DydxDataClient {
                 )));
 
                 if let Err(e) = sender.send(DataEvent::Response(response)) {
-                    tracing::error!("Failed to send instrument response: {e}");
+                    log::error!("Failed to send instrument response: {e}");
                 }
             } else {
-                tracing::error!("Instrument {instrument_id} not found");
+                log::error!("Instrument {instrument_id} not found");
             }
         });
 
@@ -766,7 +766,7 @@ impl DataClient for DydxDataClient {
         get_runtime().spawn(async move {
             match http.request_instruments(None, None, None).await {
                 Ok(instruments) => {
-                    tracing::info!("Fetched {} instruments from dYdX", instruments.len());
+                    log::info!("Fetched {} instruments from dYdX", instruments.len());
 
                     // Cache all instruments
                     for instrument in &instruments {
@@ -785,11 +785,11 @@ impl DataClient for DydxDataClient {
                     ));
 
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send instruments response: {e}");
+                        log::error!("Failed to send instruments response: {e}");
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to fetch instruments from dYdX: {e:?}");
+                    log::error!("Failed to fetch instruments from dYdX: {e:?}");
 
                     // Send empty response on error
                     let response = DataResponse::Instruments(InstrumentsResponse::new(
@@ -804,7 +804,7 @@ impl DataClient for DydxDataClient {
                     ));
 
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send empty instruments response: {e}");
+                        log::error!("Failed to send empty instruments response: {e}");
                     }
                 }
             }
@@ -848,9 +848,8 @@ impl DataClient for DydxDataClient {
             let instrument = match instruments.get(&Ustr::from(instrument_id.symbol.as_ref())) {
                 Some(inst) => inst.clone(),
                 None => {
-                    tracing::error!(
-                        "request_trades: instrument {} not found in cache; cannot convert trades",
-                        instrument_id
+                    log::error!(
+                        "request_trades: instrument {instrument_id} not found in cache; cannot convert trades"
                     );
                     let ts_now = clock.get_time_ns();
                     let response = DataResponse::Trades(TradesResponse::new(
@@ -864,7 +863,7 @@ impl DataClient for DydxDataClient {
                         params,
                     ));
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send empty trades response: {e}");
+                        log::error!("Failed to send empty trades response: {e}");
                     }
                     return;
                 }
@@ -892,7 +891,7 @@ impl DataClient for DydxDataClient {
                         let price = match Price::from_decimal_dp(trade.price, price_precision) {
                             Ok(p) => p,
                             Err(e) => {
-                                tracing::warn!(
+                                log::warn!(
                                     "request_trades: failed to convert price for trade {}: {e}",
                                     trade.id
                                 );
@@ -903,7 +902,7 @@ impl DataClient for DydxDataClient {
                         let size = match Quantity::from_decimal_dp(trade.size, size_precision) {
                             Ok(q) => q,
                             Err(e) => {
-                                tracing::warn!(
+                                log::warn!(
                                     "request_trades: failed to convert size for trade {}: {e}",
                                     trade.id
                                 );
@@ -914,7 +913,7 @@ impl DataClient for DydxDataClient {
                         let ts_event = match trade.created_at.timestamp_nanos_opt() {
                             Some(ns) if ns >= 0 => UnixNanos::from(ns as u64),
                             _ => {
-                                tracing::warn!(
+                                log::warn!(
                                     "request_trades: timestamp out of range for trade {}",
                                     trade.id
                                 );
@@ -958,11 +957,11 @@ impl DataClient for DydxDataClient {
                     ));
 
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send trades response: {e}");
+                        log::error!("Failed to send trades response: {e}");
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Trade request failed for {}: {e:?}", instrument_id);
+                    log::error!("Trade request failed for {instrument_id}: {e:?}");
 
                     let response = DataResponse::Trades(TradesResponse::new(
                         request_id,
@@ -976,7 +975,7 @@ impl DataClient for DydxDataClient {
                     ));
 
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send empty trades response: {e}");
+                        log::error!("Failed to send empty trades response: {e}");
                     }
                 }
             }
@@ -1071,7 +1070,7 @@ impl DataClient for DydxDataClient {
                 BarAggregation::Hour => spec.step.get() as i64 * 3_600,
                 BarAggregation::Day => spec.step.get() as i64 * 86_400,
                 _ => {
-                    tracing::error!(
+                    log::error!(
                         "Unsupported aggregation for request_bars: {:?}",
                         spec.aggregation
                     );
@@ -1083,9 +1082,8 @@ impl DataClient for DydxDataClient {
             let instrument = match instruments.get(&Ustr::from(instrument_id.symbol.as_ref())) {
                 Some(inst) => inst.clone(),
                 None => {
-                    tracing::error!(
-                        "request_bars: instrument {} not found in cache; cannot convert candles",
-                        instrument_id
+                    log::error!(
+                        "request_bars: instrument {instrument_id} not found in cache; cannot convert candles"
                     );
                     let ts_now = clock.get_time_ns();
                     let response = DataResponse::Bars(BarsResponse::new(
@@ -1099,7 +1097,7 @@ impl DataClient for DydxDataClient {
                         params,
                     ));
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send empty bars response: {e}");
+                        log::error!("Failed to send empty bars response: {e}");
                     }
                     return;
                 }
@@ -1121,7 +1119,7 @@ impl DataClient for DydxDataClient {
                         .await
                     {
                         Ok(candles_response) => {
-                            tracing::debug!(
+                            log::debug!(
                                 "request_bars fetched {} candles without explicit date range",
                                 candles_response.candles.len()
                             );
@@ -1137,9 +1135,8 @@ impl DataClient for DydxDataClient {
                                 ) {
                                     Ok(bar) => all_bars.push(bar),
                                     Err(e) => {
-                                        tracing::warn!(
-                                            "Failed to convert dYdX candle to bar for {}: {e}",
-                                            instrument_id
+                                        log::warn!(
+                                            "Failed to convert dYdX candle to bar for {instrument_id}: {e}"
                                         );
                                     }
                                 }
@@ -1160,11 +1157,11 @@ impl DataClient for DydxDataClient {
                             ));
 
                             if let Err(e) = sender.send(DataEvent::Response(response)) {
-                                tracing::error!("Failed to send bars response: {e}");
+                                log::error!("Failed to send bars response: {e}");
                             }
                         }
                         Err(e) => {
-                            tracing::error!(
+                            log::error!(
                                 "Failed to request candles for {symbol} without date range: {e:?}"
                             );
                         }
@@ -1177,11 +1174,8 @@ impl DataClient for DydxDataClient {
             let total_secs = (range_end - range_start).num_seconds().max(0);
             let expected_bars = (total_secs / bar_secs).max(1) as u64;
 
-            tracing::debug!(
-                "request_bars range {:?} -> {:?}, expected_bars ~= {}",
-                range_start,
-                range_end,
-                expected_bars
+            log::debug!(
+                "request_bars range {range_start:?} -> {range_end:?}, expected_bars ~= {expected_bars}"
             );
 
             let mut remaining = overall_limit.unwrap_or(u32::MAX);
@@ -1200,11 +1194,8 @@ impl DataClient for DydxDataClient {
 
                 let per_call_limit = remaining.min(DYDX_MAX_BARS_PER_REQUEST);
 
-                tracing::debug!(
-                    "request_bars chunk: {} -> {}, limit={}",
-                    chunk_start,
-                    chunk_end,
-                    per_call_limit
+                log::debug!(
+                    "request_bars chunk: {chunk_start} -> {chunk_end}, limit={per_call_limit}"
                 );
 
                 match http
@@ -1238,9 +1229,8 @@ impl DataClient for DydxDataClient {
                             ) {
                                 Ok(bar) => all_bars.push(bar),
                                 Err(e) => {
-                                    tracing::warn!(
-                                        "Failed to convert dYdX candle to bar for {}: {e}",
-                                        instrument_id
+                                    log::warn!(
+                                        "Failed to convert dYdX candle to bar for {instrument_id}: {e}"
                                     );
                                 }
                             }
@@ -1253,10 +1243,8 @@ impl DataClient for DydxDataClient {
                         }
                     }
                     Err(e) => {
-                        tracing::error!(
-                            "Failed to request candles for {symbol} in chunk {:?} -> {:?}: {e:?}",
-                            chunk_start,
-                            chunk_end
+                        log::error!(
+                            "Failed to request candles for {symbol} in chunk {chunk_start:?} -> {chunk_end:?}: {e:?}"
                         );
                         break;
                     }
@@ -1265,13 +1253,13 @@ impl DataClient for DydxDataClient {
                 chunk_start += chunk_duration;
             }
 
-            tracing::debug!("request_bars completed partitioned fetch for {}", bar_type);
+            log::debug!("request_bars completed partitioned fetch for {bar_type}");
 
             // Filter incomplete bars: only return bars where ts_event < current_time_ns
             let current_time_ns = clock.get_time_ns();
             all_bars.retain(|bar| bar.ts_event < current_time_ns);
 
-            tracing::debug!(
+            log::debug!(
                 "request_bars filtered to {} completed bars (current_time_ns={})",
                 all_bars.len(),
                 current_time_ns
@@ -1289,7 +1277,7 @@ impl DataClient for DydxDataClient {
             ));
 
             if let Err(e) = sender.send(DataEvent::Response(response)) {
-                tracing::error!("Failed to send bars response: {e}");
+                log::error!("Failed to send bars response: {e}");
             }
         });
 
@@ -1316,7 +1304,7 @@ impl DydxDataClient {
         let interval_secs = match self.config.instrument_refresh_interval_secs {
             Some(secs) if secs > 0 => secs,
             _ => {
-                tracing::info!("Instrument refresh disabled (interval not configured)");
+                log::info!("Instrument refresh disabled (interval not configured)");
                 return Ok(());
             }
         };
@@ -1327,10 +1315,7 @@ impl DydxDataClient {
         let ws_client = self.ws_client.clone();
         let cancellation_token = self.cancellation_token.clone();
 
-        tracing::info!(
-            "Starting instrument refresh task (interval: {}s)",
-            interval_secs
-        );
+        log::info!("Starting instrument refresh task (interval: {interval_secs}s)");
 
         let task = get_runtime().spawn(async move {
             let mut interval_timer = tokio::time::interval(interval);
@@ -1339,11 +1324,11 @@ impl DydxDataClient {
             loop {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
-                        tracing::info!("Instrument refresh task cancelled");
+                        log::info!("Instrument refresh task cancelled");
                         break;
                     }
                     _ = interval_timer.tick() => {
-                        tracing::debug!("Refreshing instruments");
+                        log::debug!("Refreshing instruments");
 
                         // Populates all HTTP cache layers (instruments, clob_pair_id, market_params)
                         match http_client.fetch_and_cache_instruments().await {
@@ -1354,7 +1339,7 @@ impl DydxDataClient {
                                     .map(|entry| entry.value().clone())
                                     .collect();
 
-                                tracing::debug!("Refreshed {} instruments", instruments.len());
+                                log::debug!("Refreshed {} instruments", instruments.len());
 
                                 for instrument in &instruments {
                                     upsert_instrument(&instruments_cache, instrument.clone());
@@ -1366,7 +1351,7 @@ impl DydxDataClient {
                                 }
                             }
                             Err(e) => {
-                                tracing::error!("Failed to refresh instruments: {}", e);
+                                log::error!("Failed to refresh instruments: {e}");
                             }
                         }
                     }
@@ -1391,7 +1376,7 @@ impl DydxDataClient {
         let interval_secs = match self.config.orderbook_refresh_interval_secs {
             Some(secs) if secs > 0 => secs,
             _ => {
-                tracing::info!("Orderbook snapshot refresh disabled (interval not configured)");
+                log::info!("Orderbook snapshot refresh disabled (interval not configured)");
                 return Ok(());
             }
         };
@@ -1404,10 +1389,7 @@ impl DydxDataClient {
         let cancellation_token = self.cancellation_token.clone();
         let data_sender = self.data_sender.clone();
 
-        tracing::info!(
-            "Starting orderbook snapshot refresh task (interval: {}s)",
-            interval_secs
-        );
+        log::info!("Starting orderbook snapshot refresh task (interval: {interval_secs}s)");
 
         let task = get_runtime().spawn(async move {
             let mut interval_timer = tokio::time::interval(interval);
@@ -1416,7 +1398,7 @@ impl DydxDataClient {
             loop {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
-                        tracing::info!("Orderbook refresh task cancelled");
+                        log::info!("Orderbook refresh task cancelled");
                         break;
                     }
                     _ = interval_timer.tick() => {
@@ -1426,11 +1408,11 @@ impl DydxDataClient {
                             .collect();
 
                         if active_instruments.is_empty() {
-                            tracing::debug!("No active orderbook subscriptions to refresh");
+                            log::debug!("No active orderbook subscriptions to refresh");
                             continue;
                         }
 
-                        tracing::debug!(
+                        log::debug!(
                             "Refreshing {} orderbook snapshots",
                             active_instruments.len()
                         );
@@ -1440,9 +1422,8 @@ impl DydxDataClient {
                             let instrument = match instruments.get(&Ustr::from(instrument_id.symbol.as_ref())) {
                                 Some(inst) => inst.clone(),
                                 None => {
-                                    tracing::warn!(
-                                        "Cannot refresh orderbook: no instrument for {}",
-                                        instrument_id
+                                    log::warn!(
+                                        "Cannot refresh orderbook: no instrument for {instrument_id}"
                                     );
                                     continue;
                                 }
@@ -1455,10 +1436,8 @@ impl DydxDataClient {
                             let snapshot = match snapshot_result {
                                 Ok(s) => s,
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to fetch orderbook snapshot for {}: {}",
-                                        instrument_id,
-                                        e
+                                    log::error!(
+                                        "Failed to fetch orderbook snapshot for {instrument_id}: {e}"
                                     );
                                     continue;
                                 }
@@ -1474,10 +1453,8 @@ impl DydxDataClient {
                             let deltas = match deltas_result {
                                 Ok(d) => d,
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to parse orderbook snapshot for {}: {}",
-                                        instrument_id,
-                                        e
+                                    log::error!(
+                                        "Failed to parse orderbook snapshot for {instrument_id}: {e}"
                                     );
                                     continue;
                                 }
@@ -1486,15 +1463,13 @@ impl DydxDataClient {
                             // Apply snapshot to local orderbook
                             if let Some(mut book) = order_books.get_mut(&instrument_id) {
                                 if let Err(e) = book.apply_deltas(&deltas) {
-                                    tracing::error!(
-                                        "Failed to apply orderbook snapshot for {}: {}",
-                                        instrument_id,
-                                        e
+                                    log::error!(
+                                        "Failed to apply orderbook snapshot for {instrument_id}: {e}"
                                     );
                                     continue;
                                 }
 
-                                tracing::debug!(
+                                log::debug!(
                                     "Refreshed orderbook snapshot for {} (bid={:?}, ask={:?})",
                                     instrument_id,
                                     book.best_bid_price(),
@@ -1505,7 +1480,7 @@ impl DydxDataClient {
                             // Emit the snapshot deltas
                             let data = NautilusData::from(OrderBookDeltas_API::new(deltas));
                             if let Err(e) = data_sender.send(DataEvent::Data(data)) {
-                                tracing::error!("Failed to emit orderbook snapshot: {}", e);
+                                log::error!("Failed to emit orderbook snapshot: {e}");
                             }
                         }
                     }
@@ -1691,10 +1666,10 @@ impl DydxDataClient {
                 Self::handle_oracle_prices(oracle_prices, ctx.instruments, ctx.data_sender);
             }
             crate::websocket::enums::NautilusWsMessage::Error(err) => {
-                tracing::error!("dYdX WS error: {err}");
+                log::error!("dYdX WS error: {err}");
             }
             crate::websocket::enums::NautilusWsMessage::Reconnected => {
-                tracing::info!("dYdX WS reconnected - re-subscribing to active subscriptions");
+                log::info!("dYdX WS reconnected - re-subscribing to active subscriptions");
 
                 // Re-subscribe to all active subscriptions after WebSocket reconnection
                 if let Some(ws) = ctx.ws_client {
@@ -1703,11 +1678,11 @@ impl DydxDataClient {
                         + ctx.active_bar_subs.len();
 
                     if total_subs == 0 {
-                        tracing::debug!("No active subscriptions to restore");
+                        log::debug!("No active subscriptions to restore");
                         return;
                     }
 
-                    tracing::info!(
+                    log::info!(
                         "Restoring {} subscriptions (orderbook={}, trades={}, bars={})",
                         total_subs,
                         ctx.active_orderbook_subs.len(),
@@ -1721,11 +1696,11 @@ impl DydxDataClient {
                         let ws_clone = ws.clone();
                         get_runtime().spawn(async move {
                             if let Err(e) = ws_clone.subscribe_orderbook(instrument_id).await {
-                                tracing::error!(
+                                log::error!(
                                     "Failed to re-subscribe to orderbook for {instrument_id}: {e:?}"
                                 );
                             } else {
-                                tracing::debug!("Re-subscribed to orderbook for {instrument_id}");
+                                log::debug!("Re-subscribed to orderbook for {instrument_id}");
                             }
                         });
                     }
@@ -1736,11 +1711,11 @@ impl DydxDataClient {
                         let ws_clone = ws.clone();
                         get_runtime().spawn(async move {
                             if let Err(e) = ws_clone.subscribe_trades(instrument_id).await {
-                                tracing::error!(
+                                log::error!(
                                     "Failed to re-subscribe to trades for {instrument_id}: {e:?}"
                                 );
                             } else {
-                                tracing::debug!("Re-subscribed to trades for {instrument_id}");
+                                log::debug!("Re-subscribed to trades for {instrument_id}");
                             }
                         });
                     }
@@ -1762,7 +1737,7 @@ impl DydxDataClient {
                                 bar_type,
                             },
                         ) {
-                            tracing::warn!(
+                            log::warn!(
                                 "Failed to re-register bar type for {instrument_id} ({resolution}): {e}"
                             );
                         }
@@ -1771,24 +1746,24 @@ impl DydxDataClient {
                             if let Err(e) =
                                 ws_clone.subscribe_candles(instrument_id, &resolution).await
                             {
-                                tracing::error!(
+                                log::error!(
                                     "Failed to re-subscribe to candles for {instrument_id} ({resolution}): {e:?}"
                                 );
                             } else {
-                                tracing::debug!(
+                                log::debug!(
                                     "Re-subscribed to candles for {instrument_id} ({resolution})"
                                 );
                             }
                         });
                     }
 
-                    tracing::info!("Completed re-subscription requests after reconnection");
+                    log::info!("Completed re-subscription requests after reconnection");
                 } else {
-                    tracing::warn!("WebSocket client not available for re-subscription");
+                    log::warn!("WebSocket client not available for re-subscription");
                 }
             }
             crate::websocket::enums::NautilusWsMessage::BlockHeight(_) => {
-                tracing::debug!(
+                log::debug!(
                     "Ignoring block height message on dYdX data client (handled by execution adapter)"
                 );
             }
@@ -1798,7 +1773,7 @@ impl DydxDataClient {
             | crate::websocket::enums::NautilusWsMessage::AccountState(_)
             | crate::websocket::enums::NautilusWsMessage::SubaccountSubscribed(_)
             | crate::websocket::enums::NautilusWsMessage::SubaccountsChannelData(_) => {
-                tracing::debug!(
+                log::debug!(
                     "Ignoring execution/subaccount message on dYdX data client (handled by execution adapter)"
                 );
             }
@@ -1815,7 +1790,7 @@ impl DydxDataClient {
             if let NautilusData::Bar(bar) = data {
                 Self::handle_bar_message(bar, data_sender, incomplete_bars);
             } else if let Err(e) = data_sender.send(DataEvent::Data(data)) {
-                tracing::error!("Failed to emit data event: {e}");
+                log::error!("Failed to emit data event: {e}");
             }
         }
     }
@@ -1838,11 +1813,11 @@ impl DydxDataClient {
             // Bar is complete - emit it and remove from incomplete cache
             incomplete_bars.remove(&bar_type);
             if let Err(e) = data_sender.send(DataEvent::Data(NautilusData::Bar(bar))) {
-                tracing::error!("Failed to emit completed bar: {e}");
+                log::error!("Failed to emit completed bar: {e}");
             }
         } else {
             // Bar is incomplete - cache it (updates existing entry)
-            tracing::trace!(
+            log::trace!(
                 "Caching incomplete bar for {} (ts_event={}, current={})",
                 bar_type,
                 bar.ts_event,
@@ -1892,7 +1867,7 @@ impl DydxDataClient {
 
         // Iteratively uncross the orderbook
         while is_crossed {
-            tracing::debug!(
+            log::debug!(
                 "Resolving crossed order book for {}: bid={:?} >= ask={:?}",
                 instrument_id,
                 book.best_bid_price(),
@@ -2044,14 +2019,12 @@ impl DydxDataClient {
         let instrument = match instruments.get(&Ustr::from(instrument_id.symbol.as_ref())) {
             Some(inst) => inst.clone(),
             None => {
-                tracing::error!(
-                    "Cannot resolve crossed order book: no instrument for {instrument_id}"
-                );
+                log::error!("Cannot resolve crossed order book: no instrument for {instrument_id}");
                 // Still emit the raw deltas even without instrument
                 if let Err(e) = data_sender.send(DataEvent::Data(NautilusData::from(
                     OrderBookDeltas_API::new(deltas),
                 ))) {
-                    tracing::error!("Failed to emit order book deltas: {e}");
+                    log::error!("Failed to emit order book deltas: {e}");
                 }
                 return;
             }
@@ -2067,7 +2040,7 @@ impl DydxDataClient {
         {
             Ok(d) => d,
             Err(e) => {
-                tracing::error!("Failed to resolve crossed order book for {instrument_id}: {e}");
+                log::error!("Failed to resolve crossed order book for {instrument_id}: {e}");
                 return;
             }
         };
@@ -2090,7 +2063,7 @@ impl DydxDataClient {
         } else {
             // Edge case: Empty orderbook levels - use last quote as fallback
             if book.best_bid_price().is_none() && book.best_ask_price().is_none() {
-                tracing::debug!(
+                log::debug!(
                     "Empty orderbook for {instrument_id} after applying deltas, using last quote"
                 );
                 last_quotes.get(&instrument_id).map(|q| *q)
@@ -2107,12 +2080,12 @@ impl DydxDataClient {
             if emit_quote {
                 last_quotes.insert(instrument_id, quote);
                 if let Err(e) = data_sender.send(DataEvent::Data(NautilusData::Quote(quote))) {
-                    tracing::error!("Failed to emit quote tick: {e}");
+                    log::error!("Failed to emit quote tick: {e}");
                 }
             }
         } else if book.best_bid_price().is_some() || book.best_ask_price().is_some() {
             // Partial orderbook (only one side) - log but don't emit
-            tracing::debug!(
+            log::debug!(
                 "Incomplete top-of-book for {instrument_id} (bid={:?}, ask={:?})",
                 book.best_bid_price(),
                 book.best_ask_price()
@@ -2122,7 +2095,7 @@ impl DydxDataClient {
         // Emit the resolved order book deltas
         let data: NautilusData = OrderBookDeltas_API::new(resolved_deltas).into();
         if let Err(e) = data_sender.send(DataEvent::Data(data)) {
-            tracing::error!("Failed to emit order book deltas event: {e}");
+            log::error!("Failed to emit order book deltas event: {e}");
         }
     }
 
@@ -2141,9 +2114,8 @@ impl DydxDataClient {
 
             // Get instrument to access instrument_id
             let Some(instrument) = instruments.get(&symbol) else {
-                tracing::debug!(
-                    symbol = %symbol,
-                    "Received oracle price for unknown instrument (not cached yet)"
+                log::debug!(
+                    "Received oracle price for unknown instrument (not cached yet): symbol={symbol}"
                 );
                 continue;
             };
@@ -2153,10 +2125,8 @@ impl DydxDataClient {
             // Parse oracle price string to Price
             let oracle_price_str = &oracle_market.oracle_price;
             let Ok(oracle_price_f64) = oracle_price_str.parse::<f64>() else {
-                tracing::error!(
-                    symbol = %symbol,
-                    price_str = %oracle_price_str,
-                    "Failed to parse oracle price as f64"
+                log::error!(
+                    "Failed to parse oracle price as f64: symbol={symbol}, price_str={oracle_price_str}"
                 );
                 continue;
             };
@@ -2174,10 +2144,8 @@ impl DydxDataClient {
                 ts_init,
             );
 
-            tracing::debug!(
-                instrument_id = %instrument_id,
-                oracle_price = %oracle_price,
-                "Received dYdX oracle price: {oracle_price_event:?}"
+            log::debug!(
+                "Received dYdX oracle price: instrument_id={instrument_id}, oracle_price={oracle_price}, {oracle_price_event:?}"
             );
 
             let data = NautilusData::IndexPriceUpdate(IndexPriceUpdate::new(
@@ -2188,7 +2156,7 @@ impl DydxDataClient {
             ));
 
             if let Err(e) = data_sender.send(DataEvent::Data(data)) {
-                tracing::error!("Failed to emit oracle price: {e}");
+                log::error!("Failed to emit oracle price: {e}");
             }
         }
     }

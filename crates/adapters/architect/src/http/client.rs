@@ -1059,14 +1059,14 @@ impl ArchitectHttpClient {
         let mut instruments: Vec<InstrumentAny> = Vec::new();
         for inst in &resp.instruments {
             if inst.state == ArchitectInstrumentState::Suspended {
-                tracing::debug!("Skipping suspended instrument: {}", inst.symbol);
+                log::debug!("Skipping suspended instrument: {}", inst.symbol);
                 continue;
             }
 
             match parse_perp_instrument(inst, maker_fee, taker_fee, ts_init, ts_init) {
                 Ok(instrument) => instruments.push(instrument),
                 Err(e) => {
-                    tracing::warn!("Failed to parse instrument {}: {e}", inst.symbol);
+                    log::warn!("Failed to parse instrument {}: {e}", inst.symbol);
                 }
             }
         }
@@ -1168,7 +1168,7 @@ impl ArchitectHttpClient {
             match parse_bar(candle, &instrument, ts_init) {
                 Ok(bar) => bars.push(bar),
                 Err(e) => {
-                    tracing::warn!("Failed to parse bar for {symbol}: {e}");
+                    log::warn!("Failed to parse bar for {symbol}: {e}");
                 }
             }
         }
@@ -1207,7 +1207,7 @@ impl ArchitectHttpClient {
             match parse_order_status_report(order, account_id, &instrument, ts_init) {
                 Ok(report) => reports.push(report),
                 Err(e) => {
-                    tracing::warn!("Failed to parse order {}: {e}", order.oid);
+                    log::warn!("Failed to parse order {}: {e}", order.oid);
                 }
             }
         }
@@ -1246,7 +1246,7 @@ impl ArchitectHttpClient {
             match parse_fill_report(fill, account_id, &instrument, ts_init) {
                 Ok(report) => reports.push(report),
                 Err(e) => {
-                    tracing::warn!("Failed to parse fill {}: {e}", fill.execution_id);
+                    log::warn!("Failed to parse fill {}: {e}", fill.execution_id);
                 }
             }
         }
@@ -1285,7 +1285,7 @@ impl ArchitectHttpClient {
             match parse_position_status_report(position, account_id, &instrument, ts_init) {
                 Ok(report) => reports.push(report),
                 Err(e) => {
-                    tracing::warn!("Failed to parse position for {}: {e}", position.symbol);
+                    log::warn!("Failed to parse position for {}: {e}", position.symbol);
                 }
             }
         }

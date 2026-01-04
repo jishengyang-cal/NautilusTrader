@@ -161,12 +161,12 @@ pub fn parse_option_kind(c: c_char) -> anyhow::Result<OptionKind> {
 fn parse_currency_or_usd_default(value: Result<&str, impl std::error::Error>) -> Currency {
     match value {
         Ok(value) if !value.is_empty() => Currency::try_from_str(value).unwrap_or_else(|| {
-            tracing::warn!("Unknown currency code '{value}', defaulting to USD");
+            log::warn!("Unknown currency code '{value}', defaulting to USD");
             Currency::USD()
         }),
         Ok(_) => Currency::USD(),
         Err(e) => {
-            tracing::error!("Error parsing currency: {e}");
+            log::error!("Error parsing currency: {e}");
             Currency::USD()
         }
     }

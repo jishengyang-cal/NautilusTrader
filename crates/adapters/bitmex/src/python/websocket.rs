@@ -710,6 +710,6 @@ impl BitmexWebSocketClient {
 
 pub fn call_python(py: Python, callback: &Py<PyAny>, py_obj: Py<PyAny>) {
     if let Err(e) = callback.call1(py, (py_obj,)) {
-        tracing::error!("Error calling Python: {e}");
+        log::error!("Error calling Python: {e}");
     }
 }

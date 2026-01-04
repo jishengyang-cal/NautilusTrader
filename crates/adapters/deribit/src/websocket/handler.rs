@@ -201,7 +201,7 @@ impl DeribitWsFeedHandler {
         let payload =
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
-        tracing::debug!(request_id, "Subscribing to channels: {:?}", channels);
+        log::debug!("Subscribing to channels: request_id={request_id}, channels={channels:?}");
         self.send_with_retry(payload, None).await
     }
 
@@ -228,7 +228,7 @@ impl DeribitWsFeedHandler {
         let payload =
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
-        tracing::debug!(request_id, "Unsubscribing from channels: {:?}", channels);
+        log::debug!("Unsubscribing from channels: request_id={request_id}, channels={channels:?}");
         self.send_with_retry(payload, None).await
     }
 
@@ -249,10 +249,8 @@ impl DeribitWsFeedHandler {
         let payload =
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
-        tracing::debug!(
-            request_id,
-            "Enabling heartbeat with interval: {} seconds",
-            interval
+        log::debug!(
+            "Enabling heartbeat with interval: request_id={request_id}, interval={interval} seconds"
         );
         self.send_with_retry(payload, None).await
     }
@@ -270,7 +268,7 @@ impl DeribitWsFeedHandler {
         let payload =
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
-        tracing::trace!(request_id, "Responding to heartbeat test_request");
+        log::trace!("Responding to heartbeat test_request: request_id={request_id}");
         self.send_with_retry(payload, None).await
     }
 
@@ -278,18 +276,18 @@ impl DeribitWsFeedHandler {
     async fn process_command(&mut self, cmd: HandlerCommand) {
         match cmd {
             HandlerCommand::SetClient(client) => {
-                tracing::debug!("Setting WebSocket client");
+                log::debug!("Setting WebSocket client");
                 self.inner = Some(client);
             }
             HandlerCommand::Disconnect => {
-                tracing::debug!("Disconnecting WebSocket");
+                log::debug!("Disconnecting WebSocket");
                 if let Some(client) = self.inner.take() {
                     client.disconnect().await;
                 }
             }
             HandlerCommand::Authenticate { auth_params } => {
                 let request_id = self.next_request_id();
-                tracing::debug!(request_id, "Authenticating...");
+                log::debug!("Authenticating: request_id={request_id}");
 
                 // Track this request for response correlation
                 self.pending_requests
@@ -299,23 +297,23 @@ impl DeribitWsFeedHandler {
                 match serde_json::to_string(&request) {
                     Ok(payload) => {
                         if let Err(e) = self.send_with_retry(payload, None).await {
-                            tracing::error!("Authentication send failed: {e}");
+                            log::error!("Authentication send failed: {e}");
                             self.auth_tracker.fail(format!("Send failed: {e}"));
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Failed to serialize auth request: {e}");
+                        log::error!("Failed to serialize auth request: {e}");
                         self.auth_tracker.fail(format!("Serialization failed: {e}"));
                     }
                 }
             }
             HandlerCommand::SetHeartbeat { interval } => {
                 if let Err(e) = self.handle_set_heartbeat(interval).await {
-                    tracing::error!("Set heartbeat failed: {e}");
+                    log::error!("Set heartbeat failed: {e}");
                 }
             }
             HandlerCommand::InitializeInstruments(instruments) => {
-                tracing::debug!("Initializing {} instruments", instruments.len());
+                log::debug!("Initializing {} instruments", instruments.len());
                 self.instruments_cache.clear();
                 for inst in instruments {
                     self.instruments_cache
@@ -323,18 +321,18 @@ impl DeribitWsFeedHandler {
                 }
             }
             HandlerCommand::UpdateInstrument(instrument) => {
-                tracing::trace!("Updating instrument: {}", instrument.raw_symbol());
+                log::trace!("Updating instrument: {}", instrument.raw_symbol());
                 self.instruments_cache
                     .insert(instrument.raw_symbol().inner(), *instrument);
             }
             HandlerCommand::Subscribe { channels } => {
                 if let Err(e) = self.handle_subscribe(channels).await {
-                    tracing::error!("Subscribe failed: {e}");
+                    log::error!("Subscribe failed: {e}");
                 }
             }
             HandlerCommand::Unsubscribe { channels } => {
                 if let Err(e) = self.handle_unsubscribe(channels).await {
-                    tracing::error!("Unsubscribe failed: {e}");
+                    log::error!("Unsubscribe failed: {e}");
                 }
             }
         }
@@ -344,7 +342,7 @@ impl DeribitWsFeedHandler {
     async fn process_raw_message(&mut self, text: &str) -> Option<NautilusWsMessage> {
         // Check for reconnection signal
         if text == RECONNECTED {
-            tracing::info!("Received reconnection signal");
+            log::info!("Received reconnection signal");
             return Some(NautilusWsMessage::Reconnected);
         }
 
@@ -352,7 +350,7 @@ impl DeribitWsFeedHandler {
         let ws_msg = match parse_raw_message(text) {
             Ok(msg) => msg,
             Err(e) => {
-                tracing::warn!("Failed to parse message: {e}");
+                log::warn!("Failed to parse message: {e}");
                 return None;
             }
         };
@@ -372,7 +370,7 @@ impl DeribitWsFeedHandler {
                                 match serde_json::from_value::<DeribitAuthResult>(result.clone()) {
                                     Ok(auth_result) => {
                                         self.auth_tracker.succeed();
-                                        tracing::info!(
+                                        log::info!(
                                             "WebSocket authenticated successfully (request_id={}, scope={}, expires_in={}s)",
                                             request_id,
                                             auth_result.scope,
@@ -383,9 +381,8 @@ impl DeribitWsFeedHandler {
                                         )));
                                     }
                                     Err(e) => {
-                                        tracing::error!(
-                                            request_id,
-                                            "Failed to parse auth result: {e}"
+                                        log::error!(
+                                            "Failed to parse auth result: request_id={request_id}, error={e}"
                                         );
                                         self.auth_tracker
                                             .fail(format!("Failed to parse auth result: {e}"));
@@ -397,24 +394,21 @@ impl DeribitWsFeedHandler {
                             // Confirm each channel in the subscription
                             for ch in &channels {
                                 self.subscriptions_state.confirm_subscribe(ch);
-                                tracing::debug!("Subscription confirmed: {ch}");
+                                log::debug!("Subscription confirmed: {ch}");
                             }
                         }
                         PendingRequestType::Unsubscribe { channels } => {
                             // Confirm each channel in the unsubscription
                             for ch in &channels {
                                 self.subscriptions_state.confirm_unsubscribe(ch);
-                                tracing::debug!("Unsubscription confirmed: {ch}");
+                                log::debug!("Unsubscription confirmed: {ch}");
                             }
                         }
                         PendingRequestType::SetHeartbeat => {
-                            tracing::debug!("Heartbeat enabled (request_id={})", request_id);
+                            log::debug!("Heartbeat enabled (request_id={request_id})");
                         }
                         PendingRequestType::Test => {
-                            tracing::trace!(
-                                "Heartbeat test acknowledged (request_id={})",
-                                request_id
-                            );
+                            log::trace!("Heartbeat test acknowledged (request_id={request_id})");
                         }
                     }
                 }
@@ -431,21 +425,21 @@ impl DeribitWsFeedHandler {
                             // Parse trade messages
                             match serde_json::from_value::<Vec<DeribitTradeMsg>>(data.clone()) {
                                 Ok(trades) => {
-                                    tracing::debug!("Received {} trades", trades.len());
+                                    log::debug!("Received {} trades", trades.len());
                                     let data_vec =
                                         parse_trades_data(trades, &self.instruments_cache, ts_init);
                                     if !data_vec.is_empty() {
-                                        tracing::debug!("Parsed {} trade ticks", data_vec.len());
+                                        log::debug!("Parsed {} trade ticks", data_vec.len());
                                         return Some(NautilusWsMessage::Data(data_vec));
                                     } else {
-                                        tracing::debug!(
+                                        log::debug!(
                                             "No trades parsed - instrument cache size: {}",
                                             self.instruments_cache.len()
                                         );
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::warn!("Failed to deserialize trades: {e}");
+                                    log::warn!("Failed to deserialize trades: {e}");
                                 }
                             }
                         }
@@ -461,7 +455,7 @@ impl DeribitWsFeedHandler {
                                         return Some(NautilusWsMessage::Deltas(deltas));
                                     }
                                     Err(e) => {
-                                        tracing::warn!("Failed to parse book message: {e}");
+                                        log::warn!("Failed to parse book message: {e}");
                                     }
                                 }
                             }
@@ -510,12 +504,12 @@ impl DeribitWsFeedHandler {
                                                     vec![funding_rate],
                                                 ));
                                             } else {
-                                                tracing::warn!(
+                                                log::warn!(
                                                     "Failed to create funding rate from perpetual msg"
                                                 );
                                             }
                                         } else {
-                                            tracing::warn!(
+                                            log::warn!(
                                                 "Instrument {} not found in cache (cache size: {})",
                                                 instrument_name,
                                                 self.instruments_cache.len()
@@ -524,7 +518,7 @@ impl DeribitWsFeedHandler {
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::warn!(
+                                    log::warn!(
                                         "Failed to deserialize perpetual message: {e}, data: {data}"
                                     );
                                 }
@@ -544,7 +538,7 @@ impl DeribitWsFeedHandler {
                                         )]));
                                     }
                                     Err(e) => {
-                                        tracing::warn!("Failed to parse quote message: {e}");
+                                        log::warn!("Failed to parse quote message: {e}");
                                     }
                                 }
                             }
@@ -554,7 +548,7 @@ impl DeribitWsFeedHandler {
                             match serde_json::from_value::<DeribitInstrumentStateMsg>(data.clone())
                             {
                                 Ok(state_msg) => {
-                                    tracing::info!(
+                                    log::info!(
                                         "Instrument state change: {} -> {} (timestamp: {})",
                                         state_msg.instrument_name,
                                         state_msg.state,
@@ -565,7 +559,7 @@ impl DeribitWsFeedHandler {
                                     return Some(NautilusWsMessage::Raw(data.clone()));
                                 }
                                 Err(e) => {
-                                    tracing::warn!("Failed to parse instrument state message: {e}");
+                                    log::warn!("Failed to parse instrument state message: {e}");
                                 }
                             }
                         }
@@ -600,29 +594,27 @@ impl DeribitWsFeedHandler {
                                                     ts_init,
                                                 ) {
                                                     Ok(bar) => {
-                                                        tracing::debug!("Parsed bar: {:?}", bar);
+                                                        log::debug!("Parsed bar: {bar:?}");
                                                         return Some(NautilusWsMessage::Data(
                                                             vec![Data::Bar(bar)],
                                                         ));
                                                     }
                                                     Err(e) => {
-                                                        tracing::warn!(
+                                                        log::warn!(
                                                             "Failed to parse chart message to bar: {e}"
                                                         );
                                                     }
                                                 }
                                             }
                                             Err(e) => {
-                                                tracing::warn!(
-                                                    "Failed to create BarType from resolution {}: {e}",
-                                                    resolution
+                                                log::warn!(
+                                                    "Failed to create BarType from resolution {resolution}: {e}"
                                                 );
                                             }
                                         }
                                     } else {
-                                        tracing::warn!(
-                                            "Instrument {} not found in cache for chart data",
-                                            instrument_name
+                                        log::warn!(
+                                            "Instrument {instrument_name} not found in cache for chart data"
                                         );
                                     }
                                 }
@@ -630,12 +622,12 @@ impl DeribitWsFeedHandler {
                         }
                         _ => {
                             // Unhandled channel - return raw
-                            tracing::trace!("Unhandled channel: {channel}");
+                            log::trace!("Unhandled channel: {channel}");
                             return Some(NautilusWsMessage::Raw(data.clone()));
                         }
                     }
                 } else {
-                    tracing::trace!("Unknown channel: {channel}");
+                    log::trace!("Unknown channel: {channel}");
                     return Some(NautilusWsMessage::Raw(data.clone()));
                 }
                 None
@@ -643,21 +635,21 @@ impl DeribitWsFeedHandler {
             DeribitWsMessage::Heartbeat(heartbeat) => {
                 match heartbeat.heartbeat_type {
                     DeribitHeartbeatType::TestRequest => {
-                        tracing::trace!(
+                        log::trace!(
                             "Received heartbeat test_request - responding with public/test"
                         );
                         if let Err(e) = self.handle_heartbeat_test_request().await {
-                            tracing::error!("Failed to respond to heartbeat test_request: {e}");
+                            log::error!("Failed to respond to heartbeat test_request: {e}");
                         }
                     }
                     DeribitHeartbeatType::Heartbeat => {
-                        tracing::trace!("Received heartbeat acknowledgment");
+                        log::trace!("Received heartbeat acknowledgment");
                     }
                 }
                 None
             }
             DeribitWsMessage::Error(err) => {
-                tracing::error!("Deribit error {}: {}", err.code, err.message);
+                log::error!("Deribit error {}: {}", err.code, err.message);
                 Some(NautilusWsMessage::Error(DeribitWsError::DeribitError {
                     code: err.code,
                     message: err.message,
@@ -697,7 +689,7 @@ impl DeribitWsFeedHandler {
                                         let msg_to_send =
                                             NautilusWsMessage::FundingRates(rates.clone());
                                         if let Err(e) = self.out_tx.send(msg_to_send) {
-                                            tracing::error!("Failed to send funding rates: {e}");
+                                            log::error!("Failed to send funding rates: {e}");
                                         }
                                     }
                                     // Return messages that need client-side handling
@@ -715,7 +707,7 @@ impl DeribitWsFeedHandler {
                             }
                         }
                         Message::Close(_) => {
-                            tracing::info!("Received close frame");
+                            log::info!("Received close frame");
                         }
                         _ => {}
                     }
@@ -723,7 +715,7 @@ impl DeribitWsFeedHandler {
                 // Check for stop signal
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
                     if self.signal.load(Ordering::Relaxed) {
-                        tracing::debug!("Stop signal received");
+                        log::debug!("Stop signal received");
                         return None;
                     }
                 }

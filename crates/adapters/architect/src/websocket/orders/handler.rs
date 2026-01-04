@@ -132,7 +132,7 @@ impl FeedHandler {
 
                 _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
                     if self.signal.load(Ordering::Relaxed) {
-                        tracing::debug!("Stop signal received during idle period");
+                        log::debug!("Stop signal received during idle period");
                         return None;
                     }
                     continue;
@@ -142,17 +142,17 @@ impl FeedHandler {
                     let msg = match msg {
                         Some(msg) => msg,
                         None => {
-                            tracing::debug!("WebSocket stream closed");
+                            log::debug!("WebSocket stream closed");
                             return None;
                         }
                     };
 
                     if let Message::Ping(data) = &msg {
-                        tracing::trace!("Received ping frame with {} bytes", data.len());
+                        log::trace!("Received ping frame with {} bytes", data.len());
                         if let Some(client) = &self.client
                             && let Err(e) = client.send_pong(data.to_vec()).await
                         {
-                            tracing::warn!(error = %e, "Failed to send pong frame");
+                            log::warn!("Failed to send pong frame: {e}");
                         }
                         continue;
                     }
@@ -162,7 +162,7 @@ impl FeedHandler {
                     }
 
                     if self.signal.load(Ordering::Relaxed) {
-                        tracing::debug!("Stop signal received");
+                        log::debug!("Stop signal received");
                         return None;
                     }
                 }
@@ -173,17 +173,17 @@ impl FeedHandler {
     async fn handle_command(&mut self, cmd: HandlerCommand) {
         match cmd {
             HandlerCommand::SetClient(client) => {
-                tracing::debug!("WebSocketClient received by handler");
+                log::debug!("WebSocketClient received by handler");
                 self.client = Some(client);
             }
             HandlerCommand::Disconnect => {
-                tracing::debug!("Disconnect command received");
+                log::debug!("Disconnect command received");
                 if let Some(client) = self.client.take() {
                     client.disconnect().await;
                 }
             }
             HandlerCommand::Authenticate { token: _ } => {
-                tracing::debug!("Authenticate command received");
+                log::debug!("Authenticate command received");
                 // Architect uses Bearer token in connection headers, not a message
                 // This is handled at connection time, so we just mark as authenticated
                 self.auth_tracker.succeed();
@@ -195,15 +195,14 @@ impl FeedHandler {
                 order,
                 metadata,
             } => {
-                tracing::debug!(
-                    request_id = request_id,
-                    symbol = %order.s,
-                    "PlaceOrder command received"
+                log::debug!(
+                    "PlaceOrder command received: request_id={request_id}, symbol={}",
+                    order.s
                 );
                 self.pending_orders.insert(request_id, metadata);
 
                 if let Err(e) = self.send_json(&order).await {
-                    tracing::error!(error = %e, "Failed to send place order message");
+                    log::error!("Failed to send place order message: {e}");
                     self.pending_orders.remove(&request_id);
                 }
             }
@@ -211,15 +210,13 @@ impl FeedHandler {
                 request_id,
                 order_id,
             } => {
-                tracing::debug!(
-                    request_id = request_id,
-                    order_id = %order_id,
-                    "CancelOrder command received"
+                log::debug!(
+                    "CancelOrder command received: request_id={request_id}, order_id={order_id}"
                 );
                 self.send_cancel_order(request_id, &order_id).await;
             }
             HandlerCommand::GetOpenOrders { request_id } => {
-                tracing::debug!(request_id = request_id, "GetOpenOrders command received");
+                log::debug!("GetOpenOrders command received: request_id={request_id}");
                 self.send_get_open_orders(request_id).await;
             }
             HandlerCommand::InitializeInstruments(instruments) => {
@@ -241,7 +238,7 @@ impl FeedHandler {
         };
 
         if let Err(e) = self.send_json(&msg).await {
-            tracing::error!(error = %e, "Failed to send cancel order message");
+            log::error!("Failed to send cancel order message: {e}");
         }
     }
 
@@ -252,7 +249,7 @@ impl FeedHandler {
         };
 
         if let Err(e) = self.send_json(&msg).await {
-            tracing::error!(error = %e, "Failed to send get open orders message");
+            log::error!("Failed to send get open orders message: {e}");
         }
     }
 
@@ -262,7 +259,7 @@ impl FeedHandler {
         };
 
         let payload = serde_json::to_string(msg).map_err(|e| e.to_string())?;
-        tracing::trace!("Sending: {payload}");
+        log::trace!("Sending: {payload}");
 
         client
             .send_text(payload, None)
@@ -274,16 +271,16 @@ impl FeedHandler {
         match msg {
             Message::Text(text) => {
                 if text == nautilus_network::RECONNECTED {
-                    tracing::info!("Received WebSocket reconnected signal");
+                    log::info!("Received WebSocket reconnected signal");
                     return Some(vec![ArchitectOrdersWsMessage::Reconnected]);
                 }
 
-                tracing::trace!("Raw websocket message: {text}");
+                log::trace!("Raw websocket message: {text}");
 
                 let value: serde_json::Value = match serde_json::from_str(&text) {
                     Ok(v) => v,
                     Err(e) => {
-                        tracing::error!("Failed to parse WebSocket message: {e}: {text}");
+                        log::error!("Failed to parse WebSocket message: {e}: {text}");
                         return None;
                     }
                 };
@@ -291,11 +288,11 @@ impl FeedHandler {
                 self.classify_and_parse_message(value)
             }
             Message::Binary(data) => {
-                tracing::debug!("Received binary message with {} bytes", data.len());
+                log::debug!("Received binary message with {} bytes", data.len());
                 None
             }
             Message::Close(_) => {
-                tracing::debug!("Received close message, waiting for reconnection");
+                log::debug!("Received close message, waiting for reconnection");
                 None
             }
             _ => None,
@@ -317,22 +314,22 @@ impl FeedHandler {
 
         match msg_type {
             "h" => {
-                tracing::trace!("Received heartbeat");
+                log::trace!("Received heartbeat");
                 None
             }
             "n" => match serde_json::from_value::<ArchitectWsOrderAcknowledged>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Order acknowledged: {} {}", msg.o.oid, msg.o.s);
+                    log::debug!("Order acknowledged: {} {}", msg.o.oid, msg.o.s);
                     Some(vec![ArchitectOrdersWsMessage::OrderAcknowledged(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order acknowledged: {e}");
+                    log::error!("Failed to parse order acknowledged: {e}");
                     None
                 }
             },
             "p" => match serde_json::from_value::<ArchitectWsOrderPartiallyFilled>(value) {
                 Ok(msg) => {
-                    tracing::debug!(
+                    log::debug!(
                         "Order partially filled: {} {} @ {}",
                         msg.o.oid,
                         msg.xs.q,
@@ -341,82 +338,82 @@ impl FeedHandler {
                     Some(vec![ArchitectOrdersWsMessage::OrderPartiallyFilled(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order partially filled: {e}");
+                    log::error!("Failed to parse order partially filled: {e}");
                     None
                 }
             },
             "f" => match serde_json::from_value::<ArchitectWsOrderFilled>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Order filled: {} {} @ {}", msg.o.oid, msg.xs.q, msg.xs.p);
+                    log::debug!("Order filled: {} {} @ {}", msg.o.oid, msg.xs.q, msg.xs.p);
                     Some(vec![ArchitectOrdersWsMessage::OrderFilled(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order filled: {e}");
+                    log::error!("Failed to parse order filled: {e}");
                     None
                 }
             },
             "c" => match serde_json::from_value::<ArchitectWsOrderCanceled>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Order canceled: {} reason={}", msg.o.oid, msg.xr);
+                    log::debug!("Order canceled: {} reason={}", msg.o.oid, msg.xr);
                     Some(vec![ArchitectOrdersWsMessage::OrderCanceled(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order canceled: {e}");
+                    log::error!("Failed to parse order canceled: {e}");
                     None
                 }
             },
             "j" => match serde_json::from_value::<ArchitectWsOrderRejected>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Order rejected: {} reason={}", msg.o.oid, msg.r);
+                    log::debug!("Order rejected: {} reason={}", msg.o.oid, msg.r);
                     Some(vec![ArchitectOrdersWsMessage::OrderRejectedRaw(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order rejected: {e}");
+                    log::error!("Failed to parse order rejected: {e}");
                     None
                 }
             },
             "x" => match serde_json::from_value::<ArchitectWsOrderExpired>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Order expired: {}", msg.o.oid);
+                    log::debug!("Order expired: {}", msg.o.oid);
                     Some(vec![ArchitectOrdersWsMessage::OrderExpired(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order expired: {e}");
+                    log::error!("Failed to parse order expired: {e}");
                     None
                 }
             },
             "r" => match serde_json::from_value::<ArchitectWsOrderReplaced>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Order replaced: {}", msg.o.oid);
+                    log::debug!("Order replaced: {}", msg.o.oid);
                     Some(vec![ArchitectOrdersWsMessage::OrderReplaced(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order replaced: {e}");
+                    log::error!("Failed to parse order replaced: {e}");
                     None
                 }
             },
             "d" => match serde_json::from_value::<ArchitectWsOrderDoneForDay>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Order done for day: {}", msg.o.oid);
+                    log::debug!("Order done for day: {}", msg.o.oid);
                     Some(vec![ArchitectOrdersWsMessage::OrderDoneForDay(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse order done for day: {e}");
+                    log::error!("Failed to parse order done for day: {e}");
                     None
                 }
             },
             "e" => match serde_json::from_value::<ArchitectWsCancelRejected>(value) {
                 Ok(msg) => {
-                    tracing::debug!("Cancel rejected: {} reason={}", msg.oid, msg.r);
+                    log::debug!("Cancel rejected: {} reason={}", msg.oid, msg.r);
                     Some(vec![ArchitectOrdersWsMessage::CancelRejected(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse cancel rejected: {e}");
+                    log::error!("Failed to parse cancel rejected: {e}");
                     None
                 }
             },
             _ => {
-                tracing::warn!("Unknown message type: {msg_type}");
+                log::warn!("Unknown message type: {msg_type}");
                 Some(vec![ArchitectOrdersWsMessage::Error(
                     ArchitectWsError::new(format!("Unknown message type: {msg_type}")),
                 )])
@@ -435,22 +432,18 @@ impl FeedHandler {
             if res.get("oid").is_some() {
                 match serde_json::from_value::<ArchitectWsPlaceOrderResponse>(value) {
                     Ok(msg) => {
-                        tracing::debug!(
-                            "Place order response: rid={} oid={}",
-                            msg.rid,
-                            msg.res.oid
-                        );
+                        log::debug!("Place order response: rid={} oid={}", msg.rid, msg.res.oid);
                         Some(vec![ArchitectOrdersWsMessage::PlaceOrderResponse(msg)])
                     }
                     Err(e) => {
-                        tracing::error!("Failed to parse place order response: {e}");
+                        log::error!("Failed to parse place order response: {e}");
                         None
                     }
                 }
             } else if res.get("cxl_rx").is_some() {
                 match serde_json::from_value::<ArchitectWsCancelOrderResponse>(value) {
                     Ok(msg) => {
-                        tracing::debug!(
+                        log::debug!(
                             "Cancel order response: rid={} cxl_rx={}",
                             msg.rid,
                             msg.res.cxl_rx
@@ -458,18 +451,18 @@ impl FeedHandler {
                         Some(vec![ArchitectOrdersWsMessage::CancelOrderResponse(msg)])
                     }
                     Err(e) => {
-                        tracing::error!("Failed to parse cancel order response: {e}");
+                        log::error!("Failed to parse cancel order response: {e}");
                         None
                     }
                 }
             } else {
-                tracing::warn!("Unknown response object format");
+                log::warn!("Unknown response object format");
                 None
             }
         } else if res.is_array() {
             match serde_json::from_value::<ArchitectWsOpenOrdersResponse>(value) {
                 Ok(msg) => {
-                    tracing::debug!(
+                    log::debug!(
                         "Open orders response: rid={} count={}",
                         msg.rid,
                         msg.res.len()
@@ -477,12 +470,12 @@ impl FeedHandler {
                     Some(vec![ArchitectOrdersWsMessage::OpenOrdersResponse(msg)])
                 }
                 Err(e) => {
-                    tracing::error!("Failed to parse open orders response: {e}");
+                    log::error!("Failed to parse open orders response: {e}");
                     None
                 }
             }
         } else {
-            tracing::warn!("Unknown response format");
+            log::warn!("Unknown response format");
             None
         }
     }

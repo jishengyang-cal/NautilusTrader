@@ -45,9 +45,7 @@ use totp_rs::{Algorithm, Secret, TOTP};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .init();
+    nautilus_common::logging::ensure_logging_initialized();
 
     let api_key = std::env::var("ARCHITECT_API_KEY")
         .expect("ARCHITECT_API_KEY environment variable required");
@@ -64,10 +62,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ArchitectEnvironment::Production
     };
 
-    tracing::info!("Environment: {environment}");
+    log::info!("Environment: {environment}");
 
     // First test basic connectivity with a public endpoint
-    tracing::info!(
+    log::info!(
         "Testing connectivity to {}/instruments ...",
         environment.http_url()
     );
@@ -83,21 +81,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match http_client.get_instruments().await {
         Ok(response) => {
-            tracing::info!(
+            log::info!(
                 "Connectivity OK - got {} instruments",
                 response.instruments.len()
             );
             if let Some(first) = response.instruments.first() {
-                tracing::debug!("First instrument: {:?}", first.symbol);
+                log::debug!("First instrument: {:?}", first.symbol);
             }
         }
         Err(e) => {
-            tracing::error!("Connectivity test failed: {e:?}");
+            log::error!("Connectivity test failed: {e:?}");
             return Err(format!("Connectivity test failed: {e:?}").into());
         }
     }
 
-    tracing::info!(
+    log::info!(
         "Authenticating via HTTP to {}/authenticate ...",
         environment.http_url()
     );
@@ -110,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let totp =
             TOTP::new(Algorithm::SHA1, 6, 1, 30, secret_bytes).expect("Invalid TOTP configuration");
         let code = totp.generate_current().expect("Failed to generate TOTP");
-        tracing::info!("Generated TOTP code from secret");
+        log::info!("Generated TOTP code from secret");
         code
     });
 
@@ -123,31 +121,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let code = match totp_code {
                     Some(code) => code,
                     None => {
-                        tracing::error!("2FA required but ARCHITECT_TOTP_SECRET not set");
+                        log::error!("2FA required but ARCHITECT_TOTP_SECRET not set");
                         return Err("2FA required but ARCHITECT_TOTP_SECRET not provided".into());
                     }
                 };
 
-                tracing::info!("2FA required, using provided code...");
+                log::info!("2FA required, using provided code...");
                 match http_client
                     .authenticate_with_totp(&api_key, &api_secret, 3600, Some(&code))
                     .await
                 {
                     Ok(resp) => resp,
                     Err(e) => {
-                        tracing::error!("Authentication with 2FA failed: {e:?}");
+                        log::error!("Authentication with 2FA failed: {e:?}");
                         return Err(format!("Authentication failed: {e:?}").into());
                     }
                 }
             } else {
-                tracing::error!("Authentication failed: {e:?}");
+                log::error!("Authentication failed: {e:?}");
                 return Err(format!("Authentication failed: {e:?}").into());
             }
         }
     };
-    tracing::info!("Authenticated successfully");
+    log::info!("Authenticated successfully");
 
-    tracing::info!(
+    log::info!(
         "Connecting to market data WebSocket: {}",
         environment.ws_md_url()
     );
@@ -157,18 +155,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(30),
     );
 
-    tracing::info!("Establishing WebSocket connection...");
+    log::info!("Establishing WebSocket connection...");
     client.connect().await?;
-    tracing::info!("Connected");
+    log::info!("Connected");
 
     let test_symbol = "EURUSD-PERP";
-    tracing::info!("Subscribing to {test_symbol} L1 data...");
+    log::info!("Subscribing to {test_symbol} L1 data...");
     client
         .subscribe(test_symbol, ArchitectMarketDataLevel::Level1)
         .await?;
-    tracing::info!("Subscribed");
+    log::info!("Subscribed");
 
-    tracing::info!("Listening for messages (30 seconds)...");
+    log::info!("Listening for messages (30 seconds)...");
     let timeout = Duration::from_secs(30);
     let start = std::time::Instant::now();
     let mut message_count = 0;
@@ -182,18 +180,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match &msg {
                 ArchitectMdWsMessage::Heartbeat(hb) => {
-                    tracing::debug!("Heartbeat: ts={}", hb.ts);
+                    log::debug!("Heartbeat: ts={}", hb.ts);
                 }
                 ArchitectMdWsMessage::Ticker(ticker) => {
-                    tracing::info!("Ticker: {} price={} vol={}", ticker.s, ticker.p, ticker.v);
+                    log::info!("Ticker: {} price={} vol={}", ticker.s, ticker.p, ticker.v);
                 }
                 ArchitectMdWsMessage::Trade(trade) => {
-                    tracing::info!("Trade: {} {:?} {} @ {}", trade.s, trade.d, trade.q, trade.p);
+                    log::info!("Trade: {} {:?} {} @ {}", trade.s, trade.d, trade.q, trade.p);
                 }
                 ArchitectMdWsMessage::BookL1(book) => {
                     let bid = book.b.first().map(|l| format!("{}@{}", l.q, l.p));
                     let ask = book.a.first().map(|l| format!("{}@{}", l.q, l.p));
-                    tracing::info!(
+                    log::info!(
                         "BookL1: {} bid={} ask={}",
                         book.s,
                         bid.unwrap_or_default(),
@@ -201,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 }
                 ArchitectMdWsMessage::BookL2(book) => {
-                    tracing::info!(
+                    log::info!(
                         "BookL2: {} {} bids, {} asks",
                         book.s,
                         book.b.len(),
@@ -209,7 +207,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 }
                 ArchitectMdWsMessage::BookL3(book) => {
-                    tracing::info!(
+                    log::info!(
                         "BookL3: {} {} bids, {} asks",
                         book.s,
                         book.b.len(),
@@ -217,7 +215,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 }
                 ArchitectMdWsMessage::Candle(candle) => {
-                    tracing::info!(
+                    log::info!(
                         "Candle: {} {} O={} H={} L={} C={}",
                         candle.symbol,
                         candle.width,
@@ -228,34 +226,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 }
                 ArchitectMdWsMessage::Data(data) => {
-                    tracing::info!("Data: {} items", data.len());
+                    log::info!("Data: {} items", data.len());
                 }
                 ArchitectMdWsMessage::Deltas(deltas) => {
-                    tracing::info!("Deltas: {}", deltas.instrument_id);
+                    log::info!("Deltas: {}", deltas.instrument_id);
                 }
                 ArchitectMdWsMessage::Bar(bar) => {
-                    tracing::info!("Bar: {}", bar.bar_type);
+                    log::info!("Bar: {}", bar.bar_type);
                 }
                 ArchitectMdWsMessage::Error(err) => {
-                    tracing::error!("Error: {}", err.message);
+                    log::error!("Error: {}", err.message);
                 }
                 ArchitectMdWsMessage::Reconnected => {
-                    tracing::warn!("Reconnected");
+                    log::warn!("Reconnected");
                 }
             }
 
             if start.elapsed() > timeout {
-                tracing::info!("Timeout reached");
+                log::info!("Timeout reached");
                 break;
             }
         }
     }
 
-    tracing::info!("Disconnecting...");
+    log::info!("Disconnecting...");
     client.disconnect().await;
 
-    tracing::info!("Received {message_count} messages");
-    tracing::info!("Done");
+    log::info!("Received {message_count} messages");
+    log::info!("Done");
 
     Ok(())
 }

@@ -874,10 +874,9 @@ impl BinanceSpotHttpClient {
             match parse_spot_instrument_sbe(symbol, ts_init, ts_init) {
                 Ok(instrument) => instruments.push(instrument),
                 Err(e) => {
-                    tracing::debug!(
-                        symbol = %symbol.symbol,
-                        error = %e,
-                        "Skipping symbol during instrument parsing"
+                    log::debug!(
+                        "Skipping symbol during instrument parsing: symbol={}, error={e}",
+                        symbol.symbol
                     );
                 }
             }
@@ -886,7 +885,7 @@ impl BinanceSpotHttpClient {
         // Cache instruments for use by other domain methods
         self.cache_instruments(instruments.clone());
 
-        tracing::info!(count = instruments.len(), "Loaded spot instruments");
+        log::info!("Loaded spot instruments: count={}", instruments.len());
         Ok(instruments)
     }
 

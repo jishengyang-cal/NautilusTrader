@@ -30,8 +30,6 @@ from nautilus_trader.core import nautilus_pyo3
 
 
 async def main():
-    # Setup logging (to see Rust logs run `export RUST_LOG=debug,h2=off`)
-    nautilus_pyo3.init_tracing()
     _guard = init_logging(level_stdout=LogLevel.TRACE)
     logger = Logger("okx-sandbox")
 

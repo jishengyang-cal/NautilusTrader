@@ -155,11 +155,11 @@ impl BinanceSpotWsFeedHandler {
                 Some(cmd) = self.cmd_rx.recv() => {
                     match cmd {
                         HandlerCommand::SetClient(client) => {
-                            tracing::debug!("Handler received WebSocket client");
+                            log::debug!("Handler received WebSocket client");
                             self.inner = Some(client);
                         }
                         HandlerCommand::Disconnect => {
-                            tracing::debug!("Handler disconnecting WebSocket client");
+                            log::debug!("Handler disconnecting WebSocket client");
                             self.inner = None;
                             return None;
                         }
@@ -173,12 +173,12 @@ impl BinanceSpotWsFeedHandler {
                         }
                         HandlerCommand::Subscribe { streams } => {
                             if let Err(e) = self.handle_subscribe(streams).await {
-                                tracing::error!(error = %e, "Failed to handle subscribe command");
+                                log::error!("Failed to handle subscribe command: {e}");
                             }
                         }
                         HandlerCommand::Unsubscribe { streams } => {
                             if let Err(e) = self.handle_unsubscribe(streams).await {
-                                tracing::error!(error = %e, "Failed to handle unsubscribe command");
+                                log::error!("Failed to handle unsubscribe command: {e}");
                             }
                         }
                     }
@@ -187,7 +187,7 @@ impl BinanceSpotWsFeedHandler {
                     if let Message::Text(ref text) = msg
                         && text.as_str() == RECONNECTED
                     {
-                        tracing::info!("Handler received reconnection signal");
+                        log::info!("Handler received reconnection signal");
                         return Some(NautilusWsMessage::Reconnected);
                     }
 
@@ -214,7 +214,7 @@ impl BinanceSpotWsFeedHandler {
             Message::Binary(data) => self.handle_binary_frame(&data),
             Message::Text(text) => self.handle_text_frame(&text),
             Message::Close(_) => {
-                tracing::debug!("Received close frame");
+                log::debug!("Received close frame");
                 vec![]
             }
             Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => vec![],
@@ -229,7 +229,7 @@ impl BinanceSpotWsFeedHandler {
             Ok(MarketDataMessage::DepthSnapshot(event)) => self.parse_depth_snapshot(event),
             Ok(MarketDataMessage::DepthDiff(event)) => self.parse_depth_diff(event),
             Err(e) => {
-                tracing::error!(error = %e, "SBE decode error");
+                log::error!("SBE decode error: {e}");
                 vec![NautilusWsMessage::RawBinary(data.to_vec())]
             }
         }
@@ -250,12 +250,10 @@ impl BinanceSpotWsFeedHandler {
                 for stream in &streams {
                     self.subscriptions.mark_failure(stream);
                 }
-                tracing::warn!(
-                    id,
-                    streams = ?streams,
-                    code = error.code,
-                    msg = %error.msg,
-                    "Subscription request failed"
+                log::warn!(
+                    "Subscription request failed: id={id}, streams={streams:?}, code={}, msg={}",
+                    error.code,
+                    error.msg
                 );
             }
             return vec![NautilusWsMessage::Error(BinanceWsErrorMsg {
@@ -267,7 +265,7 @@ impl BinanceSpotWsFeedHandler {
         if let Ok(value) = serde_json::from_str(text) {
             vec![NautilusWsMessage::RawJson(value)]
         } else {
-            tracing::warn!("Failed to parse JSON message: {text}");
+            log::warn!("Failed to parse JSON message: {text}");
             vec![]
         }
     }
@@ -280,20 +278,19 @@ impl BinanceSpotWsFeedHandler {
                 for stream in &streams {
                     self.subscriptions.confirm_subscribe(stream);
                 }
-                tracing::debug!(streams = ?streams, "Subscription confirmed");
+                log::debug!("Subscription confirmed: streams={streams:?}");
             } else {
                 // Failure - mark streams as failed
                 for stream in &streams {
                     self.subscriptions.mark_failure(stream);
                 }
-                tracing::warn!(
-                    streams = ?streams,
-                    result = ?response.result,
-                    "Subscription failed"
+                log::warn!(
+                    "Subscription failed: streams={streams:?}, result={:?}",
+                    response.result
                 );
             }
         } else {
-            tracing::debug!(id = response.id, "Received response for unknown request");
+            log::debug!("Received response for unknown request: id={}", response.id);
         }
     }
 
@@ -302,7 +299,7 @@ impl BinanceSpotWsFeedHandler {
         let symbol = Ustr::from(&event.symbol);
 
         let Some(instrument) = self.instruments_cache.get(&symbol) else {
-            tracing::warn!(symbol = %event.symbol, "No instrument in cache for trades");
+            log::warn!("No instrument in cache for trades: symbol={}", event.symbol);
             return vec![];
         };
 
@@ -348,7 +345,7 @@ impl BinanceSpotWsFeedHandler {
         let symbol = Ustr::from(&event.symbol);
 
         let Some(instrument) = self.instruments_cache.get(&symbol) else {
-            tracing::warn!(symbol = %event.symbol, "No instrument in cache for BBO");
+            log::warn!("No instrument in cache for BBO: symbol={}", event.symbol);
             return vec![];
         };
 
@@ -390,7 +387,10 @@ impl BinanceSpotWsFeedHandler {
         let symbol = Ustr::from(&event.symbol);
 
         let Some(instrument) = self.instruments_cache.get(&symbol) else {
-            tracing::warn!(symbol = %event.symbol, "No instrument in cache for depth snapshot");
+            log::warn!(
+                "No instrument in cache for depth snapshot: symbol={}",
+                event.symbol
+            );
             return vec![];
         };
 
@@ -477,7 +477,10 @@ impl BinanceSpotWsFeedHandler {
         let symbol = Ustr::from(&event.symbol);
 
         let Some(instrument) = self.instruments_cache.get(&symbol) else {
-            tracing::warn!(symbol = %event.symbol, "No instrument in cache for depth diff");
+            log::warn!(
+                "No instrument in cache for depth diff: symbol={}",
+                event.symbol
+            );
             return vec![];
         };
 

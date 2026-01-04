@@ -580,9 +580,8 @@ impl HyperliquidRejectCode {
 
             // Unknown error - log for monitoring and return with original message
             _ => {
-                tracing::warn!(
-                    "Unknown Hyperliquid error pattern (consider updating error parsing): {}",
-                    error // Use original error, not normalized
+                log::warn!(
+                    "Unknown Hyperliquid error pattern (consider updating error parsing): {error}" // Use original error, not normalized
                 );
                 Self::Unknown(error.to_string())
             }

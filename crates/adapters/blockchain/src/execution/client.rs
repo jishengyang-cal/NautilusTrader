@@ -155,7 +155,7 @@ impl BlockchainExecutionClient {
     /// Refreshes all wallet balances including native currency and tracked ERC-20 tokens.
     async fn refresh_wallet_balances(&mut self) -> anyhow::Result<()> {
         let native_currency_balance = self.fetch_native_currency_balance().await?;
-        tracing::info!(
+        log::info!(
             "Initializing wallet balance with native currency balance: {} {}",
             native_currency_balance.as_decimal(),
             native_currency_balance.currency
@@ -175,7 +175,7 @@ impl BlockchainExecutionClient {
                 .collect();
             for token in tokens {
                 if let Ok(token_balance) = self.fetch_token_balance(&token).await {
-                    tracing::info!("Adding token balance to the wallet: {}", token_balance);
+                    log::info!("Adding token balance to the wallet: {token_balance}");
                     self.wallet_balance.add_token_balance(token_balance);
                 }
             }
@@ -263,11 +263,11 @@ impl ExecutionClient for BlockchainExecutionClient {
 
     async fn connect(&mut self) -> anyhow::Result<()> {
         if self.connected {
-            tracing::warn!("Blockchain execution client already connected");
+            log::warn!("Blockchain execution client already connected");
             return Ok(());
         }
 
-        tracing::info!(
+        log::info!(
             "Connecting to blockchain execution client on chain {}",
             self.chain.name
         );
@@ -275,7 +275,7 @@ impl ExecutionClient for BlockchainExecutionClient {
         self.refresh_wallet_balances().await?;
 
         self.connected = true;
-        tracing::info!(
+        log::info!(
             "Blockchain execution client connected on chain {}",
             self.chain.name
         );

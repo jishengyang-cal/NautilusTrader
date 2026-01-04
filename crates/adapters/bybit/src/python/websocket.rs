@@ -241,10 +241,10 @@ impl BybitWebSocketClient {
                             });
                         }
                         NautilusWsMessage::Reconnected => {
-                            tracing::info!("WebSocket reconnected");
+                            log::info!("WebSocket reconnected");
                         }
                         NautilusWsMessage::Authenticated => {
-                            tracing::info!("WebSocket authenticated");
+                            log::info!("WebSocket authenticated");
                         }
                     }
                 }
@@ -260,7 +260,7 @@ impl BybitWebSocketClient {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             if let Err(e) = client.close().await {
-                tracing::error!("Error on close: {e}");
+                log::error!("Error on close: {e}");
             }
             Ok(())
         })
@@ -868,7 +868,7 @@ impl BybitWebSocketClient {
 
 fn call_python(py: Python, callback: &Py<PyAny>, py_obj: Py<PyAny>) {
     if let Err(e) = callback.call1(py, (py_obj,)) {
-        tracing::error!("Error calling Python callback: {e}");
+        log::error!("Error calling Python callback: {e}");
     }
 }
 
@@ -879,11 +879,11 @@ where
     Python::attach(|py| match data_fn(py) {
         Ok(data) => {
             if let Err(e) = callback.call1(py, (data,)) {
-                tracing::error!("Error calling Python callback: {e}");
+                log::error!("Error calling Python callback: {e}");
             }
         }
         Err(e) => {
-            tracing::error!("Error converting data to Python: {e}");
+            log::error!("Error converting data to Python: {e}");
         }
     });
 }

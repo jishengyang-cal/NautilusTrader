@@ -84,7 +84,6 @@ def get_exchange_rate(
 
 class LogGuard: ...
 
-def init_tracing() -> None: ...
 def init_logging(
     trader_id: TraderId,
     instance_id: UUID4,

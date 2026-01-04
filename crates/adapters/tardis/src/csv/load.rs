@@ -181,7 +181,7 @@ pub fn load_deltas<P: AsRef<Path>>(
         ) {
             Ok(d) => d,
             Err(e) => {
-                tracing::warn!("Skipping invalid delta record: {e}");
+                log::warn!("Skipping invalid delta record: {e}");
                 continue;
             }
         };

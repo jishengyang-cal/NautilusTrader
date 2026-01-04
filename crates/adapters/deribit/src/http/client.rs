@@ -321,10 +321,9 @@ impl DeribitRawHttpClient {
                     Err(_) => {
                         // Not valid JSON - treat as HTTP error
                         let error_body = String::from_utf8_lossy(&resp.body);
-                        tracing::error!(
-                            method = %method,
-                            status = resp.status.as_u16(),
-                            "Non-JSON response: {error_body}"
+                        log::error!(
+                            "Non-JSON response: method={method}, status={}, body={error_body}",
+                            resp.status.as_u16()
                         );
                         return Err(DeribitHttpError::UnexpectedStatus {
                             status: resp.status.as_u16(),
@@ -336,13 +335,11 @@ impl DeribitRawHttpClient {
                 // Try to parse as JSON-RPC response
                 let json_rpc_response: DeribitJsonRpcResponse<T> =
                     serde_json::from_value(json_value.clone()).map_err(|e| {
-                        tracing::error!(
-                            method = %method,
-                            status = resp.status.as_u16(),
-                            error = %e,
-                            "Failed to deserialize Deribit JSON-RPC response"
+                        log::error!(
+                            "Failed to deserialize Deribit JSON-RPC response: method={method}, status={}, error={e}",
+                            resp.status.as_u16()
                         );
-                        tracing::debug!(
+                        log::debug!(
                             "Response JSON (first 2000 chars): {}",
                             &json_value
                                 .to_string()
@@ -358,13 +355,12 @@ impl DeribitRawHttpClient {
                     Ok(json_rpc_response)
                 } else if let Some(error) = &json_rpc_response.error {
                     // JSON-RPC error (may come with any HTTP status)
-                    tracing::warn!(
-                        method = %method,
-                        http_status = resp.status.as_u16(),
-                        error_code = error.code,
-                        error_message = %error.message,
-                        error_data = ?error.data,
-                        "Deribit RPC error response"
+                    log::warn!(
+                        "Deribit RPC error response: method={method}, http_status={}, error_code={}, error_message={}, error_data={:?}",
+                        resp.status.as_u16(),
+                        error.code,
+                        error.message,
+                        error.data
                     );
 
                     // Map JSON-RPC error to appropriate error variant
@@ -374,11 +370,10 @@ impl DeribitRawHttpClient {
                         error.data.clone(),
                     ))
                 } else {
-                    tracing::error!(
-                        method = %method,
-                        status = resp.status.as_u16(),
-                        request_id = ?json_rpc_response.id,
-                        "Response contains neither result nor error field"
+                    log::error!(
+                        "Response contains neither result nor error field: method={method}, status={}, request_id={:?}",
+                        resp.status.as_u16(),
+                        json_rpc_response.id
                     );
                     Err(DeribitHttpError::JsonError(
                         "Response contains neither result nor error".to_string(),
@@ -660,7 +655,7 @@ impl DeribitHttpClient {
                 Ok(None) => {
                     // Unsupported instrument type (e.g., combos)
                     skipped_count += 1;
-                    tracing::debug!(
+                    log::debug!(
                         "Skipped unsupported instrument type: {} (kind: {:?})",
                         raw_instrument.instrument_name,
                         raw_instrument.kind
@@ -668,7 +663,7 @@ impl DeribitHttpClient {
                 }
                 Err(e) => {
                     error_count += 1;
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to parse instrument {}: {}",
                         raw_instrument.instrument_name,
                         e
@@ -677,7 +672,7 @@ impl DeribitHttpClient {
             }
         }
 
-        tracing::info!(
+        log::info!(
             "Parsed {} instruments ({} skipped, {} errors)",
             instruments.len(),
             skipped_count,
@@ -751,10 +746,7 @@ impl DeribitHttpClient {
             if let Some(instrument) = self.get_instrument(&instrument_id.symbol.inner()) {
                 (instrument.price_precision(), instrument.size_precision())
             } else {
-                tracing::warn!(
-                    "Instrument {} not in cache, skipping trades request",
-                    instrument_id
-                );
+                log::warn!("Instrument {instrument_id} not in cache, skipping trades request");
                 anyhow::bail!("Instrument {instrument_id} not in cache");
             };
 
@@ -800,7 +792,7 @@ impl DeribitHttpClient {
             ) {
                 Ok(trade) => trades.push(trade),
                 Err(e) => {
-                    tracing::warn!(
+                    log::warn!(
                         "Failed to parse trade {} for {}: {}",
                         raw_trade.trade_id,
                         instrument_id,
@@ -886,7 +878,7 @@ impl DeribitHttpClient {
             .ok_or_else(|| anyhow::anyhow!("No result in response"))?;
 
         if chart_data.status == "no_data" {
-            tracing::debug!("No bar data returned for {}", bar_type);
+            log::debug!("No bar data returned for {bar_type}");
             return Ok(Vec::new());
         }
 
@@ -896,10 +888,7 @@ impl DeribitHttpClient {
             if let Some(instrument) = self.get_instrument(&instrument_id.symbol.inner()) {
                 (instrument.price_precision(), instrument.size_precision())
             } else {
-                tracing::warn!(
-                    "Instrument {} not in cache, skipping bars request",
-                    instrument_id
-                );
+                log::warn!("Instrument {instrument_id} not in cache, skipping bars request");
                 anyhow::bail!("Instrument {instrument_id} not in cache");
             };
 
@@ -912,7 +901,7 @@ impl DeribitHttpClient {
             ts_init,
         )?;
 
-        tracing::info!("Parsed {} bars for {}", bars.len(), bar_type);
+        log::info!("Parsed {} bars for {}", bars.len(), bar_type);
 
         Ok(bars)
     }
@@ -942,10 +931,7 @@ impl DeribitHttpClient {
                 (instrument.price_precision(), instrument.size_precision())
             } else {
                 // Default precisions if instrument not cached
-                tracing::warn!(
-                    "Instrument {} not in cache, using default precisions",
-                    instrument_id
-                );
+                log::warn!("Instrument {instrument_id} not in cache, using default precisions");
                 (8u8, 8u8)
             };
 
@@ -969,7 +955,7 @@ impl DeribitHttpClient {
             ts_init,
         )?;
 
-        tracing::info!(
+        log::info!(
             "Fetched order book for {} with {} bids and {} asks",
             instrument_id,
             order_book_data.bids.len(),

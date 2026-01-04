@@ -531,7 +531,7 @@ pub fn decode_inbound(msg: &HyperliquidWsMessage) -> WsInbound {
                 WsInbound::Candle(vec![candle])
             }
             Err(e) => {
-                tracing::error!("Failed to parse candle interval '{}': {}", data.i, e);
+                log::error!("Failed to parse candle interval '{}': {}", data.i, e);
                 WsInbound::Unknown
             }
         },

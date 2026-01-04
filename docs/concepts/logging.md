@@ -20,7 +20,7 @@ Infrastructure such as [Vector](https://github.com/vectordotdev/vector) can be i
 Logging can be configured by importing the `LoggingConfig` object.
 By default, log events with an 'INFO' `LogLevel` and higher are written to stdout/stderr.
 
-Log level (`LogLevel`) values include (and generally match Rust's `tracing` level filters).
+Log level (`LogLevel`) values include the following (matching standard log level conventions).
 
 The following log levels are supported:
 

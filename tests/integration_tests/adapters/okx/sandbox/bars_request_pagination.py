@@ -243,7 +243,6 @@ async def pagination_demo(http_client, bar_type: nautilus_pyo3.BarType, logger: 
 # Main entry
 # ----------------------------------------------------------------------
 async def main(args: argparse.Namespace) -> None:
-    nautilus_pyo3.init_tracing()
     _guard = init_logging(level_stdout=LogLevel.TRACE)
     logger = Logger("okx-sandbox")
 

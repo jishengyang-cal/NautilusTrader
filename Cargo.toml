@@ -314,19 +314,6 @@ toml = { version = "0.9.10", default-features = false, features = [
   "parse",
   "serde",
 ] }
-tracing = { version = "0.1.44", default-features = false, features = [
-  "std",
-  "attributes",
-] }
-# Disable default feature "tracing-log" since it interferes with custom logging
-tracing-subscriber = { version = "0.3.22", default-features = false, features = [
-  "smallvec",
-  "fmt",
-  "ansi",
-  "std",
-  "env-filter",
-  "registry",
-] }
 unbounded-interval-tree = { version = "1.1.2", default-features = false }
 url = { version = "2.5.7", default-features = false }
 urlencoding = "2.1.3"
@@ -354,7 +341,6 @@ pretty_assertions = "1.4.1"
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 rstest = "0.26.1"
 tempfile = "3.24.0"
-tracing-test = "0.2.5"
 turmoil = "0.7.0"
 
 # -----------------------------------------------------------------------------

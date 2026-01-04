@@ -108,11 +108,11 @@ impl PostRouter {
         };
         if let Some(waiter) = waiter {
             if waiter.tx.send(resp).is_err() {
-                tracing::warn!(id, "post waiter dropped before delivery");
+                log::warn!("Post waiter dropped before delivery: id={id}");
             }
             // waiter drops here → permit released
         } else {
-            tracing::warn!(id, "post response with unknown id (late/duplicate?)");
+            log::warn!("Post response with unknown id (late/duplicate?): id={id}");
         }
     }
 
@@ -239,13 +239,13 @@ impl PostBatcher {
                     for item in to_send {
                         let req = HyperliquidWsRequest::Post { id: item.id, request: item.request.clone() };
                         if let Err(e) = send_fn(req).await {
-                            tracing::error!(lane=%lane_name, id=%item.id, "failed to send post: {e}");
+                            log::error!("Failed to send post: lane={lane_name}, id={}, {e}", item.id);
                         }
                     }
                 }
             }
         }
-        tracing::info!(lane=%lane_name, "post lane terminated");
+        log::info!("Post lane terminated: lane={lane_name}");
     }
 
     pub async fn enqueue(&self, item: ScheduledPost) -> Result<()> {

@@ -61,25 +61,6 @@ impl FileWriterConfig {
     }
 }
 
-/// Initialize tracing.
-///
-/// Tracing is used by adapter crates for async Rust debugging. It can be
-/// configured via the `RUST_LOG` environment variable.
-///
-/// # Safety
-///
-/// Should only be called once during an applications run, ideally at the
-/// beginning of the run.
-///
-/// # Errors
-///
-/// Returns an error if tracing subscriber fails to initialize.
-#[pyfunction()]
-#[pyo3(name = "init_tracing")]
-pub fn py_init_tracing() -> PyResult<()> {
-    logging::init_tracing().map_err(to_pyvalue_err)
-}
-
 /// Initialize logging.
 ///
 /// Logging should be used for Python and sync Rust logic which is most of

@@ -310,7 +310,7 @@ pub fn parse_fee_currency(
     if trimmed.is_empty() {
         if !fee_amount.is_zero() {
             let ctx = context();
-            tracing::warn!(
+            log::warn!(
                 "Empty fee_ccy in {ctx} with non-zero fee={fee_amount}, using USDT as fallback"
             );
         }
@@ -1798,7 +1798,7 @@ fn parse_balance_field(
     match Decimal::from_str(value_str) {
         Ok(decimal) => Money::from_decimal(decimal, currency).ok(),
         Err(e) => {
-            tracing::warn!(
+            log::warn!(
                 "Skipping balance detail for {ccy_str} with invalid {field_name} '{value_str}': {e}"
             );
             None
@@ -1819,10 +1819,7 @@ pub fn parse_account_state(
         // Skip balances with empty or whitespace-only currency codes
         let ccy_str = b.ccy.as_str().trim();
         if ccy_str.is_empty() {
-            tracing::debug!(
-                "Skipping balance detail with empty currency code | raw_data={:?}",
-                b
-            );
+            log::debug!("Skipping balance detail with empty currency code | raw_data={b:?}");
             continue;
         }
 
@@ -1868,12 +1865,12 @@ pub fn parse_account_state(
 
                     let initial_margin = Money::from_decimal(imr_dec, margin_currency)
                         .unwrap_or_else(|e| {
-                            tracing::error!("Failed to create initial margin: {e}");
+                            log::error!("Failed to create initial margin: {e}");
                             Money::zero(margin_currency)
                         });
                     let maintenance_margin = Money::from_decimal(mmr_dec, margin_currency)
                         .unwrap_or_else(|e| {
-                            tracing::error!("Failed to create maintenance margin: {e}");
+                            log::error!("Failed to create maintenance margin: {e}");
                             Money::zero(margin_currency)
                         });
 
@@ -1887,14 +1884,14 @@ pub fn parse_account_state(
                 }
             }
             (Err(e1), _) => {
-                tracing::warn!(
+                log::warn!(
                     "Failed to parse initial margin requirement '{}': {}",
                     okx_account.imr,
                     e1
                 );
             }
             (_, Err(e2)) => {
-                tracing::warn!(
+                log::warn!(
                     "Failed to parse maintenance margin requirement '{}': {}",
                     okx_account.mmr,
                     e2

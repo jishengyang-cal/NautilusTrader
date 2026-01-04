@@ -233,7 +233,7 @@ impl FuturesFeedHandler {
                 Some(cmd) = self.cmd_rx.recv() => {
                     match cmd {
                         HandlerCommand::SetClient(client) => {
-                            tracing::debug!("WebSocketClient received by futures handler");
+                            log::debug!("WebSocketClient received by futures handler");
                             self.client = Some(client);
                         }
                         HandlerCommand::SubscribeTicker(symbol) => {
@@ -255,7 +255,7 @@ impl FuturesFeedHandler {
                             self.send_unsubscribe(KrakenFuturesFeed::Book, &symbol).await;
                         }
                         HandlerCommand::Disconnect => {
-                            tracing::debug!("Disconnect command received");
+                            log::debug!("Disconnect command received");
                             if let Some(client) = self.client.take() {
                                 client.disconnect().await;
                             }
@@ -266,22 +266,22 @@ impl FuturesFeedHandler {
                                 self.instruments_cache.insert(inst.raw_symbol().inner(), inst);
                             }
                             let count = self.instruments_cache.len();
-                            tracing::debug!("Initialized {count} instruments in futures handler cache");
+                            log::debug!("Initialized {count} instruments in futures handler cache");
                         }
                         HandlerCommand::UpdateInstrument(inst) => {
                             self.instruments_cache.insert(inst.raw_symbol().inner(), inst);
                         }
                         HandlerCommand::SetAccountId(account_id) => {
-                            tracing::debug!("Setting account_id for futures handler: {account_id}");
+                            log::debug!("Setting account_id for futures handler: {account_id}");
                             self.account_id = Some(account_id);
                         }
                         HandlerCommand::RequestChallenge { api_key, response_tx } => {
-                            tracing::debug!("Requesting challenge for authentication");
+                            log::debug!("Requesting challenge for authentication");
                             self.pending_challenge_tx = Some(response_tx);
                             self.send_challenge_request(&api_key).await;
                         }
                         HandlerCommand::SetAuthCredentials { api_key, original_challenge, signed_challenge } => {
-                            tracing::debug!("Setting auth credentials for futures handler");
+                            log::debug!("Setting auth credentials for futures handler");
                             self.api_key = Some(api_key);
                             self.original_challenge = Some(original_challenge);
                             self.signed_challenge = Some(signed_challenge);
@@ -321,13 +321,13 @@ impl FuturesFeedHandler {
                     let msg = match msg {
                         Some(msg) => msg,
                         None => {
-                            tracing::debug!("WebSocket stream closed");
+                            log::debug!("WebSocket stream closed");
                             return None;
                         }
                     };
 
                     if self.signal.load(Ordering::Relaxed) {
-                        tracing::debug!("Stop signal received");
+                        log::debug!("Stop signal received");
                         return None;
                     }
 
@@ -335,24 +335,24 @@ impl FuturesFeedHandler {
                     match &msg {
                         Message::Ping(data) => {
                             let len = data.len();
-                            tracing::trace!("Received ping frame with {len} bytes");
+                            log::trace!("Received ping frame with {len} bytes");
                             if let Some(client) = &self.client
                                 && let Err(e) = client.send_pong(data.to_vec()).await
                             {
-                                tracing::warn!(error = %e, "Failed to send pong frame");
+                                log::warn!("Failed to send pong frame: {e}");
                             }
                             continue;
                         }
                         Message::Pong(_) => {
-                            tracing::trace!("Received pong");
+                            log::trace!("Received pong");
                             continue;
                         }
                         Message::Close(_) => {
-                            tracing::info!("WebSocket connection closed");
+                            log::info!("WebSocket connection closed");
                             return None;
                         }
                         Message::Frame(_) => {
-                            tracing::trace!("Received raw frame");
+                            log::trace!("Received raw frame");
                             continue;
                         }
                         _ => {}
@@ -369,7 +369,7 @@ impl FuturesFeedHandler {
                     };
 
                     if text == RECONNECTED {
-                        tracing::info!("Received WebSocket reconnected signal");
+                        log::info!("Received WebSocket reconnected signal");
                         self.quote_cache.clear();
                         return Some(KrakenFuturesWsMessage::Reconnected);
                     }
@@ -396,7 +396,7 @@ impl FuturesFeedHandler {
                 r#"{{"event":"subscribe","feed":"{feed_str}","product_ids":["{symbol}"]}}"#
             );
             if let Err(e) = client.send_text(msg, None).await {
-                tracing::error!("Failed to send {feed:?} subscribe: {e}");
+                log::error!("Failed to send {feed:?} subscribe: {e}");
             }
         }
     }
@@ -409,29 +409,29 @@ impl FuturesFeedHandler {
                 r#"{{"event":"unsubscribe","feed":"{feed_str}","product_ids":["{symbol}"]}}"#
             );
             if let Err(e) = client.send_text(msg, None).await {
-                tracing::error!("Failed to send {feed:?} unsubscribe: {e}");
+                log::error!("Failed to send {feed:?} unsubscribe: {e}");
             }
         }
     }
 
     async fn send_private_subscribe(&self, feed: KrakenFuturesFeed) {
         let Some(ref client) = self.client else {
-            tracing::error!("Cannot subscribe to {feed:?}: no WebSocket client");
+            log::error!("Cannot subscribe to {feed:?}: no WebSocket client");
             return;
         };
 
         let Some(ref api_key) = self.api_key else {
-            tracing::error!("Cannot subscribe to {feed:?}: no API key set");
+            log::error!("Cannot subscribe to {feed:?}: no API key set");
             return;
         };
 
         let Some(ref original_challenge) = self.original_challenge else {
-            tracing::error!("Cannot subscribe to {feed:?}: no challenge set");
+            log::error!("Cannot subscribe to {feed:?}: no challenge set");
             return;
         };
 
         let Some(ref signed_challenge) = self.signed_challenge else {
-            tracing::error!("Cannot subscribe to {feed:?}: no signed challenge set");
+            log::error!("Cannot subscribe to {feed:?}: no signed challenge set");
             return;
         };
 
@@ -446,21 +446,21 @@ impl FuturesFeedHandler {
         let msg = match serde_json::to_string(&request) {
             Ok(m) => m,
             Err(e) => {
-                tracing::error!("Failed to serialize {feed:?} subscribe request: {e}");
+                log::error!("Failed to serialize {feed:?} subscribe request: {e}");
                 return;
             }
         };
 
         if let Err(e) = client.send_text(msg, None).await {
-            tracing::error!("Failed to send {feed:?} subscribe: {e}");
+            log::error!("Failed to send {feed:?} subscribe: {e}");
         } else {
-            tracing::debug!("Sent private subscribe request for {feed:?}");
+            log::debug!("Sent private subscribe request for {feed:?}");
         }
     }
 
     async fn send_challenge_request(&self, api_key: &str) {
         let Some(ref client) = self.client else {
-            tracing::error!("Cannot request challenge: no WebSocket client");
+            log::error!("Cannot request challenge: no WebSocket client");
             return;
         };
 
@@ -472,15 +472,15 @@ impl FuturesFeedHandler {
         let msg = match serde_json::to_string(&request) {
             Ok(m) => m,
             Err(e) => {
-                tracing::error!("Failed to serialize challenge request: {e}");
+                log::error!("Failed to serialize challenge request: {e}");
                 return;
             }
         };
 
         if let Err(e) = client.send_text(msg, None).await {
-            tracing::error!("Failed to send challenge request: {e}");
+            log::error!("Failed to send challenge request: {e}");
         } else {
-            tracing::debug!("Sent challenge request for authentication");
+            log::debug!("Sent challenge request for authentication");
         }
     }
 
@@ -488,7 +488,7 @@ impl FuturesFeedHandler {
         let value: Value = match serde_json::from_str(text) {
             Ok(v) => v,
             Err(e) => {
-                tracing::debug!("Failed to parse message as JSON: {e}");
+                log::debug!("Failed to parse message as JSON: {e}");
                 return;
             }
         };
@@ -496,7 +496,7 @@ impl FuturesFeedHandler {
         match classify_futures_message(&value) {
             // Private feeds (execution)
             KrakenFuturesMessageType::OpenOrdersSnapshot => {
-                tracing::debug!(
+                log::debug!(
                     "Skipping open_orders_snapshot (REST reconciliation handles initial state)"
                 );
             }
@@ -507,9 +507,7 @@ impl FuturesFeedHandler {
                 self.handle_open_orders_delta_value(value, ts_init);
             }
             KrakenFuturesMessageType::FillsSnapshot => {
-                tracing::debug!(
-                    "Skipping fills_snapshot (REST reconciliation handles initial state)"
-                );
+                log::debug!("Skipping fills_snapshot (REST reconciliation handles initial state)");
             }
             KrakenFuturesMessageType::FillsDelta => {
                 self.handle_fills_delta_value(value, ts_init);
@@ -532,25 +530,25 @@ impl FuturesFeedHandler {
             }
             // Control messages
             KrakenFuturesMessageType::Info => {
-                tracing::debug!("Received info message: {text}");
+                log::debug!("Received info message: {text}");
             }
             KrakenFuturesMessageType::Pong => {
-                tracing::trace!("Received pong response");
+                log::trace!("Received pong response");
             }
             KrakenFuturesMessageType::Subscribed => {
-                tracing::debug!("Subscription confirmed: {text}");
+                log::debug!("Subscription confirmed: {text}");
             }
             KrakenFuturesMessageType::Unsubscribed => {
-                tracing::debug!("Unsubscription confirmed: {text}");
+                log::debug!("Unsubscription confirmed: {text}");
             }
             KrakenFuturesMessageType::Challenge => {
                 self.handle_challenge_response_value(value);
             }
             KrakenFuturesMessageType::Heartbeat => {
-                tracing::trace!("Heartbeat received");
+                log::trace!("Heartbeat received");
             }
             KrakenFuturesMessageType::Unknown => {
-                tracing::debug!("Unhandled message: {text}");
+                log::debug!("Unhandled message: {text}");
             }
         }
     }
@@ -564,18 +562,18 @@ impl FuturesFeedHandler {
         match serde_json::from_value::<ChallengeResponse>(value) {
             Ok(response) => {
                 let len = response.message.len();
-                tracing::debug!("Challenge received, length: {len}");
+                log::debug!("Challenge received, length: {len}");
 
                 if let Some(tx) = self.pending_challenge_tx.take() {
                     if tx.send(response.message).is_err() {
-                        tracing::warn!("Failed to send challenge response - receiver dropped");
+                        log::warn!("Failed to send challenge response - receiver dropped");
                     }
                 } else {
-                    tracing::warn!("Received challenge but no pending request");
+                    log::warn!("Received challenge but no pending request");
                 }
             }
             Err(e) => {
-                tracing::error!("Failed to parse challenge response: {e}");
+                log::error!("Failed to parse challenge response: {e}");
             }
         }
     }
@@ -609,7 +607,7 @@ impl FuturesFeedHandler {
         let ticker = match serde_json::from_value::<KrakenFuturesTickerData>(value) {
             Ok(t) => t,
             Err(e) => {
-                tracing::debug!("Failed to parse ticker: {e}");
+                log::debug!("Failed to parse ticker: {e}");
                 return;
             }
         };
@@ -617,7 +615,7 @@ impl FuturesFeedHandler {
         let (instrument_id, price_precision) = {
             let Some(instrument) = self.get_instrument(&ticker.product_id) else {
                 let product_id = &ticker.product_id;
-                tracing::debug!("Instrument not found for product_id: {product_id}");
+                log::debug!("Instrument not found for product_id: {product_id}");
                 return;
             };
             (instrument.id(), instrument.price_precision())
@@ -662,7 +660,7 @@ impl FuturesFeedHandler {
         let trade = match serde_json::from_value::<KrakenFuturesTradeData>(value) {
             Ok(t) => t,
             Err(e) => {
-                tracing::trace!("Failed to parse trade: {e}");
+                log::trace!("Failed to parse trade: {e}");
                 return;
             }
         };
@@ -686,7 +684,7 @@ impl FuturesFeedHandler {
         if size.is_zero() {
             let product_id = trade.product_id;
             let raw_qty = trade.qty;
-            tracing::warn!("Skipping zero quantity trade for {product_id} (raw qty: {raw_qty})");
+            log::warn!("Skipping zero quantity trade for {product_id} (raw qty: {raw_qty})");
             return;
         }
 
@@ -715,7 +713,7 @@ impl FuturesFeedHandler {
         let snapshot = match serde_json::from_value::<KrakenFuturesTradeSnapshot>(value) {
             Ok(s) => s,
             Err(e) => {
-                tracing::trace!("Failed to parse trade snapshot: {e}");
+                log::trace!("Failed to parse trade snapshot: {e}");
                 return;
             }
         };
@@ -740,7 +738,7 @@ impl FuturesFeedHandler {
             if size.is_zero() {
                 let product_id = snapshot.product_id;
                 let raw_qty = trade.qty;
-                tracing::warn!(
+                log::warn!(
                     "Skipping zero quantity trade in snapshot for {product_id} (raw qty: {raw_qty})"
                 );
                 continue;
@@ -772,7 +770,7 @@ impl FuturesFeedHandler {
         let snapshot = match serde_json::from_value::<KrakenFuturesBookSnapshot>(value) {
             Ok(s) => s,
             Err(e) => {
-                tracing::trace!("Failed to parse book snapshot: {e}");
+                log::trace!("Failed to parse book snapshot: {e}");
                 return;
             }
         };
@@ -828,7 +826,7 @@ impl FuturesFeedHandler {
                         .push_back(KrakenFuturesWsMessage::Quote(quote));
                 }
                 Err(e) => {
-                    tracing::trace!("Quote cache process error: {e}");
+                    log::trace!("Quote cache process error: {e}");
                 }
             }
         }
@@ -897,7 +895,7 @@ impl FuturesFeedHandler {
         let delta = match serde_json::from_value::<KrakenFuturesBookDelta>(value) {
             Ok(d) => d,
             Err(e) => {
-                tracing::trace!("Failed to parse book delta: {e}");
+                log::trace!("Failed to parse book delta: {e}");
                 return;
             }
         };
@@ -974,16 +972,16 @@ impl FuturesFeedHandler {
         let delta = match serde_json::from_value::<KrakenFuturesOpenOrdersDelta>(value) {
             Ok(d) => d,
             Err(e) => {
-                tracing::error!("Failed to parse open_orders delta: {e}");
+                log::error!("Failed to parse open_orders delta: {e}");
                 return;
             }
         };
 
-        tracing::debug!(
-            order_id = %delta.order.order_id,
-            is_cancel = delta.is_cancel,
-            reason = ?delta.reason,
-            "Received open_orders delta"
+        log::debug!(
+            "Received open_orders delta: order_id={}, is_cancel={}, reason={:?}",
+            delta.order.order_id,
+            delta.is_cancel,
+            delta.reason
         );
 
         if let Some(event) = self.parse_order_event(
@@ -1002,9 +1000,8 @@ impl FuturesFeedHandler {
         if let Some(reason) = value.get("reason").and_then(|r| r.as_str())
             && (reason == "full_fill" || reason == "partial_fill")
         {
-            tracing::debug!(
-                reason = %reason,
-                "Skipping open_orders cancel for fill (handled by fills feed)"
+            log::debug!(
+                "Skipping open_orders cancel for fill (handled by fills feed): reason={reason}"
             );
             return;
         }
@@ -1012,20 +1009,20 @@ impl FuturesFeedHandler {
         let cancel = match serde_json::from_value::<KrakenFuturesOpenOrdersCancel>(value) {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("Failed to parse open_orders cancel: {e}");
+                log::error!("Failed to parse open_orders cancel: {e}");
                 return;
             }
         };
 
-        tracing::debug!(
-            order_id = %cancel.order_id,
-            cli_ord_id = ?cancel.cli_ord_id,
-            reason = ?cancel.reason,
-            "Received open_orders cancel"
+        log::debug!(
+            "Received open_orders cancel: order_id={}, cli_ord_id={:?}, reason={:?}",
+            cancel.order_id,
+            cancel.cli_ord_id,
+            cancel.reason
         );
 
         let Some(account_id) = self.account_id else {
-            tracing::warn!("Cannot process cancel: account_id not set");
+            log::warn!("Cannot process cancel: account_id not set");
             return;
         };
 
@@ -1036,18 +1033,18 @@ impl FuturesFeedHandler {
                 if let Some(info) = self.client_order_cache.get(mapped_cli_ord_id) {
                     (ClientOrderId::new(mapped_cli_ord_id), info.clone())
                 } else {
-                    tracing::debug!(
-                        order_id = %cancel.order_id,
-                        cli_ord_id = %cli_ord_id,
-                        "Cancel received for unknown order (not in cache)"
+                    log::debug!(
+                        "Cancel received for unknown order (not in cache): \
+                        order_id={}, cli_ord_id={cli_ord_id}",
+                        cancel.order_id
                     );
                     return;
                 }
             } else {
-                tracing::debug!(
-                    order_id = %cancel.order_id,
-                    cli_ord_id = %cli_ord_id,
-                    "Cancel received for unknown order (not in cache)"
+                log::debug!(
+                    "Cancel received for unknown order (not in cache): \
+                    order_id={}, cli_ord_id={cli_ord_id}",
+                    cancel.order_id
                 );
                 return;
             }
@@ -1055,16 +1052,17 @@ impl FuturesFeedHandler {
             if let Some(info) = self.client_order_cache.get(mapped_cli_ord_id) {
                 (ClientOrderId::new(mapped_cli_ord_id), info.clone())
             } else {
-                tracing::debug!(
-                    order_id = %cancel.order_id,
-                    "Cancel received but mapped order not in cache"
+                log::debug!(
+                    "Cancel received but mapped order not in cache: order_id={}",
+                    cancel.order_id
                 );
                 return;
             }
         } else {
-            tracing::debug!(
-                order_id = %cancel.order_id,
-                "Cancel received without cli_ord_id and no venue mapping (external order)"
+            log::debug!(
+                "Cancel received without cli_ord_id and no venue mapping (external order): \
+                order_id={}",
+                cancel.order_id
             );
             return;
         };
@@ -1092,18 +1090,18 @@ impl FuturesFeedHandler {
         let delta = match serde_json::from_value::<KrakenFuturesFillsDelta>(value) {
             Ok(d) => d,
             Err(e) => {
-                tracing::error!("Failed to parse fills delta: {e}");
+                log::error!("Failed to parse fills delta: {e}");
                 return;
             }
         };
 
-        tracing::debug!(fill_count = delta.fills.len(), "Received fills delta");
+        log::debug!("Received fills delta: fill_count={}", delta.fills.len());
 
         for fill in &delta.fills {
-            tracing::debug!(
-                fill_id = %fill.fill_id,
-                order_id = %fill.order_id,
-                "Processing fill"
+            log::debug!(
+                "Processing fill: fill_id={}, order_id={}",
+                fill.fill_id,
+                fill.order_id
             );
 
             if let Some(report) = self.parse_fill_to_report(fill, ts_init) {
@@ -1127,7 +1125,7 @@ impl FuturesFeedHandler {
         cancel_reason: Option<&str>,
     ) -> Option<ParsedOrderEvent> {
         let Some(account_id) = self.account_id else {
-            tracing::warn!("Cannot process order: account_id not set");
+            log::warn!("Cannot process order: account_id not set");
             return None;
         };
 
@@ -1138,9 +1136,9 @@ impl FuturesFeedHandler {
         let instrument_id = instrument.id();
 
         if order.qty <= 0.0 {
-            tracing::warn!(
-                order_id = %order.order_id,
-                "Skipping order with invalid quantity: {}",
+            log::warn!(
+                "Skipping order with invalid quantity: order_id={}, qty={}",
+                order.order_id,
                 order.qty
             );
             return None;
@@ -1251,7 +1249,7 @@ impl FuturesFeedHandler {
         is_cancel: bool,
     ) -> Option<OrderStatusReport> {
         let Some(account_id) = self.account_id else {
-            tracing::warn!("Cannot process order: account_id not set");
+            log::warn!("Cannot process order: account_id not set");
             return None;
         };
 
@@ -1287,8 +1285,11 @@ impl FuturesFeedHandler {
         };
 
         if order.qty <= 0.0 {
-            let qty = order.qty;
-            tracing::warn!(order_id = %order.order_id, "Skipping order with invalid quantity: {qty}");
+            log::warn!(
+                "Skipping order with invalid quantity: order_id={}, qty={}",
+                order.order_id,
+                order.qty
+            );
             return None;
         }
 
@@ -1329,7 +1330,7 @@ impl FuturesFeedHandler {
         ts_init: UnixNanos,
     ) -> Option<FillReport> {
         let Some(account_id) = self.account_id else {
-            tracing::warn!("Cannot process fill: account_id not set");
+            log::warn!("Cannot process fill: account_id not set");
             return None;
         };
 
@@ -1349,11 +1350,11 @@ impl FuturesFeedHandler {
         };
 
         let Some(instrument) = instrument else {
-            tracing::warn!(
-                fill_id = %fill.fill_id,
-                order_id = %fill.order_id,
-                cli_ord_id = ?fill.cli_ord_id,
-                "Cannot resolve instrument for fill"
+            log::warn!(
+                "Cannot resolve instrument for fill: fill_id={}, order_id={}, cli_ord_id={:?}",
+                fill.fill_id,
+                fill.order_id,
+                fill.cli_ord_id
             );
             return None;
         };
@@ -1363,8 +1364,11 @@ impl FuturesFeedHandler {
         let size_precision = instrument.size_precision();
 
         if fill.qty <= 0.0 {
-            let qty = fill.qty;
-            tracing::warn!(fill_id = %fill.fill_id, "Skipping fill with invalid quantity: {qty}");
+            log::warn!(
+                "Skipping fill with invalid quantity: fill_id={}, qty={}",
+                fill.fill_id,
+                fill.qty
+            );
             return None;
         }
 

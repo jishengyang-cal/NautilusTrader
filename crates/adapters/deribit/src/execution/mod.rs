@@ -117,7 +117,7 @@ impl DeribitExecutionClient {
         let runtime = get_runtime();
         let handle = runtime.spawn(async move {
             if let Err(e) = fut.await {
-                tracing::warn!("{description} failed: {e:?}");
+                log::warn!("{description} failed: {e:?}");
             }
         });
 
@@ -189,13 +189,13 @@ impl ExecutionClient for DeribitExecutionClient {
 
         self.started = true;
 
-        tracing::info!(
-            client_id = %self.core.client_id,
-            account_id = %self.core.account_id,
-            account_type = ?self.core.account_type,
-            instrument_kinds = ?self.config.instrument_kinds,
-            use_testnet = self.config.use_testnet,
-            "Started"
+        log::info!(
+            "Started: client_id={}, account_id={}, account_type={:?}, instrument_kinds={:?}, use_testnet={}",
+            self.core.client_id,
+            self.core.account_id,
+            self.core.account_type,
+            self.config.instrument_kinds,
+            self.config.use_testnet
         );
         Ok(())
     }
@@ -208,7 +208,7 @@ impl ExecutionClient for DeribitExecutionClient {
         self.started = false;
         self.connected.store(false, Ordering::Release);
         self.abort_pending_tasks();
-        tracing::info!(client_id = %self.core.client_id, "Stopped");
+        log::info!("Stopped: client_id={}", self.core.client_id);
         Ok(())
     }
 
@@ -234,7 +234,7 @@ impl ExecutionClient for DeribitExecutionClient {
                     })?;
 
                 if instruments.is_empty() {
-                    tracing::warn!("No instruments returned for {kind:?}");
+                    log::warn!("No instruments returned for {kind:?}");
                     continue;
                 }
 
@@ -265,7 +265,7 @@ impl ExecutionClient for DeribitExecutionClient {
         self.dispatch_account_state(account_state)?;
 
         self.connected.store(true, Ordering::Release);
-        tracing::info!(client_id = %self.core.client_id, "Connected");
+        log::info!("Connected: client_id={}", self.core.client_id);
         Ok(())
     }
 
@@ -277,7 +277,7 @@ impl ExecutionClient for DeribitExecutionClient {
         self.abort_pending_tasks();
 
         self.connected.store(false, Ordering::Release);
-        tracing::info!(client_id = %self.core.client_id, "Disconnected");
+        log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
     }
 
@@ -313,9 +313,7 @@ impl ExecutionClient for DeribitExecutionClient {
         &self,
         lookback_mins: Option<u64>,
     ) -> anyhow::Result<Option<ExecutionMassStatus>> {
-        tracing::warn!(
-            "generate_mass_status not yet implemented (lookback_mins={lookback_mins:?})"
-        );
+        log::warn!("generate_mass_status not yet implemented (lookback_mins={lookback_mins:?})");
         Ok(None)
     }
 

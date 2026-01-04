@@ -185,7 +185,7 @@ impl OKXDataClient {
 
     fn send_data(sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>, data: Data) {
         if let Err(e) = sender.send(DataEvent::Data(data)) {
-            tracing::error!("Failed to emit data event: {e}");
+            log::error!("Failed to emit data event: {e}");
         }
     }
 
@@ -195,7 +195,7 @@ impl OKXDataClient {
     {
         get_runtime().spawn(async move {
             if let Err(e) = fut.await {
-                tracing::error!("{context}: {e:?}");
+                log::error!("{context}: {e:?}");
             }
         });
     }
@@ -231,19 +231,19 @@ impl OKXDataClient {
             | NautilusWsMessage::OrderTriggered(_)
             | NautilusWsMessage::OrderUpdated(_)
             | NautilusWsMessage::ExecutionReports(_) => {
-                tracing::debug!("Ignoring trading message on data client");
+                log::debug!("Ignoring trading message on data client");
             }
             NautilusWsMessage::Error(e) => {
-                tracing::error!("OKX websocket error: {e:?}");
+                log::error!("OKX websocket error: {e:?}");
             }
             NautilusWsMessage::Raw(value) => {
-                tracing::debug!("Unhandled websocket payload: {value:?}");
+                log::debug!("Unhandled websocket payload: {value:?}");
             }
             NautilusWsMessage::Reconnected => {
-                tracing::info!("Websocket reconnected");
+                log::info!("Websocket reconnected");
             }
             NautilusWsMessage::Authenticated => {
-                tracing::debug!("Websocket authenticated");
+                log::debug!("Websocket authenticated");
             }
         }
     }
@@ -255,7 +255,7 @@ fn emit_funding_rates(updates: Vec<FundingRateUpdate>) {
     }
 
     for update in updates {
-        tracing::debug!(
+        log::debug!(
             "Received funding rate update for {} but forwarding is not yet supported",
             update.instrument_id
         );
@@ -300,27 +300,27 @@ impl DataClient for OKXDataClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        tracing::info!(
-            client_id = %self.client_id,
-            vip_level = ?self.vip_level(),
-            instrument_types = ?self.config.instrument_types,
-            is_demo = self.config.is_demo,
-            http_proxy_url = ?self.config.http_proxy_url,
-            ws_proxy_url = ?self.config.ws_proxy_url,
-            "Started"
+        log::info!(
+            "Started: client_id={}, vip_level={:?}, instrument_types={:?}, is_demo={}, http_proxy_url={:?}, ws_proxy_url={:?}",
+            self.client_id,
+            self.vip_level(),
+            self.config.instrument_types,
+            self.config.is_demo,
+            self.config.http_proxy_url,
+            self.config.ws_proxy_url,
         );
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        tracing::info!("Stopping {id}", id = self.client_id);
+        log::info!("Stopping {id}", id = self.client_id);
         self.cancellation_token.cancel();
         self.is_connected.store(false, Ordering::Relaxed);
         Ok(())
     }
 
     fn reset(&mut self) -> anyhow::Result<()> {
-        tracing::debug!("Resetting {id}", id = self.client_id);
+        log::debug!("Resetting {id}", id = self.client_id);
         self.is_connected.store(false, Ordering::Relaxed);
         self.cancellation_token = CancellationToken::new();
         self.tasks.clear();
@@ -332,7 +332,7 @@ impl DataClient for OKXDataClient {
     }
 
     fn dispose(&mut self) -> anyhow::Result<()> {
-        tracing::debug!("Disposing {id}", id = self.client_id);
+        log::debug!("Disposing {id}", id = self.client_id);
         self.stop()
     }
 
@@ -369,7 +369,7 @@ impl DataClient for OKXDataClient {
 
         for instrument in all_instruments {
             if let Err(e) = self.data_sender.send(DataEvent::Instrument(instrument)) {
-                tracing::warn!("Failed to send instrument: {e}");
+                log::warn!("Failed to send instrument: {e}");
             }
         }
 
@@ -403,7 +403,7 @@ impl DataClient for OKXDataClient {
                             Self::handle_ws_message(message, &sender, &insts);
                         }
                         _ = cancel.cancelled() => {
-                            tracing::debug!("Public websocket stream task cancelled");
+                            log::debug!("Public websocket stream task cancelled");
                             break;
                         }
                     }
@@ -450,7 +450,7 @@ impl DataClient for OKXDataClient {
                             Self::handle_ws_message(message, &sender, &insts);
                         }
                         _ = cancel.cancelled() => {
-                            tracing::debug!("Business websocket stream task cancelled");
+                            log::debug!("Business websocket stream task cancelled");
                             break;
                         }
                     }
@@ -460,7 +460,7 @@ impl DataClient for OKXDataClient {
         }
 
         self.is_connected.store(true, Ordering::Release);
-        tracing::info!(client_id = %self.client_id, "Connected");
+        log::info!("Connected: client_id={}", self.client_id);
         Ok(())
     }
 
@@ -474,12 +474,12 @@ impl DataClient for OKXDataClient {
         if let Some(ref ws) = self.ws_public
             && let Err(e) = ws.unsubscribe_all().await
         {
-            tracing::warn!("Failed to unsubscribe all from public websocket: {e:?}");
+            log::warn!("Failed to unsubscribe all from public websocket: {e:?}");
         }
         if let Some(ref ws) = self.ws_business
             && let Err(e) = ws.unsubscribe_all().await
         {
-            tracing::warn!("Failed to unsubscribe all from business websocket: {e:?}");
+            log::warn!("Failed to unsubscribe all from business websocket: {e:?}");
         }
 
         // Allow time for unsubscribe confirmations
@@ -495,13 +495,13 @@ impl DataClient for OKXDataClient {
         let handles: Vec<_> = self.tasks.drain(..).collect();
         for handle in handles {
             if let Err(e) = handle.await {
-                tracing::error!("Error joining websocket task: {e}");
+                log::error!("Error joining websocket task: {e}");
             }
         }
 
         self.book_channels.write().expect(MUTEX_POISONED).clear();
         self.is_connected.store(false, Ordering::Release);
-        tracing::info!(client_id = %self.client_id, "Disconnected");
+        log::info!("Disconnected: client_id={}", self.client_id);
         Ok(())
     }
 
@@ -726,7 +726,7 @@ impl DataClient for OKXDataClient {
                         .await
                         .context("book unsubscribe")?,
                     None => {
-                        tracing::warn!(
+                        log::warn!(
                             "Book channel not found for {instrument_id}; unsubscribing fallback channel"
                         );
                         ws.unsubscribe_book(instrument_id)
@@ -867,7 +867,7 @@ impl DataClient for OKXDataClient {
                     (Some(families), OKXInstrumentType::Option, true) => families.clone(),
                     (Some(families), _, true) => families.clone(),
                     (None, OKXInstrumentType::Option, _) => {
-                        tracing::warn!(
+                        log::warn!(
                             "Skipping OPTION type: instrument_families required but not configured"
                         );
                         continue;
@@ -891,7 +891,7 @@ impl DataClient for OKXDataClient {
                             }
                         }
                         Err(e) => {
-                            tracing::error!("Failed to fetch instruments for {inst_type:?}: {e:?}");
+                            log::error!("Failed to fetch instruments for {inst_type:?}: {e:?}");
                         }
                     }
                 } else {
@@ -914,7 +914,7 @@ impl DataClient for OKXDataClient {
                                 }
                             }
                             Err(e) => {
-                                tracing::error!(
+                                log::error!(
                                     "Failed to fetch instruments for {inst_type:?} family {family}: {e:?}"
                                 );
                             }
@@ -935,7 +935,7 @@ impl DataClient for OKXDataClient {
             ));
 
             if let Err(e) = sender.send(DataEvent::Response(response)) {
-                tracing::error!("Failed to send instruments response: {e}");
+                log::error!("Failed to send instruments response: {e}");
             }
         });
 
@@ -973,14 +973,14 @@ impl DataClient for OKXDataClient {
                     let symbol = inst_id.symbol.as_str();
                     let inst_type = okx_instrument_type_from_symbol(symbol);
                     if !instrument_types.contains(&inst_type) {
-                        tracing::error!(
+                        log::error!(
                             "Instrument {instrument_id} type {inst_type:?} not in configured types {instrument_types:?}"
                         );
                         return;
                     }
 
                     if !contract_filter_with_config_types(contract_types.as_ref(), &instrument) {
-                        tracing::error!(
+                        log::error!(
                             "Instrument {instrument_id} filtered out by contract_types config"
                         );
                         return;
@@ -1000,10 +1000,10 @@ impl DataClient for OKXDataClient {
                     )));
 
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send instrument response: {e}");
+                        log::error!("Failed to send instrument response: {e}");
                     }
                 }
-                Err(e) => tracing::error!("Instrument request failed: {e:?}"),
+                Err(e) => log::error!("Instrument request failed: {e:?}"),
             }
         });
 
@@ -1042,10 +1042,10 @@ impl DataClient for OKXDataClient {
                         params,
                     ));
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send trades response: {e}");
+                        log::error!("Failed to send trades response: {e}");
                     }
                 }
-                Err(e) => tracing::error!("Trade request failed: {e:?}"),
+                Err(e) => log::error!("Trade request failed: {e:?}"),
             }
         });
 
@@ -1084,10 +1084,10 @@ impl DataClient for OKXDataClient {
                         params,
                     ));
                     if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        tracing::error!("Failed to send bars response: {e}");
+                        log::error!("Failed to send bars response: {e}");
                     }
                 }
-                Err(e) => tracing::error!("Bar request failed: {e:?}"),
+                Err(e) => log::error!("Bar request failed: {e:?}"),
             }
         });
 

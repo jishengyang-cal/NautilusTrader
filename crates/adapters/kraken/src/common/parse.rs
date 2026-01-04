@@ -654,11 +654,7 @@ fn compute_avg_px(order: &SpotOrder) -> Option<Decimal> {
             if let Ok(v) = &vol_exec
                 && *v > dec!(0)
             {
-                tracing::warn!(
-                    "Cannot compute avg_px: cost={:?}, vol_exec={:?}",
-                    cost,
-                    vol_exec
-                );
+                log::warn!("Cannot compute avg_px: cost={cost:?}, vol_exec={vol_exec:?}");
             }
             None
         }

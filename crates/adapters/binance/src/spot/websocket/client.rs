@@ -253,13 +253,13 @@ impl BinanceSpotWebSocketClient {
             loop {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
-                        tracing::debug!("Handler task cancelled");
+                        log::debug!("Handler task cancelled");
                         break;
                     }
                     result = handler.next() => {
                         match result {
                             Some(NautilusWsMessage::Reconnected) => {
-                                tracing::info!("WebSocket reconnected, restoring subscriptions");
+                                log::info!("WebSocket reconnected, restoring subscriptions");
                                 // Mark all confirmed subscriptions as pending
                                 let all_topics = subscriptions_state.all_topics();
                                 for topic in &all_topics {
@@ -270,25 +270,25 @@ impl BinanceSpotWebSocketClient {
                                 let streams = subscriptions_state.all_topics();
                                 if !streams.is_empty()
                                     && let Err(e) = cmd_tx.read().await.send(HandlerCommand::Subscribe { streams }) {
-                                        tracing::error!(error = %e, "Failed to resubscribe after reconnect");
+                                        log::error!("Failed to resubscribe after reconnect: {e}");
                                     }
 
                                 if out_tx.send(NautilusWsMessage::Reconnected).is_err() {
-                                    tracing::debug!("Output channel closed");
+                                    log::debug!("Output channel closed");
                                     break;
                                 }
                             }
                             Some(msg) => {
                                 if out_tx.send(msg).is_err() {
-                                    tracing::debug!("Output channel closed");
+                                    log::debug!("Output channel closed");
                                     break;
                                 }
                             }
                             None => {
                                 if signal.load(Ordering::Relaxed) {
-                                    tracing::debug!("Handler received shutdown signal");
+                                    log::debug!("Handler received shutdown signal");
                                 } else {
-                                    tracing::warn!("Handler loop ended unexpectedly");
+                                    log::warn!("Handler loop ended unexpectedly");
                                 }
                                 break;
                             }
@@ -300,7 +300,7 @@ impl BinanceSpotWebSocketClient {
 
         self.task_handle = Some(Arc::new(task_handle));
 
-        tracing::info!(url = %self.url, "Connected to Binance Spot SBE stream");
+        log::info!("Connected to Binance Spot SBE stream: url={}", self.url);
         Ok(())
     }
 
@@ -327,7 +327,7 @@ impl BinanceSpotWebSocketClient {
 
         *self.out_rx.lock().expect("out_rx lock poisoned") = None;
 
-        tracing::info!("Disconnected from Binance Spot SBE stream");
+        log::info!("Disconnected from Binance Spot SBE stream");
         Ok(())
     }
 

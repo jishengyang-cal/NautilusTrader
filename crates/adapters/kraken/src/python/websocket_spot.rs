@@ -211,9 +211,7 @@ impl KrakenSpotWebSocketClient {
                             Python::attach(|py| match event.into_py_any(py) {
                                 Ok(py_obj) => call_python(py, &callback, py_obj),
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to convert OrderRejected to Python: {e}"
-                                    );
+                                    log::error!("Failed to convert OrderRejected to Python: {e}");
                                 }
                             });
                         }
@@ -221,9 +219,7 @@ impl KrakenSpotWebSocketClient {
                             Python::attach(|py| match event.into_py_any(py) {
                                 Ok(py_obj) => call_python(py, &callback, py_obj),
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to convert OrderAccepted to Python: {e}"
-                                    );
+                                    log::error!("Failed to convert OrderAccepted to Python: {e}");
                                 }
                             });
                         }
@@ -231,9 +227,7 @@ impl KrakenSpotWebSocketClient {
                             Python::attach(|py| match event.into_py_any(py) {
                                 Ok(py_obj) => call_python(py, &callback, py_obj),
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to convert OrderCanceled to Python: {e}"
-                                    );
+                                    log::error!("Failed to convert OrderCanceled to Python: {e}");
                                 }
                             });
                         }
@@ -241,9 +235,7 @@ impl KrakenSpotWebSocketClient {
                             Python::attach(|py| match event.into_py_any(py) {
                                 Ok(py_obj) => call_python(py, &callback, py_obj),
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to convert OrderExpired to Python: {e}"
-                                    );
+                                    log::error!("Failed to convert OrderExpired to Python: {e}");
                                 }
                             });
                         }
@@ -251,9 +243,7 @@ impl KrakenSpotWebSocketClient {
                             Python::attach(|py| match event.into_py_any(py) {
                                 Ok(py_obj) => call_python(py, &callback, py_obj),
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to convert OrderUpdated to Python: {e}"
-                                    );
+                                    log::error!("Failed to convert OrderUpdated to Python: {e}");
                                 }
                             });
                         }
@@ -261,7 +251,7 @@ impl KrakenSpotWebSocketClient {
                             Python::attach(|py| match (*report).into_py_any(py) {
                                 Ok(py_obj) => call_python(py, &callback, py_obj),
                                 Err(e) => {
-                                    tracing::error!(
+                                    log::error!(
                                         "Failed to convert OrderStatusReport to Python: {e}"
                                     );
                                 }
@@ -271,12 +261,12 @@ impl KrakenSpotWebSocketClient {
                             Python::attach(|py| match (*report).into_py_any(py) {
                                 Ok(py_obj) => call_python(py, &callback, py_obj),
                                 Err(e) => {
-                                    tracing::error!("Failed to convert FillReport to Python: {e}");
+                                    log::error!("Failed to convert FillReport to Python: {e}");
                                 }
                             });
                         }
                         NautilusWsMessage::Reconnected => {
-                            tracing::info!("WebSocket reconnected");
+                            log::info!("WebSocket reconnected");
                         }
                     }
                 }
@@ -502,6 +492,6 @@ impl KrakenSpotWebSocketClient {
 
 pub fn call_python(py: Python, callback: &Py<PyAny>, py_obj: Py<PyAny>) {
     if let Err(e) = callback.call1(py, (py_obj,)) {
-        tracing::error!("Error calling Python: {e}");
+        log::error!("Error calling Python: {e}");
     }
 }
