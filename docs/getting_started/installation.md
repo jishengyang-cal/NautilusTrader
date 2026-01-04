@@ -311,7 +311,7 @@ which differ in their internal bit-width and maximum decimal precision.
 - **Standard-precision**: 64-bit integers with up to 9 decimals of precision, and a smaller value range.
 
 :::note
-By default, the official Python wheels **ship** in high-precision (128-bit) mode on Linux and macOS.
+By default, the official Python wheels ship in high-precision (128-bit) mode on Linux and macOS.
 On Windows, only standard-precision (64-bit) Python wheels are available because MSVC's C/C++ frontend
 does not support `__int128`, preventing the Cython/FFI layer from handling 128-bit integers.
 
