@@ -442,6 +442,7 @@ mod tests {
             data_type: DataType::new("QuoteTick", None),
             command_id: UUID4::new(),
             ts_init: UnixNanos::default(),
+            correlation_id: None,
             params: None,
         }));
 
@@ -857,6 +858,7 @@ mod tests {
             data_type: DataType::new("QuoteTick", None),
             command_id: UUID4::new(),
             ts_init: UnixNanos::default(),
+            correlation_id: None,
             params: None,
         }));
         data_cmd_tx.send(command).unwrap();

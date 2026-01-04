@@ -502,6 +502,7 @@ impl DataClient for DydxDataClient {
             book_type: BookType::L2_MBP,
             depth: None,
             managed: false,
+            correlation_id: None,
             params: None,
             command_id: cmd.command_id,
             ts_init: cmd.ts_init,
@@ -604,6 +605,7 @@ impl DataClient for DydxDataClient {
             venue: cmd.venue,
             command_id: cmd.command_id,
             ts_init: cmd.ts_init,
+            correlation_id: None,
             params: cmd.params.clone(),
         };
 
@@ -2306,9 +2308,10 @@ mod tests {
             venue,
             command_id,
             ts_init,
+            correlation_id: None,
             params: None,
         };
-        let unsubscribe = UnsubscribeInstruments::new(None, venue, command_id, ts_init, None);
+        let unsubscribe = UnsubscribeInstruments::new(None, venue, command_id, ts_init, None, None);
 
         // No-op methods should succeed even without a WebSocket client.
         assert!(client.subscribe_instruments(&subscribe).is_ok());

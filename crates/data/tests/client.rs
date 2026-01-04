@@ -133,6 +133,7 @@ fn test_custom_data_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_custom.contains(&data_type));
@@ -147,6 +148,7 @@ fn test_custom_data_subscription(
         data_type.clone(),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -174,6 +176,7 @@ fn test_instrument_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_instrument.contains(&inst_id));
@@ -188,6 +191,7 @@ fn test_instrument_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -210,6 +214,7 @@ fn test_instruments_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_instrument_venue.contains(&venue));
@@ -223,6 +228,7 @@ fn test_instruments_subscription(
         venue,
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -253,6 +259,7 @@ fn test_book_deltas_subscription(
         depth,
         false,
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_book_deltas.contains(&inst_id));
@@ -267,6 +274,7 @@ fn test_book_deltas_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -297,6 +305,7 @@ fn test_book_depth10_subscription(
         depth,
         false,
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_book_depth10.contains(&inst_id));
@@ -311,6 +320,7 @@ fn test_book_depth10_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -337,6 +347,7 @@ fn test_quote_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_quotes.contains(&inst_id));
@@ -351,6 +362,7 @@ fn test_quote_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -377,6 +389,7 @@ fn test_trades_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_trades.contains(&inst_id));
@@ -391,6 +404,7 @@ fn test_trades_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -417,6 +431,7 @@ fn test_mark_price_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_mark_prices.contains(&inst_id));
@@ -431,6 +446,7 @@ fn test_mark_price_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -457,6 +473,7 @@ fn test_index_price_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_index_prices.contains(&inst_id));
@@ -471,6 +488,7 @@ fn test_index_price_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -497,6 +515,7 @@ fn test_funding_rate_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_funding_rates.contains(&inst_id));
@@ -511,6 +530,7 @@ fn test_funding_rate_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -536,6 +556,7 @@ fn test_bars_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_bars.contains(&bar_type));
@@ -550,6 +571,7 @@ fn test_bars_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -576,6 +598,7 @@ fn test_instrument_status_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_instrument_status.contains(&inst_id));
@@ -590,6 +613,7 @@ fn test_instrument_status_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -616,6 +640,7 @@ fn test_instrument_close_subscription(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_instrument_close.contains(&inst_id));
@@ -630,6 +655,7 @@ fn test_instrument_close_subscription(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -654,6 +680,7 @@ fn test_custom_data_unsubscribe_noop(
         data_type.clone(),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -681,6 +708,7 @@ fn test_custom_data_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::Data(UnsubscribeCustomData::new(
@@ -689,6 +717,7 @@ fn test_custom_data_unsubscribe_idempotent(
         data_type.clone(),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -716,6 +745,7 @@ fn test_instrument_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(!adapter.subscriptions_instrument.contains(&inst_id));
@@ -741,6 +771,7 @@ fn test_instrument_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::Instrument(UnsubscribeInstrument::new(
@@ -749,6 +780,7 @@ fn test_instrument_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -774,6 +806,7 @@ fn test_instruments_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_instrument_venue.is_empty());
@@ -796,6 +829,7 @@ fn test_instruments_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
 
@@ -804,6 +838,7 @@ fn test_instruments_unsubscribe_idempotent(
         venue,
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
 
@@ -829,6 +864,7 @@ fn test_book_deltas_unsubscribe_noop(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -856,6 +892,7 @@ fn test_book_deltas_unsubscribe_idempotent(
         NonZeroUsize::new(1),
         false,
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
 
@@ -865,6 +902,7 @@ fn test_book_deltas_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
 
@@ -889,6 +927,7 @@ fn test_book_depth10_unsubscribe_noop(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -915,6 +954,7 @@ fn test_book_depth10_unsubscribe_idempotent(
         NonZeroUsize::new(10),
         false,
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::BookDepth10(UnsubscribeBookDepth10::new(
@@ -923,6 +963,7 @@ fn test_book_depth10_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -947,6 +988,7 @@ fn test_quotes_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_quotes.is_empty());
@@ -969,6 +1011,7 @@ fn test_quotes_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::Quotes(UnsubscribeQuotes::new(
@@ -977,6 +1020,7 @@ fn test_quotes_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -1001,6 +1045,7 @@ fn test_trades_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_trades.is_empty());
@@ -1023,6 +1068,7 @@ fn test_trades_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::Trades(UnsubscribeTrades::new(
@@ -1031,6 +1077,7 @@ fn test_trades_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -1055,6 +1102,7 @@ fn test_bars_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_bars.is_empty());
@@ -1077,6 +1125,7 @@ fn test_bars_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::Bars(UnsubscribeBars::new(
@@ -1085,6 +1134,7 @@ fn test_bars_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -1109,6 +1159,7 @@ fn test_mark_prices_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_mark_prices.is_empty());
@@ -1131,6 +1182,7 @@ fn test_mark_prices_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::MarkPrices(UnsubscribeMarkPrices::new(
@@ -1139,6 +1191,7 @@ fn test_mark_prices_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -1163,6 +1216,7 @@ fn test_index_prices_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_index_prices.is_empty());
@@ -1185,6 +1239,7 @@ fn test_index_prices_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::IndexPrices(UnsubscribeIndexPrices::new(
@@ -1193,6 +1248,7 @@ fn test_index_prices_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -1218,6 +1274,7 @@ fn test_funding_rates_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(!adapter.subscriptions_funding_rates.contains(&inst_id));
@@ -1241,6 +1298,7 @@ fn test_funding_rates_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     assert!(adapter.subscriptions_funding_rates.contains(&inst_id));
@@ -1251,6 +1309,7 @@ fn test_funding_rates_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -1277,6 +1336,7 @@ fn test_instrument_status_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_instrument_status.is_empty());
@@ -1299,6 +1359,7 @@ fn test_instrument_status_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
     let unsub = UnsubscribeCommand::InstrumentStatus(UnsubscribeInstrumentStatus::new(
@@ -1307,6 +1368,7 @@ fn test_instrument_status_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);
@@ -1331,6 +1393,7 @@ fn test_instrument_close_unsubscribe_noop(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_unsubscribe(&unsub);
     assert!(adapter.subscriptions_instrument_close.is_empty());
@@ -1354,6 +1417,7 @@ fn test_instrument_close_unsubscribe_idempotent(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     ));
     adapter.execute_subscribe(&sub);
 
@@ -1363,6 +1427,7 @@ fn test_instrument_close_unsubscribe_idempotent(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     ));
     adapter.execute_unsubscribe(&unsub);

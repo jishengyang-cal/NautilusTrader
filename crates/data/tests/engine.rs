@@ -352,6 +352,7 @@ fn test_execute_subscribe_custom_data(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let sub_cmd = DataCommand::Subscribe(SubscribeCommand::Data(sub));
     data_engine.execute(&sub_cmd);
@@ -367,6 +368,7 @@ fn test_execute_subscribe_custom_data(
         data_type.clone(),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::Data(unsub));
@@ -407,6 +409,7 @@ fn test_execute_subscribe_book_deltas(
         None,
         true,
         None,
+        None,
     )));
     data_engine.execute(&sub_cmd);
 
@@ -426,6 +429,7 @@ fn test_execute_subscribe_book_deltas(
             Some(venue),
             UUID4::new(),
             UnixNanos::default(),
+            None,
             None,
         )));
     data_engine.execute(&unsub_cmd);
@@ -466,6 +470,7 @@ fn test_execute_subscribe_instrument(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let sub_cmd = DataCommand::Subscribe(SubscribeCommand::Instrument(sub));
     data_engine.execute(&sub_cmd);
@@ -485,6 +490,7 @@ fn test_execute_subscribe_instrument(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::Instrument(unsub));
@@ -526,6 +532,7 @@ fn test_execute_subscribe_quotes(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let sub_cmd = DataCommand::Subscribe(SubscribeCommand::Quotes(sub));
     data_engine.execute(&sub_cmd);
@@ -541,6 +548,7 @@ fn test_execute_subscribe_quotes(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::Quotes(unsub));
@@ -578,6 +586,7 @@ fn test_execute_subscribe_trades(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let sub_cmd = DataCommand::Subscribe(SubscribeCommand::Trades(sub));
     data_engine.execute(&sub_cmd);
@@ -593,6 +602,7 @@ fn test_execute_subscribe_trades(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::Trades(ubsub));
@@ -635,6 +645,7 @@ fn test_execute_subscribe_bars(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let sub_cmd = DataCommand::Subscribe(SubscribeCommand::Bars(sub));
     data_engine.execute(&sub_cmd);
@@ -650,6 +661,7 @@ fn test_execute_subscribe_bars(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::Bars(unsub));
@@ -688,6 +700,7 @@ fn test_execute_subscribe_mark_prices(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let sub_cmd = DataCommand::Subscribe(SubscribeCommand::MarkPrices(sub));
     data_engine.execute(&sub_cmd);
@@ -707,6 +720,7 @@ fn test_execute_subscribe_mark_prices(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::MarkPrices(unsub));
@@ -748,6 +762,7 @@ fn test_execute_subscribe_index_prices(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     )));
     data_engine.execute(&sub_cmd);
 
@@ -767,6 +782,7 @@ fn test_execute_subscribe_index_prices(
             Some(venue),
             UUID4::new(),
             UnixNanos::default(),
+            None,
             None,
         ),
     ));
@@ -810,6 +826,7 @@ fn test_execute_subscribe_funding_rates(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let sub_cmd = DataCommand::Subscribe(SubscribeCommand::FundingRates(sub));
     data_engine.execute(&sub_cmd);
@@ -829,6 +846,7 @@ fn test_execute_subscribe_funding_rates(
         Some(venue),
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let unsub_cmd = DataCommand::Unsubscribe(UnsubscribeCommand::FundingRates(unsub));
@@ -1159,6 +1177,7 @@ fn test_process_instrument(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::Instrument(sub));
 
@@ -1202,6 +1221,7 @@ fn test_process_book_delta(
         None,
         true,
         None,
+        None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::BookDeltas(sub));
 
@@ -1240,6 +1260,7 @@ fn test_process_book_deltas(
         UnixNanos::default(),
         None,
         true,
+        None,
         None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::BookDeltas(sub));
@@ -1282,6 +1303,7 @@ fn test_process_book_depth10(
         None,
         true,
         None,
+        None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::BookDepth10(sub));
 
@@ -1318,6 +1340,7 @@ fn test_process_quote_tick(
         venue,
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::Quotes(sub));
@@ -1357,6 +1380,7 @@ fn test_process_trade_tick(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::Trades(sub));
 
@@ -1394,6 +1418,7 @@ fn test_process_mark_price(
         venue,
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::MarkPrices(sub));
@@ -1449,6 +1474,7 @@ fn test_process_index_price(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::IndexPrices(sub));
 
@@ -1499,6 +1525,7 @@ fn test_process_funding_rate_through_any(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::FundingRates(sub));
 
@@ -1547,6 +1574,7 @@ fn test_process_funding_rate(
         UUID4::new(),
         UnixNanos::default(),
         None,
+        None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::FundingRates(sub));
 
@@ -1593,6 +1621,7 @@ fn test_process_funding_rate_updates_existing(
         venue,
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::FundingRates(sub));
@@ -1642,6 +1671,7 @@ fn test_process_bar(data_engine: Rc<RefCell<DataEngine>>, data_client: DataClien
         venue,
         UUID4::new(),
         UnixNanos::default(),
+        None,
         None,
     );
     let cmd = DataCommand::Subscribe(SubscribeCommand::Bars(sub));

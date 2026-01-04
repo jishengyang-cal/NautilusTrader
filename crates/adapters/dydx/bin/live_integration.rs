@@ -130,6 +130,7 @@ async fn test_connect_and_subscribe(
         command_id,
         ts_init,
         None,
+        None,
     );
     data_client.subscribe_trades(&subscribe_trades)?;
     tracing::info!("Subscribed to trades");
@@ -143,6 +144,7 @@ async fn test_connect_and_subscribe(
         ts_init,
         None,
         false,
+        None,
         None,
     );
     data_client.subscribe_book_deltas(&subscribe_book)?;
@@ -160,6 +162,7 @@ async fn test_connect_and_subscribe(
         Some(venue),
         command_id,
         ts_init,
+        None,
         None,
     );
     data_client.subscribe_bars(&subscribe_bars)?;
@@ -325,6 +328,7 @@ async fn test_orderbook_snapshot_refresh(
         None,
         false,
         None,
+        None,
     );
     data_client.subscribe_book_deltas(&subscribe_book)?;
     tracing::info!("Subscribed to order book with 10s refresh interval");
@@ -403,6 +407,7 @@ async fn test_complete_data_flow(
         command_id,
         ts_init,
         None,
+        None,
     );
     data_client.subscribe_trades(&subscribe_trades)?;
 
@@ -415,6 +420,7 @@ async fn test_complete_data_flow(
         ts_init,
         None,
         false,
+        None,
         None,
     );
     data_client.subscribe_book_deltas(&subscribe_book)?;
@@ -431,6 +437,7 @@ async fn test_complete_data_flow(
         Some(venue),
         command_id,
         ts_init,
+        None,
         None,
     );
     data_client.subscribe_bars(&subscribe_bars)?;
@@ -536,6 +543,7 @@ async fn test_crossed_orderbook_detection(
         ts_init,
         None,
         false,
+        None,
         None,
     );
     data_client.subscribe_book_deltas(&subscribe_book)?;

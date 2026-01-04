@@ -64,6 +64,7 @@ use nautilus_common::{
     timer::{TimeEvent, TimeEventCallback},
 };
 use nautilus_core::{
+    UUID4,
     correctness::{
         FAILED, check_key_in_map, check_key_not_in_map, check_predicate_false, check_predicate_true,
     },
@@ -112,6 +113,7 @@ pub struct DataEngine {
     catalogs: AHashMap<Ustr, ParquetDataCatalog>,
     routing_map: IndexMap<Venue, ClientId>,
     book_intervals: AHashMap<NonZeroUsize, AHashSet<InstrumentId>>,
+    book_deltas_subs: AHashSet<InstrumentId>,
     book_updaters: AHashMap<InstrumentId, Rc<BookUpdater>>,
     book_snapshotters: AHashMap<InstrumentId, Rc<BookSnapshotter>>,
     bar_aggregators: AHashMap<BarType, Rc<RefCell<Box<dyn BarAggregator>>>>,
@@ -158,6 +160,7 @@ impl DataEngine {
             catalogs: AHashMap::new(),
             routing_map: IndexMap::new(),
             book_intervals: AHashMap::new(),
+            book_deltas_subs: AHashSet::new(),
             book_updaters: AHashMap::new(),
             book_snapshotters: AHashMap::new(),
             bar_aggregators: AHashMap::new(),
@@ -578,7 +581,10 @@ impl DataEngine {
         match &cmd {
             SubscribeCommand::BookDeltas(cmd) => self.subscribe_book_deltas(cmd)?,
             SubscribeCommand::BookDepth10(cmd) => self.subscribe_book_depth10(cmd)?,
-            SubscribeCommand::BookSnapshots(cmd) => self.subscribe_book_snapshots(cmd)?,
+            SubscribeCommand::BookSnapshots(cmd) => {
+                // Handles client forwarding internally (forwards as BookDeltas)
+                return self.subscribe_book_snapshots(cmd);
+            }
             SubscribeCommand::Bars(cmd) => self.subscribe_bars(cmd)?,
             _ => {} // Do nothing else
         }
@@ -614,7 +620,10 @@ impl DataEngine {
         match &cmd {
             UnsubscribeCommand::BookDeltas(cmd) => self.unsubscribe_book_deltas(cmd)?,
             UnsubscribeCommand::BookDepth10(cmd) => self.unsubscribe_book_depth10(cmd)?,
-            UnsubscribeCommand::BookSnapshots(cmd) => self.unsubscribe_book_snapshots(cmd)?,
+            UnsubscribeCommand::BookSnapshots(cmd) => {
+                // Handles client forwarding internally (forwards as BookDeltas)
+                return self.unsubscribe_book_snapshots(cmd);
+            }
             UnsubscribeCommand::Bars(cmd) => self.unsubscribe_bars(cmd)?,
             _ => {} // Do nothing else
         }
@@ -932,6 +941,7 @@ impl DataEngine {
             anyhow::bail!("Cannot subscribe for synthetic instrument `OrderBookDelta` data");
         }
 
+        self.book_deltas_subs.insert(cmd.instrument_id);
         self.setup_book_updater(&cmd.instrument_id, cmd.book_type, true, cmd.managed)?;
 
         Ok(())
@@ -1012,6 +1022,48 @@ impl DataEngine {
             self.setup_book_updater(&cmd.instrument_id, cmd.book_type, false, true)?;
         }
 
+        if let Some(client_id) = cmd.client_id.as_ref()
+            && self.external_clients.contains(client_id)
+        {
+            if self.config.debug {
+                log::debug!("Skipping subscribe command for external client {client_id}: {cmd:?}",);
+            }
+            return Ok(());
+        }
+
+        log::debug!(
+            "Forwarding BookSnapshots as BookDeltas for {}, client_id={:?}, venue={:?}",
+            cmd.instrument_id,
+            cmd.client_id,
+            cmd.venue,
+        );
+
+        if let Some(client) = self.get_client(cmd.client_id.as_ref(), cmd.venue.as_ref()) {
+            let deltas_cmd = SubscribeBookDeltas::new(
+                cmd.instrument_id,
+                cmd.book_type,
+                cmd.client_id,
+                cmd.venue,
+                UUID4::new(),
+                cmd.ts_init,
+                cmd.depth,
+                true, // managed
+                Some(cmd.command_id),
+                cmd.params.clone(),
+            );
+            log::debug!(
+                "Calling client.execute_subscribe for BookDeltas: {}",
+                cmd.instrument_id
+            );
+            client.execute_subscribe(&SubscribeCommand::BookDeltas(deltas_cmd));
+        } else {
+            log::error!(
+                "Cannot handle command: no client found for client_id={:?}, venue={:?}",
+                cmd.client_id,
+                cmd.venue,
+            );
+        }
+
         Ok(())
     }
 
@@ -1039,6 +1091,8 @@ impl DataEngine {
             log::warn!("Cannot unsubscribe from `OrderBookDeltas` data: not subscribed");
             return Ok(());
         }
+
+        self.book_deltas_subs.remove(&cmd.instrument_id);
 
         let topics = vec![
             switchboard::get_book_deltas_topic(cmd.instrument_id),
@@ -1096,11 +1150,36 @@ impl DataEngine {
         let topics = vec![
             switchboard::get_book_deltas_topic(cmd.instrument_id),
             switchboard::get_book_depth10_topic(cmd.instrument_id),
-            // TODO: Unsubscribe from snapshots (add interval_ms to message?)
         ];
 
         self.maintain_book_updater(&cmd.instrument_id, &topics);
         self.maintain_book_snapshotter(&cmd.instrument_id);
+
+        let still_in_intervals = self
+            .book_intervals
+            .values()
+            .any(|set| set.contains(&cmd.instrument_id));
+
+        if !still_in_intervals && !self.book_deltas_subs.contains(&cmd.instrument_id) {
+            if let Some(client_id) = cmd.client_id.as_ref()
+                && self.external_clients.contains(client_id)
+            {
+                return Ok(());
+            }
+
+            if let Some(client) = self.get_client(cmd.client_id.as_ref(), cmd.venue.as_ref()) {
+                let deltas_cmd = UnsubscribeBookDeltas::new(
+                    cmd.instrument_id,
+                    cmd.client_id,
+                    cmd.venue,
+                    UUID4::new(),
+                    cmd.ts_init,
+                    Some(cmd.command_id),
+                    cmd.params.clone(),
+                );
+                client.execute_unsubscribe(&UnsubscribeCommand::BookDeltas(deltas_cmd));
+            }
+        }
 
         Ok(())
     }
