@@ -15,17 +15,18 @@
 
 //! Live clock implementation using Tokio for real-time operations.
 
-use futures::Stream;
-use nautilus_core::{
-    AtomicTime, UnixNanos, consts::NAUTILUS_PREFIX, correctness::check_predicate_true,
-    time::get_atomic_clock_realtime,
-};
 use std::{
     collections::{BTreeMap, BinaryHeap},
     ops::Deref,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
+};
+
+use futures::Stream;
+use nautilus_core::{
+    AtomicTime, UnixNanos, consts::NAUTILUS_PREFIX, correctness::check_predicate_true,
+    time::get_atomic_clock_realtime,
 };
 use ustr::Ustr;
 

@@ -25,6 +25,7 @@ Released on TBD (UTC).
 - Added Binance `listenKeyExpired` event handling (#3387), thanks @Johnkhk
 - Added Deribit data client (#3368), thanks @filipmacek
 - Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
+- Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou
 - Upgraded Cython to v3.2.4
 - Upgraded `tokio` crate to v1.49.0
 
