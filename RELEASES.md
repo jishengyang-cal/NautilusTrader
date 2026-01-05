@@ -23,6 +23,7 @@ Released on TBD (UTC).
 ### Internal Improvements
 - Added Binance `listenKeyExpired` event handling (#3387), thanks @Johnkhk
 - Added Deribit data client (#3368), thanks @filipmacek
+- Upgraded Cython to v3.2.4
 - Upgraded `tokio` crate to v1.49.0
 
 ### Documentation Updates
