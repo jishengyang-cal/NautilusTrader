@@ -371,7 +371,7 @@ impl DataClient for BinanceSpotDataClient {
         let ws = self.ws_client.clone();
 
         let stream = format!(
-            "{}@bookTicker",
+            "{}@bestBidAsk",
             instrument_id.symbol.as_str().to_lowercase()
         );
 
@@ -453,7 +453,7 @@ impl DataClient for BinanceSpotDataClient {
         let ws = self.ws_client.clone();
 
         let stream = format!(
-            "{}@bookTicker",
+            "{}@bestBidAsk",
             instrument_id.symbol.as_str().to_lowercase()
         );
 
