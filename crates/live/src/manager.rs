@@ -29,7 +29,9 @@ use nautilus_common::{
     messages::execution::report::{GenerateOrderStatusReports, GeneratePositionStatusReports},
 };
 use nautilus_core::{UUID4, UnixNanos};
-use nautilus_execution::client::ExecutionClient;
+use nautilus_execution::{
+    client::ExecutionClient, reconciliation::generate_external_order_status_events,
+};
 use nautilus_model::{
     enums::OrderStatus,
     events::{
@@ -49,19 +51,6 @@ use rust_decimal::Decimal;
 use ustr::Ustr;
 
 use crate::config::LiveExecEngineConfig;
-
-/// Returns true if the order status represents an open/working order.
-#[inline]
-fn is_order_status_open(status: OrderStatus) -> bool {
-    matches!(
-        status,
-        OrderStatus::Accepted
-            | OrderStatus::Triggered
-            | OrderStatus::PendingCancel
-            | OrderStatus::PendingUpdate
-            | OrderStatus::PartiallyFilled
-    )
-}
 
 /// Configuration for execution manager.
 #[derive(Debug, Clone)]
@@ -354,33 +343,36 @@ impl ExecutionManager {
                     }
                 } else if !self.config.filter_unclaimed_external {
                     // Order has client_order_id but not in cache - external order
-                    if self.get_instrument(&report.instrument_id).is_none() {
-                        orders_skipped_no_instrument += 1;
-                    } else {
-                        let external_events =
-                            self.handle_external_order(report, &mass_status.account_id);
+                    if let Some(instrument) = self.get_instrument(&report.instrument_id) {
+                        let external_events = self.handle_external_order(
+                            report,
+                            &mass_status.account_id,
+                            &instrument,
+                        );
                         if !external_events.is_empty() {
                             external_orders_created += 1;
-                            if is_order_status_open(report.order_status) {
+                            if report.order_status.is_open() {
                                 open_orders_initialized += 1;
                             }
                             events.extend(external_events);
                         }
+                    } else {
+                        orders_skipped_no_instrument += 1;
                     }
                 }
             } else if !self.config.filter_unclaimed_external {
-                if self.get_instrument(&report.instrument_id).is_none() {
-                    orders_skipped_no_instrument += 1;
-                } else {
+                if let Some(instrument) = self.get_instrument(&report.instrument_id) {
                     let external_events =
-                        self.handle_external_order(report, &mass_status.account_id);
+                        self.handle_external_order(report, &mass_status.account_id, &instrument);
                     if !external_events.is_empty() {
                         external_orders_created += 1;
-                        if is_order_status_open(report.order_status) {
+                        if report.order_status.is_open() {
                             open_orders_initialized += 1;
                         }
                         events.extend(external_events);
                     }
+                } else {
+                    orders_skipped_no_instrument += 1;
                 }
             }
         }
@@ -414,6 +406,9 @@ impl ExecutionManager {
             color = LogColor::Blue as u8;
             "Reconciliation complete for {venue}: reconciled={orders_reconciled}, external={external_orders_created}, open={open_orders_initialized}, fills={fills_applied}",
         );
+
+        // Sort events chronologically to ensure proper position updates
+        events.sort_by_key(|e| e.ts_event());
 
         events
     }
@@ -955,6 +950,7 @@ impl ExecutionManager {
         &mut self,
         report: &OrderStatusReport,
         account_id: &AccountId,
+        instrument: &InstrumentAny,
     ) -> Vec<OrderEventAny> {
         let (strategy_id, tags) =
             if let Some(claimed_strategy) = self.external_order_claims.get(&report.instrument_id) {
@@ -1051,101 +1047,8 @@ impl ExecutionManager {
             report.order_status,
         );
 
-        self.generate_external_order_status_events(&order, report, account_id)
-    }
-
-    /// Generates the appropriate order status events for an external order.
-    ///
-    /// After creating an external order, we need to transition it to its actual state
-    /// based on the order status report from the venue. For terminal states like
-    /// Canceled/Expired, we return multiple events to properly transition through states.
-    fn generate_external_order_status_events(
-        &self,
-        order: &OrderAny,
-        report: &OrderStatusReport,
-        account_id: &AccountId,
-    ) -> Vec<OrderEventAny> {
         let ts_now = self.clock.borrow().timestamp_ns();
-
-        let accepted = OrderEventAny::Accepted(OrderAccepted::new(
-            order.trader_id(),
-            order.strategy_id(),
-            order.instrument_id(),
-            order.client_order_id(),
-            report.venue_order_id,
-            *account_id,
-            UUID4::new(),
-            report.ts_accepted,
-            ts_now,
-            true, // reconciliation
-        ));
-
-        match report.order_status {
-            OrderStatus::Accepted | OrderStatus::PartiallyFilled | OrderStatus::Filled => {
-                // All these states require order to first be accepted
-                vec![accepted]
-            }
-            OrderStatus::Canceled => {
-                // Accept first, then cancel to reach terminal state
-                let canceled = OrderEventAny::Canceled(OrderCanceled::new(
-                    order.trader_id(),
-                    order.strategy_id(),
-                    order.instrument_id(),
-                    order.client_order_id(),
-                    UUID4::new(),
-                    report.ts_last,
-                    ts_now,
-                    true, // reconciliation
-                    Some(report.venue_order_id),
-                    Some(*account_id),
-                ));
-                vec![accepted, canceled]
-            }
-            OrderStatus::Expired => {
-                // Accept first, then expire to reach terminal state
-                let expired = OrderEventAny::Expired(OrderExpired::new(
-                    order.trader_id(),
-                    order.strategy_id(),
-                    order.instrument_id(),
-                    order.client_order_id(),
-                    UUID4::new(),
-                    report.ts_last,
-                    ts_now,
-                    true, // reconciliation
-                    Some(report.venue_order_id),
-                    Some(*account_id),
-                ));
-                vec![accepted, expired]
-            }
-            OrderStatus::Rejected => {
-                // Rejected goes directly to terminal state without acceptance
-                vec![OrderEventAny::Rejected(OrderRejected::new(
-                    order.trader_id(),
-                    order.strategy_id(),
-                    order.instrument_id(),
-                    order.client_order_id(),
-                    *account_id,
-                    Ustr::from(report.cancel_reason.as_deref().unwrap_or("UNKNOWN")),
-                    UUID4::new(),
-                    report.ts_last,
-                    ts_now,
-                    true, // reconciliation
-                    false,
-                ))]
-            }
-            OrderStatus::Triggered => {
-                // Triggered orders need acceptance first
-                vec![accepted]
-            }
-            _ => {
-                log::warn!(
-                    "Unhandled order status {} for external order {}",
-                    report.order_status,
-                    order.client_order_id()
-                );
-                Vec::new()
-            }
-        }
+        generate_external_order_status_events(&order, report, account_id, instrument, ts_now)
     }
 
     fn create_order_accepted(&self, order: &OrderAny, report: &OrderStatusReport) -> OrderEventAny {
@@ -1284,7 +1187,10 @@ mod tests {
         identifiers::{
             AccountId, ClientId, ClientOrderId, InstrumentId, TradeId, Venue, VenueOrderId,
         },
-        instruments::stubs::audusd_sim,
+        instruments::{
+            InstrumentAny,
+            stubs::{audusd_sim, crypto_perpetual_ethusdt},
+        },
         orders::{Order, OrderTestBuilder},
         reports::{ExecutionMassStatus, FillReport, OrderStatusReport},
         types::{Money, Price, Quantity},
@@ -1549,9 +1455,11 @@ mod tests {
     #[rstest]
     fn test_handle_external_order_uses_claimed_strategy() {
         let mut manager = create_test_manager();
-        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
         let strategy_id = StrategyId::from("STRATEGY-001");
-        let account_id = AccountId::from("BINANCE-001");
+        let account_id = AccountId::from("OKX-001");
         let venue_order_id = VenueOrderId::from("V-EXT-001");
         manager.claim_external_orders(instrument_id, strategy_id);
         let report = OrderStatusReport::new(
@@ -1570,8 +1478,8 @@ mod tests {
             UnixNanos::from(1_000_000),
             None,
         )
-        .with_price(Price::from("50000.00"));
-        let events = manager.handle_external_order(&report, &account_id);
+        .with_price(Price::from("3000.00"));
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
 
         // Initialized consumed internally, only Accepted returned
         assert_eq!(events.len(), 1);
@@ -1585,8 +1493,10 @@ mod tests {
     #[rstest]
     fn test_handle_external_order_uses_external_strategy_when_unclaimed() {
         let mut manager = create_test_manager();
-        let instrument_id = InstrumentId::from("ETHUSDT.BINANCE");
-        let account_id = AccountId::from("BINANCE-001");
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
+        let account_id = AccountId::from("OKX-001");
         let venue_order_id = VenueOrderId::from("V-EXT-002");
         let report = OrderStatusReport::new(
             account_id,
@@ -1605,7 +1515,7 @@ mod tests {
             None,
         )
         .with_price(Price::from("3000.00"));
-        let events = manager.handle_external_order(&report, &account_id);
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
         assert_eq!(events.len(), 1);
         assert!(matches!(events[0], OrderEventAny::Accepted(_)));
         let client_order_id = ClientOrderId::from(venue_order_id.as_str());
@@ -1623,8 +1533,10 @@ mod tests {
     #[rstest]
     fn test_external_order_canceled_generates_accepted_and_canceled() {
         let mut manager = create_test_manager();
-        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
-        let account_id = AccountId::from("BINANCE-001");
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
+        let account_id = AccountId::from("OKX-001");
         let report = OrderStatusReport::new(
             account_id,
             instrument_id,
@@ -1641,8 +1553,8 @@ mod tests {
             UnixNanos::from(1_000_000),
             None,
         )
-        .with_price(Price::from("50000.00"));
-        let events = manager.handle_external_order(&report, &account_id);
+        .with_price(Price::from("3000.00"));
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
         assert_eq!(events.len(), 2);
         assert!(matches!(events[0], OrderEventAny::Accepted(_)));
         assert!(matches!(events[1], OrderEventAny::Canceled(_)));
@@ -1651,8 +1563,10 @@ mod tests {
     #[rstest]
     fn test_external_order_expired_generates_accepted_and_expired() {
         let mut manager = create_test_manager();
-        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
-        let account_id = AccountId::from("BINANCE-001");
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
+        let account_id = AccountId::from("OKX-001");
         let report = OrderStatusReport::new(
             account_id,
             instrument_id,
@@ -1669,10 +1583,149 @@ mod tests {
             UnixNanos::from(1_000_000),
             None,
         )
-        .with_price(Price::from("50000.00"));
-        let events = manager.handle_external_order(&report, &account_id);
+        .with_price(Price::from("3000.00"));
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
         assert_eq!(events.len(), 2);
         assert!(matches!(events[0], OrderEventAny::Accepted(_)));
         assert!(matches!(events[1], OrderEventAny::Expired(_)));
+    }
+
+    #[rstest]
+    fn test_external_order_filled_generates_accepted_and_filled() {
+        let mut manager = create_test_manager();
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
+        let account_id = AccountId::from("OKX-001");
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None, // No client_order_id (external)
+            VenueOrderId::from("V-EXT-005"),
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Filled,
+            Quantity::from("1.5"),
+            Quantity::from("1.5"), // filled_qty
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("3000.00"))
+        .with_avg_px(3000.50)
+        .unwrap();
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], OrderEventAny::Accepted(_)));
+        assert!(matches!(events[1], OrderEventAny::Filled(_)));
+        if let OrderEventAny::Filled(filled) = &events[1] {
+            assert_eq!(filled.last_qty, Quantity::from("1.5"));
+            assert!(!filled.trade_id.as_str().is_empty()); // Synthetic UUID trade ID
+            assert!(filled.reconciliation);
+        }
+    }
+
+    #[rstest]
+    fn test_external_order_partially_filled_generates_accepted_and_filled() {
+        let mut manager = create_test_manager();
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
+        let account_id = AccountId::from("OKX-001");
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None, // No client_order_id (external)
+            VenueOrderId::from("V-EXT-006"),
+            OrderSide::Sell,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::PartiallyFilled,
+            Quantity::from("2.0"),  // total quantity
+            Quantity::from("0.75"), // filled_qty (partial)
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("2950.00"))
+        .with_avg_px(2950.25)
+        .unwrap();
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], OrderEventAny::Accepted(_)));
+        assert!(matches!(events[1], OrderEventAny::Filled(_)));
+        if let OrderEventAny::Filled(filled) = &events[1] {
+            assert_eq!(filled.last_qty, Quantity::from("0.75"));
+            assert!(filled.reconciliation);
+        }
+    }
+
+    #[rstest]
+    fn test_external_order_filled_market_order_is_taker() {
+        let mut manager = create_test_manager();
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
+        let account_id = AccountId::from("OKX-001");
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None,
+            VenueOrderId::from("V-EXT-007"),
+            OrderSide::Buy,
+            OrderType::Market,
+            TimeInForce::Ioc,
+            OrderStatus::Filled,
+            Quantity::from("1.0"),
+            Quantity::from("1.0"),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_avg_px(3100.00)
+        .unwrap();
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
+
+        assert_eq!(events.len(), 2);
+        if let OrderEventAny::Filled(filled) = &events[1] {
+            assert_eq!(filled.liquidity_side, LiquiditySide::Taker);
+        }
+    }
+
+    #[rstest]
+    fn test_external_order_rejected_generates_rejected_only() {
+        let mut manager = create_test_manager();
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument);
+        let account_id = AccountId::from("OKX-001");
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None,
+            VenueOrderId::from("V-EXT-008"),
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Rejected,
+            Quantity::from("1.0"),
+            Quantity::from("0"),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("3000.00"))
+        .with_cancel_reason("INSUFFICIENT_MARGIN".to_string());
+        let events = manager.handle_external_order(&report, &account_id, &instrument_any);
+
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], OrderEventAny::Rejected(_)));
     }
 }

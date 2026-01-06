@@ -13,18 +13,25 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Position reconciliation calculation functions.
+//! Execution state reconciliation functions.
+//!
+//! Pure functions for reconciling orders and positions between local state and venue reports.
 
 use ahash::AHashMap;
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     enums::{LiquiditySide, OrderSide, OrderStatus, OrderType, PositionSideSpecified, TimeInForce},
+    events::{
+        OrderAccepted, OrderCanceled, OrderEventAny, OrderExpired, OrderFilled, OrderRejected,
+    },
     identifiers::{AccountId, InstrumentId, TradeId, VenueOrderId},
     instruments::{Instrument, InstrumentAny},
+    orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{Money, Price, Quantity},
 };
 use rust_decimal::{Decimal, prelude::ToPrimitive};
+use ustr::Ustr;
 
 /// Immutable snapshot of fill data for position simulation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -872,9 +879,179 @@ fn extract_fills_for_instrument(
     }
 }
 
+/// Generates the appropriate order events for an external order and order status report.
+///
+/// After creating an external order, we need to transition it to its actual state
+/// based on the order status report from the venue. For terminal states like
+/// Canceled/Expired/Filled, we return multiple events to properly transition
+/// through states.
+#[must_use]
+pub fn generate_external_order_status_events(
+    order: &OrderAny,
+    report: &OrderStatusReport,
+    account_id: &AccountId,
+    instrument: &InstrumentAny,
+    ts_now: UnixNanos,
+) -> Vec<OrderEventAny> {
+    let accepted = OrderEventAny::Accepted(OrderAccepted::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        report.venue_order_id,
+        *account_id,
+        UUID4::new(),
+        report.ts_accepted,
+        ts_now,
+        true, // reconciliation
+    ));
+
+    match report.order_status {
+        OrderStatus::Accepted | OrderStatus::Triggered => vec![accepted],
+        OrderStatus::PartiallyFilled | OrderStatus::Filled => {
+            let mut events = vec![accepted];
+
+            if !report.filled_qty.is_zero()
+                && let Some(filled) =
+                    create_inferred_fill(order, report, account_id, instrument, ts_now)
+            {
+                events.push(filled);
+            }
+
+            events
+        }
+        OrderStatus::Canceled => {
+            let canceled = OrderEventAny::Canceled(OrderCanceled::new(
+                order.trader_id(),
+                order.strategy_id(),
+                order.instrument_id(),
+                order.client_order_id(),
+                UUID4::new(),
+                report.ts_last,
+                ts_now,
+                true, // reconciliation
+                Some(report.venue_order_id),
+                Some(*account_id),
+            ));
+            vec![accepted, canceled]
+        }
+        OrderStatus::Expired => {
+            let expired = OrderEventAny::Expired(OrderExpired::new(
+                order.trader_id(),
+                order.strategy_id(),
+                order.instrument_id(),
+                order.client_order_id(),
+                UUID4::new(),
+                report.ts_last,
+                ts_now,
+                true, // reconciliation
+                Some(report.venue_order_id),
+                Some(*account_id),
+            ));
+            vec![accepted, expired]
+        }
+        OrderStatus::Rejected => {
+            // Rejected goes directly to terminal state without acceptance
+            vec![OrderEventAny::Rejected(OrderRejected::new(
+                order.trader_id(),
+                order.strategy_id(),
+                order.instrument_id(),
+                order.client_order_id(),
+                *account_id,
+                Ustr::from(report.cancel_reason.as_deref().unwrap_or("UNKNOWN")),
+                UUID4::new(),
+                report.ts_last,
+                ts_now,
+                true, // reconciliation
+                false,
+            ))]
+        }
+        _ => {
+            log::warn!(
+                "Unhandled order status {} for external order {}",
+                report.order_status,
+                order.client_order_id()
+            );
+            Vec::new()
+        }
+    }
+}
+
+/// Creates an inferred fill event for reconciliation when fill reports are missing.
+#[must_use]
+pub fn create_inferred_fill(
+    order: &OrderAny,
+    report: &OrderStatusReport,
+    account_id: &AccountId,
+    instrument: &InstrumentAny,
+    ts_now: UnixNanos,
+) -> Option<OrderEventAny> {
+    let liquidity_side = match order.order_type() {
+        OrderType::Market | OrderType::StopMarket | OrderType::TrailingStopMarket => {
+            LiquiditySide::Taker
+        }
+        _ if report.post_only => LiquiditySide::Maker,
+        _ => LiquiditySide::NoLiquiditySide,
+    };
+
+    let last_px = if let Some(avg_px) = report.avg_px {
+        match Price::from_decimal_dp(avg_px, instrument.price_precision()) {
+            Ok(px) => px,
+            Err(e) => {
+                log::warn!("Failed to create price from avg_px for inferred fill: {e}");
+                return None;
+            }
+        }
+    } else if let Some(price) = report.price {
+        price
+    } else {
+        log::warn!(
+            "Cannot create inferred fill for {}: no avg_px or price available",
+            order.client_order_id()
+        );
+        return None;
+    };
+
+    let trade_id = TradeId::from(UUID4::new().as_str());
+
+    log::info!(
+        "Generated inferred fill for {} ({}) qty={} px={}",
+        order.client_order_id(),
+        report.venue_order_id,
+        report.filled_qty,
+        last_px,
+    );
+
+    Some(OrderEventAny::Filled(OrderFilled::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        report.venue_order_id,
+        *account_id,
+        trade_id,
+        report.order_side,
+        order.order_type(),
+        report.filled_qty,
+        last_px,
+        instrument.quote_currency(),
+        liquidity_side,
+        UUID4::new(),
+        report.ts_last,
+        ts_now,
+        true, // reconciliation
+        report.venue_position_id,
+        None, // commission - not available for inferred fills
+    )))
+}
+
 #[cfg(test)]
 mod tests {
-    use nautilus_model::instruments::stubs::audusd_sim;
+    use nautilus_model::{
+        instruments::stubs::{audusd_sim, crypto_perpetual_ethusdt},
+        orders::OrderTestBuilder,
+        reports::OrderStatusReport,
+    };
     use rstest::{fixture, rstest};
     use rust_decimal_macros::dec;
 
@@ -1949,5 +2126,181 @@ mod tests {
             }
             _ => panic!("Expected ReplaceCurrentLifecycle, was {result:?}"),
         }
+    }
+
+    fn make_test_report(
+        instrument_id: InstrumentId,
+        order_type: OrderType,
+        status: OrderStatus,
+        filled_qty: &str,
+        post_only: bool,
+    ) -> OrderStatusReport {
+        let account_id = AccountId::from("TEST-001");
+        let mut report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            None,
+            VenueOrderId::from("V-001"),
+            OrderSide::Buy,
+            order_type,
+            TimeInForce::Gtc,
+            status,
+            Quantity::from("1.0"),
+            Quantity::from(filled_qty),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_price(Price::from("100.00"))
+        .with_avg_px(100.0)
+        .unwrap();
+        report.post_only = post_only;
+        report
+    }
+
+    #[rstest]
+    #[case::accepted(OrderStatus::Accepted, "0", 1, "Accepted")]
+    #[case::triggered(OrderStatus::Triggered, "0", 1, "Accepted")]
+    #[case::canceled(OrderStatus::Canceled, "0", 2, "Canceled")]
+    #[case::expired(OrderStatus::Expired, "0", 2, "Expired")]
+    #[case::filled(OrderStatus::Filled, "1.0", 2, "Filled")]
+    #[case::partially_filled(OrderStatus::PartiallyFilled, "0.5", 2, "Filled")]
+    #[case::rejected(OrderStatus::Rejected, "0", 1, "Rejected")]
+    fn test_external_order_status_event_generation(
+        #[case] status: OrderStatus,
+        #[case] filled_qty: &str,
+        #[case] expected_events: usize,
+        #[case] last_event_type: &str,
+    ) {
+        let instrument = crypto_perpetual_ethusdt();
+        let order = OrderTestBuilder::new(OrderType::Limit)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("1.0"))
+            .price(Price::from("100.00"))
+            .build();
+        let report = make_test_report(instrument.id(), OrderType::Limit, status, filled_qty, false);
+
+        let events = generate_external_order_status_events(
+            &order,
+            &report,
+            &AccountId::from("TEST-001"),
+            &InstrumentAny::CryptoPerpetual(instrument),
+            UnixNanos::from(2_000_000),
+        );
+
+        assert_eq!(events.len(), expected_events, "status={status}");
+        let last = events.last().unwrap();
+        let actual_type = match last {
+            OrderEventAny::Accepted(_) => "Accepted",
+            OrderEventAny::Canceled(_) => "Canceled",
+            OrderEventAny::Expired(_) => "Expired",
+            OrderEventAny::Filled(_) => "Filled",
+            OrderEventAny::Rejected(_) => "Rejected",
+            _ => "Other",
+        };
+        assert_eq!(actual_type, last_event_type, "status={status}");
+    }
+
+    #[rstest]
+    #[case::market(OrderType::Market, false, LiquiditySide::Taker)]
+    #[case::stop_market(OrderType::StopMarket, false, LiquiditySide::Taker)]
+    #[case::trailing_stop_market(OrderType::TrailingStopMarket, false, LiquiditySide::Taker)]
+    #[case::limit_post_only(OrderType::Limit, true, LiquiditySide::Maker)]
+    #[case::limit_default(OrderType::Limit, false, LiquiditySide::NoLiquiditySide)]
+    fn test_inferred_fill_liquidity_side(
+        #[case] order_type: OrderType,
+        #[case] post_only: bool,
+        #[case] expected: LiquiditySide,
+    ) {
+        let instrument = crypto_perpetual_ethusdt();
+        let order = match order_type {
+            OrderType::Limit => OrderTestBuilder::new(order_type)
+                .instrument_id(instrument.id())
+                .side(OrderSide::Buy)
+                .quantity(Quantity::from("1.0"))
+                .price(Price::from("100.00"))
+                .build(),
+            OrderType::StopMarket => OrderTestBuilder::new(order_type)
+                .instrument_id(instrument.id())
+                .side(OrderSide::Buy)
+                .quantity(Quantity::from("1.0"))
+                .trigger_price(Price::from("100.00"))
+                .build(),
+            OrderType::TrailingStopMarket => OrderTestBuilder::new(order_type)
+                .instrument_id(instrument.id())
+                .side(OrderSide::Buy)
+                .quantity(Quantity::from("1.0"))
+                .trigger_price(Price::from("100.00"))
+                .trailing_offset(dec!(1.0))
+                .build(),
+            _ => OrderTestBuilder::new(order_type)
+                .instrument_id(instrument.id())
+                .side(OrderSide::Buy)
+                .quantity(Quantity::from("1.0"))
+                .build(),
+        };
+        let report = make_test_report(
+            instrument.id(),
+            order_type,
+            OrderStatus::Filled,
+            "1.0",
+            post_only,
+        );
+
+        let fill = create_inferred_fill(
+            &order,
+            &report,
+            &AccountId::from("TEST-001"),
+            &InstrumentAny::CryptoPerpetual(instrument),
+            UnixNanos::from(2_000_000),
+        );
+
+        let filled = match fill.unwrap() {
+            OrderEventAny::Filled(f) => f,
+            _ => panic!("Expected Filled event"),
+        };
+        assert_eq!(
+            filled.liquidity_side, expected,
+            "order_type={order_type}, post_only={post_only}"
+        );
+    }
+
+    #[rstest]
+    fn test_inferred_fill_no_price_returns_none() {
+        let instrument = crypto_perpetual_ethusdt();
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("1.0"))
+            .build();
+
+        let report = OrderStatusReport::new(
+            AccountId::from("TEST-001"),
+            instrument.id(),
+            None,
+            VenueOrderId::from("V-001"),
+            OrderSide::Buy,
+            OrderType::Market,
+            TimeInForce::Ioc,
+            OrderStatus::Filled,
+            Quantity::from("1.0"),
+            Quantity::from("1.0"),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        );
+
+        let fill = create_inferred_fill(
+            &order,
+            &report,
+            &AccountId::from("TEST-001"),
+            &InstrumentAny::CryptoPerpetual(instrument),
+            UnixNanos::from(2_000_000),
+        );
+
+        assert!(fill.is_none());
     }
 }
