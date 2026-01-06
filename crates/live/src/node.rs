@@ -28,7 +28,7 @@ use nautilus_common::{
     enums::{Environment, LogColor},
     log_info,
     messages::{DataEvent, ExecutionEvent, data::DataCommand, execution::TradingCommand},
-    timer::TimeEventHandlerV2,
+    timer::TimeEventHandler,
 };
 use nautilus_core::UUID4;
 use nautilus_model::{
@@ -666,7 +666,7 @@ impl LiveNode {
 
     fn drain_channels(
         &self,
-        time_evt_rx: &mut tokio::sync::mpsc::UnboundedReceiver<TimeEventHandlerV2>,
+        time_evt_rx: &mut tokio::sync::mpsc::UnboundedReceiver<TimeEventHandler>,
         data_evt_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DataEvent>,
         data_cmd_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DataCommand>,
         exec_evt_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,

@@ -30,7 +30,7 @@ from nautilus_trader.common.component cimport Clock
 from nautilus_trader.common.component cimport Logger
 from nautilus_trader.common.component cimport MessageBus
 from nautilus_trader.core.data cimport Data
-from nautilus_trader.core.rust.backtest cimport TimeEventAccumulatorAPI
+from nautilus_trader.core.rust.backtest cimport TimeEventAccumulator_API
 from nautilus_trader.core.rust.core cimport CVec
 from nautilus_trader.core.rust.model cimport AccountType
 from nautilus_trader.core.rust.model cimport AggressorSide
@@ -95,7 +95,7 @@ cdef class BacktestEngine:
     cdef object _config
     cdef Clock _clock
     cdef Logger _log
-    cdef TimeEventAccumulatorAPI _accumulator
+    cdef TimeEventAccumulator_API _accumulator
 
     cdef object _kernel
     cdef UUID4 _instance_id
@@ -124,6 +124,7 @@ cdef class BacktestEngine:
     cdef list _response_data
 
     cdef CVec _advance_time(self, uint64_t ts_now)
+    cdef void _flush_accumulator_events(self, uint64_t ts_now)
     cdef void _process_raw_time_event_handlers(
         self,
         CVec raw_handlers,

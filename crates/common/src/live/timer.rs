@@ -42,7 +42,7 @@ use ustr::Ustr;
 use super::runtime::get_runtime;
 use crate::{
     runner::TimeEventSender,
-    timer::{TimeEvent, TimeEventCallback, TimeEventHandlerV2},
+    timer::{TimeEvent, TimeEventCallback, TimeEventHandler},
 };
 
 /// A live timer for use with a `LiveClock`.
@@ -230,7 +230,7 @@ impl LiveTimer {
                         let sender = sender
                             .as_ref()
                             .expect("timer event sender was unset for Rust callback system");
-                        let handler = TimeEventHandlerV2::new(event, callback.clone());
+                        let handler = TimeEventHandler::new(event, callback.clone());
                         sender.send(handler);
                     }
                 }
@@ -297,7 +297,7 @@ mod tests {
     use super::LiveTimer;
     use crate::{
         runner::TimeEventSender,
-        timer::{TimeEventCallback, TimeEventHandlerV2},
+        timer::{TimeEventCallback, TimeEventHandler},
     };
 
     #[rstest]
@@ -344,7 +344,7 @@ mod tests {
         struct NoopSender;
 
         impl TimeEventSender for NoopSender {
-            fn send(&self, _handler: TimeEventHandlerV2) {}
+            fn send(&self, _handler: TimeEventHandler) {}
         }
 
         let sender = Arc::new(NoopSender);

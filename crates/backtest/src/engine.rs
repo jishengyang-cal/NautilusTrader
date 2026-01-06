@@ -28,7 +28,7 @@ use std::{
 };
 
 use ahash::AHashMap;
-use nautilus_common::timer::TimeEventHandlerV2;
+use nautilus_common::timer::TimeEventHandler;
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_data::client::DataClientAdapter;
 use nautilus_execution::models::{fee::FeeModelAny, fill::FillModel, latency::LatencyModel};
@@ -390,14 +390,14 @@ impl BacktestEngine {
         self.data.pop_front();
     }
 
-    pub fn advance_time(&mut self, _ts_now: UnixNanos) -> Vec<TimeEventHandlerV2> {
+    pub fn advance_time(&mut self, _ts_now: UnixNanos) -> Vec<TimeEventHandler> {
         // TODO: integrate TestClock advancement when kernel clocks are exposed.
         self.accumulator.drain()
     }
 
     pub fn process_raw_time_event_handlers(
         &mut self,
-        handlers: Vec<TimeEventHandlerV2>,
+        handlers: Vec<TimeEventHandler>,
         ts_now: UnixNanos,
         only_now: bool,
         as_of_now: bool,

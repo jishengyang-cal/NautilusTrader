@@ -24,7 +24,7 @@ use std::{cell::OnceCell, fmt::Debug, sync::Arc};
 use crate::{
     messages::{data::DataCommand, execution::TradingCommand},
     msgbus::{self, switchboard::MessagingSwitchboard},
-    timer::TimeEventHandlerV2,
+    timer::TimeEventHandler,
 };
 
 /// Trait for data command sending that can be implemented for both sync and async runners.
@@ -82,7 +82,7 @@ pub fn set_data_cmd_sender(sender: Arc<dyn DataCommandSender>) {
 /// Trait for time event sending that can be implemented for both sync and async runners.
 pub trait TimeEventSender: Debug + Send + Sync {
     /// Sends a time event handler.
-    fn send(&self, handler: TimeEventHandlerV2);
+    fn send(&self, handler: TimeEventHandler);
 }
 
 /// Gets the global time event sender.

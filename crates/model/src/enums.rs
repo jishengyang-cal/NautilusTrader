@@ -471,7 +471,6 @@ impl FromU8 for BookAction {
 )]
 #[strum(ascii_case_insensitive)]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
-#[allow(non_camel_case_types)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
@@ -482,6 +481,7 @@ impl FromU8 for BookAction {
         module = "nautilus_trader.core.nautilus_pyo3.model.enums"
     )
 )]
+#[allow(non_camel_case_types)]
 pub enum BookType {
     /// Top-of-book best bid/ask, one level per side.
     L1_MBP = 1,

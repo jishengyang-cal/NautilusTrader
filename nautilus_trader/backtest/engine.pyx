@@ -79,13 +79,15 @@ from nautilus_trader.core.datetime cimport format_optional_iso8601
 from nautilus_trader.core.datetime cimport maybe_dt_to_unix_nanos
 from nautilus_trader.core.datetime cimport unix_nanos_to_dt
 from nautilus_trader.core.inspect import is_nautilus_class
-from nautilus_trader.core.rust.backtest cimport TimeEventAccumulatorAPI
+from nautilus_trader.core.rust.backtest cimport TimeEventAccumulator_API
 from nautilus_trader.core.rust.backtest cimport time_event_accumulator_advance_clock
-from nautilus_trader.core.rust.backtest cimport time_event_accumulator_drain
 from nautilus_trader.core.rust.backtest cimport time_event_accumulator_drop
 from nautilus_trader.core.rust.backtest cimport time_event_accumulator_new
+from nautilus_trader.core.rust.backtest cimport time_event_accumulator_peek_next_time
+from nautilus_trader.core.rust.backtest cimport time_event_accumulator_pop_next_at_or_before
 from nautilus_trader.core.rust.common cimport TimeEventHandler_t
 from nautilus_trader.core.rust.common cimport logging_is_colored
+from nautilus_trader.core.rust.common cimport time_event_handler_drop
 from nautilus_trader.core.rust.common cimport vec_time_event_handlers_drop
 from nautilus_trader.core.rust.core cimport CVec
 from nautilus_trader.core.rust.model cimport FIXED_PRECISION
@@ -217,7 +219,7 @@ cdef class BacktestEngine:
         self._config: BacktestEngineConfig  = config
 
         # Set up components
-        self._accumulator = <TimeEventAccumulatorAPI>time_event_accumulator_new()
+        self._accumulator = <TimeEventAccumulator_API>time_event_accumulator_new()
 
         # Run IDs
         self._run_config_id: str | None = None
@@ -1541,7 +1543,7 @@ cdef class BacktestEngine:
                     break
 
                 if data.ts_init > self._last_ns:
-                    # Advance clocks to the next data time
+                    # Advance clocks to the next data timestamp
                     self._last_ns = data.ts_init
                     raw_handlers = self._advance_time(data.ts_init)
                     raw_handlers_count = raw_handlers.len
@@ -1584,15 +1586,13 @@ cdef class BacktestEngine:
                 data = self._data_iterator.next()
 
                 if data is None or data.ts_init > self._last_ns:
-                    # Finally process the time events
                     self._process_raw_time_event_handlers(
                         raw_handlers,
                         self._last_ns,
                         only_now=True,
                     )
-
-                    # Drop processed event handlers
-                    vec_time_event_handlers_drop(raw_handlers)
+                    if raw_handlers.ptr != NULL:
+                        vec_time_event_handlers_drop(raw_handlers)
                     raw_handlers_count = 0
 
                 self._iteration += 1
@@ -1612,19 +1612,26 @@ cdef class BacktestEngine:
         for exchange in self._venues.values():
             exchange.process(self._kernel.clock.timestamp_ns())
 
-        # Process remaining time events
-        if raw_handlers_count > 0:
-            self._process_raw_time_event_handlers(
-                raw_handlers,
-                self._last_ns,
-                only_now=True,
-                as_of_now=True,
-            )
-            vec_time_event_handlers_drop(raw_handlers)
+        # Flush remaining events at the last data timestamp
+        if self._last_ns > 0:
+            self._flush_accumulator_events(self._last_ns)
 
     cdef CVec _advance_time(self, uint64_t ts_now):
+        # Advance clocks and process all events before ts_now in timestamp order.
+        #
+        # This method uses iterative processing: after each callback executes,
+        # clocks are re-advanced to capture any newly scheduled timers. This ensures
+        # that chained alerts (alert schedules another alert) are processed in
+        # correct timestamp order, maintaining clock monotonicity.
         cdef list[TestClock] clocks = get_component_clocks(self._instance_id)
         cdef TestClock clock
+        cdef TimeEventHandler_t handler
+        cdef uint64_t ts_event
+        cdef uint64_t ts_last = 0
+        cdef TimeEvent event
+        cdef PyObject *raw_callback
+        cdef object callback
+        cdef SimulatedExchange exchange
 
         for clock in clocks:
             time_event_accumulator_advance_clock(
@@ -1634,16 +1641,48 @@ cdef class BacktestEngine:
                 False,
             )
 
-        cdef CVec raw_handlers = time_event_accumulator_drain(&self._accumulator)
+        # Process events < ts_now, re-checking for newly scheduled timers after each callback
+        while ts_now > 0:
+            if FORCE_STOP:
+                break
 
-        # Handle all events prior to the `ts_now`
-        self._process_raw_time_event_handlers(
-            raw_handlers,
-            ts_now,
-            only_now=False,
-        )
+            handler = time_event_accumulator_pop_next_at_or_before(
+                &self._accumulator,
+                ts_now - 1,
+            )
 
-        # Set all clocks to now
+            if handler.callback_ptr == NULL:
+                break
+
+            ts_event = handler.event.ts_event
+            set_logging_clock_static_time(ts_event)
+
+            if LOGGING_PYO3:
+                nautilus_pyo3.logging_clock_set_static_time(ts_event)
+
+            for clock in clocks:
+                clock.set_time(ts_event)
+
+            event = TimeEvent.from_mem_c(handler.event)
+            raw_callback = <PyObject *>handler.callback_ptr
+            callback = <object>raw_callback
+            callback(event)
+            time_event_handler_drop(handler)
+
+            if ts_event != ts_last:
+                ts_last = ts_event
+                for exchange in self._venues.values():
+                    exchange.process(ts_event)
+
+            # Re-advance to capture timers scheduled by callback
+            for clock in clocks:
+                time_event_accumulator_advance_clock(
+                    &self._accumulator,
+                    &clock._mem,
+                    ts_now,
+                    False,
+                )
+
         set_logging_clock_static_time(ts_now)
 
         if LOGGING_PYO3:
@@ -1652,11 +1691,73 @@ cdef class BacktestEngine:
         for clock in clocks:
             clock.set_time(ts_now)
 
-        # Return all remaining events to be handled (at `ts_now`)
-        return raw_handlers
+        cdef CVec empty_vec
+        empty_vec.ptr = NULL
+        empty_vec.len = 0
+        empty_vec.cap = 0
+        return empty_vec
 
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
+    cdef void _flush_accumulator_events(self, uint64_t ts_now):
+        cdef list[TestClock] clocks = get_component_clocks(self._instance_id)
+        cdef TestClock clock
+        cdef TimeEventHandler_t handler
+        cdef uint64_t ts_event
+        cdef uint64_t ts_last = 0
+        cdef TimeEvent event
+        cdef PyObject *raw_callback
+        cdef object callback
+        cdef SimulatedExchange exchange
+
+        # Advance clocks first to capture alerts scheduled during last callbacks
+        for clock in clocks:
+            time_event_accumulator_advance_clock(
+                &self._accumulator,
+                &clock._mem,
+                ts_now,
+                False,
+            )
+
+        while True:
+            if FORCE_STOP:
+                break
+
+            handler = time_event_accumulator_pop_next_at_or_before(
+                &self._accumulator,
+                ts_now,
+            )
+
+            if handler.callback_ptr == NULL:
+                break
+
+            ts_event = handler.event.ts_event
+            set_logging_clock_static_time(ts_event)
+
+            if LOGGING_PYO3:
+                nautilus_pyo3.logging_clock_set_static_time(ts_event)
+
+            for clock in clocks:
+                clock.set_time(ts_event)
+
+            event = TimeEvent.from_mem_c(handler.event)
+            raw_callback = <PyObject *>handler.callback_ptr
+            callback = <object>raw_callback
+            callback(event)
+            time_event_handler_drop(handler)
+
+            if ts_event != ts_last:
+                ts_last = ts_event
+                for exchange in self._venues.values():
+                    exchange.process(ts_event)
+
+            # Re-advance clocks to capture chained alerts scheduled by callback
+            for clock in clocks:
+                time_event_accumulator_advance_clock(
+                    &self._accumulator,
+                    &clock._mem,
+                    ts_now,
+                    False,
+                )
+
     cdef void _process_raw_time_event_handlers(
         self,
         CVec raw_handler_vec,
@@ -1664,51 +1765,63 @@ cdef class BacktestEngine:
         bint only_now,
         bint as_of_now = False,
     ):
-        cdef TimeEventHandler_t* raw_handlers = <TimeEventHandler_t*>raw_handler_vec.ptr
-        cdef:
-            uint64_t i
-            uint64_t ts_event_init
-            uint64_t ts_last_init = 0
-            TimeEventHandler_t raw_handler
-            TimeEvent event
-            TestClock clock
-            PyObject *raw_callback
-            object callback
-            SimulatedExchange exchange
-        for i in range(raw_handler_vec.len):
+        cdef list[TestClock] clocks = get_component_clocks(self._instance_id)
+        cdef TestClock clock
+        cdef TimeEventHandler_t handler
+        cdef uint64_t ts_event
+        cdef uint64_t ts_last = 0
+        cdef TimeEvent event
+        cdef PyObject *raw_callback
+        cdef object callback
+        cdef SimulatedExchange exchange
+
+        if not only_now:
+            return
+
+        while True:
             if FORCE_STOP:
-                # The FORCE_STOP flag has already been set,
-                # no further time events should be processed.
-                return
+                break
 
-            raw_handler = <TimeEventHandler_t>raw_handlers[i]
-            ts_event_init = raw_handler.event.ts_init
+            handler = time_event_accumulator_pop_next_at_or_before(
+                &self._accumulator,
+                ts_now,
+            )
 
-            if should_skip_time_event(ts_event_init, ts_now, only_now, as_of_now):
-                continue  # Do not process event
+            if handler.callback_ptr == NULL:
+                break
 
-            # Set all clocks to event timestamp
-            set_logging_clock_static_time(ts_event_init)
+            ts_event = handler.event.ts_event
+
+            if as_of_now and ts_event > ts_now:
+                break
+
+            set_logging_clock_static_time(ts_event)
 
             if LOGGING_PYO3:
-                nautilus_pyo3.logging_clock_set_static_time(ts_event_init)
+                nautilus_pyo3.logging_clock_set_static_time(ts_event)
 
-            for clock in get_component_clocks(self._instance_id):
-                clock.set_time(ts_event_init)
+            for clock in clocks:
+                clock.set_time(ts_event)
 
-            event = TimeEvent.from_mem_c(raw_handler.event)
-
-            # Cast raw `PyObject *` to a `PyObject`
-            raw_callback = <PyObject *>raw_handler.callback_ptr
+            event = TimeEvent.from_mem_c(handler.event)
+            raw_callback = <PyObject *>handler.callback_ptr
             callback = <object>raw_callback
             callback(event)
+            time_event_handler_drop(handler)
 
-            if ts_event_init != ts_last_init:
-                # Process exchange messages
-                ts_last_init = ts_event_init
-
+            if ts_event != ts_last:
+                ts_last = ts_event
                 for exchange in self._venues.values():
-                    exchange.process(ts_event_init)
+                    exchange.process(ts_event)
+
+            # Re-advance to capture timers scheduled by callback
+            for clock in clocks:
+                time_event_accumulator_advance_clock(
+                    &self._accumulator,
+                    &clock._mem,
+                    ts_now,
+                    False,
+                )
 
     def _get_log_color_code(self):
         return "\033[36m" if logging_is_colored() else ""

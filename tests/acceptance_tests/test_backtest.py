@@ -13,6 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import shutil
 import sys
 from decimal import Decimal
 
@@ -20,6 +21,7 @@ import pandas as pd
 import pytest
 from fsspec.implementations.local import LocalFileSystem
 
+from nautilus_trader import PACKAGE_ROOT
 from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.accounting.accounts.margin import MarginAccount
 from nautilus_trader.adapters.databento.data_utils import databento_data
@@ -1559,6 +1561,15 @@ class TestBacktestPnLAlignmentAcceptance:
 
 @pytest.mark.xdist_group(name="databento_catalog")
 class TestBacktestNodeWithBacktestDataIterator:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        # Clear stale catalog data before each test
+        catalog_data_path = (
+            PACKAGE_ROOT / "tests" / "test_data" / "databento" / "options_catalog" / "data"
+        )
+        if catalog_data_path.exists():
+            shutil.rmtree(catalog_data_path)
+
     def test_backtest_same_with_and_without_data_configs(self) -> None:
         # Arrange
         messages_with_data: list = []
@@ -1619,8 +1630,8 @@ class TestBacktestNodeWithBacktestDataIterator:
         expected_spread_bar_messages = [
             "Historical Bar: ((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL,12928.25,12928.25,12927.25,12927.25,4,1715248560000000000, ts=2024-05-09T09:56:00.000000000Z",
             "Historical Bar: ((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL,12927.50,12928.00,12927.50,12928.00,3,1715248680000000000, ts=2024-05-09T09:58:00.000000000Z",
-            "Bar: ((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL,12930.25,12930.50,12930.25,12930.50,3,1715248800000000000, ts=2024-05-09T10:00:00.000000000Z",
-            "Bar: ((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL,12930.25,12931.75,12930.25,12931.75,8,1715248920000000000, ts=2024-05-09T10:02:00.000000000Z",
+            "Bar: ((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL,12930.25,12930.25,12930.25,12930.25,1,1715248800000000000, ts=2024-05-09T10:00:00.000000000Z",
+            "Bar: ((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL,12930.50,12931.75,12930.25,12931.75,10,1715248920000000000, ts=2024-05-09T10:02:00.000000000Z",
             "Bar: ((1))ESM4___(1)NQM4.XCME-2-MINUTE-ASK-INTERNAL,12933.00,12933.00,12932.50,12932.50,4,1715249040000000000, ts=2024-05-09T10:04:00.000000000Z",
         ]
         assert spread_bar_messages == expected_spread_bar_messages

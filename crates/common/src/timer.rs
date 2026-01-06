@@ -277,15 +277,15 @@ unsafe impl Sync for TimeEventCallback {}
 ///
 /// `TimeEventHandler` associates a `TimeEvent` with a callback function that is triggered
 /// when the event's timestamp is reached.
-pub struct TimeEventHandlerV2 {
+pub struct TimeEventHandler {
     /// The time event.
     pub event: TimeEvent,
     /// The callable handler for the event.
     pub callback: TimeEventCallback,
 }
 
-impl TimeEventHandlerV2 {
-    /// Creates a new [`TimeEventHandlerV2`] instance.
+impl TimeEventHandler {
+    /// Creates a new [`TimeEventHandler`] instance.
     #[must_use]
     pub const fn new(event: TimeEvent, callback: TimeEventCallback) -> Self {
         Self { event, callback }
@@ -302,21 +302,21 @@ impl TimeEventHandlerV2 {
     }
 }
 
-impl PartialOrd for TimeEventHandlerV2 {
+impl PartialOrd for TimeEventHandler {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl PartialEq for TimeEventHandlerV2 {
+impl PartialEq for TimeEventHandler {
     fn eq(&self, other: &Self) -> bool {
         self.event.ts_event == other.event.ts_event
     }
 }
 
-impl Eq for TimeEventHandlerV2 {}
+impl Eq for TimeEventHandler {}
 
-impl Ord for TimeEventHandlerV2 {
+impl Ord for TimeEventHandler {
     fn cmp(&self, other: &Self) -> Ordering {
         self.event.ts_event.cmp(&other.event.ts_event)
     }
