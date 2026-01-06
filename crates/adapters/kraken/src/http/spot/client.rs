@@ -426,7 +426,7 @@ impl KrakenSpotRawHttpClient {
                     })?;
 
                 if !kraken_response.error.is_empty() {
-                    return Err(KrakenHttpError::ApiError(kraken_response.error.clone()));
+                    return Err(KrakenHttpError::ApiError(kraken_response.error));
                 }
 
                 Ok(kraken_response)
@@ -1547,7 +1547,7 @@ impl KrakenSpotHttpClient {
         let ts_init = self.generate_ts_init();
         let mut wallet_by_coin: HashMap<Ustr, f64> = HashMap::new();
 
-        for (currency_code, amount_str) in balances_raw.iter() {
+        for (currency_code, amount_str) in &balances_raw {
             let balance = match amount_str.parse::<f64>() {
                 Ok(b) => b,
                 Err(_) => continue,

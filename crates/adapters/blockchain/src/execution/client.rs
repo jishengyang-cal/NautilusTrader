@@ -23,7 +23,7 @@ use nautilus_common::messages::execution::{
     ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
 };
 use nautilus_core::UnixNanos;
-use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
+use nautilus_live::{ExecutionClient, ExecutionClientCore};
 use nautilus_model::{
     accounts::AccountAny,
     defi::{

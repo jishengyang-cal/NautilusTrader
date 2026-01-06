@@ -37,7 +37,7 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{MUTEX_POISONED, UnixNanos};
-use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
+use nautilus_live::{ExecutionClient, ExecutionClientCore};
 use nautilus_model::{
     accounts::AccountAny,
     enums::OmsType,

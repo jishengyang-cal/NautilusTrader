@@ -230,6 +230,14 @@ repos:
         files: '\.rs$'
         pass_filenames: false
 
+      - id: check-cargo-conventions
+        name: check cargo conventions
+        description: Enforces Cargo.toml dependency ordering conventions
+        entry: .pre-commit-hooks/check_cargo_conventions.sh
+        language: script
+        files: 'Cargo\.toml$'
+        pass_filenames: false
+
       - id: fmt
         name: cargo fmt
         description: Format files with cargo fmt

@@ -623,8 +623,7 @@ impl FuturesFeedHandler {
 
         let ts_event = ticker
             .time
-            .map(|t| UnixNanos::from((t as u64) * 1_000_000))
-            .unwrap_or(ts_init);
+            .map_or(ts_init, |t| UnixNanos::from((t as u64) * 1_000_000));
 
         let has_mark = self.is_subscribed(KrakenFuturesChannel::Mark, &ticker.product_id);
         let has_index = self.is_subscribed(KrakenFuturesChannel::Index, &ticker.product_id);
@@ -1191,14 +1190,12 @@ impl FuturesFeedHandler {
             ))),
             OrderStatus::Canceled => {
                 // Detect expiry by cancel reason keywords
-                let is_expired = cancel_reason
-                    .map(|r| {
-                        let r_lower = r.to_lowercase();
-                        r_lower.contains("expir")
-                            || r_lower.contains("gtd")
-                            || r_lower.contains("timeout")
-                    })
-                    .unwrap_or(false);
+                let is_expired = cancel_reason.is_some_and(|r| {
+                    let r_lower = r.to_lowercase();
+                    r_lower.contains("expir")
+                        || r_lower.contains("gtd")
+                        || r_lower.contains("timeout")
+                });
 
                 if is_expired {
                     Some(ParsedOrderEvent::Expired(OrderExpired::new(
@@ -1486,8 +1483,7 @@ mod tests {
         for delta in &deltas.deltas[1..] {
             assert!(
                 !delta.order.size.is_zero(),
-                "Found zero-quantity delta that should have been filtered: {:?}",
-                delta
+                "Found zero-quantity delta that should have been filtered: {delta:?}"
             );
         }
     }

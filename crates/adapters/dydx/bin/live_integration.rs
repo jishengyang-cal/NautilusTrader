@@ -44,7 +44,6 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{UUID4, UnixNanos, time::get_atomic_clock_realtime};
-use nautilus_data::client::DataClient;
 use nautilus_dydx::{
     common::consts::{DYDX_TESTNET_HTTP_URL, DYDX_TESTNET_WS_URL, DYDX_VENUE},
     config::DydxDataClientConfig,
@@ -52,6 +51,7 @@ use nautilus_dydx::{
     http::client::DydxHttpClient,
     websocket::client::DydxWebSocketClient,
 };
+use nautilus_live::DataClient;
 use nautilus_model::{
     data::{BarSpecification, BarType, Data},
     enums::{AggregationSource, BarAggregation, BookType, PriceType},

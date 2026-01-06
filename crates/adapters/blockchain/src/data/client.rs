@@ -27,7 +27,7 @@ use nautilus_common::{
         },
     },
 };
-use nautilus_data::client::DataClient;
+use nautilus_live::DataClient;
 use nautilus_model::{
     defi::{DefiData, PoolIdentifier, SharedChain, validation::validate_address},
     identifiers::{ClientId, Venue},

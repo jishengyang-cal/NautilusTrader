@@ -36,7 +36,7 @@ use nautilus_common::{
     msgbus,
 };
 use nautilus_core::{UUID4, UnixNanos, time::get_atomic_clock_realtime};
-use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
+use nautilus_live::{ExecutionClient, ExecutionClientCore};
 use nautilus_model::{
     accounts::AccountAny,
     enums::OmsType,

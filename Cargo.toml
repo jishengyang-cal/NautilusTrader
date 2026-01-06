@@ -87,10 +87,10 @@ nautilus-trading = { path = "crates/trading", version = "0.53.0" }
 # -----------------------------------------------------------------------------
 nautilus-architect-ax = { path = "crates/adapters/architect_ax", version = "0.53.0" }
 nautilus-binance = { path = "crates/adapters/binance", version = "0.53.0", default-features = false }
+nautilus-bitmex = { path = "crates/adapters/bitmex", version = "0.53.0", default-features = false }
 nautilus-blockchain = { path = "crates/adapters/blockchain", version = "0.53.0" }
 nautilus-bybit = { path = "crates/adapters/bybit", version = "0.53.0", default-features = false }
 nautilus-coinbase-intx = { path = "crates/adapters/coinbase_intx", version = "0.53.0", default-features = false }
-nautilus-bitmex = { path = "crates/adapters/bitmex", version = "0.53.0", default-features = false }
 nautilus-databento = { path = "crates/adapters/databento", version = "0.53.0", default-features = false }
 nautilus-deribit = { path = "crates/adapters/deribit", version = "0.53.0", default-features = false }
 nautilus-dydx = { path = "crates/adapters/dydx", version = "0.53.0", default-features = false }
@@ -204,7 +204,6 @@ parquet = { version = "57.1.0", default-features = false, features = [
 pem = "3.0.6"
 # Keep prost in sync with dydx-proto
 prost = { version = "0.13.5", default-features = false, features = ["std"] }
-prost-types = "0.13.5"
 pyo3 = { version = "0.27.2", default-features = false, features = [
   "chrono",
   "hashbrown",
@@ -299,20 +298,19 @@ tokio = { version = "1.49.0", default-features = false, features = [
   "signal",
 ] }
 tokio-rustls = "0.26.4"
-tokio-stream = "0.1.18"
 tokio-tungstenite = { version = "0.28.0", features = [
   "rustls-tls-webpki-roots",
 ] }
 tokio-util = { version = "0.7.18", default-features = false, features = ["io"] }
+toml = { version = "0.9.10", default-features = false, features = [
+  "parse",
+  "serde",
+] }
 # Keep tonic in sync with dydx-proto
 tonic = { version = "0.13.1", default-features = false, features = [
   "channel",
   "tls-aws-lc",
   "tls-webpki-roots",
-] }
-toml = { version = "0.9.10", default-features = false, features = [
-  "parse",
-  "serde",
 ] }
 totp-rs = { version = "5.7.0", features = ["gen_secret"] }
 unbounded-interval-tree = { version = "1.1.2", default-features = false }
@@ -336,7 +334,6 @@ axum = { version = "0.8.8", default-features = false, features = [
 criterion = { version = "0.8.1", default-features = false, features = [
   "cargo_bench_support",
 ] }
-http-body-util = "0.1.3"
 iai = "0.1.1"
 pretty_assertions = "1.4.1"
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }

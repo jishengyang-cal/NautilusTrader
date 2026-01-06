@@ -25,7 +25,7 @@ use nautilus_common::{
     logging::{init_logging, logger::LoggerConfig, writer::FileWriterConfig},
 };
 use nautilus_core::UUID4;
-use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
+use nautilus_live::{ExecutionClient, ExecutionClientCore};
 use nautilus_model::{
     defi::chain::chains,
     enums::{AccountType, OmsType},

@@ -38,7 +38,7 @@ use nautilus_core::{
     datetime::datetime_to_unix_nanos,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
-use nautilus_data::client::DataClient;
+use nautilus_live::DataClient;
 use nautilus_model::{
     data::{Bar, BarType, Data, OrderBookDeltas_API},
     enums::{BarAggregation, BookType},

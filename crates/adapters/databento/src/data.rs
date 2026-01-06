@@ -42,7 +42,7 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{MUTEX_POISONED, time::AtomicTime};
-use nautilus_data::client::DataClient;
+use nautilus_live::DataClient;
 use nautilus_model::{
     enums::BarAggregation,
     identifiers::{ClientId, Symbol, Venue},
