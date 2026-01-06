@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
   "crates",
-  "crates/adapters/architect",
+  "crates/adapters/architect_ax",
   "crates/adapters/binance",
   "crates/adapters/bitmex",
   "crates/adapters/blockchain",
@@ -85,7 +85,7 @@ nautilus-trading = { path = "crates/trading", version = "0.53.0" }
 # Adapters
 # Note: default-features = false to control high-precision separately (not supported on Windows)
 # -----------------------------------------------------------------------------
-nautilus-architect = { path = "crates/adapters/architect", version = "0.53.0" }
+nautilus-architect-ax = { path = "crates/adapters/architect_ax", version = "0.53.0" }
 nautilus-binance = { path = "crates/adapters/binance", version = "0.53.0", default-features = false }
 nautilus-blockchain = { path = "crates/adapters/blockchain", version = "0.53.0" }
 nautilus-bybit = { path = "crates/adapters/bybit", version = "0.53.0", default-features = false }
@@ -314,6 +314,7 @@ toml = { version = "0.9.10", default-features = false, features = [
   "parse",
   "serde",
 ] }
+totp-rs = { version = "5.7.0", features = ["gen_secret"] }
 unbounded-interval-tree = { version = "1.1.2", default-features = false }
 url = { version = "2.5.7", default-features = false }
 urlencoding = "2.1.3"

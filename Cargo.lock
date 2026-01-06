@@ -4747,7 +4747,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nautilus-architect"
+name = "nautilus-architect-ax"
 version = "0.53.0"
 dependencies = [
  "ahash 0.8.12",
@@ -5676,7 +5676,7 @@ name = "nautilus-pyo3"
 version = "0.53.0"
 dependencies = [
  "nautilus-analysis",
- "nautilus-architect",
+ "nautilus-architect-ax",
  "nautilus-binance",
  "nautilus-bitmex",
  "nautilus-blockchain",

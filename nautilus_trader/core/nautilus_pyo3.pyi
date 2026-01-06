@@ -5732,18 +5732,18 @@ class BookImbalanceRatio:
 # Adapters
 ###################################################################################################
 
-# Architect
+# AX Exchange
 
-class ArchitectEnvironment(Enum):
+class AxEnvironment(Enum):
     SANDBOX = "Sandbox"
     PRODUCTION = "Production"
 
-class ArchitectMarketDataLevel(Enum):
+class AxMarketDataLevel(Enum):
     LEVEL_1 = "Level1"
     LEVEL_2 = "Level2"
     LEVEL_3 = "Level3"
 
-class ArchitectHttpClient:
+class AxHttpClient:
     def __init__(
         self,
         base_url: str | None = None,
@@ -5765,13 +5765,13 @@ class ArchitectHttpClient:
         retry_delay_ms: int | None = None,
         retry_delay_max_ms: int | None = None,
         proxy_url: str | None = None,
-    ) -> ArchitectHttpClient: ...
+    ) -> AxHttpClient: ...
     @property
     def base_url(self) -> str: ...
     def cancel_all_requests(self) -> None: ...
     def set_session_token(self, token: str) -> None: ...
 
-class ArchitectMdWebSocketClient:
+class AxMdWebSocketClient:
     def __init__(
         self,
         url: str,
@@ -5784,7 +5784,7 @@ class ArchitectMdWebSocketClient:
     def is_closed(self) -> bool: ...
     def subscription_count(self) -> int: ...
     async def connect(self) -> None: ...
-    async def subscribe(self, symbol: str, level: ArchitectMarketDataLevel) -> None: ...
+    async def subscribe(self, symbol: str, level: AxMarketDataLevel) -> None: ...
     async def unsubscribe(self, symbol: str) -> None: ...
     async def disconnect(self) -> None: ...
     async def close(self) -> None: ...
