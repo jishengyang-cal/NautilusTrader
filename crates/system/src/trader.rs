@@ -236,7 +236,7 @@ impl Trader {
 
         // Check for duplicate registration
         if self.actor_ids.contains(&actor_id) {
-            anyhow::bail!("Actor '{actor_id}' is already registered");
+            anyhow::bail!("Actor {actor_id} is already registered");
         }
 
         let clock = self.create_component_clock();
@@ -287,10 +287,7 @@ impl Trader {
         // Store actor ID for lifecycle management
         self.actor_ids.push(actor_id);
 
-        log::info!(
-            "Registered actor '{actor_id}' with trader {}",
-            self.trader_id
-        );
+        log::info!("Registered actor {actor_id} with trader {}", self.trader_id);
 
         Ok(())
     }
@@ -342,7 +339,7 @@ impl Trader {
 
         // Check for duplicate registration
         if self.strategy_ids.contains(&strategy_id) {
-            anyhow::bail!("Strategy '{strategy_id}' is already registered");
+            anyhow::bail!("Strategy {strategy_id} is already registered");
         }
 
         let clock = self.create_component_clock();
@@ -445,7 +442,7 @@ impl Trader {
         self.exec_algorithm_ids.push(exec_algorithm_id);
 
         log::info!(
-            "Registered execution algorithm '{exec_algorithm_id}' with trader {}",
+            "Registered execution algorithm {exec_algorithm_id} with trader {}",
             self.trader_id
         );
 
