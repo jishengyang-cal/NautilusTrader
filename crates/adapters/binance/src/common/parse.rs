@@ -23,9 +23,10 @@ use std::str::FromStr;
 use anyhow::Context;
 use nautilus_core::nanos::UnixNanos;
 use nautilus_model::{
-    data::{Bar, BarType, TradeTick},
+    data::{Bar, BarSpecification, BarType, TradeTick},
     enums::{
-        AggressorSide, LiquiditySide, OrderSide, OrderStatus, OrderType, TimeInForce, TriggerType,
+        AggressorSide, BarAggregation, LiquiditySide, OrderSide, OrderStatus, OrderType,
+        TimeInForce, TriggerType,
     },
     identifiers::{
         AccountId, ClientOrderId, InstrumentId, OrderListId, Symbol, TradeId, Venue, VenueOrderId,
@@ -42,7 +43,7 @@ use serde_json::Value;
 
 use crate::{
     common::{
-        enums::BinanceContractStatus,
+        enums::{BinanceContractStatus, BinanceKlineInterval},
         fixed::{mantissa_to_price, mantissa_to_quantity},
         sbe::spot::{
             order_side::OrderSide as SbeOrderSide, order_status::OrderStatus as SbeOrderStatus,
@@ -875,6 +876,56 @@ pub fn parse_klines_to_bars(
     Ok(bars)
 }
 
+/// Converts a Nautilus bar specification to a Binance kline interval.
+///
+/// # Errors
+///
+/// Returns an error if the bar specification does not map to a supported
+/// Binance kline interval.
+pub fn bar_spec_to_binance_interval(
+    bar_spec: BarSpecification,
+) -> anyhow::Result<BinanceKlineInterval> {
+    let step = bar_spec.step.get();
+    let interval = match bar_spec.aggregation {
+        BarAggregation::Second => {
+            anyhow::bail!("Binance Spot does not support second-level kline intervals")
+        }
+        BarAggregation::Minute => match step {
+            1 => BinanceKlineInterval::Minute1,
+            3 => BinanceKlineInterval::Minute3,
+            5 => BinanceKlineInterval::Minute5,
+            15 => BinanceKlineInterval::Minute15,
+            30 => BinanceKlineInterval::Minute30,
+            _ => anyhow::bail!("Unsupported minute interval: {step}m"),
+        },
+        BarAggregation::Hour => match step {
+            1 => BinanceKlineInterval::Hour1,
+            2 => BinanceKlineInterval::Hour2,
+            4 => BinanceKlineInterval::Hour4,
+            6 => BinanceKlineInterval::Hour6,
+            8 => BinanceKlineInterval::Hour8,
+            12 => BinanceKlineInterval::Hour12,
+            _ => anyhow::bail!("Unsupported hour interval: {step}h"),
+        },
+        BarAggregation::Day => match step {
+            1 => BinanceKlineInterval::Day1,
+            3 => BinanceKlineInterval::Day3,
+            _ => anyhow::bail!("Unsupported day interval: {step}d"),
+        },
+        BarAggregation::Week => match step {
+            1 => BinanceKlineInterval::Week1,
+            _ => anyhow::bail!("Unsupported week interval: {step}w"),
+        },
+        BarAggregation::Month => match step {
+            1 => BinanceKlineInterval::Month1,
+            _ => anyhow::bail!("Unsupported month interval: {step}M"),
+        },
+        agg => anyhow::bail!("Unsupported bar aggregation for Binance: {agg:?}"),
+    };
+
+    Ok(interval)
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -985,5 +1036,90 @@ mod tests {
                 .to_string()
                 .contains("Missing PRICE_FILTER")
         );
+    }
+
+    mod bar_spec_tests {
+        use std::num::NonZeroUsize;
+
+        use nautilus_model::{
+            data::BarSpecification,
+            enums::{BarAggregation, PriceType},
+        };
+
+        use super::*;
+        use crate::common::enums::BinanceKlineInterval;
+
+        fn make_bar_spec(step: usize, aggregation: BarAggregation) -> BarSpecification {
+            BarSpecification {
+                step: NonZeroUsize::new(step).unwrap(),
+                aggregation,
+                price_type: PriceType::Last,
+            }
+        }
+
+        #[rstest]
+        #[case(1, BarAggregation::Minute, BinanceKlineInterval::Minute1)]
+        #[case(3, BarAggregation::Minute, BinanceKlineInterval::Minute3)]
+        #[case(5, BarAggregation::Minute, BinanceKlineInterval::Minute5)]
+        #[case(15, BarAggregation::Minute, BinanceKlineInterval::Minute15)]
+        #[case(30, BarAggregation::Minute, BinanceKlineInterval::Minute30)]
+        #[case(1, BarAggregation::Hour, BinanceKlineInterval::Hour1)]
+        #[case(2, BarAggregation::Hour, BinanceKlineInterval::Hour2)]
+        #[case(4, BarAggregation::Hour, BinanceKlineInterval::Hour4)]
+        #[case(6, BarAggregation::Hour, BinanceKlineInterval::Hour6)]
+        #[case(8, BarAggregation::Hour, BinanceKlineInterval::Hour8)]
+        #[case(12, BarAggregation::Hour, BinanceKlineInterval::Hour12)]
+        #[case(1, BarAggregation::Day, BinanceKlineInterval::Day1)]
+        #[case(3, BarAggregation::Day, BinanceKlineInterval::Day3)]
+        #[case(1, BarAggregation::Week, BinanceKlineInterval::Week1)]
+        #[case(1, BarAggregation::Month, BinanceKlineInterval::Month1)]
+        fn test_bar_spec_to_binance_interval(
+            #[case] step: usize,
+            #[case] aggregation: BarAggregation,
+            #[case] expected: BinanceKlineInterval,
+        ) {
+            let bar_spec = make_bar_spec(step, aggregation);
+            let result = bar_spec_to_binance_interval(bar_spec).unwrap();
+            assert_eq!(result, expected);
+        }
+
+        #[rstest]
+        fn test_unsupported_second_interval() {
+            let bar_spec = make_bar_spec(1, BarAggregation::Second);
+            let result = bar_spec_to_binance_interval(bar_spec);
+            assert!(result.is_err());
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("does not support second-level")
+            );
+        }
+
+        #[rstest]
+        fn test_unsupported_minute_interval() {
+            let bar_spec = make_bar_spec(7, BarAggregation::Minute);
+            let result = bar_spec_to_binance_interval(bar_spec);
+            assert!(result.is_err());
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Unsupported minute interval")
+            );
+        }
+
+        #[rstest]
+        fn test_unsupported_aggregation() {
+            let bar_spec = make_bar_spec(100, BarAggregation::Tick);
+            let result = bar_spec_to_binance_interval(bar_spec);
+            assert!(result.is_err());
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Unsupported bar aggregation")
+            );
+        }
     }
 }

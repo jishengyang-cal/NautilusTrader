@@ -62,6 +62,7 @@ pub mod common;
 pub mod config;
 pub mod data;
 pub mod execution;
+pub mod factories;
 pub mod futures;
 pub mod spot;
 pub mod websocket;

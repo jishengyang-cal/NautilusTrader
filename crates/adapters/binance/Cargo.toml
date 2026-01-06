@@ -91,6 +91,7 @@ pyo3-async-runtimes = { workspace = true, optional = true }
 nautilus-testkit = { workspace = true }
 
 criterion = { workspace = true }
+dotenvy = { workspace = true }
 rstest = { workspace = true }
 rust_decimal_macros = { workspace = true }
 url = { workspace = true }
@@ -104,4 +105,9 @@ doc = false
 [[bin]]
 name = "binance-spot-ws-data"
 path = "bin/ws_spot_data.rs"
+doc = false
+
+[[example]]
+name = "binance-data-tester"
+path = "examples/node_data_tester.rs"
 doc = false

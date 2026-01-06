@@ -177,6 +177,12 @@ impl BinanceSpotWebSocketClient {
             vec![]
         };
 
+        log::info!(
+            "Connecting to Binance SBE WebSocket: url={}, auth={}",
+            self.url,
+            self.credential.is_some()
+        );
+
         let config = WebSocketConfig {
             url: self.url.clone(),
             headers,
@@ -199,7 +205,10 @@ impl BinanceSpotWebSocketClient {
             None,
         )
         .await
-        .map_err(|e| BinanceWsError::NetworkError(e.to_string()))?;
+        .map_err(|e| {
+            log::error!("WebSocket connection failed: {e}");
+            BinanceWsError::NetworkError(e.to_string())
+        })?;
 
         self.connection_mode.store(client.connection_mode_atomic());
 

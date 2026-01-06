@@ -4833,6 +4833,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "derive_builder",
+ "dotenvy",
  "ed25519-dalek",
  "futures-util",
  "hex",

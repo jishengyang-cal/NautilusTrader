@@ -563,6 +563,31 @@ pub enum BinanceKlineInterval {
     Month1,
 }
 
+impl BinanceKlineInterval {
+    /// Returns the string representation used by Binance API.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Second1 => "1s",
+            Self::Minute1 => "1m",
+            Self::Minute3 => "3m",
+            Self::Minute5 => "5m",
+            Self::Minute15 => "15m",
+            Self::Minute30 => "30m",
+            Self::Hour1 => "1h",
+            Self::Hour2 => "2h",
+            Self::Hour4 => "4h",
+            Self::Hour6 => "6h",
+            Self::Hour8 => "8h",
+            Self::Hour12 => "12h",
+            Self::Day1 => "1d",
+            Self::Day3 => "3d",
+            Self::Week1 => "1w",
+            Self::Month1 => "1M",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
