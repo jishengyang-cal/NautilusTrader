@@ -32,7 +32,8 @@
 //! - `crate::account_capnp` - Account events
 //! - `crate::market_capnp` - Market data types
 
-#![cfg(feature = "capnp")]
+// Allow missing error docs for internal capnp conversion functions
+#![allow(clippy::missing_errors_doc)]
 
 pub mod conversions;
 
@@ -67,15 +68,4 @@ pub trait FromCapnp<'a> {
     fn from_capnp(reader: Self::Reader) -> Result<Self, Box<dyn std::error::Error>>
     where
         Self: Sized;
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    #[rstest]
-    fn test_capnp_feature_enabled() {
-        // This test ensures the capnp feature is properly configured
-        assert!(cfg!(feature = "capnp"));
-    }
 }
