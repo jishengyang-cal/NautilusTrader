@@ -1645,7 +1645,7 @@ cdef class TimeBarAggregator(BarAggregator):
         if self._skip_first_non_full_bar and ts_init <= self.first_close_ns:
             self._builder.reset()
         else:
-            # We set set _skip_first_non_full_bar to False for the transition from historical to live data
+            # Set _skip_first_non_full_bar to False for transition from historical to live data
             self._skip_first_non_full_bar = False
             BarAggregator._build_and_send(self, ts_event, ts_init)
 

@@ -2689,11 +2689,7 @@ cdef class DataEngine(Component):
 
         if bar_type.spec.is_time_aggregated():
             time_bars_origin_offset = self._time_bars_origin_offset.get(bar_type.spec.aggregation) or params.get("time_bars_origin_offset")
-
-            if "skip_first_non_full_bar" in params:
-                time_bars_skip_first_non_full_bar = params.get("skip_first_non_full_bar", False)
-            else:
-                time_bars_skip_first_non_full_bar = self._time_bars_skip_first_non_full_bar
+            time_bars_skip_first_non_full_bar = params.get("skip_first_non_full_bar", self._time_bars_skip_first_non_full_bar)
 
             aggregator = TimeBarAggregator(
                 instrument=instrument,
