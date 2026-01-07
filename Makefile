@@ -75,8 +75,14 @@ ifeq ($(HYPERSYNC),true)
 EXTRA_FEATURES += hypersync
 endif
 
-# Base cargo features (always included)
+# DEFI controls whether defi feature is included (default: true).
+# Can be disabled: make cargo-test-core DEFI=false
+DEFI ?= true
+ifeq ($(DEFI),true)
 BASE_FEATURES := ffi,python,high-precision,defi
+else
+BASE_FEATURES := ffi,python,high-precision
+endif
 
 # Combine base features with extra features
 ifneq ($(strip $(EXTRA_FEATURES)),)
@@ -84,6 +90,13 @@ CARGO_FEATURES := $(BASE_FEATURES),$(EXTRA_FEATURES)
 else
 CARGO_FEATURES := $(BASE_FEATURES)
 endif
+
+# Core crates (excludes adapters/*, nautilus-pyo3, nautilus-cli)
+CORE_CRATES := nautilus-analysis nautilus-backtest nautilus-common nautilus-core \
+    nautilus-cryptography nautilus-data nautilus-execution nautilus-indicators \
+    nautilus-infrastructure nautilus-live nautilus-model nautilus-network \
+    nautilus-persistence nautilus-portfolio nautilus-risk nautilus-serialization \
+    nautilus-system nautilus-testkit nautilus-trading
 
 # > Colors
 # Use ANSI escape codes directly for cross-platform compatibility (Git Bash on Windows doesn't have tput)
@@ -456,6 +469,24 @@ endif
 cargo-test-extras:  #-- Run all Rust tests with capnp and hypersync features (convenience shortcut)
 	$(MAKE) cargo-test EXTRA_FEATURES="capnp,hypersync"
 
+.PHONY: cargo-test-core
+cargo-test-core: export RUST_BACKTRACE=1
+cargo-test-core: check-nextest-installed
+cargo-test-core:  #-- Run Rust tests for core crates only (excludes adapters)
+ifeq ($(VERBOSE),true)
+	$(info $(M) Running Rust tests for core crates...)
+	cargo nextest run $(foreach crate,$(CORE_CRATES),-p $(crate)) --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --cargo-profile nextest --verbose
+else
+	$(info $(M) Running Rust tests for core crates (showing summary and failures only)...)
+	cargo nextest run $(foreach crate,$(CORE_CRATES),-p $(crate)) --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --cargo-profile nextest --status-level fail --final-status-level flaky
+endif
+
+.PHONY: cargo-test-core-debug
+cargo-test-core-debug: export RUST_BACKTRACE=1
+cargo-test-core-debug: check-nextest-installed
+cargo-test-core-debug:  #-- Run Rust tests for core crates (debug profile)
+	cargo nextest run $(foreach crate,$(CORE_CRATES),-p $(crate)) --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG)
+
 .PHONY: cargo-test-lib
 cargo-test-lib: export RUST_BACKTRACE=1
 cargo-test-lib: check-nextest-installed
@@ -465,14 +496,14 @@ cargo-test-lib:  #-- Run Rust library tests only with high precision
 .PHONY: cargo-test-standard-precision
 cargo-test-standard-precision: export RUST_BACKTRACE=1
 cargo-test-standard-precision: check-nextest-installed
-cargo-test-standard-precision:  #-- Run Rust tests in debug mode with standard precision (64-bit)
-	cargo nextest run --workspace --features "ffi,python" $(FAIL_FAST_FLAG) --cargo-profile nextest
+cargo-test-standard-precision:  #-- Run Rust tests with standard precision (debug profile)
+	cargo nextest run --workspace --features "ffi,python" $(FAIL_FAST_FLAG)
 
 .PHONY: cargo-test-debug
 cargo-test-debug: export RUST_BACKTRACE=1
 cargo-test-debug: check-nextest-installed
-cargo-test-debug:  #-- Run Rust tests in debug mode with high precision
-	cargo nextest run --workspace --features "ffi,python,high-precision,defi" $(FAIL_FAST_FLAG) --cargo-profile nextest
+cargo-test-debug:  #-- Run Rust tests with high precision (debug profile)
+	cargo nextest run --workspace --features "ffi,python,high-precision,defi" $(FAIL_FAST_FLAG)
 
 .PHONY: cargo-test-coverage
 cargo-test-coverage: check-nextest-installed check-llvm-cov-installed
