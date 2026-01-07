@@ -64,7 +64,7 @@ FAIL_FAST_FLAG := --no-fail-fast
 endif
 
 # EXTRA_FEATURES allows adding optional features to cargo builds/tests.
-# Can be set directly: make cargo-test EXTRA_FEATURES="capnp hypersync"
+# Can be set directly: make cargo-test EXTRA_FEATURES="capnp,hypersync"
 # Or use convenience flags below for backwards compatibility.
 EXTRA_FEATURES ?=
 
@@ -236,7 +236,7 @@ pre-flight:  #-- Run comprehensive pre-flight checks (format, check-code, cargo-
 		exit 1; \
 	fi
 	@$(MAKE) --no-print-directory format
-	@$(MAKE) --no-print-directory check-code
+	@$(MAKE) --no-print-directory check-code EXTRA_FEATURES="capnp,hypersync"
 	@$(MAKE) --no-print-directory cargo-test-extras
 	@$(MAKE) --no-print-directory build-debug
 	@$(MAKE) --no-print-directory pytest
@@ -324,7 +324,7 @@ docs: docs-python docs-rust  #-- Build all documentation (Python and Rust)
 .PHONY: docs-python
 docs-python: export BUILD_MODE=debug
 docs-python:  #-- Build Python documentation with Sphinx
-	uv run --active sphinx-build -M markdown ./docs/api_reference ./api_reference
+	uv run --active --no-sync sphinx-build -M markdown ./docs/api_reference ./api_reference
 
 .PHONY: docs-rust
 docs-rust: export RUSTDOCFLAGS=--enable-index-page -Zunstable-options
@@ -373,7 +373,6 @@ check-audit-installed:  #-- Verify cargo-audit is installed
 		exit 1; \
 	fi
 
-
 .PHONY: check-deny-installed
 check-deny-installed:  #-- Verify cargo-deny is installed
 	@if ! cargo deny --version >/dev/null 2>&1; then \
@@ -416,8 +415,8 @@ check-edit-installed:  #-- Verify cargo-edit is installed
 		exit 1; \
 	fi
 
-.PHONY: check-features  #-- Verify crate feature combinations compile correctly
-check-features: check-hack-installed
+.PHONY: check-features
+check-features: check-hack-installed  #-- Verify crate feature combinations compile correctly
 	cargo hack check --each-feature
 
 .PHONY: check-capnp-schemas  #-- Verify Cap'n Proto schemas are up-to-date
@@ -467,18 +466,18 @@ cargo-test-lib:  #-- Run Rust library tests only with high precision
 cargo-test-standard-precision: export RUST_BACKTRACE=1
 cargo-test-standard-precision: check-nextest-installed
 cargo-test-standard-precision:  #-- Run Rust tests in debug mode with standard precision (64-bit)
-	cargo nextest run --workspace --features "ffi,python"
+	cargo nextest run --workspace --features "ffi,python" $(FAIL_FAST_FLAG) --cargo-profile nextest
 
 .PHONY: cargo-test-debug
 cargo-test-debug: export RUST_BACKTRACE=1
 cargo-test-debug: check-nextest-installed
 cargo-test-debug:  #-- Run Rust tests in debug mode with high precision
-	cargo nextest run --workspace --features "ffi,python,high-precision,defi" $(FAIL_FAST_FLAG)
+	cargo nextest run --workspace --features "ffi,python,high-precision,defi" $(FAIL_FAST_FLAG) --cargo-profile nextest
 
 .PHONY: cargo-test-coverage
 cargo-test-coverage: check-nextest-installed check-llvm-cov-installed
 cargo-test-coverage:  #-- Run Rust tests with coverage reporting
-	cargo llvm-cov nextest run --workspace
+	cargo llvm-cov nextest run --workspace --features "$(CARGO_FEATURES)"
 
 # -----------------------------------------------------------------------------
 # Library tests for a single crate
