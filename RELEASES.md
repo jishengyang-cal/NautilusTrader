@@ -13,6 +13,7 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
+- Fixed trade execution fills discarded with `liquidity_consumption`
 - Fixed backtest clock monotonicity with time alerts (#3384), thanks @draphi
 - Fixed order updated panic during reconciliation (#3380), thanks for reporting @santivazq
 - Fixed trailing stops default price type (#3379), thanks @KaulSe

@@ -1885,6 +1885,182 @@ class TestOrderMatchingEngine:
         assert filled_events[1].last_qty == Quantity.from_str("10.000")
         assert filled_events[2].last_qty == Quantity.from_str("20.000")
 
+    @pytest.mark.parametrize(
+        ("order_side", "aggressor_side", "order_price", "trade_price", "book_bid", "book_ask"),
+        [
+            # BUY order above trade price, SELLER trade
+            (OrderSide.BUY, AggressorSide.SELLER, "211.35", "211.32", "211.30", "211.40"),
+            # SELL order below trade price, BUYER trade
+            (OrderSide.SELL, AggressorSide.BUYER, "211.35", "211.38", "211.30", "211.40"),
+        ],
+        ids=["buy_above_seller_trade", "sell_below_buyer_trade"],
+    )
+    def test_trade_execution_fill_with_liquidity_consumption_l2_mbp(
+        self,
+        order_side: OrderSide,
+        aggressor_side: AggressorSide,
+        order_price: str,
+        trade_price: str,
+        book_bid: str,
+        book_ask: str,
+    ) -> None:
+        """
+        Test that trade execution fills work correctly with liquidity_consumption=True
+        on L2_MBP when trade price differs from order price.
+
+        Regression test for bug where _apply_liquidity_consumption checked ORDER BOOK
+        for available liquidity at the trade price, discarding fills when the trade
+        price wasn't in the book.
+
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L2_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            trade_execution=True,
+            liquidity_consumption=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
+
+        # Arrange
+        snapshot = TestDataStubs.order_book_snapshot(
+            instrument=self.instrument,
+            bid_price=float(book_bid),
+            ask_price=float(book_ask),
+            bid_size=100.0,
+            ask_size=100.0,
+        )
+        matching_engine.process_order_book_deltas(snapshot)
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        order = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=order_side,
+            price=Price.from_str(order_price),
+            quantity=self.instrument.make_qty(50.0),
+        )
+        matching_engine.process_order(order, self.account_id)
+        messages.clear()
+
+        # Act
+        trade = TestDataStubs.trade_tick(
+            instrument=self.instrument,
+            price=float(trade_price),
+            size=100.0,
+            aggressor_side=aggressor_side,
+        )
+        matching_engine.process_trade_tick(trade)
+
+        # Assert
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 1, (
+            f"{order_side.name} LIMIT at {order_price} should fill on "
+            f"{aggressor_side.name} trade at {trade_price} with L2_MBP + liquidity_consumption"
+        )
+        assert filled_events[0].last_qty == Quantity.from_str("50.000")
+        assert filled_events[0].last_px == Price.from_str(trade_price)
+
+    @pytest.mark.parametrize(
+        ("order_side", "aggressor_side", "order_price", "trade_price", "book_bid", "book_ask"),
+        [
+            (OrderSide.BUY, AggressorSide.SELLER, "211.35", "211.32", "211.30", "211.40"),
+            (OrderSide.SELL, AggressorSide.BUYER, "211.35", "211.38", "211.30", "211.40"),
+        ],
+        ids=["buy_orders_seller_trade", "sell_orders_buyer_trade"],
+    )
+    def test_trade_execution_consumption_prevents_overfill_l2_mbp(
+        self,
+        order_side: OrderSide,
+        aggressor_side: AggressorSide,
+        order_price: str,
+        trade_price: str,
+        book_bid: str,
+        book_ask: str,
+    ) -> None:
+        """
+        Test that trade consumption tracking works correctly with L2_MBP when multiple
+        orders compete for the same trade tick.
+
+        Verifies that _trade_consumption tracking still functions when trade execution
+        fills bypass _apply_liquidity_consumption.
+
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L2_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            trade_execution=True,
+            liquidity_consumption=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
+
+        # Arrange
+        snapshot = TestDataStubs.order_book_snapshot(
+            instrument=self.instrument,
+            bid_price=float(book_bid),
+            ask_price=float(book_ask),
+            bid_size=100.0,
+            ask_size=100.0,
+        )
+        matching_engine.process_order_book_deltas(snapshot)
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        order1 = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=order_side,
+            price=Price.from_str(order_price),
+            quantity=self.instrument.make_qty(30.0),
+            client_order_id=TestIdStubs.client_order_id(1),
+        )
+        matching_engine.process_order(order1, self.account_id)
+
+        order2 = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=order_side,
+            price=Price.from_str(order_price),
+            quantity=self.instrument.make_qty(30.0),
+            client_order_id=TestIdStubs.client_order_id(2),
+        )
+        matching_engine.process_order(order2, self.account_id)
+        messages.clear()
+
+        # Act - trade tick with 50 qty (less than total order qty of 60)
+        trade = TestDataStubs.trade_tick(
+            instrument=self.instrument,
+            price=float(trade_price),
+            size=50.0,
+            aggressor_side=aggressor_side,
+        )
+        matching_engine.process_trade_tick(trade)
+
+        # Assert
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 2, (
+            f"Expected 2 fills for {order_side.name} orders, got {len(filled_events)}"
+        )
+        assert filled_events[0].last_qty == Quantity.from_str("30.000")
+        assert filled_events[1].last_qty == Quantity.from_str("20.000")
+        assert filled_events[0].last_px == Price.from_str(trade_price)
+        assert filled_events[1].last_px == Price.from_str(trade_price)
+
 
 def _create_bar_execution_matching_engine() -> OrderMatchingEngine:
     clock = TestClock()
