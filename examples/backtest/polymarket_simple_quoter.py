@@ -52,7 +52,7 @@ from nautilus_trader.model.objects import Money
 #   python nautilus_trader/adapters/polymarket/scripts/active_markets.py
 # To find BTC/ETH UpDown markets specifically, run:
 #   python nautilus_trader/adapters/polymarket/scripts/list_updown_markets.py
-MARKET_SLUG = "fed-rate-hike-in-2025"
+MARKET_SLUG = "gta-vi-released-before-june-2026"
 
 
 async def run_backtest(

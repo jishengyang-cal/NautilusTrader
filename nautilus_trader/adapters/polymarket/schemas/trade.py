@@ -20,10 +20,10 @@ import msgspec
 
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketLiquiditySide
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderSide
+from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
 from nautilus_trader.adapters.polymarket.common.parsing import determine_order_side
 from nautilus_trader.adapters.polymarket.schemas.user import PolymarketMakerOrder
 from nautilus_trader.core.datetime import secs_to_nanos
-from nautilus_trader.core.stats import basis_points_as_percentage
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.reports import FillReport
 from nautilus_trader.model.currencies import USDC_POS
@@ -156,7 +156,7 @@ class PolymarketTradeReport(msgspec.Struct, frozen=True):
         last_qty = instrument.make_qty(self.last_qty(filled_user_order_id))
         last_px = instrument.make_price(self.last_px(filled_user_order_id))
         fee_rate_bps = self.get_fee_rate_bps(filled_user_order_id)
-        commission = float(last_qty * last_px) * basis_points_as_percentage(fee_rate_bps)
+        commission = calculate_commission(last_qty, last_px, fee_rate_bps)
 
         return FillReport(
             account_id=account_id,

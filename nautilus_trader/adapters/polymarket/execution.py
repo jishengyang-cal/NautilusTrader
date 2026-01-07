@@ -40,6 +40,7 @@ from nautilus_trader.adapters.polymarket.common.conversion import usdce_from_uni
 from nautilus_trader.adapters.polymarket.common.credentials import PolymarketWebSocketAuth
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketEventType
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStatus
+from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
 from nautilus_trader.adapters.polymarket.common.parsing import validate_ethereum_address
 from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_condition_id
 from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_instrument_id
@@ -66,7 +67,6 @@ from nautilus_trader.core.datetime import nanos_to_secs
 from nautilus_trader.core.datetime import secs_to_nanos
 from nautilus_trader.core.nautilus_pyo3 import HttpClient
 from nautilus_trader.core.nautilus_pyo3 import HttpResponse
-from nautilus_trader.core.stats import basis_points_as_percentage
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.messages import BatchCancelOrders
 from nautilus_trader.execution.messages import CancelAllOrders
@@ -1468,9 +1468,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         last_qty = instrument.make_qty(msg.last_qty(order_id))
         last_px = instrument.make_price(msg.last_px(order_id))
-        commission = float(last_qty * last_px) * basis_points_as_percentage(
-            float(msg.get_fee_rate_bps(order_id)),
-        )
+        commission = calculate_commission(last_qty, last_px, msg.get_fee_rate_bps(order_id))
         ts_event = secs_to_nanos(int(msg.match_time))
 
         self.generate_order_filled(

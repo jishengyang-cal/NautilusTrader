@@ -14,6 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 import pkgutil
+from decimal import Decimal
 
 import msgspec
 import pytest
@@ -27,6 +28,7 @@ from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderSide
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderStatus
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderType
 from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStatus
+from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
 from nautilus_trader.adapters.polymarket.common.parsing import determine_order_side
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.adapters.polymarket.schemas.book import PolymarketBookLevel
@@ -748,6 +750,34 @@ def test_parse_user_trade_zero_commission_with_no_fees() -> None:
 
     # Assert
     assert fill_report.commission == Money(0.0, USDC_POS)
+
+
+@pytest.mark.parametrize(
+    ("quantity", "price", "fee_rate_bps", "expected"),
+    [
+        # Zero fee rate
+        (Decimal(100), Decimal("0.50"), Decimal(0), 0.0),
+        # Standard fee calculation: 100 * 0.50 * 0.02 = 1.0
+        (Decimal(100), Decimal("0.50"), Decimal(200), 1.0),
+        # Sub-minimum rounds to zero: 1 * 0.01 * 0.0001 = 0.000001 -> 0.0
+        (Decimal(1), Decimal("0.01"), Decimal(1), 0.0),
+        # Exactly at minimum: 1 * 1.0 * 0.0001 = 0.0001
+        (Decimal(1), Decimal("1.0"), Decimal(1), 0.0001),
+        # Rounding to 4 decimals: 123.45 * 0.6789 * 0.015 = 1.25727... -> 1.2572
+        (Decimal("123.45"), Decimal("0.6789"), Decimal(150), 1.2572),
+    ],
+)
+def test_calculate_commission(
+    quantity: Decimal,
+    price: Decimal,
+    fee_rate_bps: Decimal,
+    expected: float,
+) -> None:
+    """
+    Test commission calculation rounds to 4 decimal places (0.0001 USDC minimum).
+    """
+    result = calculate_commission(quantity, price, fee_rate_bps)
+    assert result == expected
 
 
 def test_parse_empty_book_snapshot_in_backtest_engine():
