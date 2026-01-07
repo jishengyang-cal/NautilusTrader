@@ -23,15 +23,14 @@ use std::{cell::RefCell, fmt::Debug, rc::Rc, str::FromStr};
 use ahash::{AHashMap, AHashSet};
 use nautilus_common::{
     cache::Cache,
+    clients::ExecutionClient,
     clock::Clock,
     enums::LogColor,
     log_info,
     messages::execution::report::{GenerateOrderStatusReports, GeneratePositionStatusReports},
 };
 use nautilus_core::{UUID4, UnixNanos};
-use nautilus_execution::{
-    client::ExecutionClient, reconciliation::generate_external_order_status_events,
-};
+use nautilus_execution::reconciliation::generate_external_order_status_events;
 use nautilus_model::{
     enums::OrderStatus,
     events::{

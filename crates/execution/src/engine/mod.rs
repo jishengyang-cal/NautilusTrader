@@ -39,6 +39,7 @@ use config::ExecutionEngineConfig;
 use futures::future::join_all;
 use nautilus_common::{
     cache::Cache,
+    clients::ExecutionClient,
     clock::Clock,
     generators::position_id::PositionIdGenerator,
     logging::{CMD, EVT, RECV, SEND},
@@ -67,7 +68,7 @@ use nautilus_model::{
     types::{Money, Price, Quantity},
 };
 
-use crate::client::{ExecutionClient, ExecutionClientAdapter};
+use crate::client::ExecutionClientAdapter;
 
 /// Central execution engine responsible for orchestrating order routing and execution.
 ///

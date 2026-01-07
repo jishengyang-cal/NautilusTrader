@@ -25,6 +25,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use nautilus_common::{
+    clients::DataClient,
     live::{runner::get_data_event_sender, runtime::get_runtime},
     log_info,
     messages::{
@@ -45,7 +46,6 @@ use nautilus_core::{
     datetime::datetime_to_unix_nanos,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
-use nautilus_live::DataClient;
 use nautilus_model::{
     data::{Data, OrderBookDeltas_API},
     identifiers::{ClientId, InstrumentId, Venue},

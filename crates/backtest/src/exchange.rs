@@ -27,13 +27,14 @@ use std::{
 };
 
 use ahash::AHashMap;
-use nautilus_common::{cache::Cache, clock::Clock, messages::execution::TradingCommand};
+use nautilus_common::{
+    cache::Cache, clients::ExecutionClient, clock::Clock, messages::execution::TradingCommand,
+};
 use nautilus_core::{
     UnixNanos,
     correctness::{FAILED, check_equal},
 };
 use nautilus_execution::{
-    client::ExecutionClient,
     matching_engine::{config::OrderMatchingEngineConfig, engine::OrderMatchingEngine},
     models::{fee::FeeModelAny, fill::FillModel, latency::LatencyModel},
 };

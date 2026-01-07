@@ -24,6 +24,7 @@ use std::{cell::RefCell, fmt::Debug, rc::Rc};
 use async_trait::async_trait;
 use nautilus_common::{
     cache::Cache,
+    clients::ExecutionClient,
     clock::Clock,
     messages::execution::{
         BatchCancelOrders, CancelAllOrders, CancelOrder, ModifyOrder, QueryAccount, QueryOrder,
@@ -31,7 +32,7 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{SharedCell, UnixNanos, WeakCell};
-use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
+use nautilus_execution::client::base::ExecutionClientCore;
 use nautilus_model::{
     accounts::AccountAny,
     enums::OmsType,

@@ -20,6 +20,7 @@ use std::{cell::RefCell, collections::HashSet, rc::Rc, str::FromStr};
 use ahash::AHashSet;
 use nautilus_common::{
     cache::Cache,
+    clients::ExecutionClient,
     clock::{self, TestClock},
     messages::execution::{CancelOrder, ModifyOrder, SubmitOrder, SubmitOrderList, TradingCommand},
 };
@@ -46,10 +47,7 @@ use rstest::*;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
-use crate::{
-    client::ExecutionClient,
-    engine::{ExecutionEngine, config::ExecutionEngineConfig, stubs::StubExecutionClient},
-};
+use crate::engine::{ExecutionEngine, config::ExecutionEngineConfig, stubs::StubExecutionClient};
 
 #[fixture]
 fn test_clock() -> Rc<RefCell<dyn clock::Clock>> {

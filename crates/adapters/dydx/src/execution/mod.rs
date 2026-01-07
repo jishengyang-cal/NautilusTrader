@@ -47,6 +47,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use nautilus_common::{
+    clients::ExecutionClient,
     live::{runner::get_exec_event_sender, runtime::get_runtime},
     messages::{
         ExecutionEvent, ExecutionReport as NautilusExecutionReport,
@@ -59,7 +60,7 @@ use nautilus_common::{
     msgbus,
 };
 use nautilus_core::{MUTEX_POISONED, UUID4, UnixNanos};
-use nautilus_live::{ExecutionClient, ExecutionClientCore};
+use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::AccountAny,
     enums::{OmsType, OrderSide, OrderType, TimeInForce},

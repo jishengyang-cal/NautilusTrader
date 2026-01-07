@@ -17,13 +17,16 @@ use std::{collections::HashSet, sync::Arc};
 
 use alloy::primitives::Address;
 use async_trait::async_trait;
-use nautilus_common::messages::execution::{
-    BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
-    GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
-    ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
+use nautilus_common::{
+    clients::ExecutionClient,
+    messages::execution::{
+        BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
+        GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+        ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
+    },
 };
 use nautilus_core::UnixNanos;
-use nautilus_live::{ExecutionClient, ExecutionClientCore};
+use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::AccountAny,
     defi::{

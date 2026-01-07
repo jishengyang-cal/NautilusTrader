@@ -21,11 +21,12 @@ use nautilus_blockchain::{
 };
 use nautilus_common::{
     cache::Cache,
+    clients::ExecutionClient,
     live::{clock::LiveClock, runtime::get_runtime},
     logging::{init_logging, logger::LoggerConfig, writer::FileWriterConfig},
 };
 use nautilus_core::UUID4;
-use nautilus_live::{ExecutionClient, ExecutionClientCore};
+use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     defi::chain::chains,
     enums::{AccountType, OmsType},

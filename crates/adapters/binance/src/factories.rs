@@ -17,8 +17,7 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use nautilus_common::{cache::Cache, clock::Clock};
-use nautilus_live::DataClient;
+use nautilus_common::{cache::Cache, clients::DataClient, clock::Clock};
 use nautilus_model::identifiers::ClientId;
 use nautilus_system::factories::{ClientConfig, DataClientFactory};
 

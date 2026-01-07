@@ -32,6 +32,7 @@ use nautilus_common::messages::defi::{
 };
 use nautilus_common::{
     cache::Cache,
+    clients::DataClient,
     clock::Clock,
     messages::data::{
         DataCommand, RequestBars, RequestBookDepth, RequestBookSnapshot, RequestCommand,
@@ -46,7 +47,6 @@ use nautilus_common::{
         UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
     },
 };
-use nautilus_data::client::DataClient;
 use nautilus_model::identifiers::{ClientId, Venue};
 
 /// A mock implementation of [`DataClient`] for testing, with optional generic recorder.

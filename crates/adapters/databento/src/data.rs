@@ -31,6 +31,7 @@ use ahash::AHashMap;
 use databento::live::Subscription;
 use indexmap::IndexMap;
 use nautilus_common::{
+    clients::DataClient,
     live::{runner::get_data_event_sender, runtime::get_runtime},
     messages::{
         DataEvent,
@@ -42,7 +43,6 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{MUTEX_POISONED, time::AtomicTime};
-use nautilus_live::DataClient;
 use nautilus_model::{
     enums::BarAggregation,
     identifiers::{ClientId, Symbol, Venue},

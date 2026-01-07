@@ -65,4 +65,4 @@ pub mod engine;
 pub mod defi;
 
 // Re-exports
-pub use client::{DataClient, DataClientAdapter};
+pub use client::DataClientAdapter;

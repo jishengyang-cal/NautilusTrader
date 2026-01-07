@@ -23,6 +23,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use nautilus_common::{
     cache::Cache,
+    clients::DataClient,
     messages::data::{
         RequestBars, RequestBookSnapshot, RequestCustomData, RequestInstrument, RequestInstruments,
         RequestQuotes, RequestTrades, SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10,
@@ -34,7 +35,6 @@ use nautilus_common::{
         UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
     },
 };
-use nautilus_data::client::DataClient;
 use nautilus_model::identifiers::{ClientId, Venue};
 
 #[derive(Debug)]

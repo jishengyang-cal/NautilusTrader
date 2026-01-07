@@ -62,8 +62,7 @@ pub mod node;
 pub mod runner;
 
 // Re-exports for adapters
-pub use nautilus_data::client::DataClient;
-pub use nautilus_execution::client::{ExecutionClient, base::ExecutionClientCore};
+pub use nautilus_execution::client::base::ExecutionClientCore;
 
 #[cfg(feature = "python")]
 pub mod python;

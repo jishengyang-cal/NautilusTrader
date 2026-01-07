@@ -22,6 +22,7 @@ use ahash::AHashMap;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use nautilus_common::{
+    clients::DataClient,
     live::{runner::get_data_event_sender, runtime::get_runtime},
     messages::{
         DataEvent,
@@ -38,7 +39,6 @@ use nautilus_core::{
     datetime::datetime_to_unix_nanos,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
-use nautilus_live::DataClient;
 use nautilus_model::{
     data::{Bar, BarType, Data, OrderBookDeltas_API},
     enums::{BarAggregation, BookType},

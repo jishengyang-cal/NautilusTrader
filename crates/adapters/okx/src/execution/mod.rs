@@ -29,6 +29,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures_util::{StreamExt, pin_mut};
 use nautilus_common::{
+    clients::ExecutionClient,
     live::{runner::get_exec_event_sender, runtime::get_runtime},
     messages::{
         ExecutionEvent, ExecutionReport as NautilusExecutionReport,
@@ -40,7 +41,7 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{MUTEX_POISONED, UUID4, UnixNanos, time::get_atomic_clock_realtime};
-use nautilus_live::{ExecutionClient, ExecutionClientCore};
+use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::AccountAny,
     enums::{AccountType, OmsType, OrderType},

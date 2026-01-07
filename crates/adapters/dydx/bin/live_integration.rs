@@ -37,6 +37,7 @@
 use std::time::Duration;
 
 use nautilus_common::{
+    clients::DataClient,
     live::runner::set_data_event_sender,
     messages::{
         DataEvent, DataResponse,
@@ -51,7 +52,6 @@ use nautilus_dydx::{
     http::client::DydxHttpClient,
     websocket::client::DydxWebSocketClient,
 };
-use nautilus_live::DataClient;
 use nautilus_model::{
     data::{BarSpecification, BarType, Data},
     enums::{AggregationSource, BarAggregation, BookType, PriceType},

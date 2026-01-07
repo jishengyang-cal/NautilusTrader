@@ -14,6 +14,7 @@
 // -------------------------------------------------------------------------------------------------
 
 use nautilus_common::{
+    clients::DataClient,
     defi::RequestPoolSnapshot,
     live::get_runtime,
     messages::{
@@ -27,7 +28,6 @@ use nautilus_common::{
         },
     },
 };
-use nautilus_live::DataClient;
 use nautilus_model::{
     defi::{DefiData, PoolIdentifier, SharedChain, validation::validate_address},
     identifiers::{ClientId, Venue},

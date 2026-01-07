@@ -16,9 +16,11 @@
 use std::{any::Any, cell::RefCell, fmt::Debug, rc::Rc};
 
 use ahash::AHashMap;
-use nautilus_common::{cache::Cache, clock::Clock};
-use nautilus_data::client::DataClient;
-use nautilus_execution::client::ExecutionClient;
+use nautilus_common::{
+    cache::Cache,
+    clients::{DataClient, ExecutionClient},
+    clock::Clock,
+};
 
 /// Configuration for creating client instances.
 ///
