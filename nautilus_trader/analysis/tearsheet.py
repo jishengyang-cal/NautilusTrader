@@ -322,57 +322,38 @@ def create_tearsheet(  # noqa: C901
 
     # Build title with strategy name(s) and run time
     if title == "NautilusTrader Backtest Results":
-        # Extract strategy names
-        strategy_names = "N/A"
-        if hasattr(engine, "trader") and hasattr(engine.trader, "strategies"):
-            strategies = engine.trader.strategy_ids()
-            if len(strategies) == 0:
-                # If no strategies are available to display, the engine was likely disposed prematurely.
-                # We could log a warning here.
-                strategy_names = "empty"
-            else:
-                strategy_names = ", ".join([str(s) for s in strategies])
+        strategies = engine.trader.strategy_ids()
+        strategy_names = ", ".join(str(s) for s in strategies) if strategies else "None"
+        run_started = format_optional_iso8601(engine.run_started)
 
-        # Format run time
-        run_started = "N/A"
-        if hasattr(engine, "run_started") and engine.run_started:
-            run_started = format_optional_iso8601(engine.run_started)
-
-        # Build title: "NautilusTrader - Backtest Results<br>Strategies: Strategy1 | Run Started: 2026-01-01 00:00:00"
         title = f"<b>NautilusTrader</b> v{NAUTILUS_VERSION} - Backtest Results"
-        title += f"<br><sub>Strategies: {strategy_names} | Run Started: {run_started}</sub>"
+        title += f"<br><sub>Strategies: {strategy_names} | Run started: {run_started}</sub>"
 
     # Extract run information
-    total_positions = "N/A"
-    total_events = "N/A"
-    total_orders = "N/A"
-    if hasattr(engine, "kernel"):
-        total_events = f"{engine.kernel.exec_engine.event_count:_}"
-        total_orders = f"{engine.kernel.cache.orders_total_count():_}"
-        positions = list(engine.kernel.cache.positions()) + list(
-            engine.kernel.cache.position_snapshots(),
-        )
-        total_positions = f"{len(positions):_}"
+    total_events = f"{engine.kernel.exec_engine.event_count:_}"
+    total_orders = f"{engine.kernel.cache.orders_total_count():_}"
+    positions = list(engine.kernel.cache.positions()) + list(
+        engine.kernel.cache.position_snapshots(),
+    )
+    total_positions = f"{len(positions):_}"
 
     elapsed_time = "N/A"
-    if hasattr(engine, "run_finished") and hasattr(engine, "run_started"):
+    if engine.run_finished and engine.run_started:
         elapsed_time = str(engine.run_finished - engine.run_started)
 
     backtest_range = "N/A"
-    if hasattr(engine, "backtest_start") and hasattr(engine, "backtest_end"):
+    if engine.backtest_start and engine.backtest_end:
         backtest_range = str(engine.backtest_end - engine.backtest_start)
 
     run_info = {
-        "Run ID": str(engine.run_id) if hasattr(engine, "run_id") else "N/A",
-        "Run started": str(engine.run_started) if hasattr(engine, "run_started") else "N/A",
-        "Run finished": str(engine.run_finished) if hasattr(engine, "run_finished") else "N/A",
+        "Run ID": str(engine.run_id),
+        "Run started": str(engine.run_started) if engine.run_started else "N/A",
+        "Run finished": str(engine.run_finished) if engine.run_finished else "N/A",
         "Elapsed time": elapsed_time,
-        "Backtest start": str(engine.backtest_start)
-        if hasattr(engine, "backtest_start")
-        else "N/A",
-        "Backtest end": str(engine.backtest_end) if hasattr(engine, "backtest_end") else "N/A",
+        "Backtest start": str(engine.backtest_start) if engine.backtest_start else "N/A",
+        "Backtest end": str(engine.backtest_end) if engine.backtest_end else "N/A",
         "Backtest range": backtest_range,
-        "Iterations": f"{engine.iteration:_}" if hasattr(engine, "iteration") else "N/A",
+        "Iterations": f"{engine.iteration:_}",
         "Total events": total_events,
         "Total orders": total_orders,
         "Total positions": total_positions,
