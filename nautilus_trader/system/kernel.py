@@ -1051,7 +1051,7 @@ class NautilusKernel:
 
         self._stop_engines()
         self._cancel_timers()
-        self._flush_writer()
+        self._close_writer()
 
         self._log.info("STOPPED")
         self._is_running = False
@@ -1092,7 +1092,7 @@ class NautilusKernel:
 
         self._stop_engines()
         self._cancel_timers()
-        self._flush_writer()
+        self._close_writer()
 
         self._log.info("STOPPED")
         self._is_running = False
@@ -1437,5 +1437,9 @@ class NautilusKernel:
             self._log.info(f"Canceled Timer(name={name})")
 
     def _flush_writer(self) -> None:
+        if self._writer is not None:
+            self._writer.flush()
+
+    def _close_writer(self) -> None:
         if self._writer is not None:
             self._writer.close()
