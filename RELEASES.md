@@ -27,6 +27,8 @@ Released on TBD (UTC).
 - Added Deribit data client (#3368), thanks @filipmacek
 - Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
 - Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou
+- Refined closing of streaming writer (#3394), thanks @fayosu
+- Refined handling of `skip_first_non_full_bar` in `TimeBarAggregator` (#3395), thanks @faysou
 - Upgraded Cython to v3.2.4
 - Upgraded `tokio` crate to v1.49.0
 
