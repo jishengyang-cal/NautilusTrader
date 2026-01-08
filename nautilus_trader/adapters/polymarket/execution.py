@@ -1313,9 +1313,8 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         match msg.type:
             case PolymarketEventType.PLACEMENT:
-                # Check if order is already accepted to avoid duplicate accepted events
                 order = self._cache.order(client_order_id) if client_order_id else None
-                if order is None or not order.is_open:
+                if order is None or order.status == OrderStatus.SUBMITTED:
                     self.generate_order_accepted(
                         strategy_id=strategy_id,
                         instrument_id=instrument_id,
@@ -1325,9 +1324,17 @@ class PolymarketExecutionClient(LiveExecutionClient):
                     )
                 else:
                     self._log.debug(
-                        f"Order {client_order_id!r} already accepted - skipping duplicate placement event",
+                        f"Order {client_order_id!r} in state {order.status_string()} - "
+                        "skipping placement event",
                     )
             case PolymarketEventType.CANCELLATION:
+                order = self._cache.order(client_order_id) if client_order_id else None
+                if order is not None and order.status == OrderStatus.CANCELED:
+                    self._log.debug(
+                        f"Order {client_order_id!r} already canceled - "
+                        "skipping duplicate cancellation event",
+                    )
+                    return
                 self.generate_order_canceled(
                     strategy_id=strategy_id,
                     instrument_id=instrument_id,

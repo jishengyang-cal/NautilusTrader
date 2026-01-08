@@ -48,6 +48,7 @@ from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.enums import AssetClass
 from nautilus_trader.model.enums import LiquiditySide
 from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderStatus
 from nautilus_trader.model.enums import OrderType
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.identifiers import AccountId
@@ -64,6 +65,7 @@ from nautilus_trader.portfolio.portfolio import Portfolio
 from nautilus_trader.risk.engine import RiskEngine
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
+from nautilus_trader.test_kit.stubs.events import TestEventStubs
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 from nautilus_trader.trading.strategy import Strategy
 
@@ -210,7 +212,8 @@ class TestPolymarketExecutionClient:
         price: Price | None = None,
     ) -> tuple[ClientOrderId, VenueOrderId]:
         """
-        Create test order and add to cache with venue order ID mapping.
+        Create test order in SUBMITTED state and add to cache with venue order ID
+        mapping.
         """
         if use_ws_instrument:
             # Use the instrument that matches websocket messages
@@ -227,6 +230,10 @@ class TestPolymarketExecutionClient:
             quantity=Quantity.from_str("5"),
             price=price or Price.from_str("0.513"),
         )
+
+        # Transition to SUBMITTED state (required before ACCEPTED)
+        submitted = TestEventStubs.order_submitted(order)
+        order.apply(submitted)
 
         client_order_id = order.client_order_id
         venue_order_id = VenueOrderId(venue_order_id_str)
@@ -1716,3 +1723,231 @@ class TestPolymarketExecutionClient:
         # Verify datetime was correctly converted to integer seconds
         assert params.after == int(start_dt.timestamp())
         assert params.before == int(end_dt.timestamp())
+
+    def test_placement_skipped_when_order_already_canceled(self, mocker):
+        """
+        Test that PLACEMENT events are skipped when order is already CANCELED.
+
+        This prevents InvalidStateTrigger: CANCELED -> ACCEPTED errors that occur
+        when a stale PLACEMENT event arrives after an order was canceled.
+
+        """
+        # Arrange
+        raw_message = pkgutil.get_data(
+            package="tests.integration_tests.adapters.polymarket.resources.ws_messages",
+            resource="order_placement.json",
+        )
+
+        client_order_id, venue_order_id = self._setup_test_order_with_venue_id(
+            "0x0f76f4dc6eaf3332f4100f2e8a0b4a927351dd64646b7bb12f37df775c657a78",
+            use_ws_instrument=True,
+        )
+
+        # Transition order to CANCELED state
+        order = self.cache.order(client_order_id)
+        self.exec_client.generate_order_accepted(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            ts_event=self.clock.timestamp_ns(),
+        )
+        self.exec_client.generate_order_canceled(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            ts_event=self.clock.timestamp_ns(),
+        )
+
+        order = self.cache.order(client_order_id)
+        assert order.status == OrderStatus.CANCELED
+
+        accepted_spy = mocker.spy(self.exec_client, "generate_order_accepted")
+
+        # Act
+        msg = msgspec.json.decode(raw_message)
+        msg = self.exec_client._decoder_user_msg.decode(msgspec.json.encode(msg))
+        self.exec_client._handle_ws_order_msg(msg, wait_for_ack=False)
+
+        # Assert
+        accepted_spy.assert_not_called()
+
+    def test_placement_skipped_when_order_already_accepted(self, mocker):
+        """
+        Test that PLACEMENT events are skipped when order is already ACCEPTED.
+
+        This prevents duplicate OrderAccepted events from stale/replayed messages.
+
+        """
+        # Arrange
+        raw_message = pkgutil.get_data(
+            package="tests.integration_tests.adapters.polymarket.resources.ws_messages",
+            resource="order_placement.json",
+        )
+
+        client_order_id, venue_order_id = self._setup_test_order_with_venue_id(
+            "0x0f76f4dc6eaf3332f4100f2e8a0b4a927351dd64646b7bb12f37df775c657a78",
+            use_ws_instrument=True,
+        )
+
+        # Transition order to ACCEPTED state
+        order = self.cache.order(client_order_id)
+        self.exec_client.generate_order_accepted(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            ts_event=self.clock.timestamp_ns(),
+        )
+
+        order = self.cache.order(client_order_id)
+        assert order.status == OrderStatus.ACCEPTED
+
+        accepted_spy = mocker.spy(self.exec_client, "generate_order_accepted")
+
+        # Act
+        msg = msgspec.json.decode(raw_message)
+        msg = self.exec_client._decoder_user_msg.decode(msgspec.json.encode(msg))
+        self.exec_client._handle_ws_order_msg(msg, wait_for_ack=False)
+
+        # Assert
+        accepted_spy.assert_not_called()
+
+    def test_cancellation_skipped_when_order_already_canceled(self, mocker):
+        """
+        Test that CANCELLATION events are skipped when order is already CANCELED.
+
+        This prevents InvalidStateTrigger: CANCELED -> CANCELED errors from
+        duplicate cancellation events.
+
+        """
+        # Arrange
+        raw_message = pkgutil.get_data(
+            package="tests.integration_tests.adapters.polymarket.resources.ws_messages",
+            resource="order_cancel.json",
+        )
+
+        client_order_id, venue_order_id = self._setup_test_order_with_venue_id(
+            "0xc6e99c14f1c7cae9e0538eb2d45a4d8b93ffd743e850edd1502a8c85700be5d3",
+            use_ws_instrument=True,
+        )
+
+        # Transition order to CANCELED state
+        order = self.cache.order(client_order_id)
+        self.exec_client.generate_order_accepted(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            ts_event=self.clock.timestamp_ns(),
+        )
+        self.exec_client.generate_order_canceled(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            ts_event=self.clock.timestamp_ns(),
+        )
+
+        order = self.cache.order(client_order_id)
+        assert order.status == OrderStatus.CANCELED
+
+        canceled_spy = mocker.spy(self.exec_client, "generate_order_canceled")
+
+        # Act
+        msg = msgspec.json.decode(raw_message)
+        msg = self.exec_client._decoder_user_msg.decode(msgspec.json.encode(msg))
+        self.exec_client._handle_ws_order_msg(msg, wait_for_ack=False)
+
+        # Assert
+        canceled_spy.assert_not_called()
+
+    def test_placement_allowed_when_order_is_submitted(self, mocker):
+        """
+        Test that PLACEMENT events generate OrderAccepted when order is SUBMITTED.
+
+        This is the normal flow: order is submitted, PLACEMENT event arrives,
+        and OrderAccepted is generated.
+
+        """
+        # Arrange
+        raw_message = pkgutil.get_data(
+            package="tests.integration_tests.adapters.polymarket.resources.ws_messages",
+            resource="order_placement.json",
+        )
+
+        client_order_id, venue_order_id = self._setup_test_order_with_venue_id(
+            "0x0f76f4dc6eaf3332f4100f2e8a0b4a927351dd64646b7bb12f37df775c657a78",
+            use_ws_instrument=True,
+        )
+
+        order = self.cache.order(client_order_id)
+        assert order.status == OrderStatus.SUBMITTED
+
+        accepted_spy = mocker.spy(self.exec_client, "generate_order_accepted")
+
+        # Act
+        msg = msgspec.json.decode(raw_message)
+        msg = self.exec_client._decoder_user_msg.decode(msgspec.json.encode(msg))
+        self.exec_client._handle_ws_order_msg(msg, wait_for_ack=False)
+
+        # Assert
+        accepted_spy.assert_called_once()
+
+    def test_placement_skipped_when_order_partially_filled(self, mocker):
+        """
+        Test that PLACEMENT events are skipped when order is PARTIALLY_FILLED.
+
+        Once an order has fills, it's already been accepted.
+
+        """
+        # Arrange
+        raw_message = pkgutil.get_data(
+            package="tests.integration_tests.adapters.polymarket.resources.ws_messages",
+            resource="order_placement.json",
+        )
+
+        client_order_id, venue_order_id = self._setup_test_order_with_venue_id(
+            "0x0f76f4dc6eaf3332f4100f2e8a0b4a927351dd64646b7bb12f37df775c657a78",
+            use_ws_instrument=True,
+        )
+
+        # Transition order to PARTIALLY_FILLED state
+        order = self.cache.order(client_order_id)
+        self.exec_client.generate_order_accepted(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            ts_event=self.clock.timestamp_ns(),
+        )
+        self.exec_client.generate_order_filled(
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=client_order_id,
+            venue_order_id=venue_order_id,
+            venue_position_id=None,
+            trade_id=TradeId("test-trade-1"),
+            order_side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            last_qty=Quantity.from_str("2"),
+            last_px=Price.from_str("0.513"),
+            quote_currency=USDC,
+            commission=Money(0, USDC),
+            liquidity_side=LiquiditySide.MAKER,
+            ts_event=self.clock.timestamp_ns(),
+        )
+
+        order = self.cache.order(client_order_id)
+        assert order.status == OrderStatus.PARTIALLY_FILLED
+
+        accepted_spy = mocker.spy(self.exec_client, "generate_order_accepted")
+
+        # Act
+        msg = msgspec.json.decode(raw_message)
+        msg = self.exec_client._decoder_user_msg.decode(msgspec.json.encode(msg))
+        self.exec_client._handle_ws_order_msg(msg, wait_for_ack=False)
+
+        # Assert
+        accepted_spy.assert_not_called()

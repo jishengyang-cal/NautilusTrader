@@ -23,6 +23,7 @@ Released on TBD (UTC).
 - Fixed instrument cache race condition during `LiveNode` (Rust) startup (#3385), thanks @filipmacek
 - Fixed quickstart MACD strategy logic (#3377), thanks for reporting @SisyphusCoin
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
+- Fixed Polymarket order state race condition where PLACEMENT events could arrive late
 
 ### Internal Improvements
 - Added Binance `listenKeyExpired` event handling (#3387), thanks @Johnkhk
