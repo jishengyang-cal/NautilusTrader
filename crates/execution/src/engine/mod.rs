@@ -546,6 +546,32 @@ impl ExecutionEngine {
         self.execute_command(command);
     }
 
+    /// Starts the execution engine.
+    pub fn start(&mut self) {
+        self.start_snapshot_timer();
+
+        log::info!("Started");
+    }
+
+    /// Stops the execution engine.
+    pub fn stop(&mut self) {
+        self.stop_snapshot_timer();
+
+        log::info!("Stopped");
+    }
+
+    /// Resets the execution engine to its initial state.
+    pub fn reset(&mut self) {
+        self.pos_id_generator.reset();
+
+        log::info!("Reset");
+    }
+
+    /// Disposes of the execution engine, releasing resources.
+    pub fn dispose(&mut self) {
+        log::info!("Disposed");
+    }
+
     // -- COMMAND HANDLERS ------------------------------------------------------------------------
 
     fn execute_command(&self, command: &TradingCommand) {

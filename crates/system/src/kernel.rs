@@ -13,10 +13,6 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-// Under development
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 use std::{
     any::Any,
     cell::{Ref, RefCell},
@@ -24,8 +20,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "live")]
-use nautilus_common::live::clock::LiveClock;
 use nautilus_common::{
     cache::{Cache, CacheConfig, database::CacheDatabaseAdapter},
     clock::{Clock, TestClock},
@@ -38,7 +32,7 @@ use nautilus_common::{
     },
     messages::{DataResponse, data::DataCommand, execution::TradingCommand},
     msgbus::{
-        self, MessageBus, get_message_bus,
+        self, MessageBus,
         handler::{ShareableMessageHandler, TypedMessageHandler},
         set_message_bus,
         switchboard::MessagingSwitchboard,
@@ -417,7 +411,7 @@ impl NautilusKernel {
             }
             #[cfg(feature = "live")]
             Environment::Live | Environment::Sandbox => {
-                let live_clock = LiveClock::default();
+                let live_clock = nautilus_common::live::clock::LiveClock::default(); // nautilus-import-ok
                 Rc::new(RefCell::new(live_clock))
             }
             #[cfg(not(feature = "live"))]
@@ -527,12 +521,6 @@ impl NautilusKernel {
         self.cache.clone()
     }
 
-    /// Returns the kernel's message bus.  // TODO: TBD if this is necessary
-    #[must_use]
-    pub fn msgbus(&self) -> Rc<RefCell<MessageBus>> {
-        get_message_bus()
-    }
-
     /// Returns the kernel's portfolio.
     #[must_use]
     pub fn portfolio(&self) -> Ref<'_, Portfolio> {
@@ -634,9 +622,9 @@ impl NautilusKernel {
             log::error!("Error resetting trader: {e:?}");
         }
 
-        // Reset engines
         self.data_engine.borrow_mut().reset();
-        // TODO: Reset other engines when reset methods are available
+        self.exec_engine.borrow_mut().reset();
+        self.risk_engine.borrow_mut().reset();
 
         self.ts_started = None;
         self.ts_shutdown = None;
@@ -655,28 +643,24 @@ impl NautilusKernel {
         self.stop_engines();
 
         self.data_engine.borrow_mut().dispose();
-        // TODO: Implement dispose methods for other engines
+        self.exec_engine.borrow_mut().dispose();
+        self.risk_engine.borrow_mut().dispose();
 
         log::info!("Disposed");
-    }
-
-    /// Cancels all tasks currently running under the kernel.
-    ///
-    /// Intended for cleanup during shutdown.
-    const fn cancel_all_tasks(&self) {
-        // TODO: implement task cancellation logic for async contexts
     }
 
     /// Starts all engine components.
     fn start_engines(&self) {
         self.data_engine.borrow_mut().start();
-        // TODO: Start other engines when methods are available
+        self.exec_engine.borrow_mut().start();
+        self.risk_engine.borrow_mut().start();
     }
 
     /// Stops all engine components.
     fn stop_engines(&self) {
         self.data_engine.borrow_mut().stop();
-        // TODO: Stop other engines when methods are available
+        self.exec_engine.borrow_mut().stop();
+        self.risk_engine.borrow_mut().stop();
     }
 
     /// Starts all engine clients.
@@ -731,11 +715,6 @@ impl NautilusKernel {
         }
     }
 
-    /// Stops engine clients.
-    fn stop_clients(&self) {
-        self.data_engine.borrow_mut().stop();
-    }
-
     /// Connects all engine clients.
     ///
     /// # Errors
@@ -762,32 +741,6 @@ impl NautilusKernel {
         Ok(())
     }
 
-    /// Initializes the portfolio (orders & positions).
-    const fn initialize_portfolio(&self) {
-        // TODO: Placeholder: portfolio initialization to be implemented in next pass
-    }
-
-    /// Awaits execution engine state reconciliation.
-    ///
-    /// Blocks until executions are reconciled or timeout.
-    const fn await_execution_reconciliation(&self) {
-        // TODO: await execution reconciliation with timeout
-    }
-
-    /// Awaits portfolio initialization.
-    ///
-    /// Blocks until portfolio is initialized or timeout.
-    const fn await_portfolio_initialized(&self) {
-        // TODO: await portfolio initialization with timeout
-    }
-
-    /// Awaits post-stop trader residual events.
-    ///
-    /// Allows final cleanup before full shutdown.
-    const fn await_trader_residuals(&self) {
-        // TODO: await trader residual events after stop
-    }
-
     /// Returns `true` if all engine clients are connected.
     #[must_use]
     pub fn check_engines_connected(&self) -> bool {
@@ -799,15 +752,5 @@ impl NautilusKernel {
     pub fn check_engines_disconnected(&self) -> bool {
         self.data_engine.borrow().check_disconnected()
             && self.exec_engine.borrow().check_disconnected()
-    }
-
-    /// Checks if the portfolio has been initialized.
-    const fn check_portfolio_initialized(&self) {
-        // TODO: check portfolio initialized status
-    }
-
-    /// Flushes the stream writer.
-    const fn flush_writer(&self) {
-        // TODO: No writer in this kernel version; placeholder for future streaming
     }
 }

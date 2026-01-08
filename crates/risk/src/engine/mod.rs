@@ -301,6 +301,31 @@ impl RiskEngine {
         log::info!("Set MAX_NOTIONAL_PER_ORDER: {instrument_id} {new_value_str}");
     }
 
+    /// Starts the risk engine.
+    pub fn start(&mut self) {
+        log::info!("Started");
+    }
+
+    /// Stops the risk engine.
+    pub fn stop(&mut self) {
+        log::info!("Stopped");
+    }
+
+    /// Resets the risk engine to its initial state.
+    pub fn reset(&mut self) {
+        self.throttled_submit_order.reset();
+        self.throttled_modify_order.reset();
+        self.max_notional_per_order.clear();
+        self.trading_state = TradingState::Active;
+
+        log::info!("Reset");
+    }
+
+    /// Disposes of the risk engine, releasing resources.
+    pub fn dispose(&mut self) {
+        log::info!("Disposed");
+    }
+
     // -- COMMAND HANDLERS ------------------------------------------------------------------------
 
     // Renamed from `execute_command`
