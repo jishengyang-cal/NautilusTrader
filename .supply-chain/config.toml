@@ -503,11 +503,11 @@ version = "0.3.16"
 criteria = "safe-to-deploy"
 
 [[exemptions.bon]]
-version = "3.8.1"
+version = "3.8.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.bon-macros]]
-version = "3.8.1"
+version = "3.8.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.borsh]]
@@ -770,6 +770,10 @@ criteria = "safe-to-deploy"
 version = "0.21.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.darling]]
+version = "0.23.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.darling_core]]
 version = "0.20.11"
 criteria = "safe-to-deploy"
@@ -778,8 +782,16 @@ criteria = "safe-to-deploy"
 version = "0.21.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.darling_core]]
+version = "0.23.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.darling_macro]]
 version = "0.20.11"
+criteria = "safe-to-deploy"
+
+[[exemptions.darling_macro]]
+version = "0.23.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dashmap]]
@@ -1379,7 +1391,7 @@ version = "1.0.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.libc]]
-version = "0.2.179"
+version = "0.2.180"
 criteria = "safe-to-deploy"
 
 [[exemptions.libm]]

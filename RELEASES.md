@@ -3,6 +3,7 @@
 Released on TBD (UTC).
 
 ### Enhancements
+- Improved tearsheet with dynamic Nautilus version and refined run info table (#3396), thanks @KaulSe
 
 ### Breaking Changes
 - Removed `init_tracing()` function from Python bindings (tracing crate removed from Rust codebase; `RUST_LOG` no longer has any effect)
@@ -18,22 +19,28 @@ Released on TBD (UTC).
 - Fixed `ExecAlgorithm` spawn quantity accounting (will now restore quantity from denied/rejected spawned orders)
 - Fixed backtest clock monotonicity with time alerts (#3384), thanks @draphi
 - Fixed order updated panic during reconciliation (#3380), thanks for reporting @santivazq
+- Fixed missing currency registration when adding instruments to cache (#3400), thanks @filipmacek
 - Fixed trailing stops default price type (#3379), thanks @KaulSe
+- Fixed typo in `OrderBook.simulate_fills` error message (#3405), thanks @Johnkhk
 - Fixed registering msgbus with OptionExerciseModule (#3383), thanks @davidsblom
 - Fixed directory URI handling in ParquetDataCatalog for S3 and cloud storage (#3378), thanks @KaulSe
 - Fixed instrument cache race condition during `LiveNode` (Rust) startup (#3385), thanks @filipmacek
 - Fixed quickstart MACD strategy logic (#3377), thanks for reporting @SisyphusCoin
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
+- Fixed Deribit auth token refresh race condition (#3402), thanks @filipmacek
 - Fixed Polymarket order state race condition where PLACEMENT events could arrive late
 
 ### Internal Improvements
+- Added support for setting cache database adapter in cache and `LiveNode` (#3401), thanks @filipmacek
 - Added Binance `listenKeyExpired` event handling (#3387), thanks @Johnkhk
 - Added Deribit data client (#3368), thanks @filipmacek
 - Added Polymarket data loader rate limiting
-- Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
+- Refactored computation of greeks (#3393), thanks @faysou
+- Refactored `TearsheetConfig.charts` to chart objects (removed `chart_args`) (#3398), thanks @KaulSe
 - Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou
 - Refined closing of streaming writer (#3394), thanks @fayosu
 - Refined handling of `skip_first_non_full_bar` in `TimeBarAggregator` (#3395), thanks @faysou
+- Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
 - Upgraded Cython to v3.2.4
 - Upgraded `tokio` crate to v1.49.0
 
