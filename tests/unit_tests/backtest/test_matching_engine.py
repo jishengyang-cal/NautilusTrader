@@ -43,6 +43,7 @@ from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.enums import TimeInForce
+from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.model.events import OrderModifyRejected
 from nautilus_trader.model.identifiers import StrategyId
@@ -50,6 +51,7 @@ from nautilus_trader.model.identifiers import VenueOrderId
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.model.orders import MarketOrder
+from nautilus_trader.model.orders import StopMarketOrder
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.stubs.component import TestComponentStubs
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
@@ -2063,6 +2065,262 @@ class TestOrderMatchingEngine:
         assert filled_events[0].last_px == Price.from_str(order_price)
         assert filled_events[1].last_px == Price.from_str(order_price)
 
+    def test_trade_consumption_with_three_orders(self) -> None:
+        """
+        Test that trade consumption tracking works correctly with three orders competing
+        for the same trade tick.
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L1_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            trade_execution=True,
+            liquidity_consumption=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
+
+        # Set initial bid/ask
+        quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=90.00,
+            ask_price=110.00,
+        )
+        matching_engine.process_quote_tick(quote)
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Place 3 BUY LIMIT orders at 100.00 (qty=30 each, total=90)
+        order1 = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            price=Price.from_str("100.00"),
+            quantity=self.instrument.make_qty(30.0),
+            client_order_id=TestIdStubs.client_order_id(1),
+        )
+        matching_engine.process_order(order1, self.account_id)
+
+        order2 = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            price=Price.from_str("100.00"),
+            quantity=self.instrument.make_qty(30.0),
+            client_order_id=TestIdStubs.client_order_id(2),
+        )
+        matching_engine.process_order(order2, self.account_id)
+
+        order3 = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            price=Price.from_str("100.00"),
+            quantity=self.instrument.make_qty(30.0),
+            client_order_id=TestIdStubs.client_order_id(3),
+        )
+        matching_engine.process_order(order3, self.account_id)
+
+        messages.clear()
+
+        # Process SELLER trade at 100.00 with size=70 (less than total 90)
+        trade = TestDataStubs.trade_tick(
+            instrument=self.instrument,
+            price=100.00,
+            size=70.0,
+            aggressor_side=AggressorSide.SELLER,
+        )
+        matching_engine.process_trade_tick(trade)
+
+        # Assert: Orders fill in order, consuming 30 + 30 + 10 = 70
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 3, f"Expected 3 fills, got {len(filled_events)}"
+        assert filled_events[0].last_qty == Quantity.from_str("30.000")
+        assert filled_events[1].last_qty == Quantity.from_str("30.000")
+        assert filled_events[2].last_qty == Quantity.from_str("10.000")
+
+    def test_trade_fill_returns_none_when_trade_fully_consumed(self) -> None:
+        """
+        Test that orders don't fill when the trade tick has been fully consumed by
+        previous orders.
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L1_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            trade_execution=True,
+            liquidity_consumption=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
+
+        # Set initial bid/ask
+        quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=90.00,
+            ask_price=110.00,
+        )
+        matching_engine.process_quote_tick(quote)
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Place 3 BUY LIMIT orders at 100.00 (qty=20 each, total=60)
+        for i in range(3):
+            order = TestExecStubs.limit_order(
+                instrument=self.instrument,
+                order_side=OrderSide.BUY,
+                price=Price.from_str("100.00"),
+                quantity=self.instrument.make_qty(20.0),
+                client_order_id=TestIdStubs.client_order_id(i + 1),
+            )
+            matching_engine.process_order(order, self.account_id)
+
+        messages.clear()
+
+        # Process SELLER trade at 100.00 with size=40 (only enough for 2 orders)
+        trade = TestDataStubs.trade_tick(
+            instrument=self.instrument,
+            price=100.00,
+            size=40.0,
+            aggressor_side=AggressorSide.SELLER,
+        )
+        matching_engine.process_trade_tick(trade)
+
+        # Assert: Only 2 orders fill (20 + 20 = 40), third order gets nothing
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 2, f"Expected 2 fills, got {len(filled_events)}"
+        assert filled_events[0].last_qty == Quantity.from_str("20.000")
+        assert filled_events[1].last_qty == Quantity.from_str("20.000")
+
+    def test_trade_execution_fill_limited_by_trade_size(self) -> None:
+        """
+        Test that trade execution fills are limited by trade tick size when
+        liquidity_consumption is enabled.
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L1_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            trade_execution=True,
+            liquidity_consumption=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
+
+        # Set initial bid/ask
+        quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=90.00,
+            ask_price=110.00,
+        )
+        matching_engine.process_quote_tick(quote)
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Place large BUY LIMIT order at 100.00 (qty=100)
+        order = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            price=Price.from_str("100.00"),
+            quantity=self.instrument.make_qty(100.0),
+        )
+        matching_engine.process_order(order, self.account_id)
+        messages.clear()
+
+        # Process SELLER trade at 100.00 with size=30
+        trade = TestDataStubs.trade_tick(
+            instrument=self.instrument,
+            price=100.00,
+            size=30.0,
+            aggressor_side=AggressorSide.SELLER,
+        )
+        matching_engine.process_trade_tick(trade)
+
+        # Assert: Fill is limited to trade size (30) not order size (100)
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 1, f"Expected 1 fill, got {len(filled_events)}"
+        assert filled_events[0].last_qty == Quantity.from_str("30.000")
+
+    def test_stop_market_fills_on_seller_trade_tick(self) -> None:
+        """
+        Test that stop market orders fill correctly on trade ticks.
+
+        Stop-market orders fill directly without generating an OrderTriggered event.
+
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L1_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=False,
+            trade_execution=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+        )
+
+        # Set initial bid/ask with bid at 100
+        quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=100.00,
+            ask_price=110.00,
+        )
+        matching_engine.process_quote_tick(quote)
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Place SELL STOP_MARKET with trigger at 95
+        order = StopMarketOrder(
+            trader_id=self.trader_id,
+            strategy_id=TestIdStubs.strategy_id(),
+            instrument_id=self.instrument.id,
+            client_order_id=TestIdStubs.client_order_id(),
+            order_side=OrderSide.SELL,
+            quantity=self.instrument.make_qty(1.0),
+            trigger_price=Price.from_str("95.00"),
+            trigger_type=TriggerType.DEFAULT,
+            init_id=UUID4(),
+            ts_init=0,
+        )
+        matching_engine.process_order(order, self.account_id)
+        messages.clear()
+
+        # Process SELLER trade at 95 (should trigger the stop)
+        trade = TestDataStubs.trade_tick(
+            instrument=self.instrument,
+            price=95.00,
+            size=10.0,
+            aggressor_side=AggressorSide.SELLER,
+        )
+        matching_engine.process_trade_tick(trade)
+
+        # Assert: stop-market fills directly (no OrderTriggered event)
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 1, f"Stop should fill, got {len(filled_events)} fills"
+
 
 def _create_bar_execution_matching_engine() -> OrderMatchingEngine:
     clock = TestClock()
@@ -2323,3 +2581,94 @@ def test_modify_partially_filled_limit_order_crosses_new_book_level(
     assert filled_events[0].last_px == Price.from_str(second_level_price), (
         f"Fill price should be {second_level_price}, got {filled_events[0].last_px}"
     )
+
+
+class TestOrderMatchingEngineLiquidityConsumption:
+    """
+    Regression tests for liquidity consumption edge cases.
+    """
+
+    def setup(self):
+        self.clock = TestClock()
+        self.trader_id = TestIdStubs.trader_id()
+        self.msgbus = MessageBus(
+            trader_id=self.trader_id,
+            clock=self.clock,
+        )
+        self.instrument = _ETHUSDT_PERP_BINANCE
+        self.account_id = TestIdStubs.account_id()
+        self.cache = TestComponentStubs.cache()
+        self.cache.add_instrument(self.instrument)
+
+    def test_stop_market_fills_at_gap_with_liquidity_consumption(self) -> None:
+        """
+        Regression test: Stop-market orders should fill at trigger price during
+        bar processing even when liquidity_consumption=True and the trigger price
+        has no book liquidity (gap scenario).
+
+        Previously, the fill was discarded because liquidity consumption checked
+        for book size at the trigger price, which was 0 for gaps.
+        """
+        # Arrange: Create engine with liquidity_consumption enabled
+        clock = TestClock()
+        trader_id = TestIdStubs.trader_id()
+        msgbus = MessageBus(trader_id=trader_id, clock=clock)
+        cache = TestComponentStubs.cache()
+        cache.add_instrument(self.instrument)
+
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L1_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=False,
+            liquidity_consumption=True,
+            msgbus=msgbus,
+            cache=cache,
+            clock=clock,
+        )
+
+        # Set initial bid/ask at 100/110
+        quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=100.00,
+            ask_price=110.00,
+        )
+        matching_engine.process_quote_tick(quote)
+
+        messages: list[Any] = []
+        msgbus.register("ExecEngine.process", messages.append)
+
+        # Place SELL stop at 95 (not currently triggered)
+        order = StopMarketOrder(
+            trader_id=trader_id,
+            strategy_id=TestIdStubs.strategy_id(),
+            instrument_id=self.instrument.id,
+            client_order_id=TestIdStubs.client_order_id(),
+            order_side=OrderSide.SELL,
+            quantity=self.instrument.make_qty(1.0),
+            trigger_price=Price.from_str("95.00"),
+            trigger_type=TriggerType.DEFAULT,
+            init_id=UUID4(),
+            ts_init=0,
+        )
+        matching_engine.process_order(order, self.account_id)
+        messages.clear()
+
+        # Act: Process quote that gaps through the stop (bid goes from 100 to 90)
+        gap_quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=90.00,
+            ask_price=100.00,
+        )
+        matching_engine.process_quote_tick(gap_quote)
+
+        # Assert: Stop should fill despite gap (no triggered event for stop-market)
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+
+        assert len(filled_events) == 1, (
+            f"Stop should fill despite gap, got: {[type(m).__name__ for m in messages]}"
+        )

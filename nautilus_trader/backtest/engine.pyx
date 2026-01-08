@@ -5061,7 +5061,7 @@ cdef class OrderMatchingEngine:
                 # NOTE
                 # The activation price should have been set in OrderMatchingEngine._process_trailing_stop_order()
                 # However, the implementation of the emulator bypass this step, and directly call this method through match_order().
-                market_price = self.ask if order.side == OrderSide.BUY else self.bid
+                market_price = self._core.ask if order.side == OrderSide.BUY else self._core.bid
 
                 if market_price is None:
                     # If there is no market price, we cannot process the order
@@ -5374,6 +5374,8 @@ cdef class OrderMatchingEngine:
             triggered_price = order.get_triggered_price_c()
             if triggered_price is not None:
                 fills[0] = (triggered_price, fills[0][1])
+                # Skip liquidity consumption for trigger price fills (may be at gap price with no book liquidity)
+                return fills
 
         return self._apply_liquidity_consumption(fills, order.side, order.leaves_qty._mem.raw)
 

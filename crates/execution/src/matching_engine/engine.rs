@@ -1065,25 +1065,43 @@ impl OrderMatchingEngine {
     }
 
     /// Processes an order modify command to update quantity, price, or trigger price.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the modified order cannot be converted to a `PassiveOrderAny`.
     pub fn process_modify(&mut self, command: &ModifyOrder, account_id: AccountId) {
-        if let Some(order) = self.core.get_order(command.client_order_id) {
-            self.update_order(
-                &mut order.to_any(),
-                command.quantity,
-                command.price,
-                command.trigger_price,
-                None,
-            );
-        } else {
-            self.generate_order_modify_rejected(
-                command.trader_id,
-                command.strategy_id,
-                command.instrument_id,
-                command.client_order_id,
-                Ustr::from(format!("Order {} not found", command.client_order_id).as_str()),
-                command.venue_order_id,
-                Some(account_id),
-            );
+        // Clone the order from core to release the borrow before calling update_order
+        let orig_order = match self.core.get_order(command.client_order_id) {
+            Some(order) => order.clone(),
+            None => {
+                self.generate_order_modify_rejected(
+                    command.trader_id,
+                    command.strategy_id,
+                    command.instrument_id,
+                    command.client_order_id,
+                    Ustr::from(format!("Order {} not found", command.client_order_id).as_str()),
+                    command.venue_order_id,
+                    Some(account_id),
+                );
+                return;
+            }
+        };
+
+        let mut order = orig_order.to_any();
+        let update_success = self.update_order(
+            &mut order,
+            command.quantity,
+            command.price,
+            command.trigger_price,
+            None,
+        );
+
+        // Only persist changes if update succeeded and order is still open
+        if update_success && order.is_open() {
+            let _ = self.core.delete_order(&orig_order);
+            let _ = self
+                .core
+                .add_order(PassiveOrderAny::try_from(order).expect("passive order conversion"));
         }
     }
 
@@ -1415,9 +1433,11 @@ impl OrderMatchingEngine {
                 order.set_liquidity_side(LiquiditySide::Taker);
                 self.fill_limit_order(order);
             }
+
+            // Order was triggered (and possibly filled), don't accept again
+            return;
         }
 
-        // order is not matched but is valid and we accept it
         self.accept_order(order);
     }
 
@@ -1674,6 +1694,12 @@ impl OrderMatchingEngine {
                 }
 
                 self.update_trailing_stop_order(&mut any);
+
+                // Persist the activated/updated trailing stop back to the core
+                let _ = self.core.delete_order(order);
+                let _ = self
+                    .core
+                    .add_order(PassiveOrderAny::try_from(any).expect("passive order conversion"));
             }
 
             // Move market back to targets
@@ -2031,9 +2057,12 @@ impl OrderMatchingEngine {
             }
         }
 
-        if self.oms_type == OmsType::Netting {
-            let venue_position_id: Option<PositionId> = None;
-        }
+        // For netting mode, don't use venue position ID (use None instead)
+        let venue_position_id = if self.oms_type == OmsType::Netting {
+            None
+        } else {
+            venue_position_id
+        };
 
         let mut initial_market_to_limit_fill = false;
 
@@ -2700,7 +2729,7 @@ impl OrderMatchingEngine {
         price: Option<Price>,
         trigger_price: Option<Price>,
         update_contingencies: Option<bool>,
-    ) {
+    ) -> bool {
         let update_contingencies = update_contingencies.unwrap_or(true);
         let quantity = quantity.unwrap_or(order.quantity());
 
@@ -2720,7 +2749,7 @@ impl OrderMatchingEngine {
                 order.venue_order_id(),
                 order.account_id(),
             );
-            return;
+            return false;
         }
         if let Some(px) = price
             && px.precision != price_prec
@@ -2737,7 +2766,7 @@ impl OrderMatchingEngine {
                 order.venue_order_id(),
                 order.account_id(),
             );
-            return;
+            return false;
         }
         if let Some(tp) = trigger_price
             && tp.precision != price_prec
@@ -2754,7 +2783,7 @@ impl OrderMatchingEngine {
                 order.venue_order_id(),
                 order.account_id(),
             );
-            return;
+            return false;
         }
 
         // Use cached_filled_qty since PassiveOrderAny in core is not updated with fills
@@ -2775,7 +2804,7 @@ impl OrderMatchingEngine {
                 order.venue_order_id(),
                 order.account_id(),
             );
-            return;
+            return false;
         }
 
         match order {
@@ -2832,7 +2861,7 @@ impl OrderMatchingEngine {
             }
             // Pass false since we already handled contingents above
             self.cancel_order(order, Some(false));
-            return;
+            return true;
         }
 
         if self.config.support_contingent_orders
@@ -2843,6 +2872,8 @@ impl OrderMatchingEngine {
         {
             self.update_contingent_order(order);
         }
+
+        true
     }
 
     /// Triggers a stop order, converting it to an active market or limit order.
