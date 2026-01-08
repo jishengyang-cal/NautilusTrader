@@ -1822,6 +1822,9 @@ cdef class Cache(CacheFacade):
         """
         Condition.not_none(currency, "currency")
 
+        if currency.code in self._currencies:
+            return
+
         self._currencies[currency.code] = currency
         Currency.register_c(currency, overwrite=False)
 
@@ -1835,12 +1838,20 @@ cdef class Cache(CacheFacade):
         """
         Add the given instrument to the cache.
 
+        Will also add the instrument's currencies (base, quote, settlement) to the cache.
+
         Parameters
         ----------
         instrument : Instrument
             The instrument to add.
 
         """
+        cdef Currency base_currency = instrument.get_base_currency()
+        if base_currency is not None:
+            self.add_currency(base_currency)
+        self.add_currency(instrument.quote_currency)
+        self.add_currency(instrument.get_settlement_currency())
+
         self._instruments[instrument.id] = instrument
 
         if isinstance(instrument, (CurrencyPair, CryptoPerpetual)):
