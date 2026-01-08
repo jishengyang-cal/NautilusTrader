@@ -221,7 +221,7 @@ impl FeedHandler {
                     continue;
                 }
 
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                () = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
                     if self.signal.load(std::sync::atomic::Ordering::Relaxed) {
                         log::debug!("Stop signal received during idle period");
                         return None;
@@ -925,10 +925,10 @@ impl FeedHandler {
             }
         }
 
-        if !funding_updates.is_empty() {
-            Some(NautilusWsMessage::FundingRateUpdates(funding_updates))
-        } else {
+        if funding_updates.is_empty() {
             None
+        } else {
+            Some(NautilusWsMessage::FundingRateUpdates(funding_updates))
         }
     }
 

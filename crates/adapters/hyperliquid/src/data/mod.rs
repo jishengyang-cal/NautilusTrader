@@ -202,7 +202,7 @@ impl HyperliquidDataClient {
 
             loop {
                 tokio::select! {
-                    _ = cancellation_token.cancelled() => {
+                    () = cancellation_token.cancelled() => {
                         log::info!("WebSocket consumption loop cancelled");
                         break;
                     }

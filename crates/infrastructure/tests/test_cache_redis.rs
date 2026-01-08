@@ -34,6 +34,7 @@ mod serial_tests {
         orders::{Order, builder::OrderTestBuilder},
         types::Quantity,
     };
+    use redis::AsyncCommands;
 
     async fn get_redis_cache_adapter()
     -> Result<RedisCacheDatabaseAdapter, Box<dyn std::error::Error>> {
@@ -89,7 +90,6 @@ mod serial_tests {
         let expected_key = format!("{}:orders:{}", adapter.database.trader_key, client_order_id);
 
         // Set up test data in Redis to verify deletion
-        use redis::AsyncCommands;
         let mut conn = adapter.database.con.clone();
         let _: () = conn.set(&expected_key, "test_data").await.unwrap();
 
@@ -148,7 +148,6 @@ mod serial_tests {
         let expected_key = format!("{}:positions:{}", adapter.database.trader_key, position_id);
 
         // Set up test data in Redis to verify deletion
-        use redis::AsyncCommands;
         let mut conn = adapter.database.con.clone();
         let _: () = conn.set(&expected_key, "test_data").await.unwrap();
 
@@ -243,7 +242,6 @@ mod serial_tests {
         let trader_key = &adapter.database.trader_key;
 
         // Set up test data in Redis indexes to verify deletion
-        use redis::AsyncCommands;
         let mut conn = adapter.database.con.clone();
 
         // Add to various indexes
@@ -378,7 +376,6 @@ mod serial_tests {
         let trader_key = &adapter.database.trader_key;
 
         // Set up test data in Redis indexes to verify deletion
-        use redis::AsyncCommands;
         let mut conn = adapter.database.con.clone();
 
         // Add to position indexes
@@ -480,7 +477,6 @@ mod serial_tests {
         let order_id_str = client_order_id.to_string();
         let trader_key = &adapter.database.trader_key;
 
-        use redis::AsyncCommands;
         let mut conn = adapter.database.con.clone();
 
         // Set up test data exactly like real usage - just one index to test

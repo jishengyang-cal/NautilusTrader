@@ -1060,19 +1060,18 @@ impl WebSocketClient {
         self.connection_mode
             .store(ConnectionMode::Disconnect.as_u8(), Ordering::SeqCst);
 
-        if let Ok(()) =
-            tokio::time::timeout(Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECS), async {
-                while !self.is_disconnected() {
-                    tokio::time::sleep(Duration::from_millis(CONNECTION_STATE_CHECK_INTERVAL_MS))
-                        .await;
-                }
+        if tokio::time::timeout(Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECS), async {
+            while !self.is_disconnected() {
+                tokio::time::sleep(Duration::from_millis(CONNECTION_STATE_CHECK_INTERVAL_MS)).await;
+            }
 
-                if !self.controller_task.is_finished() {
-                    self.controller_task.abort();
-                    log_task_aborted("controller");
-                }
-            })
-            .await
+            if !self.controller_task.is_finished() {
+                self.controller_task.abort();
+                log_task_aborted("controller");
+            }
+        })
+        .await
+            == Ok(())
         {
             log::debug!("Controller task finished");
         } else {

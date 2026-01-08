@@ -1206,7 +1206,7 @@ mod tests {
         clock::TestClock,
     };
     use nautilus_model::{
-        enums::{OrderSide, PositionSide},
+        enums::{LiquiditySide, OrderSide, OrderType, PositionSide},
         events::OrderRejected,
         identifiers::{
             AccountId, ClientOrderId, InstrumentId, PositionId, StrategyId, TradeId, TraderId,
@@ -1449,8 +1449,6 @@ mod tests {
             .core
             .gtd_timers
             .insert(client_order_id, Ustr::from("GTD-EXPIRY:O-001"));
-
-        use nautilus_model::enums::{LiquiditySide, OrderType};
 
         let event = OrderEventAny::Filled(OrderFilled {
             trader_id: TraderId::from("TRADER-001"),

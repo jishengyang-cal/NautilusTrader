@@ -160,7 +160,7 @@ impl AxDataClient {
 
             loop {
                 tokio::select! {
-                    _ = cancellation_token.cancelled() => {
+                    () = cancellation_token.cancelled() => {
                         log::debug!("Message handler cancelled");
                         break;
                     }

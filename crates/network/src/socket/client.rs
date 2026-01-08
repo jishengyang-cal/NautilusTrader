@@ -107,6 +107,8 @@ impl SocketClientInner {
     ///
     /// Returns an error if connection fails or configuration is invalid.
     pub async fn connect_url(config: SocketConfig) -> anyhow::Result<Self> {
+        const CONNECTION_TIMEOUT_SECS: u64 = 10;
+
         install_cryptographic_provider();
 
         let SocketConfig {
@@ -132,7 +134,6 @@ impl SocketClientInner {
         };
 
         // Retry initial connection with exponential backoff to handle transient DNS/network issues
-        const CONNECTION_TIMEOUT_SECS: u64 = 10;
         let max_retries = connection_max_retries.unwrap_or(5);
 
         let mut backoff = ExponentialBackoff::new(
@@ -888,19 +889,18 @@ impl SocketClient {
         self.connection_mode
             .store(ConnectionMode::Disconnect.as_u8(), Ordering::SeqCst);
 
-        if let Ok(()) =
-            tokio::time::timeout(Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECS), async {
-                while !self.is_closed() {
-                    tokio::time::sleep(Duration::from_millis(CONNECTION_STATE_CHECK_INTERVAL_MS))
-                        .await;
-                }
+        if tokio::time::timeout(Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECS), async {
+            while !self.is_closed() {
+                tokio::time::sleep(Duration::from_millis(CONNECTION_STATE_CHECK_INTERVAL_MS)).await;
+            }
 
-                if !self.controller_task.is_finished() {
-                    self.controller_task.abort();
-                    log_task_aborted("controller");
-                }
-            })
-            .await
+            if !self.controller_task.is_finished() {
+                self.controller_task.abort();
+                log_task_aborted("controller");
+            }
+        })
+        .await
+            == Ok(())
         {
             log_task_stopped("controller");
         } else {

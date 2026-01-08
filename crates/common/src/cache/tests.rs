@@ -343,9 +343,6 @@ fn test_client_order_ids_filtering(mut cache: Cache) {
 
 #[rstest]
 fn test_position_ids_filtering(mut cache: Cache) {
-    let venue_a = Venue::from("VENUE-A");
-    let _venue_b = Venue::from("VENUE-B");
-
     fn make_pair(id_str: &str) -> CurrencyPair {
         CurrencyPair::new(
             InstrumentId::from(id_str),
@@ -372,6 +369,9 @@ fn test_position_ids_filtering(mut cache: Cache) {
             UnixNanos::default(),
         )
     }
+
+    let venue_a = Venue::from("VENUE-A");
+    let _venue_b = Venue::from("VENUE-B");
 
     // Build two open positions and one closed position across venues
     let instr_a0 = make_pair("PAIR-0.VENUE-A");
@@ -1743,9 +1743,10 @@ fn test_purge_order_cleans_up_strategy_orders_index() {
     if let Some(strategy_orders) = cache.index.strategy_orders.get(&strategy_id) {
         assert!(!strategy_orders.contains(&client_order_id));
         // If this was the only order, the strategy key should be removed
-        if strategy_orders.is_empty() {
-            panic!("Empty strategy_orders set should have been removed");
-        }
+        assert!(
+            !strategy_orders.is_empty(),
+            "Empty strategy_orders set should have been removed"
+        );
     }
 
     // Query orders for strategy should not crash and should not include purged order

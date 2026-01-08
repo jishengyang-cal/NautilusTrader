@@ -448,10 +448,10 @@ pub fn adjust_fills_for_partial_window(
         if let Some(first_fill) = oldest_lifecycle_fills.first() {
             // Calculate what opening fill is needed
             // Use simulated position as current, venue position as target
-            let oldest_avg_px = if oldest_qty != Decimal::ZERO {
-                Some(oldest_value / oldest_qty.abs())
-            } else {
+            let oldest_avg_px = if oldest_qty == Decimal::ZERO {
                 None
+            } else {
+                Some(oldest_value / oldest_qty.abs())
             };
 
             let reconciliation_price = calculate_reconciliation_price(
@@ -463,11 +463,11 @@ pub fn adjust_fills_for_partial_window(
 
             if let Some(opening_px) = reconciliation_price {
                 // Calculate opening quantity needed
-                let opening_qty = if oldest_qty != Decimal::ZERO {
+                let opening_qty = if oldest_qty == Decimal::ZERO {
+                    venue_qty_signed
+                } else {
                     // Work backwards: venue = opening + current fills
                     venue_qty_signed - oldest_qty
-                } else {
-                    venue_qty_signed
                 };
 
                 if opening_qty.abs() > Decimal::ZERO {

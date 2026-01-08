@@ -491,7 +491,7 @@ impl OKXWsFeedHandler {
                     continue;
                 }
 
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                () = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
                     if self.signal.load(std::sync::atomic::Ordering::Acquire) {
                         log::debug!("Stop signal received during idle period");
                         return None;
@@ -1600,10 +1600,10 @@ impl OKXWsFeedHandler {
     ) {
         let venue_order_id = VenueOrderId::new(msg.ord_id);
         let quantity = parse_quantity(&msg.sz, size_precision).ok();
-        let price = if !is_market_price(&msg.px) {
-            parse_price(&msg.px, price_precision).ok()
-        } else {
+        let price = if is_market_price(&msg.px) {
             None
+        } else {
+            parse_price(&msg.px, price_precision).ok()
         };
 
         if let Some(qty) = quantity {
@@ -1668,10 +1668,10 @@ impl OKXWsFeedHandler {
             }
         }
 
-        if !exec_reports.is_empty() {
-            Some(NautilusWsMessage::ExecutionReports(exec_reports))
-        } else {
+        if exec_reports.is_empty() {
             None
+        } else {
+            Some(NautilusWsMessage::ExecutionReports(exec_reports))
         }
     }
 

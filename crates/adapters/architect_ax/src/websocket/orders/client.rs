@@ -212,6 +212,9 @@ impl AxOrdersWebSocketClient {
     ///
     /// Returns an error if the connection cannot be established.
     pub async fn connect(&mut self, bearer_token: &str) -> AxOrdersWsResult<()> {
+        const MAX_RETRIES: u32 = 5;
+        const CONNECTION_TIMEOUT_SECS: u64 = 10;
+
         self.signal.store(false, Ordering::Relaxed);
 
         let (raw_handler, raw_rx) = channel_message_handler();
@@ -241,9 +244,6 @@ impl AxOrdersWebSocketClient {
         };
 
         // Retry initial connection with exponential backoff
-        const MAX_RETRIES: u32 = 5;
-        const CONNECTION_TIMEOUT_SECS: u64 = 10;
-
         let mut backoff = ExponentialBackoff::new(
             Duration::from_millis(500),
             Duration::from_millis(5000),

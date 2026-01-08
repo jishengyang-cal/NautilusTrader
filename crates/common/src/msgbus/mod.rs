@@ -61,9 +61,10 @@ thread_local! {
 /// Panics if a message bus has already been set for this thread.
 pub fn set_message_bus(msgbus: Rc<RefCell<MessageBus>>) {
     MESSAGE_BUS.with(|bus| {
-        if bus.set(msgbus).is_err() {
-            panic!("Failed to set MessageBus: already initialized for this thread");
-        }
+        assert!(
+            bus.set(msgbus).is_ok(),
+            "Failed to set MessageBus: already initialized for this thread"
+        );
     });
 }
 

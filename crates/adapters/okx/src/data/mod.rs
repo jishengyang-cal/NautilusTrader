@@ -402,7 +402,7 @@ impl DataClient for OKXDataClient {
                         Some(message) = stream.next() => {
                             Self::handle_ws_message(message, &sender, &insts);
                         }
-                        _ = cancel.cancelled() => {
+                        () = cancel.cancelled() => {
                             log::debug!("Public websocket stream task cancelled");
                             break;
                         }
@@ -449,7 +449,7 @@ impl DataClient for OKXDataClient {
                         Some(message) = stream.next() => {
                             Self::handle_ws_message(message, &sender, &insts);
                         }
-                        _ = cancel.cancelled() => {
+                        () = cancel.cancelled() => {
                             log::debug!("Business websocket stream task cancelled");
                             break;
                         }

@@ -532,7 +532,9 @@ impl ExecutionManager {
             let cache = self.cache.borrow();
             let open_orders = cache.orders_open(None, None, None, None);
 
-            if !self.config.reconciliation_instrument_ids.is_empty() {
+            if self.config.reconciliation_instrument_ids.is_empty() {
+                open_orders.iter().map(|o| (*o).clone()).collect()
+            } else {
                 open_orders
                     .iter()
                     .filter(|o| {
@@ -542,8 +544,6 @@ impl ExecutionManager {
                     })
                     .map(|o| (*o).clone())
                     .collect()
-            } else {
-                open_orders.iter().map(|o| (*o).clone()).collect()
             }
         };
 
@@ -635,7 +635,9 @@ impl ExecutionManager {
             let cache = self.cache.borrow();
             let positions = cache.positions_open(None, None, None, None);
 
-            if !self.config.reconciliation_instrument_ids.is_empty() {
+            if self.config.reconciliation_instrument_ids.is_empty() {
+                positions.iter().map(|p| (*p).clone()).collect()
+            } else {
                 positions
                     .iter()
                     .filter(|p| {
@@ -645,8 +647,6 @@ impl ExecutionManager {
                     })
                     .map(|p| (*p).clone())
                     .collect::<Vec<_>>()
-            } else {
-                positions.iter().map(|p| (*p).clone()).collect()
             }
         };
 

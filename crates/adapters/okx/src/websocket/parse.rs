@@ -182,10 +182,10 @@ pub fn parse_order_event(
     {
         let ts_event = parse_millisecond_timestamp(msg.u_time);
         let quantity = parse_quantity(&msg.sz, instrument.size_precision())?;
-        let price = if !is_market_price(&msg.px) {
-            Some(parse_price(&msg.px, instrument.price_precision())?)
-        } else {
+        let price = if is_market_price(&msg.px) {
             None
+        } else {
+            Some(parse_price(&msg.px, instrument.price_precision())?)
         };
 
         return Ok(ParsedOrderEvent::Updated(OrderUpdated::new(
@@ -1097,13 +1097,13 @@ pub fn parse_algo_order_status_report(
     let trigger_px = parse_price(msg.trigger_px.as_str(), instrument.price_precision())?;
 
     // Parse limit price if it exists (not -1)
-    let price = if msg.ord_px != "-1" {
+    let price = if msg.ord_px == "-1" {
+        None
+    } else {
         Some(parse_price(
             msg.ord_px.as_str(),
             instrument.price_precision(),
         )?)
-    } else {
-        None
     };
 
     let trigger_type = match msg.trigger_px_type {
@@ -1223,10 +1223,10 @@ pub fn parse_order_status_report(
 
         // Convert quote quantity to base: quantity_base = sz_quote / price
         let quantity_base = if let Some(price) = conversion_price_dec {
-            if !price.is_zero() {
-                Quantity::from_decimal_dp(sz_quote_dec / price, size_precision)?
-            } else {
+            if price.is_zero() {
                 parse_quantity(&msg.sz, size_precision)?
+            } else {
+                Quantity::from_decimal_dp(sz_quote_dec / price, size_precision)?
             }
         } else {
             // No price available, can't convert - use sz as-is temporarily

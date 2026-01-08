@@ -39,7 +39,7 @@ use nautilus_common::testing::wait_until_async;
 use nautilus_model::{
     data::BarType,
     enums::PositionSideSpecified,
-    identifiers::AccountId,
+    identifiers::{AccountId, InstrumentId, Symbol, Venue},
     instruments::{CurrencyPair, InstrumentAny},
     types::{Currency, Price, Quantity},
 };
@@ -1400,7 +1400,6 @@ async fn test_order_deduplication_by_order_id() {
 
     // Test deduplication by querying both realtime and history for a specific instrument
     // This avoids the settle coin iteration complexity
-    use nautilus_model::identifiers::{InstrumentId, Symbol, Venue};
     let instrument_id = InstrumentId::new(Symbol::from("ETHUSDT-LINEAR"), Venue::from("BYBIT"));
 
     let reports = client

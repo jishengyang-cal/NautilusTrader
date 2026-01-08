@@ -331,6 +331,9 @@ impl BybitWebSocketClient {
     /// Returns an error if the underlying WebSocket connection cannot be established,
     /// after retrying multiple times with exponential backoff.
     pub async fn connect(&mut self) -> BybitWsResult<()> {
+        const MAX_RETRIES: u32 = 5;
+        const CONNECTION_TIMEOUT_SECS: u64 = 10;
+
         self.signal.store(false, Ordering::Relaxed);
 
         let (raw_handler, raw_rx) = channel_message_handler();
@@ -361,9 +364,6 @@ impl BybitWebSocketClient {
 
         // Retry initial connection with exponential backoff to handle transient DNS/network issues
         // TODO: Eventually expose client config options for this
-        const MAX_RETRIES: u32 = 5;
-        const CONNECTION_TIMEOUT_SECS: u64 = 10;
-
         let mut backoff = ExponentialBackoff::new(
             Duration::from_millis(500),
             Duration::from_millis(5000),

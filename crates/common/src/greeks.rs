@@ -403,10 +403,10 @@ impl GreeksCalculator {
         }
 
         if greeks_data.is_none() {
-            let utc_now_ns = if ts_event != UnixNanos::default() {
-                ts_event
-            } else {
+            let utc_now_ns = if ts_event == UnixNanos::default() {
                 self.clock.borrow().timestamp_ns()
+            } else {
+                ts_event
             };
 
             let utc_now = utc_now_ns.to_datetime_utc();

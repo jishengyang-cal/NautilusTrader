@@ -505,9 +505,10 @@ counter = Counter()
 
     #[tokio::test]
     async fn basic_client_test() {
+        const N: usize = 10;
+
         Python::initialize();
 
-        const N: usize = 10;
         let mut success_count = 0;
         let header_key = "hello-custom-key".to_string();
         let header_value = "hello-custom-value".to_string();

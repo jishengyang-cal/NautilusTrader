@@ -971,6 +971,8 @@ impl OKXWebSocketClient {
     ///
     /// Returns an error if the unsubscribe request fails to send.
     pub async fn unsubscribe_all(&self) -> Result<(), OKXWsError> {
+        const BATCH_SIZE: usize = 256;
+
         let mut all_args = Vec::new();
 
         for entry in self.subscriptions_inst_type.iter() {
@@ -1025,8 +1027,6 @@ impl OKXWebSocketClient {
         }
 
         log::debug!("Batched unsubscribe from {} channels", all_args.len());
-
-        const BATCH_SIZE: usize = 256;
 
         for chunk in all_args.chunks(BATCH_SIZE) {
             self.unsubscribe(chunk.to_vec()).await?;

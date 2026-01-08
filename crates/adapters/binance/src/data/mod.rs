@@ -280,7 +280,7 @@ impl DataClient for BinanceSpotDataClient {
                     Some(message) = stream.next() => {
                         Self::handle_ws_message(message, &sender, &insts);
                     }
-                    _ = cancel.cancelled() => {
+                    () = cancel.cancelled() => {
                         log::debug!("WebSocket stream task cancelled");
                         break;
                     }

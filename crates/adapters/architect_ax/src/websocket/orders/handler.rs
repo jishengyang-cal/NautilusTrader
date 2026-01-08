@@ -128,7 +128,7 @@ impl FeedHandler {
                     self.handle_command(cmd).await;
                 }
 
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                () = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
                     if self.signal.load(Ordering::Relaxed) {
                         log::debug!("Stop signal received during idle period");
                         return None;

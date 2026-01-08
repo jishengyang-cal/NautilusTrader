@@ -1807,12 +1807,12 @@ mod tests {
                     abs_diff / implied.abs().max(greeks_abs_tolerance)
                 };
             // Gamma is more sensitive, use higher multiplier for it, especially for low vols and extreme expiry
-            let gamma_multiplier = if !(0.1..=1.5).contains(&t) {
-                // Extreme expiry: gamma is very sensitive
-                if target_vol <= 0.15 { 10.0 } else { 5.0 }
-            } else {
+            let gamma_multiplier = if (0.1..=1.5).contains(&t) {
                 // Normal expiry
                 if target_vol <= 0.15 { 5.0 } else { 3.0 }
+            } else {
+                // Extreme expiry: gamma is very sensitive
+                if target_vol <= 0.15 { 10.0 } else { 5.0 }
             };
             let tolerance = if is_gamma {
                 effective_greeks_tolerance * gamma_multiplier

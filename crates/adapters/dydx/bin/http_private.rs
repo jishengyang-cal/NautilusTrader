@@ -110,7 +110,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "   Free collateral: {}",
         subaccount.subaccount.free_collateral
     );
-    if !subaccount.subaccount.open_perpetual_positions.is_empty() {
+    if subaccount.subaccount.open_perpetual_positions.is_empty() {
+        log::info!("   Open positions: 0");
+    } else {
         log::info!(
             "   Open positions: {}",
             subaccount.subaccount.open_perpetual_positions.len()
@@ -129,8 +131,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pos.unrealized_pnl
             );
         }
-    } else {
-        log::info!("   Open positions: 0");
     }
     log::info!("");
 

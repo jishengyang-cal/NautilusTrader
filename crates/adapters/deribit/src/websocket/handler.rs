@@ -428,14 +428,14 @@ impl DeribitWsFeedHandler {
                                     log::debug!("Received {} trades", trades.len());
                                     let data_vec =
                                         parse_trades_data(trades, &self.instruments_cache, ts_init);
-                                    if !data_vec.is_empty() {
-                                        log::debug!("Parsed {} trade ticks", data_vec.len());
-                                        return Some(NautilusWsMessage::Data(data_vec));
-                                    } else {
+                                    if data_vec.is_empty() {
                                         log::debug!(
                                             "No trades parsed - instrument cache size: {}",
                                             self.instruments_cache.len()
                                         );
+                                    } else {
+                                        log::debug!("Parsed {} trade ticks", data_vec.len());
+                                        return Some(NautilusWsMessage::Data(data_vec));
                                     }
                                 }
                                 Err(e) => {
@@ -713,7 +713,7 @@ impl DeribitWsFeedHandler {
                     }
                 }
                 // Check for stop signal
-                _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
+                () = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
                     if self.signal.load(Ordering::Relaxed) {
                         log::debug!("Stop signal received");
                         return None;

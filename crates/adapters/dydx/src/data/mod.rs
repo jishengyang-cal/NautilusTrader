@@ -1323,7 +1323,7 @@ impl DydxDataClient {
 
             loop {
                 tokio::select! {
-                    _ = cancellation_token.cancelled() => {
+                    () = cancellation_token.cancelled() => {
                         log::info!("Instrument refresh task cancelled");
                         break;
                     }
@@ -1397,7 +1397,7 @@ impl DydxDataClient {
 
             loop {
                 tokio::select! {
-                    _ = cancellation_token.cancelled() => {
+                    () = cancellation_token.cancelled() => {
                         log::info!("Orderbook refresh task cancelled");
                         break;
                     }
@@ -2408,7 +2408,6 @@ mod tests {
         let bar_ts = get_atomic_clock_realtime().get_time_ns();
 
         // Add a test instrument to the cache (required for crossed book resolution)
-        use nautilus_model::{identifiers::Symbol, instruments::CryptoPerpetual, types::Currency};
         let symbol = Symbol::from("BTC-USD-PERP");
         let instrument = CryptoPerpetual::new(
             instrument_id,
@@ -4404,8 +4403,6 @@ mod tests {
             assert_eq!(tick.price, Price::new(100.25, price_precision));
             assert_eq!(tick.size, Quantity::new(1.5, size_precision));
             assert_eq!(tick.trade_id.to_string(), "trade-1");
-
-            use nautilus_model::enums::AggressorSide;
             assert_eq!(tick.aggressor_side, AggressorSide::Buyer);
         } else {
             panic!("did not receive trades response in time");

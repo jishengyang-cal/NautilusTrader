@@ -237,6 +237,8 @@ impl DydxExecutionClient {
     /// - Atomic counter uses `Relaxed` ordering — uniqueness is required, not cross-thread sequencing
     /// - If dYdX enforces a maximum client ID below u32::MAX, additional range validation is needed
     fn generate_client_order_id_int(&self, client_order_id: &str) -> u32 {
+        use dashmap::mapref::entry::Entry;
+
         // Fast path: already mapped
         if let Some(existing) = self.client_id_to_int.get(client_order_id) {
             return *existing.value();
@@ -252,8 +254,6 @@ impl DydxExecutionClient {
         }
 
         // Allocate new ID from atomic counter
-        use dashmap::mapref::entry::Entry;
-
         match self.client_id_to_int.entry(client_order_id.to_string()) {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(vacant) => {
@@ -934,7 +934,7 @@ impl ExecutionClient for DydxExecutionClient {
                 .cancel_order(wallet_ref, instrument_id, client_id_u32, block_height)
                 .await
             {
-                Ok(_) => {
+                Ok(()) => {
                     log::info!("Successfully cancelled order: {client_order_id}");
                 }
                 Err(e) => {
@@ -1058,7 +1058,7 @@ impl ExecutionClient for DydxExecutionClient {
                 .cancel_orders_batch(wallet_ref, &orders_to_cancel, block_height)
                 .await
             {
-                Ok(_) => {
+                Ok(()) => {
                     log::info!("Successfully cancelled {} orders", orders_to_cancel.len());
                 }
                 Err(e) => {

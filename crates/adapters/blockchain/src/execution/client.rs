@@ -167,9 +167,7 @@ impl BlockchainExecutionClient {
             .set_native_currency_balance(native_currency_balance);
 
         // Fetch token balances from the blockchain.
-        if !self.wallet_balance.is_token_universe_initialized() {
-            // TODO sync from transfer events for tokens that wallet interacted with.
-        } else {
+        if self.wallet_balance.is_token_universe_initialized() {
             let tokens: Vec<Address> = self
                 .wallet_balance
                 .token_universe
@@ -182,6 +180,8 @@ impl BlockchainExecutionClient {
                     self.wallet_balance.add_token_balance(token_balance);
                 }
             }
+        } else {
+            // TODO sync from transfer events for tokens that wallet interacted with.
         }
 
         Ok(())

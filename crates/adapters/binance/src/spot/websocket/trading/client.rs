@@ -268,7 +268,7 @@ impl BinanceSpotWsTradingClient {
         let cancellation_token = self.cancellation_token.clone();
         let handle = get_runtime().spawn(async move {
             tokio::select! {
-                _ = cancellation_token.cancelled() => {
+                () = cancellation_token.cancelled() => {
                     log::debug!("Handler task cancelled");
                 }
                 _ = handler.run() => {

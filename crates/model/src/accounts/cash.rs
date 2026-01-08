@@ -184,13 +184,12 @@ impl Account for CashAccount {
         // Check for negative balances if borrowing is not allowed
         if !self.allow_borrowing {
             for balance in &event.balances {
-                if balance.total.as_decimal() < rust_decimal::Decimal::ZERO {
-                    panic!(
-                        "Account balance negative: {} {}",
-                        balance.total.as_decimal(),
-                        balance.currency.code
-                    );
-                }
+                assert!(
+                    balance.total.as_decimal() >= rust_decimal::Decimal::ZERO,
+                    "Account balance negative: {} {}",
+                    balance.total.as_decimal(),
+                    balance.currency.code
+                );
             }
         }
         self.base_apply(event);

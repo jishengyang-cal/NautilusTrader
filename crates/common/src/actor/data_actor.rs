@@ -2335,15 +2335,14 @@ impl DataActorCore {
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
-        if !self.is_properly_registered() {
-            panic!(
-                "DataActor {} is not properly registered - trader_id: {:?}, clock: {}, cache: {}",
-                self.actor_id,
-                self.trader_id,
-                self.clock.is_some(),
-                self.cache.is_some()
-            );
-        }
+        assert!(
+            self.is_properly_registered(),
+            "DataActor {} is not properly registered - trader_id: {:?}, clock: {}, cache: {}",
+            self.actor_id,
+            self.trader_id,
+            self.clock.is_some(),
+            self.cache.is_some()
+        );
 
         let topic = get_custom_topic(&data_type);
         self.add_subscription(topic, handler);

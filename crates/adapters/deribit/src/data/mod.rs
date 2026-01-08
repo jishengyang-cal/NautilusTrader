@@ -170,7 +170,7 @@ impl DeribitDataClient {
                             }
                         }
                     }
-                    _ = cancellation.cancelled() => {
+                    () = cancellation.cancelled() => {
                         log::debug!("Deribit websocket stream task cancelled");
                         break;
                     }

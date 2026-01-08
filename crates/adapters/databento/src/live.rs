@@ -210,7 +210,7 @@ impl DatabentoFeedHandler {
                     );
 
                     tokio::select! {
-                        _ = tokio::time::sleep(delay) => {}
+                        () = tokio::time::sleep(delay) => {}
                         cmd = self.cmd_rx.recv() => {
                             match cmd {
                                 Some(LiveCommand::Close) => {

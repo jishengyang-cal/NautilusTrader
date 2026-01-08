@@ -127,7 +127,7 @@ impl BinanceFuturesWsFeedHandler {
             }
             BinanceFuturesHandlerCommand::Disconnect => {
                 if let Some(client) = &self.client {
-                    let _ = client.disconnect().await;
+                    let () = client.disconnect().await;
                 }
                 self.client = None;
             }

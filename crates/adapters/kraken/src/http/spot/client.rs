@@ -1382,6 +1382,8 @@ impl KrakenSpotHttpClient {
         end: Option<DateTime<Utc>>,
         open_only: bool,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        const PAGE_SIZE: i32 = 50;
+
         let ts_init = self.generate_ts_init();
         let mut all_reports = Vec::new();
 
@@ -1416,7 +1418,6 @@ impl KrakenSpotHttpClient {
         let end_ts = end.map(|dt| dt.timestamp());
 
         let mut offset = 0;
-        const PAGE_SIZE: i32 = 50;
 
         loop {
             let closed_orders = self
@@ -1470,6 +1471,8 @@ impl KrakenSpotHttpClient {
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
     ) -> anyhow::Result<Vec<FillReport>> {
+        const PAGE_SIZE: i32 = 50;
+
         let ts_init = self.generate_ts_init();
         let mut all_reports = Vec::new();
 
@@ -1478,7 +1481,6 @@ impl KrakenSpotHttpClient {
         let end_ts = end.map(|dt| dt.timestamp());
 
         let mut offset = 0;
-        const PAGE_SIZE: i32 = 50;
 
         loop {
             let trades = self

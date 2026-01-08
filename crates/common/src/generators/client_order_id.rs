@@ -76,16 +76,16 @@ impl ClientOrderIdGenerator {
             let strategy_tag = self.strategy_id.get_tag();
             self.count += 1;
 
-            if !self.use_hyphens {
+            if self.use_hyphens {
+                format!(
+                    "O-{}-{}-{}-{}",
+                    datetime_tag, trader_tag, strategy_tag, self.count
+                )
+            } else {
                 let datetime_no_hyphens = datetime_tag.replace('-', "");
                 format!(
                     "O{}{}{}{}",
                     datetime_no_hyphens, trader_tag, strategy_tag, self.count
-                )
-            } else {
-                format!(
-                    "O-{}-{}-{}-{}",
-                    datetime_tag, trader_tag, strategy_tag, self.count
                 )
             }
         };

@@ -641,9 +641,7 @@ impl Drop for LogGuard {
     fn drop(&mut self) {
         let previous_count = LOGGING_GUARDS_ACTIVE
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
-                if count == 0 {
-                    panic!("LogGuard reference count underflow");
-                }
+                assert!(count != 0, "LogGuard reference count underflow");
                 Some(count - 1)
             })
             .expect("Failed to decrement LogGuard count");
@@ -1160,6 +1158,8 @@ mod tests {
 
         #[rstest]
         fn test_shutdown_drains_backlog_tail() {
+            const N: usize = 1000;
+
             // Configure file logging at Info level
             let config = LoggerConfig {
                 stdout_level: LevelFilter::Off,
@@ -1186,7 +1186,6 @@ mod tests {
             logging_clock_set_static_time(1_700_000_000_000_000);
 
             // Enqueue a known number of messages synchronously
-            const N: usize = 1000;
             for i in 0..N {
                 log::info!(component = "TailDrain"; "BacklogTest {i}");
             }

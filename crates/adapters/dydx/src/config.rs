@@ -110,10 +110,10 @@ impl DydxAdapterConfig {
     /// vector containing `grpc_url`.
     #[must_use]
     pub fn get_grpc_urls(&self) -> Vec<String> {
-        if !self.grpc_urls.is_empty() {
-            self.grpc_urls.clone()
-        } else {
+        if self.grpc_urls.is_empty() {
             vec![self.grpc_url.clone()]
+        } else {
+            self.grpc_urls.clone()
         }
     }
 

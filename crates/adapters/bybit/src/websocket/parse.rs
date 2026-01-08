@@ -446,12 +446,13 @@ pub fn parse_ws_order_status_report(
     account_id: AccountId,
     ts_init: UnixNanos,
 ) -> anyhow::Result<OrderStatusReport> {
+    use crate::common::enums::BybitOrderSide;
+
     let instrument_id = instrument.id();
     let venue_order_id = VenueOrderId::new(order.order_id.as_str());
     let order_side: OrderSide = order.side.into();
 
     // Bybit represents conditional orders using orderType + stopOrderType + triggerDirection + side
-    use crate::common::enums::BybitOrderSide;
     let order_type: OrderType = match (
         order.order_type,
         order.stop_order_type,
@@ -684,10 +685,10 @@ pub fn parse_ws_fill_report(
     let commission = Money::new(commission_amount, commission_currency);
     let ts_event = parse_millis_timestamp(&execution.exec_time, "execution.execTime")?;
 
-    let client_order_id = if !execution.order_link_id.is_empty() {
-        Some(ClientOrderId::new(execution.order_link_id.as_str()))
-    } else {
+    let client_order_id = if execution.order_link_id.is_empty() {
         None
+    } else {
+        Some(ClientOrderId::new(execution.order_link_id.as_str()))
     };
 
     Ok(FillReport::new(

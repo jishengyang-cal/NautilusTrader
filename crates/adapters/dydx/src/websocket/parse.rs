@@ -415,7 +415,7 @@ fn convert_ws_position_to_http(
 #[cfg(test)]
 mod tests {
     use nautilus_model::{
-        enums::{LiquiditySide, OrderSide, OrderType, PositionSideSpecified},
+        enums::{LiquiditySide, OrderSide, OrderStatus, OrderType, PositionSideSpecified},
         identifiers::{AccountId, InstrumentId, Symbol, Venue},
         instruments::CryptoPerpetual,
         types::{Currency, Price, Quantity},
@@ -952,7 +952,6 @@ mod tests {
         let report = result.unwrap();
 
         // Verify status conversion
-        use nautilus_model::enums::OrderStatus;
         let expected_status = match status {
             DydxOrderStatus::Open
             | DydxOrderStatus::BestEffortOpened

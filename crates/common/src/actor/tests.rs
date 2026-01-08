@@ -46,13 +46,16 @@ use ustr::Ustr;
 use {
     alloy_primitives::Address,
     nautilus_model::defi::{
-        Block, Blockchain, Pool, PoolIdentifier, PoolLiquidityUpdate, PoolSwap,
+        Block, Blockchain, Dex, DexType, Pool, PoolIdentifier, PoolLiquidityUpdate, PoolSwap,
+        Token, chain::chains, dex::AmmType,
     },
 };
 
 use super::{Actor, DataActor, DataActorCore, data_actor::DataActorConfig};
 #[cfg(feature = "defi")]
-use crate::defi::switchboard::{get_defi_blocks_topic, get_defi_pool_swaps_topic};
+use crate::defi::switchboard::{
+    get_defi_blocks_topic, get_defi_pool_swaps_topic, get_defi_pool_topic,
+};
 use crate::{
     actor::registry::{get_actor, get_actor_unchecked, register_actor},
     cache::Cache,
@@ -1547,10 +1550,6 @@ fn test_subscribe_and_receive_pools(
     let actor_id = register_data_actor(clock, cache, trader_id);
     let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
     actor.start().unwrap();
-
-    use nautilus_model::defi::{Dex, DexType, Pool, Token, chain::chains, dex::AmmType};
-
-    use crate::defi::switchboard::get_defi_pool_topic;
 
     let chain = Arc::new(chains::ETHEREUM.clone());
     let dex = Dex::new(

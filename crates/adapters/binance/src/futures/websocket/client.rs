@@ -292,7 +292,7 @@ impl BinanceFuturesWebSocketClient {
         let task_handle = get_runtime().spawn(async move {
             loop {
                 tokio::select! {
-                    _ = cancellation_token.cancelled() => {
+                    () = cancellation_token.cancelled() => {
                         log::debug!("Handler task cancelled");
                         break;
                     }

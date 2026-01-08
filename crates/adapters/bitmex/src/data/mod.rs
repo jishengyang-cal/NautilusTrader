@@ -181,7 +181,7 @@ impl BitmexDataClient {
                             }
                         }
                     }
-                    _ = cancellation.cancelled() => {
+                    () = cancellation.cancelled() => {
                         log::debug!("BitMEX websocket stream task cancelled");
                         break;
                     }
@@ -300,11 +300,11 @@ impl BitmexDataClient {
                 let sleep = tokio::time::sleep(interval);
                 tokio::pin!(sleep);
                 tokio::select! {
-                    _ = cancellation.cancelled() => {
+                    () = cancellation.cancelled() => {
                         log::debug!("BitMEX instrument refresh task cancelled");
                         break;
                     }
-                    _ = &mut sleep => {
+                    () = &mut sleep => {
                         match http_client.request_instruments(active_only).await {
                             Ok(mut instruments) => {
                                 instruments.sort_by_key(|instrument| instrument.id());
