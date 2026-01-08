@@ -11,6 +11,7 @@ Released on TBD (UTC).
 - Adapter implementations should now override `_subscribe_order_book_depth` and `_unsubscribe_order_book_depth` for `OrderBookDepth10` subscriptions
 
 ### Security
+- Fixed `CVec::empty()` to use dangling pointer instead of null, avoiding undefined behavior in `Vec::from_raw_parts`
 
 ### Fixes
 - Fixed trade execution fills discarded with `liquidity_consumption`
