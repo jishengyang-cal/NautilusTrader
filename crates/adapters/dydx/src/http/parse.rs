@@ -138,8 +138,8 @@ pub fn calculate_time_in_force(
 /// # Errors
 ///
 /// Returns an error if:
-/// - Conditional order is missing trigger price
-/// - Trigger price is on wrong side of limit price for the order type
+/// - Conditional order is missing trigger price.
+/// - Trigger price is on wrong side of limit price for the order type.
 pub fn validate_conditional_order(
     order_type: DydxOrderType,
     trigger_price: Option<Decimal>,
@@ -211,8 +211,8 @@ pub fn validate_conditional_order(
 /// Note: Callers should pre-filter inactive markets using [`is_market_active`].
 pub fn parse_instrument_any(
     definition: &PerpetualMarket,
-    maker_fee: Option<rust_decimal::Decimal>,
-    taker_fee: Option<rust_decimal::Decimal>,
+    maker_fee: Option<Decimal>,
+    taker_fee: Option<Decimal>,
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
     // Parse instrument ID with Nautilus perpetual suffix and keep raw symbol as venue ticker
@@ -805,10 +805,6 @@ mod tests {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Order, Fill, and Position Report Parsing
-////////////////////////////////////////////////////////////////////////////////
-
 use std::str::FromStr;
 
 use nautilus_core::UUID4;
@@ -819,7 +815,6 @@ use nautilus_model::{
     reports::{FillReport, OrderStatusReport, PositionStatusReport},
     types::{Money, Price, Quantity},
 };
-use rust_decimal::prelude::ToPrimitive;
 
 use super::models::{Fill, Order, PerpetualPosition};
 use crate::common::enums::{DydxLiquidity, DydxOrderStatus};
@@ -856,7 +851,6 @@ pub fn parse_order_status_report(
         Some(ClientOrderId::new(&order.client_id))
     };
 
-    // Parse order type and time-in-force
     let order_type = order.order_type.into();
 
     let execution = order.execution.or({
@@ -877,34 +871,16 @@ pub fn parse_order_status_report(
     let order_side = order.side;
     let order_status = parse_order_status(&order.status);
 
-    // Parse quantities using Nautilus types directly
     let size_precision = instrument.size_precision();
-    let quantity = Quantity::new(
-        order
-            .size
-            .to_f64()
-            .context("failed to convert order size to f64")?,
-        size_precision,
-    );
-    let filled_qty = Quantity::new(
-        order
-            .total_filled
-            .to_f64()
-            .context("failed to convert total_filled to f64")?,
-        size_precision,
-    );
+    let quantity = Quantity::from_decimal_dp(order.size, size_precision)
+        .context("failed to parse order size")?;
+    let filled_qty = Quantity::from_decimal_dp(order.total_filled, size_precision)
+        .context("failed to parse total_filled")?;
 
-    // Parse price using Nautilus types directly
     let price_precision = instrument.price_precision();
-    let price = Price::new(
-        order
-            .price
-            .to_f64()
-            .context("failed to convert order price to f64")?,
-        price_precision,
-    );
+    let price = Price::from_decimal_dp(order.price, price_precision)
+        .context("failed to parse order price")?;
 
-    // Parse timestamps
     let ts_accepted = order.good_til_block_time.map_or(ts_init, |dt| {
         UnixNanos::from(dt.timestamp_millis() as u64 * 1_000_000)
     });
@@ -912,7 +888,6 @@ pub fn parse_order_status_report(
         UnixNanos::from(dt.timestamp_millis() as u64 * 1_000_000)
     });
 
-    // Build the report
     let mut report = OrderStatusReport::new(
         account_id,
         instrument_id,
@@ -930,20 +905,13 @@ pub fn parse_order_status_report(
         Some(UUID4::new()),
     );
 
-    // Add price
     report = report.with_price(price);
 
-    // Add trigger price for conditional orders
     if let Some(trigger_price_dec) = order.trigger_price {
-        let trigger_price = Price::new(
-            trigger_price_dec
-                .to_f64()
-                .context("failed to convert trigger_price to f64")?,
-            instrument.price_precision(),
-        );
+        let trigger_price = Price::from_decimal_dp(trigger_price_dec, instrument.price_precision())
+            .context("failed to parse trigger_price")?;
         report = report.with_trigger_price(trigger_price);
 
-        // Add trigger type based on condition type
         if let Some(condition_type) = order.condition_type {
             let trigger_type = match condition_type {
                 crate::common::enums::DydxConditionType::StopLoss => TriggerType::LastPrice,
@@ -970,28 +938,16 @@ pub fn parse_fill_report(
 ) -> anyhow::Result<FillReport> {
     let instrument_id = instrument.id();
     let venue_order_id = VenueOrderId::new(&fill.order_id);
-
-    // Construct trade_id from fill ID
     let trade_id = TradeId::new(&fill.id);
-
     let order_side = fill.side;
 
-    // Parse quantity and price using Nautilus types directly
     let size_precision = instrument.size_precision();
     let price_precision = instrument.price_precision();
 
-    let last_qty = Quantity::new(
-        fill.size
-            .to_f64()
-            .context("failed to convert fill size to f64")?,
-        size_precision,
-    );
-    let last_px = Price::new(
-        fill.price
-            .to_f64()
-            .context("failed to convert fill price to f64")?,
-        price_precision,
-    );
+    let last_qty = Quantity::from_decimal_dp(fill.size, size_precision)
+        .context("failed to parse fill size")?;
+    let last_px = Price::from_decimal_dp(fill.price, price_precision)
+        .context("failed to parse fill price")?;
 
     // Parse commission (fee)
     //
@@ -999,18 +955,14 @@ pub fn parse_fill_report(
     // - dYdX: negative fee = rebate, positive fee = cost
     // - Nautilus: positive commission = rebate, negative commission = cost
     // Reference: OKX and Bybit adapters also negate venue fees
-    let commission = Money::new(
-        -fill.fee.to_f64().context("failed to convert fee to f64")?,
-        instrument.quote_currency(),
-    );
+    let commission = Money::from_decimal(-fill.fee, instrument.quote_currency())
+        .context("failed to parse fee")?;
 
-    // Parse liquidity side
     let liquidity_side = match fill.liquidity {
         DydxLiquidity::Maker => LiquiditySide::Maker,
         DydxLiquidity::Taker => LiquiditySide::Taker,
     };
 
-    // Parse timestamp
     let ts_event = UnixNanos::from(fill.created_at.timestamp_millis() as u64 * 1_000_000);
 
     let report = FillReport::new(
@@ -1056,22 +1008,12 @@ pub fn parse_position_status_report(
     };
 
     // Create quantity (always positive)
-    let quantity = Quantity::new(
-        position
-            .size
-            .abs()
-            .to_f64()
-            .context("failed to convert position size to f64")?,
-        instrument.size_precision(),
-    );
+    let quantity = Quantity::from_decimal_dp(position.size.abs(), instrument.size_precision())
+        .context("failed to parse position size")?;
 
-    // Parse entry price
     let avg_px_open = position.entry_price;
-
-    // Use position creation time as ts_last
     let ts_last = UnixNanos::from(position.created_at.timestamp_millis() as u64 * 1_000_000);
 
-    // Create venue position ID from market
     let venue_position_id = Some(PositionId::new(format!(
         "{}_{}",
         account_id, position.market
@@ -1123,21 +1065,22 @@ pub fn parse_account_state(
     let mut balances = Vec::new();
 
     // Parse equity (total) and freeCollateral (free)
-    let equity_f64 = subaccount.equity.parse::<f64>().context(format!(
-        "Failed to parse equity '{}' as f64",
-        subaccount.equity
-    ))?;
+    let equity: Decimal = subaccount
+        .equity
+        .parse()
+        .context(format!("Failed to parse equity '{}'", subaccount.equity))?;
 
-    let free_collateral_f64 = subaccount.free_collateral.parse::<f64>().context(format!(
-        "Failed to parse freeCollateral '{}' as f64",
+    let free_collateral: Decimal = subaccount.free_collateral.parse().context(format!(
+        "Failed to parse freeCollateral '{}'",
         subaccount.free_collateral
     ))?;
 
     // dYdX uses USDC as the settlement currency
     let currency = Currency::get_or_create_crypto_with_context("USDC", None);
 
-    let total = Money::new(equity_f64, currency);
-    let free = Money::new(free_collateral_f64, currency);
+    let total = Money::from_decimal(equity, currency).context("failed to parse equity")?;
+    let free = Money::from_decimal(free_collateral, currency)
+        .context("failed to parse free collateral")?;
     let locked = total - free;
 
     let balance = AccountBalance::new_checked(total, locked, free)
@@ -1270,6 +1213,7 @@ mod reconciliation_tests {
         types::Currency,
     };
     use rstest::rstest;
+    use rust_decimal::prelude::ToPrimitive;
     use rust_decimal_macros::dec;
 
     use super::*;

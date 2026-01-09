@@ -34,7 +34,7 @@ use nautilus_model::{
 use rust_decimal::Decimal;
 
 use crate::{
-    common::enums::DydxOrderStatus,
+    common::{enums::DydxOrderStatus, parse::extract_raw_symbol},
     http::{
         models::{Fill, Order, PerpetualPosition},
         parse::{parse_fill_report, parse_order_status_report, parse_position_status_report},
@@ -53,10 +53,10 @@ use crate::{
 /// # Errors
 ///
 /// Returns an error if:
-/// - clob_pair_id cannot be parsed from string
-/// - Instrument lookup fails for the clob_pair_id
-/// - Field parsing fails (price, size, etc.)
-/// - HTTP parser fails
+/// - clob_pair_id cannot be parsed from string.
+/// - Instrument lookup fails for the clob_pair_id.
+/// - Field parsing fails (price, size, etc.).
+/// - HTTP parser fails.
 pub fn parse_ws_order_report(
     ws_order: &DydxWsOrderSubaccountMessageContents,
     clob_pair_id_to_instrument: &DashMap<u32, InstrumentId>,
@@ -211,9 +211,9 @@ fn convert_ws_order_to_http(
 /// # Errors
 ///
 /// Returns an error if:
-/// - Instrument lookup fails for the market symbol
-/// - Field parsing fails (price, size, fee, etc.)
-/// - HTTP parser fails
+/// - Instrument lookup fails for the market symbol.
+/// - Field parsing fails (price, size, fee, etc.).
+/// - HTTP parser fails.
 pub fn parse_ws_fill_report(
     ws_fill: &DydxWsFillSubaccountMessageContents,
     instruments: &DashMap<InstrumentId, InstrumentAny>,
@@ -222,7 +222,9 @@ pub fn parse_ws_fill_report(
 ) -> anyhow::Result<FillReport> {
     let instrument = instruments
         .iter()
-        .find(|entry| entry.value().id().symbol.as_str() == ws_fill.market.as_str())
+        .find(|entry| {
+            extract_raw_symbol(entry.value().id().symbol.as_str()) == ws_fill.market.as_str()
+        })
         .ok_or_else(|| {
             let available: Vec<String> = instruments
                 .iter()
@@ -248,9 +250,7 @@ pub fn parse_ws_fill_report(
 /// Returns an error if any field parsing fails.
 fn convert_ws_fill_to_http(ws_fill: &DydxWsFillSubaccountMessageContents) -> anyhow::Result<Fill> {
     let price: Decimal = ws_fill.price.parse().context("Failed to parse price")?;
-
     let size: Decimal = ws_fill.size.parse().context("Failed to parse size")?;
-
     let fee: Decimal = ws_fill.fee.parse().context("Failed to parse fee")?;
 
     let created_at_height: u64 = ws_fill
@@ -292,9 +292,9 @@ fn convert_ws_fill_to_http(ws_fill: &DydxWsFillSubaccountMessageContents) -> any
 /// # Errors
 ///
 /// Returns an error if:
-/// - Instrument lookup fails for the market symbol
-/// - Field parsing fails (size, prices, etc.)
-/// - HTTP parser fails
+/// - Instrument lookup fails for the market symbol.
+/// - Field parsing fails (size, prices, etc.).
+/// - HTTP parser fails.
 pub fn parse_ws_position_report(
     ws_position: &DydxPerpetualPosition,
     instruments: &DashMap<InstrumentId, InstrumentAny>,
@@ -303,7 +303,9 @@ pub fn parse_ws_position_report(
 ) -> anyhow::Result<PositionStatusReport> {
     let instrument = instruments
         .iter()
-        .find(|entry| entry.value().id().symbol.as_str() == ws_position.market.as_str())
+        .find(|entry| {
+            extract_raw_symbol(entry.value().id().symbol.as_str()) == ws_position.market.as_str()
+        })
         .ok_or_else(|| {
             let available: Vec<String> = instruments
                 .iter()
@@ -644,13 +646,15 @@ mod tests {
         let instruments = DashMap::new();
         instruments.insert(instrument_id, instrument);
 
+        // dYdX WS fills use market format "BTC-USD" (not "BTC-USD-PERP")
+        // but the instrument symbol is "BTC-USD-PERP"
         let ws_fill = DydxWsFillSubaccountMessageContents {
             id: "fill789".to_string(),
             subaccount_id: "sub1".to_string(),
             side: OrderSide::Sell,
             liquidity: DydxLiquidity::Taker,
             fill_type: DydxFillType::Limit,
-            market: "BTC-USD-PERP".into(),
+            market: "BTC-USD".into(),
             market_type: DydxTickerType::Perpetual,
             price: "49500.0".to_string(),
             size: "0.5".to_string(),
@@ -779,7 +783,7 @@ mod tests {
         instruments.insert(instrument_id, instrument);
 
         let ws_position = DydxPerpetualPosition {
-            market: "BTC-USD-PERP".into(),
+            market: "BTC-USD".into(),
             status: DydxPositionStatus::Open,
             side: PositionSide::Long,
             size: "0.5".to_string(),
@@ -824,7 +828,7 @@ mod tests {
         instruments.insert(instrument_id, instrument);
 
         let ws_position = DydxPerpetualPosition {
-            market: "BTC-USD-PERP".into(),
+            market: "BTC-USD".into(),
             status: DydxPositionStatus::Open,
             side: PositionSide::Short,
             size: "-0.25".to_string(), // Negative for short
@@ -1131,7 +1135,7 @@ mod tests {
         instruments.insert(instrument_id, instrument);
 
         let ws_position = DydxPerpetualPosition {
-            market: "BTC-USD-PERP".into(),
+            market: "BTC-USD".into(),
             status: DydxPositionStatus::Closed,
             side: PositionSide::Long,
             size: "0.0".to_string(), // Closed = zero size
@@ -1178,7 +1182,7 @@ mod tests {
             side: OrderSide::Buy,
             liquidity: DydxLiquidity::Maker,
             fill_type: DydxFillType::Limit,
-            market: "BTC-USD-PERP".into(),
+            market: "BTC-USD".into(),
             market_type: DydxTickerType::Perpetual,
             price: "50000.0".to_string(),
             size: "1.0".to_string(),
@@ -1220,7 +1224,7 @@ mod tests {
             side: OrderSide::Sell,
             liquidity: DydxLiquidity::Taker,
             fill_type: DydxFillType::Limit,
-            market: "BTC-USD-PERP".into(),
+            market: "BTC-USD".into(),
             market_type: DydxTickerType::Perpetual,
             price: "49800.0".to_string(),
             size: "0.75".to_string(),

@@ -195,17 +195,29 @@ impl DydxGrpcClient {
                 grpc_urls.len()
             );
 
-            let channel = match Channel::from_shared(url_str.to_string())
+            let mut endpoint = match Channel::from_shared(url_str.to_string())
                 .map_err(|e| DydxError::Config(format!("Invalid gRPC URL: {e}")))
             {
-                Ok(ch) => ch,
+                Ok(ep) => ep,
                 Err(e) => {
                     last_error = Some(e);
                     continue;
                 }
             };
 
-            match channel.connect().await {
+            // Enable TLS for HTTPS URLs (required for public gRPC nodes)
+            if url_str.starts_with("https://") {
+                let tls = tonic::transport::ClientTlsConfig::new().with_enabled_roots();
+                endpoint = match endpoint.tls_config(tls) {
+                    Ok(ep) => ep,
+                    Err(e) => {
+                        last_error = Some(DydxError::Config(format!("TLS config failed: {e}")));
+                        continue;
+                    }
+                };
+            }
+
+            match endpoint.connect().await {
                 Ok(connected_channel) => {
                     log::info!("Successfully reconnected to gRPC node: {url_str}");
 

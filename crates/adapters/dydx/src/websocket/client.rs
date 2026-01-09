@@ -154,8 +154,6 @@ impl DydxWebSocketClient {
     /// Creates a new public WebSocket client for market data.
     #[must_use]
     pub fn new_public(url: String, _heartbeat: Option<u64>) -> Self {
-        use std::sync::atomic::AtomicU8;
-
         // Create dummy command channel (will be replaced on connect)
         let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::unbounded_channel::<HandlerCommand>();
 
@@ -186,8 +184,6 @@ impl DydxWebSocketClient {
         account_id: AccountId,
         _heartbeat: Option<u64>,
     ) -> Self {
-        use std::sync::atomic::AtomicU8;
-
         // Create dummy command channel (will be replaced on connect)
         let (cmd_tx, _cmd_rx) = tokio::sync::mpsc::unbounded_channel::<HandlerCommand>();
 

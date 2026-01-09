@@ -109,11 +109,6 @@ path = "bin/ws_data.rs"
 doc = false
 
 [[bin]]
-name = "dydx-live-integration"
-path = "bin/live_integration.rs"
-doc = false
-
-[[bin]]
 name = "dydx-grpc-exec"
 path = "bin/grpc_exec.rs"
 doc = false

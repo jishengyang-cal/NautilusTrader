@@ -297,8 +297,6 @@ impl DydxExecutionClient {
     /// - `market_to_instrument`: Market ticker (e.g., "BTC-USD") → InstrumentId
     /// - `clob_pair_id_to_instrument`: CLOB pair ID → InstrumentId
     fn cache_instruments_from_http(&mut self) {
-        use nautilus_model::instruments::InstrumentAny;
-
         // Get all instruments from HTTP client cache
         let instruments: Vec<InstrumentAny> = self
             .http_client
@@ -1425,7 +1423,7 @@ impl ExecutionClient for DydxExecutionClient {
                                 // Update oracle_prices map with new prices
                                 for (market_symbol, oracle_data) in &oracle_prices_map {
                                     // Parse oracle price
-                                    match oracle_data.oracle_price.parse::<rust_decimal::Decimal>()
+                                    match oracle_data.oracle_price.parse::<Decimal>()
                                     {
                                         Ok(price) => {
                                             // Find instrument by symbol (oracle uses raw symbol like "BTC-USD")

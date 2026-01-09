@@ -123,7 +123,7 @@ impl DataClientFactory for DydxDataClientFactory {
 
         let ws_client = DydxWebSocketClient::new_public(ws_url, Some(20));
 
-        let client = DydxDataClient::new(client_id, dydx_config, http_client, Some(ws_client))?;
+        let client = DydxDataClient::new(client_id, dydx_config, http_client, ws_client)?;
         Ok(Box::new(client))
     }
 
