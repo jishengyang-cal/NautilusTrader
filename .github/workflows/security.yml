@@ -72,7 +72,7 @@ jobs:
           persist-credentials: false
 
       - name: Run osv-scanner
-        uses: google/osv-scanner-action@f1ba5d7df1b88f11c49ed2bd742d13636ca1352c # v2.0.2
+        uses: google/osv-scanner-action@375a0e8ebdc98e99b02ac4338a724f5750f21213 # v2.3.1
         with:
           config: osv-scanner.toml
           scan-args: --lockfile=Cargo.lock --lockfile=uv.lock
