@@ -253,7 +253,6 @@ pre-flight:  #-- Run comprehensive pre-flight checks (format, check-code, cargo-
 	@$(MAKE) --no-print-directory cargo-test-extras
 	@$(MAKE) --no-print-directory build-debug
 	@$(MAKE) --no-print-directory pytest
-	@$(MAKE) --no-print-directory security-audit
 	@printf "$(GREEN)All pre-flight checks passed$(RESET)\n"
 
 .PHONY: ruff

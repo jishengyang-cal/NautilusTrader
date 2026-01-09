@@ -878,9 +878,7 @@ impl Portfolio {
             }
 
             let cache = self.cache.borrow();
-            let account = if let Some(account) = cache.account_for_venue(&instrument_id.venue) {
-                account
-            } else {
+            let Some(account) = cache.account_for_venue(&instrument_id.venue).cloned() else {
                 log::error!(
                     "Cannot update maintenance (position) margin: no account registered for {}",
                     instrument_id.venue
@@ -894,29 +892,31 @@ impl Portfolio {
                 AccountAny::Margin(margin_account) => margin_account,
             };
 
-            let mut cache = self.cache.borrow_mut();
-            let instrument = if let Some(instrument) = cache.instrument(&instrument_id) {
-                instrument
-            } else {
+            let Some(instrument) = cache.instrument(&instrument_id).cloned() else {
                 log::error!(
                     "Cannot update maintenance (position) margin: no instrument found for {instrument_id}"
                 );
                 initialized = false;
                 break;
             };
+            let positions: Vec<Position> = cache
+                .positions_open(None, Some(&instrument_id), None, None)
+                .into_iter()
+                .cloned()
+                .collect();
+            drop(cache);
 
             let result = self.inner.borrow_mut().accounts.update_positions(
-                account,
-                instrument.clone(),
-                self.cache
-                    .borrow()
-                    .positions_open(None, Some(&instrument_id), None, None),
+                &account,
+                instrument,
+                positions.iter().collect(),
                 self.clock.borrow().timestamp_ns(),
             );
 
             match result {
                 Some((updated_account, _)) => {
-                    cache
+                    self.cache
+                        .borrow_mut()
                         .update_account(AccountAny::Margin(updated_account))
                         .unwrap();
                 }

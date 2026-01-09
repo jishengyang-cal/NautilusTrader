@@ -1256,7 +1256,7 @@ fn dispatch_execution_report(
 ) {
     match report {
         ExecutionReport::Order(order_report) => {
-            let exec_report = NautilusExecutionReport::OrderStatus(Box::new(order_report));
+            let exec_report = NautilusExecutionReport::Order(Box::new(order_report));
             if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
                 log::warn!("Failed to send order status report: {e}");
             }

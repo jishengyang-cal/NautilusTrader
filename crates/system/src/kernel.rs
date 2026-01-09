@@ -30,7 +30,7 @@ use nautilus_common::{
         logger::{LogGuard, LoggerConfig},
         writer::FileWriterConfig,
     },
-    messages::{DataResponse, data::DataCommand, execution::TradingCommand},
+    messages::{DataResponse, ExecutionReport, data::DataCommand, execution::TradingCommand},
     msgbus::{
         self, MessageBus,
         handler::{ShareableMessageHandler, TypedMessageHandler},
@@ -42,13 +42,7 @@ use nautilus_common::{
 use nautilus_core::{UUID4, UnixNanos, WeakCell};
 use nautilus_data::engine::DataEngine;
 use nautilus_execution::{engine::ExecutionEngine, order_emulator::adapter::OrderEmulatorAdapter};
-use nautilus_model::{
-    enums::OrderStatus,
-    events::{OrderCanceled, OrderEventAny, OrderExpired},
-    identifiers::TraderId,
-    orders::Order,
-    reports::OrderStatusReport,
-};
+use nautilus_model::{events::OrderEventAny, identifiers::TraderId};
 use nautilus_portfolio::portfolio::Portfolio;
 use nautilus_risk::engine::RiskEngine;
 use ustr::Ustr;
@@ -219,12 +213,11 @@ impl NautilusKernel {
         msgbus::register(endpoint, handler);
 
         // Register ExecEngine execute handler
-        let exec_engine_weak = WeakCell::from(Rc::downgrade(&exec_engine));
-        let exec_engine_weak_clone = exec_engine_weak.clone();
+        let exec_engine_weak1 = WeakCell::from(Rc::downgrade(&exec_engine));
         let endpoint = MessagingSwitchboard::exec_engine_execute();
         let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
             move |cmd: &TradingCommand| {
-                if let Some(engine_rc) = exec_engine_weak.upgrade() {
+                if let Some(engine_rc) = exec_engine_weak1.upgrade() {
                     engine_rc.borrow().execute(cmd);
                 }
             },
@@ -232,123 +225,25 @@ impl NautilusKernel {
         msgbus::register(endpoint, handler);
 
         // Register ExecEngine process handler
+        let exec_engine_weak2 = WeakCell::from(Rc::downgrade(&exec_engine));
         let endpoint = MessagingSwitchboard::exec_engine_process();
         let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
             move |event: &OrderEventAny| {
-                if let Some(engine_rc) = exec_engine_weak_clone.upgrade() {
+                if let Some(engine_rc) = exec_engine_weak2.upgrade() {
                     engine_rc.borrow_mut().process(event);
-                } else {
-                    log::error!(
-                        "ExecEngine dropped, cannot process order event: {:?}",
-                        event.client_order_id()
-                    );
                 }
             },
         )));
         msgbus::register(endpoint, handler);
 
-        let cache_weak = WeakCell::from(Rc::downgrade(&cache));
-        let exec_engine_weak2 = WeakCell::from(Rc::downgrade(&exec_engine));
-        let trader_id = config.trader_id();
-
+        // Register ExecEngine report handler
+        let exec_engine_weak3 = WeakCell::from(Rc::downgrade(&exec_engine));
         let endpoint = MessagingSwitchboard::exec_engine_reconcile_execution_report();
         let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |report: &OrderStatusReport| {
-                let Some(cache_rc) = cache_weak.upgrade() else {
-                    log::error!("Cache dropped, cannot reconcile order status report");
-                    return;
-                };
-                let Some(exec_engine_rc) = exec_engine_weak2.upgrade() else {
-                    log::error!("ExecEngine dropped, cannot reconcile order status report");
-                    return;
-                };
-
-                let cache = cache_rc.borrow();
-
-                let order = report
-                    .client_order_id
-                    .and_then(|id| cache.order(&id).cloned())
-                    .or_else(|| {
-                        cache
-                            .client_order_id(&report.venue_order_id)
-                            .and_then(|cid| cache.order(cid).cloned())
-                    });
-
-                let Some(order) = order else {
-                    log::debug!(
-                        "Order not found in cache for reconciliation: client_order_id={:?}, venue_order_id={}",
-                        report.client_order_id,
-                        report.venue_order_id
-                    );
-                    return;
-                };
-
-                if order.status() == report.order_status {
-                    return;
+            move |report: &ExecutionReport| {
+                if let Some(engine_rc) = exec_engine_weak3.upgrade() {
+                    engine_rc.borrow_mut().reconcile_execution_report(report);
                 }
-
-                if !order.is_open() {
-                    return;
-                }
-
-                drop(cache); // Release borrow before processing
-
-                let event: Option<OrderEventAny> = match report.order_status {
-                    OrderStatus::Canceled => {
-                        log::debug!(
-                            "Reconciling canceled order: client_order_id={}, venue_order_id={}",
-                            order.client_order_id(),
-                            report.venue_order_id
-                        );
-                        Some(OrderEventAny::Canceled(OrderCanceled::new(
-                            trader_id,
-                            order.strategy_id(),
-                            order.instrument_id(),
-                            order.client_order_id(),
-                            UUID4::new(),
-                            report.ts_last,
-                            report.ts_init,
-                            true, // reconciliation
-                            Some(report.venue_order_id),
-                            Some(report.account_id),
-                        )))
-                    }
-                    OrderStatus::Expired => {
-                        log::debug!(
-                            "Reconciling expired order: client_order_id={}, venue_order_id={}",
-                            order.client_order_id(),
-                            report.venue_order_id
-                        );
-                        Some(OrderEventAny::Expired(OrderExpired::new(
-                            trader_id,
-                            order.strategy_id(),
-                            order.instrument_id(),
-                            order.client_order_id(),
-                            UUID4::new(),
-                            report.ts_last,
-                            report.ts_init,
-                            true, // reconciliation
-                            Some(report.venue_order_id),
-                            Some(report.account_id),
-                        )))
-                    }
-                    _ => None,
-                };
-
-                if let Some(evt) = event {
-                    exec_engine_rc.borrow_mut().process(&evt);
-                }
-            },
-        )));
-        msgbus::register(endpoint, handler);
-
-        let endpoint = MessagingSwitchboard::exec_engine_reconcile_execution_mass_status();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::with_any(
-            move |report: &dyn Any| {
-                log::debug!(
-                    "Received execution mass status for reconciliation: {:?}",
-                    report.type_id()
-                );
             },
         )));
         msgbus::register(endpoint, handler);

@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use std::{fmt::Debug, sync::Arc};
+use std::{any::Any, fmt::Debug, sync::Arc};
 
 use nautilus_common::{
     live::runner::{set_data_event_sender, set_exec_event_sender},
@@ -313,32 +313,8 @@ impl AsyncRunner {
 
     #[inline]
     pub fn handle_exec_report(report: ExecutionReport) {
-        match report {
-            ExecutionReport::OrderStatus(r) => {
-                msgbus::send_any(
-                    MessagingSwitchboard::exec_engine_reconcile_execution_report(),
-                    &*r,
-                );
-            }
-            ExecutionReport::Fill(r) => {
-                msgbus::send_any(
-                    MessagingSwitchboard::exec_engine_reconcile_execution_report(),
-                    &*r,
-                );
-            }
-            ExecutionReport::Position(r) => {
-                msgbus::send_any(
-                    MessagingSwitchboard::exec_engine_reconcile_execution_report(),
-                    &*r,
-                );
-            }
-            ExecutionReport::Mass(r) => {
-                msgbus::send_any(
-                    MessagingSwitchboard::exec_engine_reconcile_execution_mass_status(),
-                    &*r,
-                );
-            }
-        }
+        let endpoint = MessagingSwitchboard::exec_engine_reconcile_execution_report();
+        msgbus::send_any(endpoint, &report as &dyn Any);
     }
 }
 
@@ -695,14 +671,14 @@ mod tests {
             None,
         );
 
-        tx.send(ExecutionEvent::Report(ExecutionReport::OrderStatus(
-            Box::new(report),
-        )))
+        tx.send(ExecutionEvent::Report(ExecutionReport::Order(Box::new(
+            report,
+        ))))
         .unwrap();
 
         let received = rx.recv().await.unwrap();
         match received {
-            ExecutionEvent::Report(ExecutionReport::OrderStatus(r)) => {
+            ExecutionEvent::Report(ExecutionReport::Order(r)) => {
                 assert_eq!(r.venue_order_id.as_str(), "V-001");
                 assert_eq!(r.order_status, OrderStatus::Accepted);
             }
@@ -918,9 +894,9 @@ mod tests {
             None,
         );
         exec_evt_tx
-            .send(ExecutionEvent::Report(ExecutionReport::OrderStatus(
-                Box::new(order_status),
-            )))
+            .send(ExecutionEvent::Report(ExecutionReport::Order(Box::new(
+                order_status,
+            ))))
             .unwrap();
 
         // Send execution report (Fill)

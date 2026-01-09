@@ -762,7 +762,7 @@ fn dispatch_account_state(state: AccountState) {
 
 fn dispatch_order_status_report(report: OrderStatusReport) {
     let sender = get_exec_event_sender();
-    let exec_report = ExecutionReport::OrderStatus(Box::new(report));
+    let exec_report = ExecutionReport::Order(Box::new(report));
     if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
         log::warn!("Failed to send order status report: {e}");
     }

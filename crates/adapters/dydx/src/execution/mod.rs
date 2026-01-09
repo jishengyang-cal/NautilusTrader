@@ -1359,7 +1359,7 @@ impl ExecutionClient for DydxExecutionClient {
                                                 );
                                                 let sender = get_exec_event_sender();
                                                 let exec_report =
-                                                    NautilusExecutionReport::OrderStatus(Box::new(
+                                                    NautilusExecutionReport::Order(Box::new(
                                                         report,
                                                     ));
                                                 if let Err(e) =
@@ -1934,7 +1934,7 @@ fn dispatch_execution_report(report: ExecutionReport) {
                 order_report.venue_order_id,
                 order_report.client_order_id
             );
-            let exec_report = NautilusExecutionReport::OrderStatus(order_report);
+            let exec_report = NautilusExecutionReport::Order(order_report);
             if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
                 log::warn!("Failed to send order status report: {e}");
             }

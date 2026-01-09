@@ -39,7 +39,6 @@ static DATA_RESPONSE_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static EXEC_EXECUTE_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static EXEC_PROCESS_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static EXEC_RECONCILE_REPORT_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
-static EXEC_RECONCILE_MASS_STATUS_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static RISK_EXECUTE_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static RISK_PROCESS_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static PORTFOLIO_UPDATE_ACCOUNT_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
@@ -116,13 +115,6 @@ macro_rules! define_switchboard {
             #[must_use]
             pub fn exec_engine_reconcile_execution_report() -> MStr<Endpoint> {
                 *EXEC_RECONCILE_REPORT_ENDPOINT.get_or_init(|| "ExecEngine.reconcile_execution_report".into())
-            }
-
-            #[inline]
-            #[must_use]
-            pub fn exec_engine_reconcile_execution_mass_status() -> MStr<Endpoint> {
-                *EXEC_RECONCILE_MASS_STATUS_ENDPOINT
-                    .get_or_init(|| "ExecEngine.reconcile_execution_mass_status".into())
             }
 
             #[inline]

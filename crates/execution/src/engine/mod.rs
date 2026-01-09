@@ -43,9 +43,12 @@ use nautilus_common::{
     clock::Clock,
     generators::position_id::PositionIdGenerator,
     logging::{CMD, EVT, RECV, SEND},
-    messages::execution::{
-        BatchCancelOrders, CancelAllOrders, CancelOrder, ModifyOrder, QueryAccount, QueryOrder,
-        SubmitOrder, SubmitOrderList, TradingCommand,
+    messages::{
+        ExecutionReport,
+        execution::{
+            BatchCancelOrders, CancelAllOrders, CancelOrder, ModifyOrder, QueryAccount, QueryOrder,
+            SubmitOrder, SubmitOrderList, TradingCommand,
+        },
     },
     msgbus::{
         self, get_message_bus,
@@ -64,11 +67,11 @@ use nautilus_model::{
     orderbook::own::{OwnOrderBook, should_handle_own_book_order},
     orders::{Order, OrderAny, OrderError},
     position::Position,
-    reports::ExecutionMassStatus,
+    reports::{ExecutionMassStatus, OrderStatusReport},
     types::{Money, Price, Quantity},
 };
 
-use crate::client::ExecutionClientAdapter;
+use crate::{client::ExecutionClientAdapter, reconciliation::reconcile_order_report};
 
 /// Central execution engine responsible for orchestrating order routing and execution.
 ///
@@ -536,14 +539,77 @@ impl ExecutionEngine {
         self.cache.borrow_mut().flush_db();
     }
 
-    /// Processes an order event, updating internal state and routing as needed.
-    pub fn process(&mut self, event: &OrderEventAny) {
-        self.handle_event(event);
+    /// Reconciles an execution report received at runtime.
+    ///
+    /// Dispatches to the appropriate handler based on report type.
+    pub fn reconcile_execution_report(&mut self, report: &ExecutionReport) {
+        match report {
+            ExecutionReport::Order(order_report) => {
+                self.reconcile_order_status_report(order_report);
+            }
+            ExecutionReport::Fill(fill_report) => {
+                // TODO: Implement
+                log::debug!("Received fill report: {fill_report:?}");
+            }
+            ExecutionReport::Position(position_report) => {
+                // TODO: Implement
+                log::debug!("Received position report: {position_report:?}");
+            }
+            ExecutionReport::MassStatus(mass_status) => {
+                // TODO: Implement
+                log::warn!(
+                    "Unexpected mass status in reconcile_report: {:?}",
+                    mass_status.account_id
+                );
+            }
+        }
+    }
+
+    /// Reconciles an order status report received at runtime.
+    ///
+    /// Handles order status transitions by generating appropriate events when the venue
+    /// reports a different status than our local state. Supports all order states including
+    /// fills with inferred fill generation when instruments are available.
+    pub fn reconcile_order_status_report(&mut self, report: &OrderStatusReport) {
+        let cache = self.cache.borrow();
+
+        let order = report
+            .client_order_id
+            .and_then(|id| cache.order(&id).cloned())
+            .or_else(|| {
+                cache
+                    .client_order_id(&report.venue_order_id)
+                    .and_then(|cid| cache.order(cid).cloned())
+            });
+
+        let Some(order) = order else {
+            log::debug!(
+                "Order not found in cache for reconciliation: client_order_id={:?}, venue_order_id={}",
+                report.client_order_id,
+                report.venue_order_id
+            );
+            return;
+        };
+
+        let instrument = cache.instrument(&report.instrument_id).cloned();
+
+        drop(cache);
+
+        let ts_now = self.clock.borrow().timestamp_ns();
+
+        if let Some(event) = reconcile_order_report(&order, report, instrument.as_ref(), ts_now) {
+            self.handle_event(&event);
+        }
     }
 
     /// Executes a trading command by routing it to the appropriate execution client.
     pub fn execute(&self, command: &TradingCommand) {
         self.execute_command(command);
+    }
+
+    /// Processes an order event, updating internal state and routing as needed.
+    pub fn process(&mut self, event: &OrderEventAny) {
+        self.handle_event(event);
     }
 
     /// Starts the execution engine.

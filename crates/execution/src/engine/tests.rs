@@ -40,6 +40,7 @@ use nautilus_model::{
     instruments::{Instrument, InstrumentAny, stubs::audusd_sim},
     orders::{Order, OrderAny, OrderList, builder::OrderTestBuilder, stubs::TestOrderEventStubs},
     position::Position,
+    reports::OrderStatusReport,
     stubs::{TestDefault, stub_position_long},
     types::{Money, Price, Quantity},
 };
@@ -8134,4 +8135,160 @@ fn test_own_book_status_integrity_during_transitions() {
         assert!(cache.is_position_open(&position_id));
         assert!(!cache.is_position_closed(&position_id));
     }
+}
+
+fn create_order_status_report(
+    client_order_id: Option<ClientOrderId>,
+    venue_order_id: VenueOrderId,
+    instrument_id: InstrumentId,
+    status: OrderStatus,
+    quantity: Quantity,
+    filled_qty: Quantity,
+) -> OrderStatusReport {
+    OrderStatusReport::new(
+        AccountId::test_default(),
+        instrument_id,
+        client_order_id,
+        venue_order_id,
+        OrderSide::Buy,
+        OrderType::Limit,
+        TimeInForce::Gtc,
+        status,
+        quantity,
+        filled_qty,
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        None,
+    )
+    .with_price(Price::from("1.00000"))
+}
+
+#[rstest]
+fn test_reconcile_order_status_report_order_not_in_cache(mut execution_engine: ExecutionEngine) {
+    let report = create_order_status_report(
+        Some(ClientOrderId::from("O-MISSING")),
+        VenueOrderId::from("V-001"),
+        audusd_sim().id(),
+        OrderStatus::Accepted,
+        Quantity::from(100_000),
+        Quantity::from(0),
+    );
+
+    execution_engine.reconcile_order_status_report(&report);
+
+    let cache = execution_engine.cache.borrow();
+    assert!(cache.order(&ClientOrderId::from("O-MISSING")).is_none());
+}
+
+#[rstest]
+fn test_reconcile_order_status_report_generates_canceled_event(
+    mut execution_engine: ExecutionEngine,
+) {
+    let instrument = audusd_sim();
+    let order = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from(100_000))
+        .price(Price::from("1.00000"))
+        .build();
+    let client_order_id = order.client_order_id();
+    let venue_order_id = VenueOrderId::from("V-001");
+    execution_engine
+        .cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, true)
+        .unwrap();
+    let submitted = TestOrderEventStubs::submitted(&order, AccountId::test_default());
+    execution_engine.process(&submitted);
+    let accepted = TestOrderEventStubs::accepted(&order, AccountId::test_default(), venue_order_id);
+    execution_engine.process(&accepted);
+
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        instrument.id(),
+        OrderStatus::Canceled,
+        Quantity::from(100_000),
+        Quantity::from(0),
+    );
+    execution_engine.reconcile_order_status_report(&report);
+
+    let cache = execution_engine.cache.borrow();
+    let order = cache.order(&client_order_id).unwrap();
+    assert_eq!(order.status(), OrderStatus::Canceled);
+}
+
+#[rstest]
+fn test_reconcile_order_status_report_no_event_when_in_sync(mut execution_engine: ExecutionEngine) {
+    let instrument = audusd_sim();
+    let order = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from(100_000))
+        .price(Price::from("1.00000"))
+        .build();
+    let client_order_id = order.client_order_id();
+    let venue_order_id = VenueOrderId::from("V-001");
+    execution_engine
+        .cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, true)
+        .unwrap();
+    let submitted = TestOrderEventStubs::submitted(&order, AccountId::test_default());
+    execution_engine.process(&submitted);
+    let accepted = TestOrderEventStubs::accepted(&order, AccountId::test_default(), venue_order_id);
+    execution_engine.process(&accepted);
+
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        instrument.id(),
+        OrderStatus::Accepted,
+        Quantity::from(100_000),
+        Quantity::from(0),
+    );
+    execution_engine.reconcile_order_status_report(&report);
+
+    let cache = execution_engine.cache.borrow();
+    let order = cache.order(&client_order_id).unwrap();
+    assert_eq!(order.status(), OrderStatus::Accepted);
+}
+
+#[rstest]
+fn test_reconcile_order_status_report_finds_order_by_venue_order_id(
+    mut execution_engine: ExecutionEngine,
+) {
+    let instrument = audusd_sim();
+    let order = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from(100_000))
+        .price(Price::from("1.00000"))
+        .build();
+    let client_order_id = order.client_order_id();
+    let venue_order_id = VenueOrderId::from("V-001");
+    execution_engine
+        .cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, true)
+        .unwrap();
+    let submitted = TestOrderEventStubs::submitted(&order, AccountId::test_default());
+    execution_engine.process(&submitted);
+    let accepted = TestOrderEventStubs::accepted(&order, AccountId::test_default(), venue_order_id);
+    execution_engine.process(&accepted);
+
+    let report = create_order_status_report(
+        None,
+        venue_order_id,
+        instrument.id(),
+        OrderStatus::Canceled,
+        Quantity::from(100_000),
+        Quantity::from(0),
+    );
+    execution_engine.reconcile_order_status_report(&report);
+
+    let cache = execution_engine.cache.borrow();
+    let order = cache.order(&client_order_id).unwrap();
+    assert_eq!(order.status(), OrderStatus::Canceled);
 }
