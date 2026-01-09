@@ -13,6 +13,990 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Binance execution client implementation.
+//! Live execution client implementation for the Binance Spot adapter.
 
-// TODO: Implement execution client for order management
+use std::{
+    future::Future,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
+
+use anyhow::Context;
+use async_trait::async_trait;
+use nautilus_common::{
+    clients::ExecutionClient,
+    live::{runner::get_exec_event_sender, runtime::get_runtime},
+    messages::{
+        ExecutionEvent, ExecutionReport as NautilusExecutionReport,
+        execution::{
+            BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
+            GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+            ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
+        },
+    },
+};
+use nautilus_core::{MUTEX_POISONED, UUID4, UnixNanos, time::get_atomic_clock_realtime};
+use nautilus_live::ExecutionClientCore;
+use nautilus_model::{
+    accounts::AccountAny,
+    enums::OmsType,
+    events::{
+        AccountState, OrderAccepted, OrderCancelRejected, OrderCanceled, OrderEventAny,
+        OrderModifyRejected, OrderRejected, OrderSubmitted, OrderUpdated,
+    },
+    identifiers::{AccountId, ClientId, Venue, VenueOrderId},
+    orders::Order,
+    reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
+    types::{AccountBalance, Currency, MarginBalance, Money},
+};
+use tokio::task::JoinHandle;
+
+use crate::{
+    common::consts::BINANCE_VENUE,
+    config::BinanceExecClientConfig,
+    spot::http::{client::BinanceSpotHttpClient, query::AccountInfoParams},
+};
+
+/// Live execution client for Binance Spot trading.
+///
+/// Implements the [`ExecutionClient`] trait for order management on Binance Spot
+/// and Spot Margin markets. Uses HTTP API for all order operations with SBE encoding.
+#[derive(Debug)]
+pub struct BinanceSpotExecutionClient {
+    core: ExecutionClientCore,
+    config: BinanceExecClientConfig,
+    http_client: BinanceSpotHttpClient,
+    exec_event_sender: Option<tokio::sync::mpsc::UnboundedSender<ExecutionEvent>>,
+    started: bool,
+    connected: AtomicBool,
+    instruments_initialized: AtomicBool,
+    pending_tasks: Mutex<Vec<JoinHandle<()>>>,
+}
+
+impl BinanceSpotExecutionClient {
+    /// Creates a new [`BinanceSpotExecutionClient`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client fails to initialize or credentials are missing.
+    pub fn new(core: ExecutionClientCore, config: BinanceExecClientConfig) -> anyhow::Result<Self> {
+        // Get credentials from config or environment variables
+        let api_key = config
+            .api_key
+            .clone()
+            .or_else(|| std::env::var("BINANCE_API_KEY").ok())
+            .ok_or_else(|| anyhow::anyhow!("BINANCE_API_KEY not found in config or environment"))?;
+
+        let api_secret = config
+            .api_secret
+            .clone()
+            .or_else(|| std::env::var("BINANCE_API_SECRET").ok())
+            .ok_or_else(|| {
+                anyhow::anyhow!("BINANCE_API_SECRET not found in config or environment")
+            })?;
+
+        let http_client = BinanceSpotHttpClient::new(
+            config.environment,
+            Some(api_key),
+            Some(api_secret),
+            config.base_url_http.clone(),
+            None, // recv_window
+            None, // timeout_secs
+            None, // proxy_url
+        )
+        .context("failed to construct Binance Spot HTTP client")?;
+
+        Ok(Self {
+            core,
+            config,
+            http_client,
+            exec_event_sender: None,
+            started: false,
+            connected: AtomicBool::new(false),
+            instruments_initialized: AtomicBool::new(false),
+            pending_tasks: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// Converts mantissa and exponent to f64 value.
+    fn mantissa_to_f64(mantissa: i64, exponent: i8) -> f64 {
+        mantissa as f64 * 10f64.powi(exponent as i32)
+    }
+
+    /// Converts Binance account info to Nautilus account state.
+    fn create_account_state(
+        &self,
+        account_info: &crate::spot::http::models::BinanceAccountInfo,
+    ) -> AccountState {
+        let ts_now = get_atomic_clock_realtime().get_time_ns();
+
+        // Convert balances to AccountBalance using mantissa/exponent format
+        let balances: Vec<AccountBalance> = account_info
+            .balances
+            .iter()
+            .filter_map(|b| {
+                let free = Self::mantissa_to_f64(b.free_mantissa, b.exponent);
+                let locked = Self::mantissa_to_f64(b.locked_mantissa, b.exponent);
+                let total = free + locked;
+
+                // Only include non-zero balances
+                if total == 0.0 {
+                    return None;
+                }
+
+                let currency = Currency::from(&b.asset);
+                Some(AccountBalance::new(
+                    Money::new(total, currency),
+                    Money::new(locked, currency),
+                    Money::new(free, currency),
+                ))
+            })
+            .collect();
+
+        AccountState::new(
+            self.core.account_id,
+            self.core.account_type,
+            balances,
+            Vec::new(), // No margin balances for spot
+            true,       // reported
+            UUID4::new(),
+            ts_now,
+            ts_now,
+            None, // base currency
+        )
+    }
+
+    async fn refresh_account_state(&self) -> anyhow::Result<AccountState> {
+        let params = AccountInfoParams::default();
+        let account_info = match self.http_client.request_account_state(&params).await {
+            Ok(info) => info,
+            Err(e) => {
+                log::error!("Binance account state request failed: {e}");
+                anyhow::bail!("Binance account state request failed: {e}");
+            }
+        };
+
+        Ok(self.create_account_state(&account_info))
+    }
+
+    fn update_account_state(&self) -> anyhow::Result<()> {
+        let runtime = get_runtime();
+        let account_state = runtime.block_on(self.refresh_account_state())?;
+
+        self.core.generate_account_state(
+            account_state.balances.clone(),
+            account_state.margins.clone(),
+            account_state.is_reported,
+            account_state.ts_event,
+        )
+    }
+
+    fn submit_order_internal(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
+        let order = cmd.order.clone();
+        let http_client = self.http_client.clone();
+
+        let exec_event_sender = self.exec_event_sender.clone();
+        let trader_id = self.core.trader_id;
+        let account_id = self.core.account_id;
+        let ts_init = cmd.ts_init;
+        let client_order_id = order.client_order_id();
+        let strategy_id = order.strategy_id();
+        let instrument_id = order.instrument_id();
+        let order_side = order.order_side();
+        let order_type = order.order_type();
+        let quantity = order.quantity();
+        let time_in_force = order.time_in_force();
+        let price = order.price();
+        let trigger_price = order.trigger_price();
+        let is_post_only = order.is_post_only();
+
+        self.spawn_task("submit_order", async move {
+            let result = http_client
+                .submit_order(
+                    account_id,
+                    instrument_id,
+                    client_order_id,
+                    order_side,
+                    order_type,
+                    quantity,
+                    time_in_force,
+                    price,
+                    trigger_price,
+                    is_post_only,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("Submit order failed: {e}"));
+
+            match result {
+                Ok(report) => {
+                    // Order accepted - dispatch OrderAccepted event
+                    let accepted_event = OrderAccepted::new(
+                        trader_id,
+                        strategy_id,
+                        instrument_id,
+                        client_order_id,
+                        report.venue_order_id,
+                        account_id,
+                        UUID4::new(),
+                        ts_init,
+                        get_atomic_clock_realtime().get_time_ns(),
+                        false,
+                    );
+
+                    if let Some(sender) = &exec_event_sender
+                        && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Accepted(
+                            accepted_event,
+                        )))
+                    {
+                        log::warn!("Failed to send OrderAccepted event: {e}");
+                    }
+                }
+                Err(e) => {
+                    let rejected_event = OrderRejected::new(
+                        trader_id,
+                        strategy_id,
+                        instrument_id,
+                        client_order_id,
+                        account_id,
+                        format!("submit-order-error: {e}").into(),
+                        UUID4::new(),
+                        ts_init,
+                        get_atomic_clock_realtime().get_time_ns(),
+                        false,
+                        false,
+                    );
+
+                    if let Some(sender) = &exec_event_sender
+                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
+                            OrderEventAny::Rejected(rejected_event),
+                        ))
+                    {
+                        log::warn!("Failed to send OrderRejected event: {send_err}");
+                    }
+
+                    return Err(e);
+                }
+            }
+
+            Ok(())
+        });
+
+        Ok(())
+    }
+
+    fn cancel_order_internal(&self, cmd: &CancelOrder) -> anyhow::Result<()> {
+        let http_client = self.http_client.clone();
+        let command = cmd.clone();
+
+        let exec_event_sender = self.exec_event_sender.clone();
+        let trader_id = self.core.trader_id;
+        let account_id = self.core.account_id;
+        let ts_init = cmd.ts_init;
+
+        self.spawn_task("cancel_order", async move {
+            let result = http_client
+                .cancel_order(
+                    command.instrument_id,
+                    command.venue_order_id,
+                    Some(command.client_order_id),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("Cancel order failed: {e}"));
+
+            match result {
+                Ok(venue_order_id) => {
+                    // Order canceled - dispatch OrderCanceled event
+                    let canceled_event = OrderCanceled::new(
+                        trader_id,
+                        command.strategy_id,
+                        command.instrument_id,
+                        command.client_order_id,
+                        UUID4::new(),
+                        ts_init,
+                        get_atomic_clock_realtime().get_time_ns(),
+                        false,
+                        Some(venue_order_id),
+                        Some(account_id),
+                    );
+
+                    if let Some(sender) = &exec_event_sender
+                        && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Canceled(
+                            canceled_event,
+                        )))
+                    {
+                        log::warn!("Failed to send OrderCanceled event: {e}");
+                    }
+                }
+                Err(e) => {
+                    let rejected_event = OrderCancelRejected::new(
+                        trader_id,
+                        command.strategy_id,
+                        command.instrument_id,
+                        command.client_order_id,
+                        format!("cancel-order-error: {e}").into(),
+                        UUID4::new(),
+                        get_atomic_clock_realtime().get_time_ns(),
+                        ts_init,
+                        false,
+                        command.venue_order_id,
+                        Some(account_id),
+                    );
+
+                    if let Some(sender) = &exec_event_sender
+                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
+                            OrderEventAny::CancelRejected(rejected_event),
+                        ))
+                    {
+                        log::warn!("Failed to send OrderCancelRejected event: {send_err}");
+                    }
+
+                    return Err(e);
+                }
+            }
+
+            Ok(())
+        });
+
+        Ok(())
+    }
+
+    fn spawn_task<F>(&self, description: &'static str, fut: F)
+    where
+        F: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        let runtime = get_runtime();
+        let handle = runtime.spawn(async move {
+            if let Err(e) = fut.await {
+                log::warn!("{description} failed: {e}");
+            }
+        });
+
+        let mut tasks = self.pending_tasks.lock().expect(MUTEX_POISONED);
+        tasks.retain(|handle| !handle.is_finished());
+        tasks.push(handle);
+    }
+
+    fn abort_pending_tasks(&self) {
+        let mut tasks = self.pending_tasks.lock().expect(MUTEX_POISONED);
+        for handle in tasks.drain(..) {
+            handle.abort();
+        }
+    }
+
+    /// Polls the cache until the account is registered or timeout is reached.
+    async fn await_account_registered(&self, timeout_secs: f64) -> anyhow::Result<()> {
+        let account_id = self.core.account_id;
+
+        if self.core.cache().borrow().account(&account_id).is_some() {
+            log::info!("Account {account_id} registered");
+            return Ok(());
+        }
+
+        let start = Instant::now();
+        let timeout = Duration::from_secs_f64(timeout_secs);
+        let interval = Duration::from_millis(10);
+
+        loop {
+            tokio::time::sleep(interval).await;
+
+            if self.core.cache().borrow().account(&account_id).is_some() {
+                log::info!("Account {account_id} registered");
+                return Ok(());
+            }
+
+            if start.elapsed() >= timeout {
+                anyhow::bail!(
+                    "Timeout waiting for account {account_id} to be registered after {timeout_secs}s"
+                );
+            }
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl ExecutionClient for BinanceSpotExecutionClient {
+    fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Acquire)
+    }
+
+    fn client_id(&self) -> ClientId {
+        self.core.client_id
+    }
+
+    fn account_id(&self) -> AccountId {
+        self.core.account_id
+    }
+
+    fn venue(&self) -> Venue {
+        *BINANCE_VENUE
+    }
+
+    fn oms_type(&self) -> OmsType {
+        self.core.oms_type
+    }
+
+    fn get_account(&self) -> Option<AccountAny> {
+        self.core.get_account()
+    }
+
+    async fn connect(&mut self) -> anyhow::Result<()> {
+        if self.connected.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        // Initialize exec event sender (must be done in async context after runner is set up)
+        if self.exec_event_sender.is_none() {
+            self.exec_event_sender = Some(get_exec_event_sender());
+        }
+
+        // Load instruments if not already done
+        if !self.instruments_initialized.load(Ordering::Acquire) {
+            let instruments = self
+                .http_client
+                .request_instruments()
+                .await
+                .context("failed to request Binance Spot instruments")?;
+
+            if instruments.is_empty() {
+                log::warn!("No instruments returned for Binance Spot");
+            } else {
+                log::info!("Loaded {} Spot instruments", instruments.len());
+                self.http_client.cache_instruments(instruments.clone());
+
+                // Add instruments to Nautilus Cache for reconciliation
+                {
+                    let mut cache = self.core.cache().borrow_mut();
+                    for instrument in &instruments {
+                        if let Err(e) = cache.add_instrument(instrument.clone()) {
+                            log::debug!("Instrument already in cache: {e}");
+                        }
+                    }
+                }
+            }
+
+            self.instruments_initialized.store(true, Ordering::Release);
+        }
+
+        let Some(sender) = self.exec_event_sender.as_ref() else {
+            log::error!("Execution event sender not initialized");
+            anyhow::bail!("Execution event sender not initialized");
+        };
+
+        // Request initial account state
+        let account_state = self
+            .refresh_account_state()
+            .await
+            .context("failed to request Binance account state")?;
+
+        if !account_state.balances.is_empty() {
+            log::info!(
+                "Received account state with {} balance(s)",
+                account_state.balances.len()
+            );
+        }
+
+        if let Err(e) = sender.send(ExecutionEvent::Account(account_state)) {
+            log::warn!("Failed to send account state: {e}");
+        }
+
+        // Wait for account to be registered in cache before completing connect
+        self.await_account_registered(30.0).await?;
+
+        self.connected.store(true, Ordering::Release);
+        log::info!("Connected: client_id={}", self.core.client_id);
+        Ok(())
+    }
+
+    async fn disconnect(&mut self) -> anyhow::Result<()> {
+        if !self.connected.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        self.abort_pending_tasks();
+
+        self.connected.store(false, Ordering::Release);
+        log::info!("Disconnected: client_id={}", self.core.client_id);
+        Ok(())
+    }
+
+    fn query_account(&self, _cmd: &QueryAccount) -> anyhow::Result<()> {
+        self.update_account_state()
+    }
+
+    fn query_order(&self, cmd: &QueryOrder) -> anyhow::Result<()> {
+        log::debug!("query_order: client_order_id={}", cmd.client_order_id);
+
+        let http_client = self.http_client.clone();
+        let command = cmd.clone();
+        let exec_event_sender = self.exec_event_sender.clone();
+        let account_id = self.core.account_id;
+
+        self.spawn_task("query_order", async move {
+            let result = http_client
+                .request_order_status(
+                    account_id,
+                    command.instrument_id,
+                    command.venue_order_id,
+                    Some(command.client_order_id),
+                )
+                .await;
+
+            match result {
+                Ok(report) => {
+                    if let Some(sender) = &exec_event_sender {
+                        let exec_report = NautilusExecutionReport::Order(Box::new(report));
+                        if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
+                            log::warn!("Failed to send order status report: {e}");
+                        }
+                    }
+                }
+                Err(e) => log::warn!("Failed to query order status: {e}"),
+            }
+
+            Ok(())
+        });
+
+        Ok(())
+    }
+
+    fn generate_account_state(
+        &self,
+        balances: Vec<AccountBalance>,
+        margins: Vec<MarginBalance>,
+        reported: bool,
+        ts_event: UnixNanos,
+    ) -> anyhow::Result<()> {
+        self.core
+            .generate_account_state(balances, margins, reported, ts_event)
+    }
+
+    fn start(&mut self) -> anyhow::Result<()> {
+        if self.started {
+            return Ok(());
+        }
+
+        self.started = true;
+
+        // Spawn instrument bootstrap task
+        let http_client = self.http_client.clone();
+
+        get_runtime().spawn(async move {
+            match http_client.request_instruments().await {
+                Ok(instruments) => {
+                    if instruments.is_empty() {
+                        log::warn!("No instruments returned for Binance Spot");
+                    } else {
+                        http_client.cache_instruments(instruments);
+                        log::info!("Instruments initialized");
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to request Binance Spot instruments: {e}");
+                }
+            }
+        });
+
+        log::info!(
+            "Started: client_id={}, account_id={}, account_type={:?}, environment={:?}, product_types={:?}",
+            self.core.client_id,
+            self.core.account_id,
+            self.core.account_type,
+            self.config.environment,
+            self.config.product_types,
+        );
+        Ok(())
+    }
+
+    fn stop(&mut self) -> anyhow::Result<()> {
+        if !self.started {
+            return Ok(());
+        }
+
+        self.started = false;
+        self.connected.store(false, Ordering::Release);
+        self.abort_pending_tasks();
+        log::info!("Stopped: client_id={}", self.core.client_id);
+        Ok(())
+    }
+
+    fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
+        let order = &cmd.order;
+
+        if order.is_closed() {
+            let client_order_id = order.client_order_id();
+            log::warn!("Cannot submit closed order {client_order_id}");
+            return Ok(());
+        }
+
+        let event = OrderSubmitted::new(
+            self.core.trader_id,
+            order.strategy_id(),
+            order.instrument_id(),
+            order.client_order_id(),
+            self.core.account_id,
+            UUID4::new(),
+            cmd.ts_init,
+            get_atomic_clock_realtime().get_time_ns(),
+        );
+        if let Some(sender) = &self.exec_event_sender {
+            log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
+            if let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Submitted(event))) {
+                log::warn!("Failed to send OrderSubmitted event: {e}");
+            }
+        } else {
+            log::warn!("Cannot send OrderSubmitted: exec_event_sender not initialized");
+        }
+
+        self.submit_order_internal(cmd)
+    }
+
+    fn submit_order_list(&self, cmd: &SubmitOrderList) -> anyhow::Result<()> {
+        log::warn!(
+            "submit_order_list not yet implemented for Binance Spot execution client (got {} orders)",
+            cmd.order_list.orders.len()
+        );
+        Ok(())
+    }
+
+    fn modify_order(&self, cmd: &ModifyOrder) -> anyhow::Result<()> {
+        // Binance Spot uses cancel-replace for order modification, which requires
+        // the full order specification (side, type, time_in_force). Since ModifyOrder
+        // doesn't include these fields, we need to look up the original order from cache.
+        let order = {
+            let cache = self.core.cache().borrow();
+            cache.order(&cmd.client_order_id).cloned()
+        };
+
+        let Some(order) = order else {
+            log::warn!(
+                "Cannot modify order {}: not found in cache",
+                cmd.client_order_id
+            );
+            let rejected_event = OrderModifyRejected::new(
+                self.core.trader_id,
+                cmd.strategy_id,
+                cmd.instrument_id,
+                cmd.client_order_id,
+                "Order not found in cache for modify".into(),
+                UUID4::new(),
+                get_atomic_clock_realtime().get_time_ns(),
+                cmd.ts_init,
+                false,
+                cmd.venue_order_id,
+                Some(self.core.account_id),
+            );
+
+            if let Some(sender) = &self.exec_event_sender
+                && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::ModifyRejected(
+                    rejected_event,
+                )))
+            {
+                log::warn!("Failed to send OrderModifyRejected event: {e}");
+            }
+            return Ok(());
+        };
+
+        let http_client = self.http_client.clone();
+        let command = cmd.clone();
+
+        let exec_event_sender = self.exec_event_sender.clone();
+        let trader_id = self.core.trader_id;
+        let account_id = self.core.account_id;
+        let ts_init = cmd.ts_init;
+
+        // Get order properties from cached order
+        let order_side = order.order_side();
+        let order_type = order.order_type();
+        let time_in_force = order.time_in_force();
+        let quantity = cmd.quantity.unwrap_or_else(|| order.quantity());
+
+        self.spawn_task("modify_order", async move {
+            // Binance uses cancel-replace for order modification
+            let result = http_client
+                .modify_order(
+                    account_id,
+                    command.instrument_id,
+                    command
+                        .venue_order_id
+                        .ok_or_else(|| anyhow::anyhow!("venue_order_id required for modify"))?,
+                    command.client_order_id,
+                    order_side,
+                    order_type,
+                    quantity,
+                    time_in_force,
+                    command.price,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("Modify order failed: {e}"));
+
+            match result {
+                Ok(report) => {
+                    // Order modified - dispatch OrderUpdated event
+                    let updated_event = OrderUpdated::new(
+                        trader_id,
+                        command.strategy_id,
+                        command.instrument_id,
+                        command.client_order_id,
+                        report.quantity,
+                        UUID4::new(),
+                        ts_init,
+                        get_atomic_clock_realtime().get_time_ns(),
+                        false,
+                        Some(report.venue_order_id),
+                        Some(account_id),
+                        report.price,
+                        None, // trigger_price
+                        None, // protection_price
+                    );
+
+                    if let Some(sender) = &exec_event_sender
+                        && let Err(e) = sender
+                            .send(ExecutionEvent::Order(OrderEventAny::Updated(updated_event)))
+                    {
+                        log::warn!("Failed to send OrderUpdated event: {e}");
+                    }
+                }
+                Err(e) => {
+                    let rejected_event = OrderModifyRejected::new(
+                        trader_id,
+                        command.strategy_id,
+                        command.instrument_id,
+                        command.client_order_id,
+                        format!("modify-order-error: {e}").into(),
+                        UUID4::new(),
+                        get_atomic_clock_realtime().get_time_ns(),
+                        ts_init,
+                        false,
+                        command.venue_order_id,
+                        Some(account_id),
+                    );
+
+                    if let Some(sender) = &exec_event_sender
+                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
+                            OrderEventAny::ModifyRejected(rejected_event),
+                        ))
+                    {
+                        log::warn!("Failed to send OrderModifyRejected event: {send_err}");
+                    }
+
+                    return Err(e);
+                }
+            }
+
+            Ok(())
+        });
+
+        Ok(())
+    }
+
+    fn cancel_order(&self, cmd: &CancelOrder) -> anyhow::Result<()> {
+        self.cancel_order_internal(cmd)
+    }
+
+    fn cancel_all_orders(&self, cmd: &CancelAllOrders) -> anyhow::Result<()> {
+        let http_client = self.http_client.clone();
+        let command = cmd.clone();
+
+        let exec_event_sender = self.exec_event_sender.clone();
+        let trader_id = self.core.trader_id;
+        let account_id = self.core.account_id;
+
+        self.spawn_task("cancel_all_orders", async move {
+            let canceled_orders = http_client.cancel_all_orders(command.instrument_id).await?;
+
+            // Generate OrderCanceled events for each canceled order
+            for (venue_order_id, client_order_id) in canceled_orders {
+                let canceled_event = OrderCanceled::new(
+                    trader_id,
+                    command.strategy_id,
+                    command.instrument_id,
+                    client_order_id,
+                    UUID4::new(),
+                    command.ts_init,
+                    get_atomic_clock_realtime().get_time_ns(),
+                    false,
+                    Some(venue_order_id),
+                    Some(account_id),
+                );
+
+                if let Some(sender) = &exec_event_sender
+                    && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Canceled(
+                        canceled_event,
+                    )))
+                {
+                    log::warn!("Failed to send OrderCanceled event: {e}");
+                }
+            }
+
+            Ok(())
+        });
+
+        Ok(())
+    }
+
+    fn batch_cancel_orders(&self, cmd: &BatchCancelOrders) -> anyhow::Result<()> {
+        // Binance doesn't have a true batch cancel endpoint for spot
+        // Cancel orders individually
+        for cancel in &cmd.cancels {
+            self.cancel_order_internal(cancel)?;
+        }
+
+        Ok(())
+    }
+
+    async fn generate_order_status_report(
+        &self,
+        cmd: &GenerateOrderStatusReport,
+    ) -> anyhow::Result<Option<OrderStatusReport>> {
+        let Some(instrument_id) = cmd.instrument_id else {
+            log::warn!("generate_order_status_report requires instrument_id: {cmd:?}");
+            return Ok(None);
+        };
+
+        // Convert ClientOrderId to VenueOrderId if provided (API naming quirk)
+        let venue_order_id = cmd
+            .venue_order_id
+            .as_ref()
+            .map(|id| VenueOrderId::new(id.inner()));
+
+        let report = self
+            .http_client
+            .request_order_status(
+                self.core.account_id,
+                instrument_id,
+                venue_order_id,
+                cmd.client_order_id,
+            )
+            .await?;
+
+        Ok(Some(report))
+    }
+
+    async fn generate_order_status_reports(
+        &self,
+        cmd: &GenerateOrderStatusReports,
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let start_dt = cmd.start.map(|nanos| nanos.to_datetime_utc());
+        let end_dt = cmd.end.map(|nanos| nanos.to_datetime_utc());
+
+        let reports = self
+            .http_client
+            .request_order_status_reports(
+                self.core.account_id,
+                cmd.instrument_id,
+                start_dt,
+                end_dt,
+                cmd.open_only,
+                None, // limit
+            )
+            .await?;
+
+        Ok(reports)
+    }
+
+    async fn generate_fill_reports(
+        &self,
+        cmd: GenerateFillReports,
+    ) -> anyhow::Result<Vec<FillReport>> {
+        let Some(instrument_id) = cmd.instrument_id else {
+            log::warn!("generate_fill_reports requires instrument_id for Binance Spot");
+            return Ok(Vec::new());
+        };
+
+        // Convert ClientOrderId to VenueOrderId if provided (API naming quirk)
+        let venue_order_id = cmd
+            .venue_order_id
+            .as_ref()
+            .map(|id| VenueOrderId::new(id.inner()));
+
+        let start_dt = cmd.start.map(|nanos| nanos.to_datetime_utc());
+        let end_dt = cmd.end.map(|nanos| nanos.to_datetime_utc());
+
+        let reports = self
+            .http_client
+            .request_fill_reports(
+                self.core.account_id,
+                instrument_id,
+                venue_order_id,
+                start_dt,
+                end_dt,
+                None, // limit
+            )
+            .await?;
+
+        Ok(reports)
+    }
+
+    async fn generate_position_status_reports(
+        &self,
+        _cmd: &GeneratePositionStatusReports,
+    ) -> anyhow::Result<Vec<PositionStatusReport>> {
+        // Spot trading doesn't have positions in the traditional sense
+        // Returns empty for spot, could be extended for margin positions
+        Ok(Vec::new())
+    }
+
+    async fn generate_mass_status(
+        &self,
+        lookback_mins: Option<u64>,
+    ) -> anyhow::Result<Option<ExecutionMassStatus>> {
+        log::info!("Generating ExecutionMassStatus (lookback_mins={lookback_mins:?})");
+
+        let ts_now = get_atomic_clock_realtime().get_time_ns();
+
+        let start = lookback_mins.map(|mins| {
+            let lookback_ns = mins * 60 * 1_000_000_000;
+            UnixNanos::from(ts_now.as_u64().saturating_sub(lookback_ns))
+        });
+
+        // Binance requires instrument_id for historical orders (open_only=false).
+        // Use open_only=true for mass status to get all open orders across instruments.
+        let order_cmd = GenerateOrderStatusReports::new(
+            UUID4::new(),
+            ts_now,
+            true, // open_only - Binance requires instrument_id for historical orders
+            None, // instrument_id
+            start,
+            None, // end
+            None, // params
+            None, // correlation_id
+        );
+
+        let position_cmd = GeneratePositionStatusReports::new(
+            UUID4::new(),
+            ts_now,
+            None, // instrument_id
+            start,
+            None, // end
+            None, // params
+            None, // correlation_id
+        );
+
+        let (order_reports, position_reports) = tokio::try_join!(
+            self.generate_order_status_reports(&order_cmd),
+            self.generate_position_status_reports(&position_cmd),
+        )?;
+
+        // Note: Fill reports require instrument_id for Binance, so we skip them in mass status
+        // They would need to be fetched per-instrument if needed
+
+        log::info!("Received {} OrderStatusReports", order_reports.len());
+        log::info!("Received {} PositionReports", position_reports.len());
+
+        let mut mass_status = ExecutionMassStatus::new(
+            self.core.client_id,
+            self.core.account_id,
+            *BINANCE_VENUE,
+            ts_now,
+            None,
+        );
+
+        mass_status.add_order_reports(order_reports);
+        mass_status.add_position_reports(position_reports);
+
+        Ok(Some(mass_status))
+    }
+}

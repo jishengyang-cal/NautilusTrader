@@ -78,10 +78,17 @@ use crate::{
             parse_new_order_response_sbe, parse_order_status_report_sbe, parse_spot_instrument_sbe,
             parse_spot_trades_sbe,
         },
-        sbe::spot::{SBE_SCHEMA_ID, SBE_SCHEMA_VERSION},
+        sbe::spot::{
+            ReadBuf, SBE_SCHEMA_ID, SBE_SCHEMA_VERSION,
+            error_response_codec::{self, ErrorResponseDecoder},
+            message_header_codec::MessageHeaderDecoder,
+        },
         urls::get_http_base_url,
     },
-    spot::enums::{BinanceCancelReplaceMode, BinanceSpotOrderType, order_type_to_binance_spot},
+    spot::enums::{
+        BinanceCancelReplaceMode, BinanceOrderResponseType, BinanceSpotOrderType,
+        order_type_to_binance_spot,
+    },
 };
 
 /// SBE schema header value for Spot API.
@@ -295,10 +302,10 @@ impl BinanceRawSpotHttpClient {
 
     fn parse_error_response<T>(&self, response: HttpResponse) -> BinanceSpotHttpResult<T> {
         let status = response.status.as_u16();
-        let body_hex = hex::encode(&response.body);
+        let body = &response.body;
 
         // Binance may return JSON errors even when SBE was requested
-        if let Ok(body_str) = std::str::from_utf8(&response.body)
+        if let Ok(body_str) = std::str::from_utf8(body)
             && let Ok(err) = serde_json::from_str::<BinanceErrorResponse>(body_str)
         {
             return Err(BinanceSpotHttpError::BinanceError {
@@ -307,10 +314,47 @@ impl BinanceRawSpotHttpClient {
             });
         }
 
+        // Try to decode SBE error response
+        if let Some((code, message)) = Self::try_decode_sbe_error(body) {
+            return Err(BinanceSpotHttpError::BinanceError {
+                code: code.into(),
+                message,
+            });
+        }
+
         Err(BinanceSpotHttpError::UnexpectedStatus {
             status,
-            body: body_hex,
+            body: hex::encode(body),
         })
+    }
+
+    /// Attempts to decode an SBE error response.
+    ///
+    /// Returns Some((code, message)) if successfully decoded, None otherwise.
+    fn try_decode_sbe_error(body: &[u8]) -> Option<(i16, String)> {
+        const HEADER_LEN: usize = 8;
+        if body.len() < HEADER_LEN + error_response_codec::SBE_BLOCK_LENGTH as usize {
+            return None;
+        }
+
+        let buf = ReadBuf::new(body);
+
+        // Decode message header
+        let header = MessageHeaderDecoder::default().wrap(buf, 0);
+        if header.template_id() != error_response_codec::SBE_TEMPLATE_ID {
+            return None;
+        }
+
+        // Decode error response
+        let mut decoder = ErrorResponseDecoder::default().header(header, 0);
+        let code = decoder.code();
+
+        // Decode the message string (VAR_DATA with 2-byte length prefix)
+        let msg_coords = decoder.msg_decoder();
+        let msg_bytes = decoder.msg_slice(msg_coords);
+        let message = String::from_utf8_lossy(msg_bytes).into_owned();
+
+        Some((code, message))
     }
 
     fn default_headers(credential: &Option<Credential>) -> HashMap<String, String> {
@@ -616,7 +660,7 @@ impl BinanceRawSpotHttpClient {
             stop_price: stop_price.map(|s| s.to_string()),
             trailing_delta: None,
             iceberg_qty: None,
-            new_order_resp_type: None,
+            new_order_resp_type: Some(BinanceOrderResponseType::Full),
             self_trade_prevention_mode: None,
         };
         let bytes = self.post_order("order", Some(&params)).await?;
@@ -657,7 +701,7 @@ impl BinanceRawSpotHttpClient {
             stop_price: None,
             trailing_delta: None,
             iceberg_qty: None,
-            new_order_resp_type: None,
+            new_order_resp_type: Some(BinanceOrderResponseType::Full),
             self_trade_prevention_mode: None,
         };
         let bytes = self
@@ -1299,7 +1343,7 @@ impl BinanceSpotHttpClient {
     pub async fn cancel_all_orders(
         &self,
         instrument_id: InstrumentId,
-    ) -> anyhow::Result<Vec<VenueOrderId>> {
+    ) -> anyhow::Result<Vec<(VenueOrderId, ClientOrderId)>> {
         let symbol = instrument_id.symbol.inner();
 
         let responses = self
@@ -1310,7 +1354,12 @@ impl BinanceSpotHttpClient {
 
         Ok(responses
             .into_iter()
-            .map(|r| VenueOrderId::new(r.order_id.to_string()))
+            .map(|r| {
+                (
+                    VenueOrderId::new(r.order_id.to_string()),
+                    ClientOrderId::new(&r.orig_client_order_id),
+                )
+            })
             .collect())
     }
 }

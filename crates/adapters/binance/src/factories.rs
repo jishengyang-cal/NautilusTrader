@@ -17,12 +17,23 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use nautilus_common::{cache::Cache, clients::DataClient, clock::Clock};
-use nautilus_model::identifiers::ClientId;
-use nautilus_system::factories::{ClientConfig, DataClientFactory};
+use nautilus_common::{
+    cache::Cache,
+    clients::{DataClient, ExecutionClient},
+    clock::Clock,
+};
+use nautilus_live::ExecutionClientCore;
+use nautilus_model::{
+    enums::{AccountType, OmsType},
+    identifiers::ClientId,
+};
+use nautilus_system::factories::{ClientConfig, DataClientFactory, ExecutionClientFactory};
 
 use crate::{
-    common::consts::BINANCE, config::BinanceDataClientConfig, data::BinanceSpotDataClient,
+    common::consts::{BINANCE, BINANCE_VENUE},
+    config::{BinanceDataClientConfig, BinanceExecClientConfig},
+    data::BinanceSpotDataClient,
+    execution::BinanceSpotExecutionClient,
 };
 
 /// Factory for creating Binance data clients.
@@ -72,6 +83,72 @@ impl DataClientFactory for BinanceDataClientFactory {
 
     fn config_type(&self) -> &'static str {
         stringify!(BinanceDataClientConfig)
+    }
+}
+
+/// Factory for creating Binance Spot execution clients.
+#[derive(Debug)]
+pub struct BinanceExecutionClientFactory;
+
+impl BinanceExecutionClientFactory {
+    /// Creates a new [`BinanceExecutionClientFactory`] instance.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for BinanceExecutionClientFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExecutionClientFactory for BinanceExecutionClientFactory {
+    fn create(
+        &self,
+        name: &str,
+        config: &dyn ClientConfig,
+        cache: Rc<RefCell<Cache>>,
+        clock: Rc<RefCell<dyn Clock>>,
+    ) -> anyhow::Result<Box<dyn ExecutionClient>> {
+        let binance_config = config
+            .as_any()
+            .downcast_ref::<BinanceExecClientConfig>()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid config type for BinanceExecutionClientFactory. Expected BinanceExecClientConfig, was {config:?}",
+                )
+            })?
+            .clone();
+
+        // Spot uses cash account type and hedging OMS
+        let account_type = AccountType::Cash;
+        let oms_type = OmsType::Hedging;
+
+        let core = ExecutionClientCore::new(
+            binance_config.trader_id,
+            ClientId::from(name),
+            *BINANCE_VENUE,
+            oms_type,
+            binance_config.account_id,
+            account_type,
+            None, // base_currency
+            clock,
+            cache,
+        );
+
+        let client = BinanceSpotExecutionClient::new(core, binance_config)?;
+
+        Ok(Box::new(client))
+    }
+
+    fn name(&self) -> &'static str {
+        BINANCE
+    }
+
+    fn config_type(&self) -> &'static str {
+        stringify!(BinanceExecClientConfig)
     }
 }
 

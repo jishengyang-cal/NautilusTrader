@@ -101,6 +101,11 @@ path = "bin/ws_spot_data.rs"
 doc = false
 
 [[example]]
-name = "binance-data-tester"
-path = "examples/node_data_tester.rs"
+name = "binance-spot-data-tester"
+path = "examples/spot/node_data_tester.rs"
+doc = false
+
+[[example]]
+name = "binance-spot-exec-tester"
+path = "examples/spot/node_exec_tester.rs"
 doc = false

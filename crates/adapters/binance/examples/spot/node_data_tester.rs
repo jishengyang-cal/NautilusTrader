@@ -15,7 +15,7 @@
 
 //! Example demonstrating live data testing with the Binance Spot SBE adapter.
 //!
-//! Run with: `cargo run --example binance-data-tester --package nautilus-binance`
+//! Run with: `cargo run --example binance-spot-data-tester --package nautilus-binance`
 
 use std::num::NonZeroUsize;
 
