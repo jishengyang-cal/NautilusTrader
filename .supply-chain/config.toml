@@ -558,8 +558,12 @@ criteria = "safe-to-deploy"
 version = "0.23.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.capnp]]
+version = "0.25.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.capnpc]]
-version = "0.23.3"
+version = "0.25.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.cast]]

@@ -45,6 +45,7 @@ Released on TBD (UTC).
 - Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
 - Upgraded Cap'n Proto to v1.3.0
 - Upgraded Cython to v3.2.4
+- Upgraded `capnp` and `capnpc` crates to v0.25.0
 - Upgraded `tokio` crate to v1.49.0
 
 ### Documentation Updates

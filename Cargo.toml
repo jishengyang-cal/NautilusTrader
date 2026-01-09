@@ -122,7 +122,7 @@ aws-lc-rs = { version = "1.15.2", default-features = false, features = [
 base64 = "0.22.1"
 binary-heap-plus = "0.5.0"
 bytes = { version = "1.11.0", features = ["serde"] }
-capnp = "0.24.1"
+capnp = "0.25.0"
 chrono = { version = "0.4.42", default-features = false, features = [
   "serde",
   "std",
@@ -342,7 +342,7 @@ turmoil = "0.7.0"
 # -----------------------------------------------------------------------------
 # Build dependencies
 # -----------------------------------------------------------------------------
-capnpc = "0.24.1"
+capnpc = "0.25.0"
 cbindgen = "0.29.2"
 walkdir = "2.5.0"
 

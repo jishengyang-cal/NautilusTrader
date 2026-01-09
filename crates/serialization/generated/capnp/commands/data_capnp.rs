@@ -333,13 +333,13 @@ pub mod data_command_header {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,2,3,1];
@@ -721,13 +721,13 @@ pub mod data_response_header {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3,4];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,2,3,4,1];
@@ -1044,13 +1044,13 @@ pub mod data_command {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_NAME : &[u16] = &[2,0,1];
@@ -1891,13 +1891,13 @@ pub mod subscribe_command {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[0,1,2,3,4,5,6,7,8,9,10,11,12,13];
     pub static MEMBERS_BY_NAME : &[u16] = &[8,3,4,5,0,11,10,1,13,12,2,9,6,7];
@@ -2749,13 +2749,13 @@ pub mod unsubscribe_command {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[0,1,2,3,4,5,6,7,8,9,10,11,12,13];
     pub static MEMBERS_BY_NAME : &[u16] = &[8,3,4,5,0,11,10,1,13,12,2,9,6,7];
@@ -3324,13 +3324,13 @@ pub mod request_command {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[0,1,2,3,4,5,6,7];
     pub static MEMBERS_BY_NAME : &[u16] = &[7,4,3,0,1,2,5,6];
@@ -3590,13 +3590,13 @@ pub mod subscribe_custom_data {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[1,0];
@@ -3847,13 +3847,13 @@ pub mod subscribe_instrument {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -4061,13 +4061,13 @@ pub mod subscribe_instruments {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0];
@@ -4375,13 +4375,13 @@ pub mod subscribe_book_deltas {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[2,3,0,1];
@@ -4633,13 +4633,13 @@ pub mod subscribe_book_depth10 {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -4948,13 +4948,13 @@ pub mod subscribe_book_snapshots {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[2,3,0,1];
@@ -5205,13 +5205,13 @@ pub mod subscribe_quotes {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -5462,13 +5462,13 @@ pub mod subscribe_trades {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -5718,13 +5718,13 @@ pub mod subscribe_bars {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[1,0];
@@ -5975,13 +5975,13 @@ pub mod subscribe_mark_prices {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -6233,13 +6233,13 @@ pub mod subscribe_index_prices {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -6491,13 +6491,13 @@ pub mod subscribe_funding_rates {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -6749,13 +6749,13 @@ pub mod subscribe_instrument_status {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -7007,13 +7007,13 @@ pub mod subscribe_instrument_close {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -7262,13 +7262,13 @@ pub mod unsubscribe_custom_data {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[1,0];
@@ -7520,13 +7520,13 @@ pub mod unsubscribe_instrument {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -7734,13 +7734,13 @@ pub mod unsubscribe_instruments {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0];
@@ -7992,13 +7992,13 @@ pub mod unsubscribe_book_deltas {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -8250,13 +8250,13 @@ pub mod unsubscribe_book_depth10 {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -8508,13 +8508,13 @@ pub mod unsubscribe_book_snapshots {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -8765,13 +8765,13 @@ pub mod unsubscribe_quotes {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -9022,13 +9022,13 @@ pub mod unsubscribe_trades {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -9278,13 +9278,13 @@ pub mod unsubscribe_bars {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[1,0];
@@ -9536,13 +9536,13 @@ pub mod unsubscribe_mark_prices {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -9794,13 +9794,13 @@ pub mod unsubscribe_index_prices {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -10052,13 +10052,13 @@ pub mod unsubscribe_funding_rates {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -10310,13 +10310,13 @@ pub mod unsubscribe_instrument_status {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -10568,13 +10568,13 @@ pub mod unsubscribe_instrument_close {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -10822,13 +10822,13 @@ pub mod request_custom_data {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[1,0];
@@ -11079,13 +11079,13 @@ pub mod request_instrument {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -11292,13 +11292,13 @@ pub mod request_instruments {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0];
@@ -11577,13 +11577,13 @@ pub mod request_book_snapshot {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1,2];
@@ -11862,13 +11862,13 @@ pub mod request_book_depth {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[2,0,1];
@@ -12233,13 +12233,13 @@ pub mod request_quotes {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3,4];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[3,0,1,4,2];
@@ -12604,13 +12604,13 @@ pub mod request_trades {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3,4];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[3,0,1,4,2];
@@ -12973,13 +12973,13 @@ pub mod request_bars {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3,4];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[1,3,0,4,2];
@@ -13482,13 +13482,13 @@ pub mod data_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[0,1,2,3,4,5,6];
     pub static MEMBERS_BY_NAME : &[u16] = &[6,3,0,1,2,4,5];
@@ -13787,13 +13787,13 @@ pub mod custom_data_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[2,1,0];
@@ -14085,13 +14085,13 @@ pub mod instrument_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,2,1];
@@ -14343,13 +14343,13 @@ pub mod instruments_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1];
@@ -14640,13 +14640,13 @@ pub mod book_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[2,0,1];
@@ -14941,13 +14941,13 @@ pub mod quotes_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1,2];
@@ -15242,13 +15242,13 @@ pub mod trades_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[0,1,2];
@@ -15585,13 +15585,13 @@ pub mod bars_response {
     pub fn get_annotation_types(child_index: Option<u16>, index: u32) -> ::capnp::introspect::Type {
       ::capnp::introspect::panic_invalid_annotation_indices(child_index, index)
     }
-    #[allow(unsafe_code)]
-    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = unsafe {::capnp::introspect::RawStructSchema::new(
-      &ENCODED_NODE,
+    pub static ARENA: ::capnp::private::arena::GeneratedCodeArena = ::capnp::private::arena::GeneratedCodeArena::new(&ENCODED_NODE);
+    pub static RAW_SCHEMA: ::capnp::introspect::RawStructSchema = ::capnp::introspect::RawStructSchema::new(
+      &ARENA,
       NONUNION_MEMBERS,
       MEMBERS_BY_DISCRIMINANT,
       MEMBERS_BY_NAME
-    )};
+    );
     pub static NONUNION_MEMBERS : &[u16] = &[0,1,2,3];
     pub static MEMBERS_BY_DISCRIMINANT : &[u16] = &[];
     pub static MEMBERS_BY_NAME : &[u16] = &[1,2,0,3];
