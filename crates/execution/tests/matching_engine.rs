@@ -28,6 +28,10 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{UUID4, UnixNanos};
+use nautilus_execution::{
+    matching_engine::{config::OrderMatchingEngineConfig, engine::OrderMatchingEngine},
+    models::{fee::FeeModelAny, fill::FillModel},
+};
 use nautilus_model::{
     data::{Bar, BarType, BookOrder, TradeTick, stubs::OrderBookDeltaTestBuilder},
     enums::{
@@ -56,11 +60,6 @@ use nautilus_model::{
 use rstest::{fixture, rstest};
 use rust_decimal_macros::dec;
 use ustr::Ustr;
-
-use crate::{
-    matching_engine::{config::OrderMatchingEngineConfig, engine::OrderMatchingEngine},
-    models::{fee::FeeModelAny, fill::FillModel},
-};
 
 #[fixture]
 pub fn test_clock() -> Rc<RefCell<TestClock>> {

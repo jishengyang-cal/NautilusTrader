@@ -23,9 +23,6 @@
 pub mod config;
 pub mod stubs;
 
-#[cfg(test)]
-mod tests;
-
 use std::{
     cell::{RefCell, RefMut},
     collections::{HashMap, HashSet},
@@ -134,6 +131,18 @@ impl ExecutionEngine {
     }
 
     #[must_use]
+    /// Returns a reference to the cache.
+    pub fn cache(&self) -> &Rc<RefCell<Cache>> {
+        &self.cache
+    }
+
+    #[must_use]
+    /// Returns a reference to the configuration.
+    pub const fn config(&self) -> &ExecutionEngineConfig {
+        &self.config
+    }
+
+    #[must_use]
     /// Checks the integrity of cached execution data.
     pub fn check_integrity(&self) -> bool {
         self.cache.borrow_mut().check_integrity()
@@ -184,8 +193,6 @@ impl ExecutionEngine {
     pub fn get_external_order_claim(&self, instrument_id: &InstrumentId) -> Option<StrategyId> {
         self.external_order_claims.get(instrument_id).copied()
     }
-
-    // -- REGISTRATION ----------------------------------------------------------------------------
 
     /// Registers a new execution client.
     ///
@@ -491,8 +498,6 @@ impl ExecutionEngine {
         }
     }
 
-    // -- COMMANDS --------------------------------------------------------------------------------
-
     #[allow(clippy::await_holding_refcell_ref)]
     /// Loads persistent state into cache and rebuilds indices.
     ///
@@ -637,8 +642,6 @@ impl ExecutionEngine {
     pub fn dispose(&mut self) {
         log::info!("Disposed");
     }
-
-    // -- COMMAND HANDLERS ------------------------------------------------------------------------
 
     fn execute_command(&self, command: &TradingCommand) {
         if self.config.debug {
@@ -919,8 +922,6 @@ impl ExecutionEngine {
         let topic = switchboard::get_positions_snapshots_topic(position.id);
         msgbus::publish(topic, position);
     }
-
-    // -- EVENT HANDLERS --------------------------------------------------------------------------
 
     fn handle_event(&mut self, event: &OrderEventAny) {
         if self.config.debug {
@@ -1515,10 +1516,8 @@ impl ExecutionEngine {
         }
     }
 
-    // -- INTERNAL --------------------------------------------------------------------------------
-
-    fn set_position_id_counts(&mut self) {
-        // For the internal position ID generator
+    /// Sets the internal position ID generator counts based on existing cached positions.
+    pub fn set_position_id_counts(&mut self) {
         let cache = self.cache.borrow();
         let positions = cache.positions(None, None, None, None);
 

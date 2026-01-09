@@ -17,9 +17,6 @@
 
 pub mod config;
 
-#[cfg(test)]
-mod tests;
-
 use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 use ahash::AHashMap;
@@ -260,8 +257,6 @@ impl RiskEngine {
         ))
     }
 
-    // -- COMMANDS --------------------------------------------------------------------------------
-
     /// Executes a trading command through the risk management pipeline.
     pub fn execute(&mut self, command: TradingCommand) {
         // This will extend to other commands such as `RiskCommand`
@@ -326,9 +321,30 @@ impl RiskEngine {
         log::info!("Disposed");
     }
 
-    // -- COMMAND HANDLERS ------------------------------------------------------------------------
+    /// Returns a reference to the clock.
+    #[must_use]
+    pub fn clock(&self) -> &Rc<RefCell<dyn Clock>> {
+        &self.clock
+    }
 
-    // Renamed from `execute_command`
+    /// Returns a reference to the configuration.
+    #[must_use]
+    pub const fn config(&self) -> &RiskEngineConfig {
+        &self.config
+    }
+
+    /// Returns the current trading state.
+    #[must_use]
+    pub const fn trading_state(&self) -> TradingState {
+        self.trading_state
+    }
+
+    /// Returns a reference to the max notional per order settings.
+    #[must_use]
+    pub const fn max_notional_per_order(&self) -> &AHashMap<InstrumentId, Decimal> {
+        &self.max_notional_per_order
+    }
+
     fn handle_command(&mut self, command: TradingCommand) {
         if self.config.debug {
             log::debug!("{CMD}{RECV} {command:?}");
@@ -554,8 +570,6 @@ impl RiskEngine {
 
         self.throttled_modify_order.send(command);
     }
-
-    // -- PRE-TRADE CHECKS ------------------------------------------------------------------------
 
     fn check_order(&self, instrument: InstrumentAny, order: OrderAny) -> bool {
         ////////////////////////////////////////////////////////////////////////////////
@@ -1151,8 +1165,6 @@ impl RiskEngine {
         None
     }
 
-    // -- DENIALS ---------------------------------------------------------------------------------
-
     fn deny_command(&self, command: TradingCommand, reason: &str) {
         match command {
             TradingCommand::SubmitOrder(command) => {
@@ -1231,8 +1243,6 @@ impl RiskEngine {
 
         msgbus::send_any("ExecEngine.process".into(), &denied);
     }
-
-    // -- EGRESS ----------------------------------------------------------------------------------
 
     fn execution_gateway(&mut self, instrument: InstrumentAny, command: TradingCommand) {
         match self.trading_state {

@@ -40,11 +40,10 @@ use nautilus_model::{
     stubs::TestDefault,
     types::{AccountBalance, Currency, Money, Price, Quantity},
 };
+use nautilus_portfolio::Portfolio;
 use rstest::{fixture, rstest};
 use rust_decimal::{Decimal, prelude::FromPrimitive};
 use rust_decimal_macros::dec;
-
-use crate::portfolio::Portfolio;
 
 // Venue is already imported above
 
@@ -351,7 +350,7 @@ fn test_account_when_account_returns_the_account_facade(mut portfolio: Portfolio
 
     portfolio.update_account(&state);
 
-    let cache = portfolio.cache.borrow_mut();
+    let cache = portfolio.cache().borrow_mut();
     let account = cache.account(&AccountId::new(account_id)).unwrap();
     assert_eq!(account.id().get_issuer(), "BINANCE".into());
     assert_eq!(account.id().get_issuers_id(), "1513111");
@@ -488,7 +487,7 @@ fn test_exceed_free_balance_single_currency_raises_account_balance_negative_exce
         .build();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order.clone(), None, None, false)
         .unwrap();
@@ -513,7 +512,7 @@ fn test_exceed_free_balance_multi_currency_raises_account_balance_negative_excep
     portfolio.update_account(&cash_account_state);
 
     let account = portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .account_for_venue(&Venue::test_default())
         .unwrap()
@@ -527,7 +526,7 @@ fn test_exceed_free_balance_multi_currency_raises_account_balance_negative_excep
         .build();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order.clone(), None, None, false)
         .unwrap();
@@ -566,7 +565,7 @@ fn test_update_orders_open_cash_account(
         .build();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order.clone(), None, None, false)
         .unwrap();
@@ -616,29 +615,37 @@ fn test_update_orders_open_margin_account(
         .build();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order1.clone(), None, None, true)
         .unwrap();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order2, None, None, true)
         .unwrap();
 
     let submitted = submit_order(&order1);
     order1.apply(OrderEventAny::Submitted(submitted)).unwrap();
-    portfolio.cache.borrow_mut().update_order(&order1).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_order(&order1)
+        .unwrap();
 
     // Push status to Accepted
     let accepted = accept_order(&order1);
     order1.apply(OrderEventAny::Accepted(accepted)).unwrap();
-    portfolio.cache.borrow_mut().update_order(&order1).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_order(&order1)
+        .unwrap();
 
     // TODO: Replace with Execution Engine once implemented.
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order1.clone(), None, None, true)
         .unwrap();
@@ -682,22 +689,22 @@ fn test_order_accept_updates_margin_init(
         .build();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order.clone(), None, None, true)
         .unwrap();
 
     let submitted = submit_order(&order);
     order.apply(OrderEventAny::Submitted(submitted)).unwrap();
-    portfolio.cache.borrow_mut().update_order(&order).unwrap();
+    portfolio.cache().borrow_mut().update_order(&order).unwrap();
 
     let accepted = accept_order(&order);
     order.apply(OrderEventAny::Accepted(accepted)).unwrap();
-    portfolio.cache.borrow_mut().update_order(&order).unwrap();
+    portfolio.cache().borrow_mut().update_order(&order).unwrap();
 
     // TODO: Replace with Execution Engine once implemented.
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order.clone(), None, None, true)
         .unwrap();
@@ -736,12 +743,12 @@ fn test_update_positions(mut portfolio: Portfolio, instrument_audusd: Instrument
         .build();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order1.clone(), None, None, true)
         .unwrap();
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order2.clone(), None, None, true)
         .unwrap();
@@ -781,16 +788,16 @@ fn test_update_positions(mut portfolio: Portfolio, instrument_audusd: Instrument
     let last = get_quote_tick(&instrument_audusd, 250001.0, 250002.0, 1.0, 1.0);
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position1, OmsType::Hedging)
         .unwrap();
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position2, OmsType::Hedging)
         .unwrap();
-    portfolio.cache.borrow_mut().add_quote(last).unwrap();
+    portfolio.cache().borrow_mut().add_quote(last).unwrap();
     portfolio.update_quote_tick(&last);
     portfolio.initialize_positions();
 
@@ -817,13 +824,13 @@ fn test_opening_one_long_position_updates_portfolio(
 
     // Update the last quote
     let last = get_quote_tick(&instrument_audusd, 10510.0, 10511.0, 1.0, 1.0);
-    portfolio.cache.borrow_mut().add_quote(last).unwrap();
+    portfolio.cache().borrow_mut().add_quote(last).unwrap();
     portfolio.update_quote_tick(&last);
 
     let position = Position::new(&instrument_audusd, fill);
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position.clone(), OmsType::Hedging)
         .unwrap();
@@ -907,7 +914,7 @@ fn test_opening_one_long_position_updates_portfolio_with_bar(
     let position = Position::new(&instrument_audusd, fill);
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position.clone(), OmsType::Hedging)
         .unwrap();
@@ -1006,13 +1013,13 @@ fn test_opening_one_short_position_updates_portfolio(
     // Update the last quote
     let last = get_quote_tick(&instrument_audusd, 15510.15, 15510.25, 13.0, 4.0);
 
-    portfolio.cache.borrow_mut().add_quote(last).unwrap();
+    portfolio.cache().borrow_mut().add_quote(last).unwrap();
     portfolio.update_quote_tick(&last);
 
     let position = Position::new(&instrument_audusd, filled);
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position.clone(), OmsType::Hedging)
         .unwrap();
@@ -1086,8 +1093,16 @@ fn test_opening_positions_with_multi_asset_account(
     let last_ethusd = get_quote_tick(&instrument_ethusdt, 376.05, 377.10, 16.0, 25.0);
     let last_btcusd = get_quote_tick(&instrument_btcusdt, 10500.05, 10501.51, 2.54, 0.91);
 
-    portfolio.cache.borrow_mut().add_quote(last_ethusd).unwrap();
-    portfolio.cache.borrow_mut().add_quote(last_btcusd).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_ethusd)
+        .unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_btcusd)
+        .unwrap();
     portfolio.update_quote_tick(&last_ethusd);
     portfolio.update_quote_tick(&last_btcusd);
 
@@ -1123,7 +1138,7 @@ fn test_opening_positions_with_multi_asset_account(
     let position = Position::new(&instrument_ethusdt, filled);
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position.clone(), OmsType::Hedging)
         .unwrap();
@@ -1210,12 +1225,20 @@ fn test_market_value_when_insufficient_data_for_xrate_returns_none(
 
     portfolio.update_position(&PositionEvent::PositionOpened(position_opened));
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position, OmsType::Hedging)
         .unwrap();
-    portfolio.cache.borrow_mut().add_quote(last_ethusd).unwrap();
-    portfolio.cache.borrow_mut().add_quote(last_xbtusd).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_ethusd)
+        .unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_xbtusd)
+        .unwrap();
     portfolio.update_quote_tick(&last_ethusd);
     portfolio.update_quote_tick(&last_xbtusd);
 
@@ -1242,8 +1265,16 @@ fn test_opening_several_positions_updates_portfolio(
     let last_audusd = get_quote_tick(&instrument_audusd, 0.80501, 0.80505, 1.0, 1.0);
     let last_gbpusd = get_quote_tick(&instrument_gbpusd, 1.30315, 1.30317, 1.0, 1.0);
 
-    portfolio.cache.borrow_mut().add_quote(last_audusd).unwrap();
-    portfolio.cache.borrow_mut().add_quote(last_gbpusd).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_audusd)
+        .unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_gbpusd)
+        .unwrap();
     portfolio.update_quote_tick(&last_audusd);
     portfolio.update_quote_tick(&last_gbpusd);
 
@@ -1261,12 +1292,12 @@ fn test_opening_several_positions_updates_portfolio(
         .build();
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order1.clone(), None, None, true)
         .unwrap();
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_order(order2.clone(), None, None, true)
         .unwrap();
@@ -1314,8 +1345,16 @@ fn test_opening_several_positions_updates_portfolio(
         Some(Money::from("12.2 USD")),
     );
 
-    portfolio.cache.borrow_mut().update_order(&order1).unwrap();
-    portfolio.cache.borrow_mut().update_order(&order2).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_order(&order1)
+        .unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_order(&order2)
+        .unwrap();
 
     let position1 = Position::new(&instrument_audusd, fill1);
     let position2 = Position::new(&instrument_gbpusd, fill2);
@@ -1324,12 +1363,12 @@ fn test_opening_several_positions_updates_portfolio(
     let position_opened2 = get_open_position(&position2);
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position1, OmsType::Hedging)
         .unwrap();
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position2, OmsType::Hedging)
         .unwrap();
@@ -1431,7 +1470,11 @@ fn test_modifying_position_updates_portfolio(
     portfolio.update_account(&account_state);
 
     let last_audusd = get_quote_tick(&instrument_audusd, 0.80501, 0.80505, 1.0, 1.0);
-    portfolio.cache.borrow_mut().add_quote(last_audusd).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_audusd)
+        .unwrap();
     portfolio.update_quote_tick(&last_audusd);
 
     // Create Order
@@ -1465,7 +1508,7 @@ fn test_modifying_position_updates_portfolio(
 
     let mut position1 = Position::new(&instrument_audusd, fill1);
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position1.clone(), OmsType::Hedging)
         .unwrap();
@@ -1634,14 +1677,18 @@ fn test_closing_position_updates_portfolio(
     // Create position from first fill
     let mut position = Position::new(&instrument_audusd, fill1);
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position.clone(), OmsType::Hedging)
         .unwrap();
 
     // Add quote tick for market data (needed for PnL calculations)
     let quote_tick = get_quote_tick(&instrument_audusd, 1.00000, 1.00001, 1.0, 1.0);
-    portfolio.cache.borrow_mut().add_quote(quote_tick).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(quote_tick)
+        .unwrap();
     portfolio.update_quote_tick(&quote_tick);
 
     let position_opened = get_open_position(&position);
@@ -1679,7 +1726,7 @@ fn test_closing_position_updates_portfolio(
     // Apply the closing fill to the position
     position.apply(&fill2);
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .update_position(&position)
         .unwrap();
@@ -1687,7 +1734,7 @@ fn test_closing_position_updates_portfolio(
     // Update quote tick for closing price (needed for PnL calculations)
     let closing_quote_tick = get_quote_tick(&instrument_audusd, 1.00010, 1.00011, 1.0, 1.0);
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_quote(closing_quote_tick)
         .unwrap();
@@ -1882,23 +1929,31 @@ fn test_several_positions_with_different_instruments_updates_portfolio(
     let last_audusd = get_quote_tick(&instrument_audusd, 0.80501, 0.80505, 1.0, 1.0);
     let last_gbpusd = get_quote_tick(&instrument_gbpusd, 1.30315, 1.30317, 1.0, 1.0);
 
-    portfolio.cache.borrow_mut().add_quote(last_audusd).unwrap();
-    portfolio.cache.borrow_mut().add_quote(last_gbpusd).unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_audusd)
+        .unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(last_gbpusd)
+        .unwrap();
     portfolio.update_quote_tick(&last_audusd);
     portfolio.update_quote_tick(&last_gbpusd);
 
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position1.clone(), OmsType::Hedging)
         .unwrap();
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position2.clone(), OmsType::Hedging)
         .unwrap();
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position3.clone(), OmsType::Hedging)
         .unwrap();
@@ -1914,7 +1969,7 @@ fn test_several_positions_with_different_instruments_updates_portfolio(
     let position_closed3 = get_close_position(&position3);
     position3.apply(&fill4);
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position3.clone(), OmsType::Hedging)
         .unwrap();
@@ -1955,7 +2010,7 @@ fn test_realized_pnl_with_missing_exchange_rate_returns_zero_instead_of_panic(
     mut portfolio: Portfolio,
     instrument_audusd: InstrumentAny,
 ) {
-    let mut cache = portfolio.cache.borrow_mut();
+    let mut cache = portfolio.cache().borrow_mut();
     cache.add_instrument(instrument_audusd.clone()).unwrap();
 
     let account_id = AccountId::new("SIM-001");
@@ -2061,7 +2116,7 @@ fn test_portfolio_realized_pnl_with_position_snapshots_netting_oms(
 
     // Add position to cache with NETTING OMS
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position1.clone(), OmsType::Netting)
         .unwrap();
@@ -2099,14 +2154,14 @@ fn test_portfolio_realized_pnl_with_position_snapshots_netting_oms(
 
     // Snapshot the closed position
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .snapshot_position(&position1)
         .unwrap();
 
     // Update the position in cache (it's now closed)
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .update_position(&position1)
         .unwrap();
@@ -2144,7 +2199,7 @@ fn test_portfolio_realized_pnl_with_position_snapshots_netting_oms(
 
     // Add new position with same ID
     portfolio
-        .cache
+        .cache()
         .borrow_mut()
         .add_position(position2, OmsType::Netting)
         .unwrap();

@@ -580,8 +580,6 @@ impl OrderEmulator {
         }
     }
 
-    // --------------------------------------------------------------------------------------------
-
     pub fn update_order(&mut self, order: &mut OrderAny, new_quantity: Quantity) {
         log::info!(
             "Updating order {} quantity to {new_quantity}",
@@ -618,8 +616,6 @@ impl OrderEmulator {
 
         self.manager.send_risk_event(OrderEventAny::Updated(event));
     }
-
-    // -----------------------------------------------------------------------------------------------
 
     pub fn on_order_book_deltas(&mut self, deltas: OrderBookDeltas) {
         log::debug!("Processing {deltas:?}");

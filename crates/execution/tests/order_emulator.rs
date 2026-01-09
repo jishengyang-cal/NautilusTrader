@@ -13,13 +13,12 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+use nautilus_execution::matching_core::OrderMatchingCore;
 use nautilus_model::{
     instruments::{CryptoPerpetual, stubs::crypto_perpetual_ethusdt},
     types::Price,
 };
 use rstest::rstest;
-
-use crate::matching_core::OrderMatchingCore;
 
 #[rstest]
 fn test_stop_limit_order_triggered_before_market_data_retains_command(

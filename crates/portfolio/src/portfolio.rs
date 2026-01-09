@@ -306,7 +306,11 @@ impl Portfolio {
         log::debug!("READY");
     }
 
-    // -- QUERIES ---------------------------------------------------------------------------------
+    /// Returns a reference to the cache.
+    #[must_use]
+    pub fn cache(&self) -> &Rc<RefCell<Cache>> {
+        &self.cache
+    }
 
     /// Returns `true` if the portfolio has been initialized.
     #[must_use]
@@ -733,8 +737,6 @@ impl Portfolio {
         true
     }
 
-    // -- COMMANDS --------------------------------------------------------------------------------
-
     /// Initializes account margin based on existing open orders.
     ///
     /// # Panics
@@ -992,8 +994,6 @@ impl Portfolio {
             event,
         );
     }
-
-    // -- INTERNAL --------------------------------------------------------------------------------
 
     fn update_net_position(&mut self, instrument_id: &InstrumentId, positions_open: Vec<Position>) {
         let mut net_position = Decimal::ZERO;
