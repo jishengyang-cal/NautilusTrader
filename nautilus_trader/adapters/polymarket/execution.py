@@ -217,6 +217,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         # Hot caches
         self._active_markets: set[str] = set()
+        self._processed_fills: OrderedDict[tuple[TradeId, VenueOrderId], None] = OrderedDict()
         self._processed_trades: OrderedDict[TradeId, PolymarketTradeStatus] = OrderedDict()
         self._finalized_trades: OrderedDict[TradeId, None] = OrderedDict()
         self._ack_events_order: dict[VenueOrderId, asyncio.Event] = {}
@@ -752,8 +753,12 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 ts_init=self._clock.timestamp_ns(),
                 filled_user_order_id=order_id,
             )
+
             fill_key = (report.trade_id, report.venue_order_id)
-            assert fill_key not in parsed_fill_keys, "duplicate (trade_id, venue_order_id)"
+            if fill_key in parsed_fill_keys:
+                self._log.warning(f"Duplicate fill key {fill_key}, skipping")
+                continue
+
             parsed_fill_keys.add(fill_key)
             reports.append(report)
 
@@ -1048,8 +1053,17 @@ class PolymarketExecutionClient(LiveExecutionClient):
             await self._submit_limit_order(command, instrument)
         else:
             self._log.error(
-                f"Order type {order.type_string()} not supported on Polymarket, "
-                "use either MARKET, LIMIT",
+                f"Cannot submit order {order.client_order_id}: "
+                f"Order type {order.type_string()} not supported on Polymarket; "
+                "use either MARKET or LIMIT",
+                LogColor.RED,
+            )
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason="UNSUPPORTED_ORDER_TYPE",
+                ts_event=self._clock.timestamp_ns(),
             )
 
     def _deny_market_order_quantity(self, order: Order, reason: str) -> None:
@@ -1219,7 +1233,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
         except Exception as e:
             self._log.exception(
                 f"Error handling websocket message: {e.__class__.__name__} - "
-                f"raw message: {raw.decode()}",
+                f"raw message: {raw.decode(errors='replace')}",
                 e,
             )
 
@@ -1243,8 +1257,11 @@ class PolymarketExecutionClient(LiveExecutionClient):
             self._handle_ws_order_msg(msg, wait_for_ack=False)
             return
 
-        event = asyncio.Event()
-        self._ack_events_order[venue_order_id] = event
+        # Reuse existing event if present to avoid overwriting a pending waiter
+        event = self._ack_events_order.get(venue_order_id)
+        if event is None:
+            event = asyncio.Event()
+            self._ack_events_order[venue_order_id] = event
 
         try:
             await asyncio.wait_for(event.wait(), timeout=self._config.ack_timeout_secs)
@@ -1263,21 +1280,29 @@ class PolymarketExecutionClient(LiveExecutionClient):
         self._log.debug(f"Waiting for trade ack for {venue_order_id!r}...")
 
         client_order_id = self._cache.client_order_id(venue_order_id)
-        if client_order_id is not None:
-            self._handle_ws_trade_msg(msg, wait_for_ack=False)
-            return
+        if client_order_id is None:
+            # Reuse existing event if present to avoid overwriting a pending waiter
+            event = self._ack_events_trade.get(venue_order_id)
+            if event is None:
+                event = asyncio.Event()
+                self._ack_events_trade[venue_order_id] = event
 
-        event = asyncio.Event()
-        self._ack_events_trade[venue_order_id] = event
+            try:
+                await asyncio.wait_for(event.wait(), timeout=self._config.ack_timeout_secs)
+            except TimeoutError:
+                self._log.warning(f"Timed out awaiting placement ack for {venue_order_id!r}")
+            finally:
+                self._ack_events_trade.pop(venue_order_id, None)
 
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._config.ack_timeout_secs)
-        except TimeoutError:
-            self._log.warning(f"Timed out awaiting placement ack for {venue_order_id!r}")
-        finally:
-            self._ack_events_trade.pop(venue_order_id, None)
-
-        self._handle_ws_trade_msg(msg, wait_for_ack=False)
+        # Process only this specific order, not the entire trade message
+        trade_id = TradeId(msg.id)
+        order_id = venue_order_id.value
+        self._handle_user_trade_in_ws_trade_msg(
+            msg,
+            trade_id,
+            wait_for_ack=False,
+            order_id=order_id,
+        )
 
     def _handle_ws_order_msg(self, msg: PolymarketUserOrder, wait_for_ack: bool):
         self._log.debug(f"Handling order message, {wait_for_ack=}")
@@ -1375,6 +1400,16 @@ class PolymarketExecutionClient(LiveExecutionClient):
         self._processed_trades.move_to_end(trade_id)
         self._truncate_ordered_dict(self._processed_trades)
 
+    def _record_processed_fill(
+        self,
+        trade_id: TradeId,
+        venue_order_id: VenueOrderId,
+    ) -> None:
+        fill_key = (trade_id, venue_order_id)
+        self._processed_fills[fill_key] = None
+        self._processed_fills.move_to_end(fill_key)
+        self._truncate_ordered_dict(self._processed_fills)
+
     def _handle_ws_trade_msg(self, msg: PolymarketUserTrade, wait_for_ack: bool):
         self._log.debug(f"Handling trade message, {wait_for_ack=}")
 
@@ -1396,24 +1431,22 @@ class PolymarketExecutionClient(LiveExecutionClient):
             self._log.debug(f"Trade {trade_id} already finalized - skipping duplicate")
             return
 
+        # Handle status transitions (e.g., MATCHED -> MINED -> CONFIRMED)
         previous_status = self._processed_trades.get(trade_id)
-
-        if previous_status is not None:
-            if (
-                msg.status in POLYMARKET_FINALIZED_TRADE_STATUSES
-                and previous_status not in POLYMARKET_FINALIZED_TRADE_STATUSES
-            ):
-                self._record_processed_trade(trade_id, msg.status)
-                self._log.debug(
-                    f"Trade {trade_id} transitioned from {previous_status.value} "
-                    f"to {msg.status.value} - refreshing account state",
-                )
-                self.create_task(self._update_account_state())
-            else:
-                self._log.debug(
-                    f"Trade {trade_id} already processed with status {previous_status.value} - skipping",
-                )
+        if (
+            previous_status is not None
+            and msg.status in POLYMARKET_FINALIZED_TRADE_STATUSES
+            and previous_status not in POLYMARKET_FINALIZED_TRADE_STATUSES
+        ):
+            self._record_processed_trade(trade_id, msg.status)
+            self._log.debug(
+                f"Trade {trade_id} transitioned from {previous_status.value} "
+                f"to {msg.status.value} - refreshing account state",
+            )
+            self.create_task(self._update_account_state())
             return
+
+        # For same status or new trades, process fills (per-fill dedup handles duplicates)
 
         filled_user_order_ids = msg.get_filled_user_order_ids(self._wallet_address, self._api_key)
         for order_id in filled_user_order_ids:
@@ -1443,6 +1476,14 @@ class PolymarketExecutionClient(LiveExecutionClient):
             self.create_task(self._wait_for_ack_trade(msg, venue_order_id))
             return
 
+        # Check if this specific fill was already processed (handles multi-order trades)
+        fill_key = (trade_id, venue_order_id)
+        if fill_key in self._processed_fills:
+            self._log.debug(
+                f"Fill {trade_id} for {venue_order_id!r} already processed - skipping",
+            )
+            return
+
         client_order_id = self._cache.client_order_id(venue_order_id)
         strategy_id = None
 
@@ -1459,6 +1500,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
                 filled_user_order_id=order_id,
             )
             self._send_fill_report(report)
+            self._record_processed_fill(trade_id, venue_order_id)
             self._record_processed_trade(trade_id, msg.status)
             return
 
@@ -1501,6 +1543,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
             info=msg.to_dict(),
         )
 
+        self._record_processed_fill(trade_id, venue_order_id)
         self._record_processed_trade(trade_id, msg.status)
 
         # Only update account balance after trade is mined on-chain
