@@ -111,6 +111,11 @@ impl SocketClientInner {
 
         install_cryptographic_provider();
 
+        // Validate suffix is non-empty to prevent panic in read loop (windows(0) panics)
+        if config.suffix.is_empty() {
+            anyhow::bail!("Socket suffix cannot be empty: suffix is required for message framing");
+        }
+
         let SocketConfig {
             url,
             mode,
@@ -1887,5 +1892,37 @@ mod rust_tests {
 
         client.close().await;
         server.abort();
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_empty_suffix_rejected() {
+        let config = SocketConfig {
+            url: "127.0.0.1:9999".to_string(),
+            mode: Mode::Plain,
+            suffix: vec![],
+            message_handler: None,
+            heartbeat: None,
+            reconnect_timeout_ms: None,
+            reconnect_delay_initial_ms: None,
+            reconnect_delay_max_ms: None,
+            reconnect_backoff_factor: None,
+            reconnect_jitter_ms: None,
+            reconnect_max_attempts: None,
+            connection_max_retries: Some(1),
+            certs_dir: None,
+        };
+
+        let result = SocketClient::connect(config, None, None, None).await;
+
+        assert!(
+            result.is_err(),
+            "Empty suffix should cause connection to fail"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("suffix cannot be empty"),
+            "Error should mention empty suffix, got: {err_msg}"
+        );
     }
 }
