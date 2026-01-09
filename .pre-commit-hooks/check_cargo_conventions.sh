@@ -8,6 +8,8 @@
 # 5. [package] section must have required fields in correct order
 # 6. [lib] crate-type must use order: rlib, staticlib, cdylib
 # 7. All [workspace.dependencies] must be used by at least one crate
+# 8. Related dependency versions must be aligned (e.g., capnp/capnpc)
+# 9. Adapter dependencies section should only contain deps used exclusively by adapters
 #
 # Dependency groups are typically organized as:
 # - Internal nautilus-* dependencies
@@ -364,6 +366,118 @@ if [[ -f "Cargo.toml" ]]; then
   fi
 fi
 
+# Check 8: Related dependency version alignment
+# Some dependencies must have matching versions (e.g., runtime and compiler crates)
+version_alignment_violations=""
+
+if [[ -f "Cargo.toml" ]]; then
+  # Helper to extract version from Cargo.toml dependency line
+  # Handles plain versions and common prefixes (^, =, ~, >=, etc.)
+  get_version() {
+    grep -E "^$1[[:space:]]*=" Cargo.toml | head -1 | grep -oE '"[~^=<>]*[0-9]+\.[0-9]+(\.[0-9]+)?([-+][a-zA-Z0-9.]+)?"' | head -1 | sed 's/"//g; s/^[~^=<>]*//' || echo ""
+  }
+
+  # Helper to extract major.minor from version
+  get_major_minor() {
+    echo "$1" | cut -d. -f1,2
+  }
+
+  # capnp and capnpc must have exact same version
+  capnp_ver=$(get_version "capnp")
+  capnpc_ver=$(get_version "capnpc")
+  if [[ -n "$capnp_ver" && -n "$capnpc_ver" && "$capnp_ver" != "$capnpc_ver" ]]; then
+    version_alignment_violations+="  Cargo.toml: capnp ($capnp_ver) and capnpc ($capnpc_ver) versions must match"$'\n'
+  fi
+
+  # arrow and parquet must have same major.minor (from same arrow-rs release)
+  arrow_ver=$(get_version "arrow")
+  parquet_ver=$(get_version "parquet")
+  if [[ -n "$arrow_ver" && -n "$parquet_ver" ]]; then
+    arrow_mm=$(get_major_minor "$arrow_ver")
+    parquet_mm=$(get_major_minor "$parquet_ver")
+    if [[ "$arrow_mm" != "$parquet_mm" ]]; then
+      version_alignment_violations+="  Cargo.toml: arrow ($arrow_ver) and parquet ($parquet_ver) major.minor versions must match"$'\n'
+    fi
+  fi
+
+  # object_store must be compatible with datafusion (check datafusion's Cargo.toml when updating)
+  # datafusion 51.x requires object_store ^0.12
+  datafusion_ver=$(get_version "datafusion")
+  object_store_ver=$(get_version "object_store")
+  if [[ -n "$datafusion_ver" && -n "$object_store_ver" ]]; then
+    df_major=$(echo "$datafusion_ver" | cut -d. -f1)
+    os_mm=$(get_major_minor "$object_store_ver")
+    # Known compatible pairs: datafusion 51.x -> object_store 0.12.x
+    if [[ "$df_major" == "51" && "$os_mm" != "0.12" ]]; then
+      version_alignment_violations+="  Cargo.toml: datafusion $datafusion_ver requires object_store 0.12.x (found $object_store_ver)"$'\n'
+    fi
+  fi
+
+  # prost and tonic must be compatible with dydx-proto (check dydx-proto's Cargo.toml when updating)
+  # dydx-proto 0.4.x requires prost ^0.13 and tonic ^0.13
+  dydx_proto_ver=$(get_version "dydx-proto")
+  prost_ver=$(get_version "prost")
+  tonic_ver=$(get_version "tonic")
+  if [[ -n "$dydx_proto_ver" ]]; then
+    dydx_mm=$(get_major_minor "$dydx_proto_ver")
+    # Known compatible pairs: dydx-proto 0.4.x -> prost 0.13.x, tonic 0.13.x
+    if [[ "$dydx_mm" == "0.4" ]]; then
+      if [[ -n "$prost_ver" ]]; then
+        prost_mm=$(get_major_minor "$prost_ver")
+        if [[ "$prost_mm" != "0.13" ]]; then
+          version_alignment_violations+="  Cargo.toml: dydx-proto $dydx_proto_ver requires prost 0.13.x (found $prost_ver)"$'\n'
+        fi
+      fi
+      if [[ -n "$tonic_ver" ]]; then
+        tonic_mm=$(get_major_minor "$tonic_ver")
+        if [[ "$tonic_mm" != "0.13" ]]; then
+          version_alignment_violations+="  Cargo.toml: dydx-proto $dydx_proto_ver requires tonic 0.13.x (found $tonic_ver)"$'\n'
+        fi
+      fi
+    fi
+  fi
+fi
+
+if [[ -n "$version_alignment_violations" ]]; then
+  echo -e "${RED}Version alignment violations:${NC}"
+  echo "$version_alignment_violations"
+  echo
+  VIOLATIONS=$((VIOLATIONS + $(echo "$version_alignment_violations" | grep -c . || true)))
+fi
+
+# Check 9: Adapter dependencies should only be used by adapter crates
+# Extract deps from "Adapter dependencies" section and verify they're not used by core crates
+if [[ -f "Cargo.toml" ]]; then
+  adapter_section_violations=""
+
+  # Extract dependency names from the Adapter dependencies section
+  adapter_section_deps=$(awk '
+    /^# -+$/ { in_section = 0 }
+    /^# Adapter dependencies/ { in_section = 1; next }
+    in_section && /^[a-zA-Z][a-zA-Z0-9_-]*[[:space:]]*[.=]/ {
+      match($0, /^[a-zA-Z][a-zA-Z0-9_-]*/)
+      print substr($0, RSTART, RLENGTH)
+    }
+  ' Cargo.toml)
+
+  # For each adapter dep, check if it's used by any non-adapter crate
+  for dep in $adapter_section_deps; do
+    # Check if used by core crates (not in adapters/)
+    core_usage=$(find crates -maxdepth 2 -name "Cargo.toml" -not -path "*/adapters/*" -exec grep -l "^${dep}[[:space:]]*=" {} \; 2> /dev/null | head -1)
+    if [[ -n "$core_usage" ]]; then
+      adapter_section_violations+="  Cargo.toml: '$dep' in Adapter dependencies but used by core crate: $core_usage"$'\n'
+    fi
+  done
+
+  if [[ -n "$adapter_section_violations" ]]; then
+    echo -e "${RED}Adapter dependency section violations:${NC}"
+    echo "$adapter_section_violations"
+    echo -e "${YELLOW}Move these deps to Core dependencies section, or remove from core crates${NC}"
+    echo
+    VIOLATIONS=$((VIOLATIONS + $(echo "$adapter_section_violations" | grep -c . || true)))
+  fi
+fi
+
 if [[ $VIOLATIONS -gt 0 ]]; then
   echo -e "${RED}Found $VIOLATIONS Cargo.toml convention violation(s)${NC}"
   echo
@@ -379,6 +493,7 @@ if [[ $VIOLATIONS -gt 0 ]]; then
   echo "    homepage.workspace, then optional fields (publish, build, include)"
   echo "  - crate-type must use order: [\"rlib\", \"staticlib\", \"cdylib\"]"
   echo "  - Remove unused dependencies from [workspace.dependencies] in root Cargo.toml"
+  echo "  - Ensure related dependencies have matching versions (e.g., capnp and capnpc)"
   exit 1
 fi
 
