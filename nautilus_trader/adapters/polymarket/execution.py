@@ -231,7 +231,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
             await self._maintain_active_market(instrument.id)
 
         try:
-            if self._ws_client.is_disconnected():
+            if self._ws_client.is_disconnected() and self._ws_client.market_subscriptions():
                 await self._ws_client.connect()
 
             await self._update_account_state()
@@ -276,6 +276,9 @@ class PolymarketExecutionClient(LiveExecutionClient):
         if condition_id in self._active_markets:
             return  # Already active
 
+        # Register immediately to prevent race conditions with concurrent calls
+        self._active_markets.add(condition_id)
+
         if not self._ws_client.is_connected():
             ws_client = self._ws_client
             if condition_id in ws_client.market_subscriptions():
@@ -283,13 +286,15 @@ class PolymarketExecutionClient(LiveExecutionClient):
             ws_client.subscribe_market(condition_id=condition_id)
         else:
             ws_client = self._create_websocket_client()
-            if condition_id in ws_client.asset_subscriptions():
-                return  # Already subscribed
             self._ws_clients[instrument_id] = ws_client
             ws_client.subscribe_market(condition_id=condition_id)
-            await ws_client.connect()
-
-        self._active_markets.add(condition_id)
+            try:
+                await ws_client.connect()
+            except Exception as e:
+                self._active_markets.discard(condition_id)
+                self._ws_clients.pop(instrument_id, None)
+                self._log.error(f"Failed to connect WebSocket for {instrument_id}: {e}")
+                raise
 
     async def _update_account_state(self) -> None:
         self._log.info("Checking account balance")
@@ -771,7 +776,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
         size_by_asset: dict[str, float] = {}
         for p in positions:
             instrument_id = InstrumentId.from_str(
-                p.get("conditionId", "") + "-" + str(p.get("asset", "") + ".POLYMARKET"),
+                p.get("conditionId", "") + "-" + str(p.get("asset", "")) + ".POLYMARKET",
             )
             size_val = p.get("size", 0) or 0
             try:
@@ -953,7 +958,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         retry_manager = await self._retry_manager_pool.acquire()
         try:
-            order_ids = [o.venue_order_id.value for o in open_orders_strategy]
+            order_ids = [o.venue_order_id.value for o in open_orders_strategy if o.venue_order_id]
             response: JSON | None = await retry_manager.run(
                 "cancel_all_orders",
                 [command.instrument_id],

@@ -29,6 +29,7 @@ Released on TBD (UTC).
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 - Fixed Deribit auth token refresh race condition (#3402), thanks @filipmacek
 - Fixed Polymarket order state race condition where PLACEMENT events could arrive late
+- Fixed Polymarket duplicate WebSocket subscriptions (#3403), thanks for reporting @santivazq
 
 ### Internal Improvements
 - Added support for setting cache database adapter in cache and `LiveNode` (#3401), thanks @filipmacek
