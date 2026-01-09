@@ -1,10 +1,8 @@
 name: security
 
-# Supply chain security checks - runs nightly for visibility
-# and on master push to gate releases.
+# Supply chain security checks - runs nightly and on-demand for visibility.
 #
-# This workflow is separate from the main build to avoid random failures on develop
-# and nightly branches from new advisories that may not be actionable.
+# Separate from main build to avoid blocking PRs with unactionable advisories.
 
 permissions:
   contents: read
@@ -74,5 +72,7 @@ jobs:
       - name: Run osv-scanner
         uses: google/osv-scanner-action@375a0e8ebdc98e99b02ac4338a724f5750f21213 # v2.3.1
         with:
-          config: osv-scanner.toml
-          scan-args: --lockfile=Cargo.lock --lockfile=uv.lock
+          scan-args: |
+            --config=osv-scanner.toml
+            --lockfile=Cargo.lock
+            --lockfile=uv.lock

@@ -319,8 +319,8 @@ security-audit: check-audit-installed check-deny-installed check-vet-installed c
 	$(info $(M) Running security audit...)
 	@printf "$(CYAN)Running cargo audit...$(RESET)\n"
 	cargo audit --color never || true
-	@printf "\n$(CYAN)Running cargo deny (advisories check)...$(RESET)\n"
-	cargo deny --all-features check advisories
+	@printf "\n$(CYAN)Running cargo deny (advisories, licenses, sources, bans)...$(RESET)\n"
+	cargo deny --all-features check advisories licenses sources bans
 	@printf "\n$(CYAN)Running cargo vet (supply chain audit)...$(RESET)\n"
 	cargo vet
 	@printf "\n$(CYAN)Running osv-scanner (Cargo.lock + uv.lock)...$(RESET)\n"
