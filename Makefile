@@ -451,15 +451,22 @@ check-features: check-hack-installed  #-- Verify crate feature combinations comp
 .PHONY: check-capnp-schemas  #-- Verify Cap'n Proto schemas are up-to-date
 check-capnp-schemas:
 	$(info $(M) Checking if Cap'n Proto schemas are up-to-date...)
-	@bash scripts/regen_capnp.sh > /dev/null 2>&1 || true
-	@DIFF_OUTPUT="$$(git diff -I\"ENCODED_NODE\" -- crates/serialization/generated/capnp)"; \
-	if [ -n "$$DIFF_OUTPUT" ]; then \
-		echo "$(RED)Error: Cap'n Proto generated files are out of date$(RESET)"; \
-		echo "Please run: ./scripts/regen_capnp.sh"; \
-		echo "Or: make regen-capnp"; \
+	@if ! command -v capnp > /dev/null 2>&1; then \
+		echo "$(YELLOW)⚠ capnp not installed, skipping schema check$(RESET)"; \
+	elif ! bash scripts/regen_capnp.sh > /dev/null 2>&1; then \
+		echo "$(RED)Error: Cap'n Proto regeneration failed$(RESET)"; \
+		echo "Run manually to see errors: ./scripts/regen_capnp.sh"; \
 		exit 1; \
 	else \
-		echo "$(GREEN)✓ Cap'n Proto schemas are up-to-date$(RESET)"; \
+		DIFF_OUTPUT="$$(git diff -I\"ENCODED_NODE\" -- crates/serialization/generated/capnp)"; \
+		if [ -n "$$DIFF_OUTPUT" ]; then \
+			echo "$(RED)Error: Cap'n Proto generated files are out of date$(RESET)"; \
+			echo "Please run: ./scripts/regen_capnp.sh"; \
+			echo "Or: make regen-capnp"; \
+			exit 1; \
+		else \
+			echo "$(GREEN)✓ Cap'n Proto schemas are up-to-date$(RESET)"; \
+		fi; \
 	fi
 
 .PHONY: regen-capnp  #-- Regenerate Cap'n Proto schema files

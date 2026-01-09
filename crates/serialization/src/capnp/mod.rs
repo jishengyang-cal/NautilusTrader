@@ -32,9 +32,6 @@
 //! - `crate::account_capnp` - Account events
 //! - `crate::market_capnp` - Market data types
 
-// Allow missing error docs for internal capnp conversion functions
-#![allow(clippy::missing_errors_doc)]
-
 pub mod conversions;
 
 // Re-export generated modules for convenience.

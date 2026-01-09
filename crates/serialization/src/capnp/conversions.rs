@@ -1325,6 +1325,11 @@ impl<'a> FromCapnp<'a> for MarginBalance {
     }
 }
 
+/// Serializes an [`InstrumentId`] to Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto serialization fails.
 pub fn serialize_instrument_id(id: &InstrumentId) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut message = capnp::message::Builder::new_default();
     let builder = message.init_root::<identifiers_capnp::instrument_id::Builder>();
@@ -1335,6 +1340,11 @@ pub fn serialize_instrument_id(id: &InstrumentId) -> Result<Vec<u8>, Box<dyn Err
     Ok(bytes)
 }
 
+/// Deserializes an [`InstrumentId`] from Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto deserialization fails.
 pub fn deserialize_instrument_id(bytes: &[u8]) -> Result<InstrumentId, Box<dyn Error>> {
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())?;
@@ -1342,6 +1352,11 @@ pub fn deserialize_instrument_id(bytes: &[u8]) -> Result<InstrumentId, Box<dyn E
     InstrumentId::from_capnp(root)
 }
 
+/// Serializes a [`Price`] to Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto serialization fails.
 pub fn serialize_price(price: &Price) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut message = capnp::message::Builder::new_default();
     let builder = message.init_root::<types_capnp::price::Builder>();
@@ -1352,6 +1367,11 @@ pub fn serialize_price(price: &Price) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(bytes)
 }
 
+/// Deserializes a [`Price`] from Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto deserialization fails.
 pub fn deserialize_price(bytes: &[u8]) -> Result<Price, Box<dyn Error>> {
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())?;
@@ -1359,6 +1379,11 @@ pub fn deserialize_price(bytes: &[u8]) -> Result<Price, Box<dyn Error>> {
     Price::from_capnp(root)
 }
 
+/// Serializes a [`Quantity`] to Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto serialization fails.
 pub fn serialize_quantity(qty: &Quantity) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut message = capnp::message::Builder::new_default();
     let builder = message.init_root::<types_capnp::quantity::Builder>();
@@ -1369,6 +1394,11 @@ pub fn serialize_quantity(qty: &Quantity) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(bytes)
 }
 
+/// Deserializes a [`Quantity`] from Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto deserialization fails.
 pub fn deserialize_quantity(bytes: &[u8]) -> Result<Quantity, Box<dyn Error>> {
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())?;
@@ -1376,6 +1406,11 @@ pub fn deserialize_quantity(bytes: &[u8]) -> Result<Quantity, Box<dyn Error>> {
     Quantity::from_capnp(root)
 }
 
+/// Serializes a [`Currency`] to Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto serialization fails.
 pub fn serialize_currency(currency: &Currency) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut message = capnp::message::Builder::new_default();
     let builder = message.init_root::<types_capnp::currency::Builder>();
@@ -1386,6 +1421,11 @@ pub fn serialize_currency(currency: &Currency) -> Result<Vec<u8>, Box<dyn Error>
     Ok(bytes)
 }
 
+/// Deserializes a [`Currency`] from Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto deserialization fails.
 pub fn deserialize_currency(bytes: &[u8]) -> Result<Currency, Box<dyn Error>> {
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())?;
@@ -1393,6 +1433,11 @@ pub fn deserialize_currency(bytes: &[u8]) -> Result<Currency, Box<dyn Error>> {
     Currency::from_capnp(root)
 }
 
+/// Serializes a [`Money`] to Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto serialization fails.
 pub fn serialize_money(money: &Money) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut message = capnp::message::Builder::new_default();
     let builder = message.init_root::<types_capnp::money::Builder>();
@@ -1403,6 +1448,11 @@ pub fn serialize_money(money: &Money) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(bytes)
 }
 
+/// Deserializes a [`Money`] from Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto deserialization fails.
 pub fn deserialize_money(bytes: &[u8]) -> Result<Money, Box<dyn Error>> {
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())?;
@@ -1410,6 +1460,11 @@ pub fn deserialize_money(bytes: &[u8]) -> Result<Money, Box<dyn Error>> {
     Money::from_capnp(root)
 }
 
+/// Serializes an [`AccountBalance`] to Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto serialization fails.
 pub fn serialize_account_balance(balance: &AccountBalance) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut message = capnp::message::Builder::new_default();
     let builder = message.init_root::<types_capnp::account_balance::Builder>();
@@ -1420,6 +1475,11 @@ pub fn serialize_account_balance(balance: &AccountBalance) -> Result<Vec<u8>, Bo
     Ok(bytes)
 }
 
+/// Deserializes an [`AccountBalance`] from Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto deserialization fails.
 pub fn deserialize_account_balance(bytes: &[u8]) -> Result<AccountBalance, Box<dyn Error>> {
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())?;
@@ -1427,6 +1487,11 @@ pub fn deserialize_account_balance(bytes: &[u8]) -> Result<AccountBalance, Box<d
     AccountBalance::from_capnp(root)
 }
 
+/// Serializes a [`MarginBalance`] to Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto serialization fails.
 pub fn serialize_margin_balance(balance: &MarginBalance) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut message = capnp::message::Builder::new_default();
     let builder = message.init_root::<types_capnp::margin_balance::Builder>();
@@ -1437,6 +1502,11 @@ pub fn serialize_margin_balance(balance: &MarginBalance) -> Result<Vec<u8>, Box<
     Ok(bytes)
 }
 
+/// Deserializes a [`MarginBalance`] from Cap'n Proto bytes.
+///
+/// # Errors
+///
+/// Returns an error if Cap'n Proto deserialization fails.
 pub fn deserialize_margin_balance(bytes: &[u8]) -> Result<MarginBalance, Box<dyn Error>> {
     let reader =
         capnp::serialize::read_message(&mut &bytes[..], capnp::message::ReaderOptions::new())?;
@@ -3824,7 +3894,7 @@ impl<'a> FromCapnp<'a> for OrderInitialized {
 
         let linked_order_ids = if reader.has_linked_order_ids() {
             let linked_order_ids_reader = reader.get_linked_order_ids()?;
-            let mut linked_order_ids = Vec::new();
+            let mut linked_order_ids = Vec::with_capacity(linked_order_ids_reader.len() as usize);
             for order_id_reader in linked_order_ids_reader {
                 linked_order_ids.push(ClientOrderId::from_capnp(order_id_reader)?);
             }
@@ -3850,7 +3920,7 @@ impl<'a> FromCapnp<'a> for OrderInitialized {
         let exec_algorithm_params = if reader.has_exec_algorithm_params() {
             let params_reader = reader.get_exec_algorithm_params()?;
             let entries_reader = params_reader.get_entries()?;
-            let mut params = IndexMap::new();
+            let mut params = IndexMap::with_capacity(entries_reader.len() as usize);
             for entry_reader in entries_reader {
                 let key = Ustr::from(entry_reader.get_key()?.to_str()?);
                 let value = Ustr::from(entry_reader.get_value()?.to_str()?);
@@ -3870,7 +3940,7 @@ impl<'a> FromCapnp<'a> for OrderInitialized {
 
         let tags = if reader.has_tags() {
             let tags_reader = reader.get_tags()?;
-            let mut tags = Vec::new();
+            let mut tags = Vec::with_capacity(tags_reader.len() as usize);
             for tag in tags_reader {
                 tags.push(Ustr::from(tag?.to_str()?));
             }

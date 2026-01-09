@@ -41,6 +41,7 @@ Released on TBD (UTC).
 - Refined closing of streaming writer (#3394), thanks @fayosu
 - Refined handling of `skip_first_non_full_bar` in `TimeBarAggregator` (#3395), thanks @faysou
 - Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
+- Upgraded Cap'n Proto to v1.3.0
 - Upgraded Cython to v3.2.4
 - Upgraded `tokio` crate to v1.49.0
 

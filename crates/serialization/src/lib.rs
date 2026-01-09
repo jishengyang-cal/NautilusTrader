@@ -68,7 +68,7 @@ pub mod capnp;
 #[cfg(feature = "capnp")]
 macro_rules! include_capnp_module {
     ($name:ident, $path:expr) => {
-        #[cfg(all(feature = "capnp", not(docs_rs)))]
+        #[cfg(all(feature = "capnp", not(docsrs)))]
         #[allow(
             clippy::all,
             clippy::missing_errors_doc,
@@ -81,7 +81,7 @@ macro_rules! include_capnp_module {
             include!(concat!(env!("OUT_DIR"), $path));
         }
 
-        #[cfg(all(feature = "capnp", docs_rs))]
+        #[cfg(all(feature = "capnp", docsrs))]
         #[allow(
             clippy::all,
             clippy::missing_errors_doc,
