@@ -38,7 +38,7 @@ use rust_decimal::prelude::FromPrimitive;
 use ustr::Ustr;
 
 use super::{
-    enums::{DeribitBookAction, DeribitBookMsgType},
+    enums::DeribitBookMsgType,
     messages::{
         DeribitBookMsg, DeribitChartMsg, DeribitOrderMsg, DeribitPerpetualMsg, DeribitQuoteMsg,
         DeribitTickerMsg, DeribitTradeMsg, DeribitUserTradeMsg,
@@ -97,16 +97,6 @@ pub fn parse_trades_data(
                 .map(Data::Trade)
         })
         .collect()
-}
-
-/// Converts a Deribit book action to Nautilus `BookAction`.
-#[allow(dead_code)] // Reserved for future structured book parsing
-fn convert_book_action(action: &DeribitBookAction) -> BookAction {
-    match action {
-        DeribitBookAction::New => BookAction::Add,
-        DeribitBookAction::Change => BookAction::Update,
-        DeribitBookAction::Delete => BookAction::Delete,
-    }
 }
 
 /// Parses a Deribit order book snapshot into Nautilus `OrderBookDeltas`.

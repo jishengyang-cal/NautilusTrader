@@ -197,7 +197,6 @@ pub struct OrderContext {
 ///
 /// Runs in a dedicated Tokio task, processing commands and raw WebSocket messages.
 #[allow(missing_debug_implementations)]
-#[allow(dead_code)] // Fields reserved for future features
 pub struct DeribitWsFeedHandler {
     clock: &'static AtomicTime,
     signal: Arc<AtomicBool>,

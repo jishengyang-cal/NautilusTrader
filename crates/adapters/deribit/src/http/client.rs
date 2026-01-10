@@ -66,9 +66,6 @@ use crate::{
     },
 };
 
-#[allow(dead_code)]
-const DERIBIT_SUCCESS_CODE: i64 = 0;
-
 /// Low-level Deribit HTTP client for raw API operations.
 ///
 /// This client handles JSON-RPC 2.0 protocol, request signing, rate limiting,

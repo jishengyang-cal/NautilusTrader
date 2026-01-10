@@ -880,8 +880,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ---------- checked / saturating arithmetic ----------
-
     #[rstest]
     fn test_checked_add_overflow_returns_none() {
         let max = UnixNanos::from(u64::MAX);
