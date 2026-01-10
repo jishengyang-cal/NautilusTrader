@@ -64,11 +64,18 @@ use nautilus_model::{
     orderbook::own::{OwnOrderBook, should_handle_own_book_order},
     orders::{Order, OrderAny, OrderError},
     position::Position,
-    reports::{ExecutionMassStatus, OrderStatusReport},
+    reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{Money, Price, Quantity},
 };
+use rust_decimal::Decimal;
 
-use crate::{client::ExecutionClientAdapter, reconciliation::reconcile_order_report};
+use crate::{
+    client::ExecutionClientAdapter,
+    reconciliation::{
+        check_position_reconciliation, reconcile_fill_report as reconcile_fill,
+        reconcile_order_report,
+    },
+};
 
 /// Central execution engine responsible for orchestrating order routing and execution.
 ///
@@ -544,28 +551,20 @@ impl ExecutionEngine {
         self.cache.borrow_mut().flush_db();
     }
 
-    /// Reconciles an execution report received at runtime.
-    ///
-    /// Dispatches to the appropriate handler based on report type.
+    /// Reconciles an execution report.
     pub fn reconcile_execution_report(&mut self, report: &ExecutionReport) {
         match report {
             ExecutionReport::Order(order_report) => {
                 self.reconcile_order_status_report(order_report);
             }
             ExecutionReport::Fill(fill_report) => {
-                // TODO: Implement
-                log::debug!("Received fill report: {fill_report:?}");
+                self.reconcile_fill_report(fill_report);
             }
             ExecutionReport::Position(position_report) => {
-                // TODO: Implement
-                log::debug!("Received position report: {position_report:?}");
+                self.reconcile_position_report(position_report);
             }
             ExecutionReport::MassStatus(mass_status) => {
-                // TODO: Implement
-                log::warn!(
-                    "Unexpected mass status in reconcile_report: {:?}",
-                    mass_status.account_id
-                );
+                self.reconcile_execution_mass_status(mass_status);
             }
         }
     }
@@ -605,6 +604,180 @@ impl ExecutionEngine {
         if let Some(event) = reconcile_order_report(&order, report, instrument.as_ref(), ts_now) {
             self.handle_event(&event);
         }
+    }
+
+    /// Reconciles a fill report received at runtime.
+    ///
+    /// Finds the associated order, validates the fill, and generates an OrderFilled event
+    /// if the fill is not a duplicate and won't cause an overfill.
+    pub fn reconcile_fill_report(&mut self, report: &FillReport) {
+        let cache = self.cache.borrow();
+
+        let order = report
+            .client_order_id
+            .and_then(|id| cache.order(&id).cloned())
+            .or_else(|| {
+                cache
+                    .client_order_id(&report.venue_order_id)
+                    .and_then(|cid| cache.order(cid).cloned())
+            });
+
+        let Some(order) = order else {
+            log::warn!(
+                "Cannot reconcile fill report: order not found for venue_order_id={}, client_order_id={:?}",
+                report.venue_order_id,
+                report.client_order_id
+            );
+            return;
+        };
+
+        let instrument = cache.instrument(&report.instrument_id).cloned();
+
+        drop(cache);
+
+        let Some(instrument) = instrument else {
+            log::debug!(
+                "Cannot reconcile fill report for {}: instrument {} not found",
+                order.client_order_id(),
+                report.instrument_id
+            );
+            return;
+        };
+
+        let ts_now = self.clock.borrow().timestamp_ns();
+
+        if let Some(event) = reconcile_fill(
+            &order,
+            report,
+            &instrument,
+            ts_now,
+            self.config.allow_overfills,
+        ) {
+            self.handle_event(&event);
+        }
+    }
+
+    /// Reconciles a position status report received at runtime.
+    ///
+    /// Compares the venue-reported position with cached positions and logs any discrepancies.
+    /// Handles both hedging (with venue_position_id) and netting (without) modes.
+    pub fn reconcile_position_report(&mut self, report: &PositionStatusReport) {
+        let cache = self.cache.borrow();
+
+        let size_precision = cache
+            .instrument(&report.instrument_id)
+            .map(|i| i.size_precision());
+
+        if report.venue_position_id.is_some() {
+            self.reconcile_position_report_hedging(report, &cache);
+        } else {
+            self.reconcile_position_report_netting(report, &cache, size_precision);
+        }
+    }
+
+    fn reconcile_position_report_hedging(&self, report: &PositionStatusReport, cache: &Cache) {
+        let venue_position_id = report.venue_position_id.as_ref().unwrap();
+
+        log::info!(
+            "Reconciling HEDGE position for {}, venue_position_id={}",
+            report.instrument_id,
+            venue_position_id
+        );
+
+        let Some(position) = cache.position(venue_position_id) else {
+            log::error!("Cannot reconcile position: {venue_position_id} not found in cache");
+            return;
+        };
+
+        let cached_signed_qty = match position.side {
+            PositionSide::Long => position.quantity.as_decimal(),
+            PositionSide::Short => -position.quantity.as_decimal(),
+            _ => Decimal::ZERO,
+        };
+        let venue_signed_qty = report.signed_decimal_qty;
+
+        if cached_signed_qty != venue_signed_qty {
+            log::error!(
+                "Position mismatch for {} {}: cached={}, venue={}",
+                report.instrument_id,
+                venue_position_id,
+                cached_signed_qty,
+                venue_signed_qty
+            );
+        }
+    }
+
+    fn reconcile_position_report_netting(
+        &self,
+        report: &PositionStatusReport,
+        cache: &Cache,
+        size_precision: Option<u8>,
+    ) {
+        log::info!("Reconciling NET position for {}", report.instrument_id);
+
+        let positions_open = cache.positions_open(None, Some(&report.instrument_id), None, None);
+
+        // Sum up cached position quantities using domain types to avoid f64 precision loss
+        let cached_signed_qty: Decimal = positions_open
+            .iter()
+            .map(|p| match p.side {
+                PositionSide::Long => p.quantity.as_decimal(),
+                PositionSide::Short => -p.quantity.as_decimal(),
+                _ => Decimal::ZERO,
+            })
+            .sum();
+
+        log::info!(
+            "Position report: venue_signed_qty={}, cached_signed_qty={}",
+            report.signed_decimal_qty,
+            cached_signed_qty
+        );
+
+        let _ = check_position_reconciliation(report, cached_signed_qty, size_precision);
+    }
+
+    /// Reconciles an execution mass status report.
+    ///
+    /// Processes all order reports, fill reports, and position reports contained
+    /// in the mass status.
+    pub fn reconcile_execution_mass_status(&mut self, mass_status: &ExecutionMassStatus) {
+        log::info!(
+            "Reconciling mass status for client={}, account={}, venue={}",
+            mass_status.client_id,
+            mass_status.account_id,
+            mass_status.venue
+        );
+
+        for order_report in mass_status.order_reports().values() {
+            self.reconcile_order_status_report(order_report);
+        }
+
+        for fill_reports in mass_status.fill_reports().values() {
+            for fill_report in fill_reports {
+                self.reconcile_fill_report(fill_report);
+            }
+        }
+
+        for position_reports in mass_status.position_reports().values() {
+            for position_report in position_reports {
+                self.reconcile_position_report(position_report);
+            }
+        }
+
+        log::info!(
+            "Mass status reconciliation complete: {} orders, {} fills, {} positions",
+            mass_status.order_reports().len(),
+            mass_status
+                .fill_reports()
+                .values()
+                .map(|v| v.len())
+                .sum::<usize>(),
+            mass_status
+                .position_reports()
+                .values()
+                .map(|v| v.len())
+                .sum::<usize>()
+        );
     }
 
     /// Executes a trading command by routing it to the appropriate execution client.
