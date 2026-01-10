@@ -38,6 +38,7 @@ use nautilus_model::{
 };
 use nautilus_system::{config::NautilusKernelConfig, kernel::NautilusKernel};
 use nautilus_trading::strategy::Strategy;
+use tabled::{Table, Tabled, settings::Style};
 
 use crate::{
     builder::LiveNodeBuilder,
@@ -270,8 +271,13 @@ impl LiveNode {
         self.handle.set_state(NodeState::Starting);
 
         self.kernel.start_async().await;
-        self.kernel.connect_clients().await?;
-        self.await_engines_connected().await?;
+        self.kernel.connect_clients().await;
+
+        if !self.await_engines_connected().await {
+            log::error!("Cannot start trader: engine client(s) not connected");
+            self.handle.set_state(NodeState::Running);
+            return Ok(());
+        }
 
         // Process pending data events before reconciliation and starting trader
         if let Some(runner) = self.runner.as_mut() {
@@ -311,7 +317,14 @@ impl LiveNode {
     }
 
     /// Awaits engine clients to connect with timeout.
-    async fn await_engines_connected(&self) -> anyhow::Result<()> {
+    ///
+    /// Returns `true` if all engines connected, `false` if timed out.
+    async fn await_engines_connected(&self) -> bool {
+        log::info!(
+            "Awaiting engine connections ({:?} timeout)...",
+            self.config.timeout_connection
+        );
+
         let start = Instant::now();
         let timeout = self.config.timeout_connection;
         let interval = Duration::from_millis(100);
@@ -319,16 +332,24 @@ impl LiveNode {
         while start.elapsed() < timeout {
             if self.kernel.check_engines_connected() {
                 log::info!("All engine clients connected");
-                return Ok(());
+                return true;
             }
             tokio::time::sleep(interval).await;
         }
 
-        anyhow::bail!("Timeout waiting for engine clients to connect after {timeout:?}")
+        self.log_connection_status();
+        false
     }
 
     /// Awaits engine clients to disconnect with timeout.
-    async fn await_engines_disconnected(&self) -> anyhow::Result<()> {
+    ///
+    /// Logs an error with client status on timeout but does not fail.
+    async fn await_engines_disconnected(&self) {
+        log::info!(
+            "Awaiting engine disconnections ({:?} timeout)...",
+            self.config.timeout_disconnection
+        );
+
         let start = Instant::now();
         let timeout = self.config.timeout_disconnection;
         let interval = Duration::from_millis(100);
@@ -336,12 +357,63 @@ impl LiveNode {
         while start.elapsed() < timeout {
             if self.kernel.check_engines_disconnected() {
                 log::info!("All engine clients disconnected");
-                return Ok(());
+                return;
             }
             tokio::time::sleep(interval).await;
         }
 
-        anyhow::bail!("Timeout waiting for engine clients to disconnect after {timeout:?}")
+        log::error!(
+            "Timed out ({:?}) waiting for engines to disconnect\n\
+             DataEngine.check_disconnected() == {}\n\
+             ExecEngine.check_disconnected() == {}",
+            timeout,
+            self.kernel.data_engine().check_disconnected(),
+            self.kernel.exec_engine().borrow().check_disconnected(),
+        );
+    }
+
+    fn log_connection_status(&self) {
+        #[derive(Tabled)]
+        struct ClientStatus {
+            #[tabled(rename = "Client")]
+            client: String,
+            #[tabled(rename = "Type")]
+            client_type: &'static str,
+            #[tabled(rename = "Connected")]
+            connected: bool,
+        }
+
+        let data_status = self.kernel.data_client_connection_status();
+        let exec_status = self.kernel.exec_client_connection_status();
+
+        let mut rows: Vec<ClientStatus> = Vec::new();
+
+        for (client_id, connected) in data_status {
+            rows.push(ClientStatus {
+                client: client_id.to_string(),
+                client_type: "Data",
+                connected,
+            });
+        }
+
+        for (client_id, connected) in exec_status {
+            rows.push(ClientStatus {
+                client: client_id.to_string(),
+                client_type: "Execution",
+                connected,
+            });
+        }
+
+        let table = Table::new(&rows).with(Style::rounded()).to_string();
+
+        log::warn!(
+            "Timed out ({:?}) waiting for engines to connect\n\n{table}\n\n\
+             DataEngine.check_connected() == {}\n\
+             ExecEngine.check_connected() == {}",
+            self.config.timeout_connection,
+            self.kernel.data_engine().check_connected(),
+            self.kernel.exec_engine().borrow().check_connected(),
+        );
     }
 
     /// Performs startup reconciliation to align internal state with venue state.
@@ -500,7 +572,7 @@ impl LiveNode {
         // TODO: Add ctrl_c and stop_handle monitoring here to allow aborting a
         // hanging startup. Currently signals during startup are ignored, and
         // any pending stop_flag is cleared when transitioning to Running.
-        {
+        let engines_connected = {
             let startup_future = self.complete_startup();
             tokio::pin!(startup_future);
 
@@ -509,8 +581,7 @@ impl LiveNode {
                     biased;
 
                     result = &mut startup_future => {
-                        result?;
-                        break;
+                        break result?;
                     }
                     Some(handler) = time_evt_rx.recv() => {
                         AsyncRunner::handle_time_event(handler);
@@ -537,12 +608,17 @@ impl LiveNode {
                     }
                 }
             }
-        }
+        };
 
         pending.drain();
 
-        // Now start trader - instruments are in cache after drain()
-        self.kernel.start_trader();
+        if engines_connected {
+            // Now start trader - instruments are in cache after drain()
+            self.kernel.start_trader();
+        } else {
+            log::error!("Not starting trader: engine client(s) not connected");
+        }
+
         self.handle.set_state(NodeState::Running);
 
         // Running phase: runs until shutdown deadline expires
@@ -639,11 +715,16 @@ impl LiveNode {
         Ok(())
     }
 
-    async fn complete_startup(&mut self) -> anyhow::Result<()> {
-        self.kernel.connect_clients().await?;
-        self.await_engines_connected().await?;
+    /// Returns `true` if all engines connected successfully, `false` otherwise.
+    async fn complete_startup(&mut self) -> anyhow::Result<bool> {
+        self.kernel.connect_clients().await;
+
+        if !self.await_engines_connected().await {
+            return Ok(false);
+        }
+
         self.perform_startup_reconciliation().await?;
-        Ok(())
+        Ok(true)
     }
 
     fn initiate_shutdown(&mut self) {
@@ -657,7 +738,7 @@ impl LiveNode {
 
     async fn finalize_stop(&mut self) -> anyhow::Result<()> {
         self.kernel.disconnect_clients().await?;
-        self.await_engines_disconnected().await?;
+        self.await_engines_disconnected().await;
         self.kernel.finalize_stop().await;
 
         self.handle.set_state(NodeState::Stopped);

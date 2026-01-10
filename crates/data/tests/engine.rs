@@ -3442,14 +3442,10 @@ fn test_pool_snapshot_request_routing_by_client_id(
     assert_eq!(recorder_2.borrow().len(), 0);
 }
 
-// ------------------------------------------------------------------------------------------------
-// Connection error propagation tests
-// ------------------------------------------------------------------------------------------------
-
 #[rstest]
 #[tokio::test]
 #[allow(clippy::await_holding_refcell_ref)] // Single-threaded test
-async fn test_data_engine_connect_propagates_client_error(
+async fn test_data_engine_connect_continues_with_failing_client(
     #[from(data_engine)] data_engine: Rc<RefCell<DataEngine>>,
 ) {
     let mut data_engine = data_engine.borrow_mut();
@@ -3462,14 +3458,8 @@ async fn test_data_engine_connect_propagates_client_error(
     let adapter = DataClientAdapter::new(client_id, Some(venue), true, true, Box::new(client));
     data_engine.register_client(adapter, None);
 
-    let result = data_engine.connect().await;
-
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(
-        err.to_string().contains(error_message),
-        "Expected error message to contain '{error_message}', got: {err}"
-    );
+    // Connect logs errors but does not fail
+    data_engine.connect().await;
 }
 
 #[rstest]
@@ -3489,7 +3479,5 @@ async fn test_data_engine_connect_succeeds_with_working_client(
     let adapter = DataClientAdapter::new(client_id, Some(venue), true, true, Box::new(client));
     data_engine.register_client(adapter, None);
 
-    let result = data_engine.connect().await;
-
-    assert!(result.is_ok());
+    data_engine.connect().await;
 }

@@ -42,7 +42,10 @@ use nautilus_common::{
 use nautilus_core::{UUID4, UnixNanos, WeakCell};
 use nautilus_data::engine::DataEngine;
 use nautilus_execution::{engine::ExecutionEngine, order_emulator::adapter::OrderEmulatorAdapter};
-use nautilus_model::{events::OrderEventAny, identifiers::TraderId};
+use nautilus_model::{
+    events::OrderEventAny,
+    identifiers::{ClientId, TraderId},
+};
 use nautilus_portfolio::portfolio::Portfolio;
 use nautilus_risk::engine::RiskEngine;
 use ustr::Ustr;
@@ -484,11 +487,14 @@ impl NautilusKernel {
     /// which may trigger residual events such as order cancellations. The caller should
     /// continue processing events after calling this method to handle these residual events.
     pub fn stop_trader(&mut self) {
-        log::info!("Stopping");
+        if !self.trader.is_running() {
+            return;
+        }
 
-        // Stop the trader (it will stop all registered components)
+        log::info!("Stopping trader...");
+
         if let Err(e) = self.trader.stop() {
-            log::error!("Error stopping trader: {e:?}");
+            log::error!("Error stopping trader: {e}");
         }
     }
 
@@ -612,15 +618,12 @@ impl NautilusKernel {
 
     /// Connects all engine clients.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if any client fails to connect.
+    /// Connection failures are logged but do not prevent the node from running.
     #[allow(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
-    pub async fn connect_clients(&mut self) -> anyhow::Result<()> {
+    pub async fn connect_clients(&mut self) {
         log::info!("Connecting clients...");
-        self.data_engine.borrow_mut().connect().await?;
-        self.exec_engine.borrow_mut().connect().await?;
-        Ok(())
+        self.data_engine.borrow_mut().connect().await;
+        self.exec_engine.borrow_mut().connect().await;
     }
 
     /// Disconnects all engine clients.
@@ -647,5 +650,17 @@ impl NautilusKernel {
     pub fn check_engines_disconnected(&self) -> bool {
         self.data_engine.borrow().check_disconnected()
             && self.exec_engine.borrow().check_disconnected()
+    }
+
+    /// Returns connection status for all data clients.
+    #[must_use]
+    pub fn data_client_connection_status(&self) -> Vec<(ClientId, bool)> {
+        self.data_engine.borrow().client_connection_status()
+    }
+
+    /// Returns connection status for all execution clients.
+    #[must_use]
+    pub fn exec_client_connection_status(&self) -> Vec<(ClientId, bool)> {
+        self.exec_engine.borrow().client_connection_status()
     }
 }

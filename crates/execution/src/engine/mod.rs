@@ -177,6 +177,22 @@ impl ExecutionEngine {
         clients_disconnected && default_disconnected
     }
 
+    /// Returns connection status for each registered client.
+    #[must_use]
+    pub fn client_connection_status(&self) -> Vec<(ClientId, bool)> {
+        let mut status: Vec<_> = self
+            .clients
+            .values()
+            .map(|c| (c.client_id(), c.is_connected()))
+            .collect();
+
+        if let Some(default) = &self.default_client {
+            status.push((default.client_id(), default.is_connected()));
+        }
+
+        status
+    }
+
     #[must_use]
     /// Checks for residual positions and orders in the cache.
     pub fn check_residuals(&self) -> bool {
@@ -414,10 +430,8 @@ impl ExecutionEngine {
 
     /// Connects all registered execution clients concurrently.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if any client fails to connect.
-    pub async fn connect(&mut self) -> anyhow::Result<()> {
+    /// Connection failures are logged but do not prevent the node from running.
+    pub async fn connect(&mut self) {
         let futures: Vec<_> = self
             .get_clients_mut()
             .into_iter()
@@ -425,16 +439,9 @@ impl ExecutionEngine {
             .collect();
 
         let results = join_all(futures).await;
-        let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
 
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            let error_msgs: Vec<_> = errors.iter().map(|e| e.to_string()).collect();
-            anyhow::bail!(
-                "Failed to connect execution clients: {}",
-                error_msgs.join("; ")
-            )
+        for error in results.into_iter().filter_map(Result::err) {
+            log::error!("Failed to connect execution client: {error}");
         }
     }
 

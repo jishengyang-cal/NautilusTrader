@@ -88,7 +88,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actor = DatabentoSubscriberActor::new(actor_config);
 
     node.add_actor(actor)?;
-
     node.run().await?;
 
     Ok(())

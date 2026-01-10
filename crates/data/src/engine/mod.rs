@@ -323,10 +323,8 @@ impl DataEngine {
 
     /// Connects all registered data clients concurrently.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if any client fails to connect.
-    pub async fn connect(&mut self) -> anyhow::Result<()> {
+    /// Connection failures are logged but do not prevent the node from running.
+    pub async fn connect(&mut self) {
         let futures: Vec<_> = self
             .get_clients_mut()
             .into_iter()
@@ -334,13 +332,9 @@ impl DataEngine {
             .collect();
 
         let results = join_all(futures).await;
-        let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
 
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            let error_msgs: Vec<_> = errors.iter().map(|e| e.to_string()).collect();
-            anyhow::bail!("Failed to connect data clients: {}", error_msgs.join("; "))
+        for error in results.into_iter().filter_map(Result::err) {
+            log::error!("Failed to connect data client: {error}");
         }
     }
 
@@ -384,6 +378,15 @@ impl DataEngine {
         self.get_clients()
             .iter()
             .all(|client| !client.is_connected())
+    }
+
+    /// Returns connection status for each registered client.
+    #[must_use]
+    pub fn client_connection_status(&self) -> Vec<(ClientId, bool)> {
+        self.get_clients()
+            .into_iter()
+            .map(|client| (client.client_id(), client.is_connected()))
+            .collect()
     }
 
     /// Returns a list of all registered client IDs, including the default client if set.
