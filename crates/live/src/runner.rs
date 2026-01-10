@@ -525,11 +525,10 @@ mod tests {
             runner.run().await;
         });
 
-        // Drop data sender to close channel - this should cause runner to exit
         drop(data_tx);
 
-        // Send stop signal to ensure clean shutdown
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Yield to let runner enter event loop before stop signal
+        tokio::task::yield_now().await;
         signal_tx.send(()).ok();
 
         // Runner should stop when channels close or on signal
@@ -585,13 +584,11 @@ mod tests {
             handle.await.unwrap();
         }
 
-        // Give runner time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Stop runner
+        // Yield to let runner enter event loop before stop signal
+        tokio::task::yield_now().await;
         signal_tx.send(()).unwrap();
 
-        let _ = tokio::time::timeout(Duration::from_secs(1), runner_handle).await;
+        let _ = tokio::time::timeout(Duration::from_millis(200), runner_handle).await;
     }
 
     #[rstest]
@@ -956,13 +953,11 @@ mod tests {
             .send(ExecutionEvent::Account(account_state))
             .unwrap();
 
-        // Give runner time to process all events
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Stop runner
+        // Yield to let runner enter event loop before stop signal
+        tokio::task::yield_now().await;
         signal_tx.send(()).unwrap();
 
-        let result = tokio::time::timeout(Duration::from_secs(1), runner_handle).await;
+        let result = tokio::time::timeout(Duration::from_millis(200), runner_handle).await;
         assert!(
             result.is_ok(),
             "Runner should process all event types and stop cleanly"
@@ -1047,10 +1042,8 @@ mod tests {
             runner.run().await;
         });
 
-        // Give runner time to process queued events
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Stop runner
+        // Yield to let runner enter event loop before stop signal
+        tokio::task::yield_now().await;
         handle.stop();
 
         let result = tokio::time::timeout(Duration::from_millis(200), runner_task).await;

@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use nautilus_common::enums::Environment;
+use nautilus_common::{enums::Environment, testing::wait_until_async};
 use nautilus_live::{
     config::{LiveExecEngineConfig, LiveNodeConfig},
     node::{LiveNode, LiveNodeHandle, NodeState},
@@ -211,6 +211,7 @@ mod serial_tests {
                 reconciliation: false,
                 ..Default::default()
             },
+            delay_post_stop: Duration::from_millis(50),
             ..Default::default()
         };
         let mut node = LiveNode::build("TestNode".to_string(), Some(config)).unwrap();
@@ -219,7 +220,11 @@ mod serial_tests {
         // Must stop after node enters Running (stop flag is cleared on Running transition)
         let stop_handle = handle.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            wait_until_async(
+                || async { stop_handle.is_running() },
+                Duration::from_secs(5),
+            )
+            .await;
             stop_handle.stop();
         });
 
@@ -246,6 +251,7 @@ mod serial_tests {
                 reconciliation: false,
                 ..Default::default()
             },
+            delay_post_stop: Duration::from_millis(50),
             ..Default::default()
         };
         let mut node = LiveNode::build("TestNode".to_string(), Some(config)).unwrap();
@@ -253,10 +259,14 @@ mod serial_tests {
 
         assert_eq!(handle.state(), NodeState::Idle);
 
-        // Spawn task to stop after brief delay
+        // Spawn task to stop after node enters Running state
         let stop_handle = handle.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            wait_until_async(
+                || async { stop_handle.is_running() },
+                Duration::from_secs(5),
+            )
+            .await;
             stop_handle.stop();
         });
 
