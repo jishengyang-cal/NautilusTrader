@@ -230,7 +230,6 @@ serde_json = { version = "1.0.149", default-features = false, features = [
   "std",
 ] }
 serde_urlencoded = "0.7.1"
-simple_logger = "5.1.0"
 sqlx = { version = "0.8.6", default-features = false, features = [
   "postgres",
   "runtime-tokio",

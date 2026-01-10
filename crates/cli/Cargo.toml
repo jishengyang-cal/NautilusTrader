@@ -25,6 +25,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+nautilus-common = { workspace = true }
 nautilus-core = { workspace = true }
 nautilus-infrastructure = { workspace = true, features = ["postgres"] }
 nautilus-model = { workspace = true }
@@ -37,7 +38,6 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 dotenvy = { workspace = true }
 log = { workspace = true }
-simple_logger = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 ustr = { workspace = true }
