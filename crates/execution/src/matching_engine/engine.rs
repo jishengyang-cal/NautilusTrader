@@ -50,7 +50,7 @@ use nautilus_model::{
         AccountId, ClientOrderId, InstrumentId, PositionId, StrategyId, TraderId, Venue,
         VenueOrderId,
     },
-    instruments::{EXPIRING_INSTRUMENT_CLASSES, Instrument, InstrumentAny},
+    instruments::{Instrument, InstrumentAny},
     orderbook::OrderBook,
     orders::{Order, OrderAny, PassiveOrderAny, StopOrderAny},
     position::Position,
@@ -852,7 +852,7 @@ impl OrderMatchingEngine {
             self.account_ids.insert(order.trader_id(), account_id);
 
             // Check for instrument expiration or activation
-            if EXPIRING_INSTRUMENT_CLASSES.contains(&self.instrument.instrument_class()) {
+            if self.instrument.has_expiration() {
                 if let Some(activation_ns) = self.instrument.activation_ns()
                     && self.clock.borrow().timestamp_ns() < activation_ns
                 {

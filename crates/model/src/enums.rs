@@ -640,6 +640,17 @@ pub enum InstrumentClass {
     BinaryOption = 12,
 }
 
+impl InstrumentClass {
+    /// Returns whether this instrument class has an expiration.
+    #[must_use]
+    pub const fn has_expiration(&self) -> bool {
+        matches!(
+            self,
+            Self::Future | Self::FuturesSpread | Self::Option | Self::OptionSpread
+        )
+    }
+}
+
 /// The type of event for an instrument close.
 #[repr(C)]
 #[derive(
