@@ -148,6 +148,26 @@ class TestPolymarketExecutionClient:
             name=None,
         )
 
+        # Prevent actual WebSocket connections in tests
+        mock_ws_client = MagicMock()
+        mock_ws_client.is_disconnected.return_value = False
+        mock_ws_client.is_connected.return_value = True
+        mock_ws_client.market_subscriptions.return_value = []
+        mock_ws_client.connect = AsyncMock()
+        mock_ws_client.disconnect = AsyncMock()
+        self.exec_client._ws_client = mock_ws_client
+
+        def create_mock_ws_client():
+            client = MagicMock()
+            client.is_disconnected.return_value = True
+            client.is_connected.return_value = False
+            client.market_subscriptions.return_value = []
+            client.connect = AsyncMock()
+            client.disconnect = AsyncMock()
+            return client
+
+        self.exec_client._create_websocket_client = create_mock_ws_client
+
         self.exec_engine.register_client(self.exec_client)
 
         self.strategy = Strategy()
@@ -2304,3 +2324,44 @@ class TestPolymarketExecutionClient:
         filled_client_order_ids = {call.kwargs["client_order_id"] for call in fill_calls}
         assert first_client_order_id in filled_client_order_ids
         assert order_b.client_order_id in filled_client_order_ids
+
+    @pytest.mark.asyncio
+    async def test_connect_connects_ws_client_with_no_cached_instruments(self, mocker):
+        """
+        Test that _connect() connects the WebSocket client even with no cached
+        instruments.
+
+        Regression test for issue #3403: when NautilusTrader starts with no cached
+        instruments, the WebSocket client was never connected because the connection was
+        conditional on having market subscriptions.
+
+        """
+        # Arrange
+        fresh_cache = TestComponentStubs.cache()
+        config = PolymarketExecClientConfig()
+        exec_client = PolymarketExecutionClient(
+            loop=self.loop,
+            http_client=self.http_client,
+            msgbus=self.msgbus,
+            cache=fresh_cache,
+            clock=self.clock,
+            instrument_provider=self.provider,
+            ws_auth=self.ws_auth,
+            config=config,
+            name=None,
+        )
+
+        mock_ws_client = mocker.MagicMock()
+        mock_ws_client.is_disconnected.return_value = True
+        mock_ws_client.is_connected.return_value = False
+        mock_ws_client.market_subscriptions.return_value = []
+        mock_ws_client.connect = mocker.AsyncMock()
+        exec_client._ws_client = mock_ws_client
+        mocker.patch.object(exec_client, "_update_account_state", new=mocker.AsyncMock())
+        mocker.patch.object(exec_client, "_await_account_registered", new=mocker.AsyncMock())
+
+        # Act
+        await exec_client._connect()
+
+        # Assert
+        mock_ws_client.connect.assert_awaited_once()

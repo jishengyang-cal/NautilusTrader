@@ -232,7 +232,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
             await self._maintain_active_market(instrument.id)
 
         try:
-            if self._ws_client.is_disconnected() and self._ws_client.market_subscriptions():
+            if self._ws_client.is_disconnected():
                 await self._ws_client.connect()
 
             await self._update_account_state()
