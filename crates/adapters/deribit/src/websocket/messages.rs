@@ -17,8 +17,6 @@
 
 use std::fmt::Display;
 
-use rust_decimal::Decimal;
-
 use nautilus_model::{
     data::{Data, FundingRateUpdate, OrderBookDeltas},
     events::{
@@ -28,6 +26,7 @@ use nautilus_model::{
     instruments::InstrumentAny,
     reports::{FillReport, OrderStatusReport},
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 

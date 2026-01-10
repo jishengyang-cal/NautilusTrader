@@ -35,10 +35,12 @@ Released on TBD (UTC).
 - Added support for setting cache database adapter in cache and `LiveNode` (#3401), thanks @filipmacek
 - Added Binance `listenKeyExpired` event handling (#3387), thanks @Johnkhk
 - Added Deribit data client (#3368), thanks @filipmacek
+- Added Deribit order submission (#3408), thanks @filipmacek
 - Added Polymarket data loader rate limiting
 - Refactored computation of greeks (#3393), thanks @faysou
 - Refactored `TearsheetConfig.charts` to chart objects (removed `chart_args`) (#3398), thanks @KaulSe
 - Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou
+- Improved checks before writing data in catalog._write_chunk (#3411), thanks @faysou
 - Refined closing of streaming writer (#3394), thanks @fayosu
 - Refined handling of `skip_first_non_full_bar` in `TimeBarAggregator` (#3395), thanks @faysou
 - Refined greeks safeguards and docs (#3407), thanks @faysou
