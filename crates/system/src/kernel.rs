@@ -151,7 +151,8 @@ impl NautilusKernel {
         let exec_engine = Rc::new(RefCell::new(exec_engine));
 
         // Create order emulator (auto-registers message handlers)
-        let order_emulator = OrderEmulatorAdapter::new(clock.clone(), cache.clone());
+        let order_emulator =
+            OrderEmulatorAdapter::new(config.trader_id(), clock.clone(), cache.clone());
 
         let data_engine = DataEngine::new(clock.clone(), cache.clone(), config.data_engine());
         let data_engine = Rc::new(RefCell::new(data_engine));

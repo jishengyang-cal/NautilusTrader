@@ -13,24 +13,34 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::{
+    cell::RefCell,
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 use ahash::{AHashMap, AHashSet};
 use nautilus_common::{
+    actor::{DataActorConfig, DataActorCore},
     cache::Cache,
     clock::Clock,
     logging::{CMD, EVT, RECV},
     messages::execution::{
         CancelAllOrders, CancelOrder, ModifyOrder, SubmitOrder, SubmitOrderList, TradingCommand,
     },
-    msgbus::{self, handler::ShareableMessageHandler},
+    msgbus::{
+        self,
+        handler::{ShareableMessageHandler, TypedMessageHandler},
+        switchboard::{get_quotes_topic, get_trades_topic},
+    },
 };
-use nautilus_core::UUID4;
+use nautilus_core::{UUID4, WeakCell};
 use nautilus_model::{
     data::{OrderBookDeltas, QuoteTick, TradeTick},
     enums::{ContingencyType, OrderSide, OrderSideSpecified, OrderStatus, OrderType, TriggerType},
     events::{OrderCanceled, OrderEmulated, OrderEventAny, OrderReleased, OrderUpdated},
-    identifiers::{ClientOrderId, InstrumentId, PositionId, StrategyId},
+    identifiers::{ActorId, ClientOrderId, InstrumentId, PositionId, StrategyId, TraderId},
     instruments::Instrument,
     orders::{LimitOrder, MarketOrder, Order, OrderAny, PassiveOrderAny},
     types::{Price, Quantity},
@@ -46,6 +56,7 @@ use crate::{
 };
 
 pub struct OrderEmulator {
+    actor: DataActorCore,
     clock: Rc<RefCell<dyn Clock>>,
     cache: Rc<RefCell<Cache>>,
     manager: OrderManager,
@@ -55,27 +66,46 @@ pub struct OrderEmulator {
     subscribed_strategies: AHashSet<StrategyId>,
     monitored_positions: AHashSet<PositionId>,
     on_event_handler: Option<ShareableMessageHandler>,
+    self_ref: Option<WeakCell<Self>>,
 }
 
 impl Debug for OrderEmulator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(stringify!(OrderEmulator))
+            .field("actor", &self.actor)
             .field("cores", &self.matching_cores.len())
             .field("subscribed_quotes", &self.subscribed_quotes.len())
             .finish()
     }
 }
 
+impl Deref for OrderEmulator {
+    type Target = DataActorCore;
+
+    fn deref(&self) -> &Self::Target {
+        &self.actor
+    }
+}
+
+impl DerefMut for OrderEmulator {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.actor
+    }
+}
+
 impl OrderEmulator {
     pub fn new(clock: Rc<RefCell<dyn Clock>>, cache: Rc<RefCell<Cache>>) -> Self {
-        // TODO: Impl Actor Trait
-        // self.register_base(portfolio, msgbus, cache, clock);
+        let config = DataActorConfig {
+            actor_id: Some(ActorId::from("OrderEmulator")),
+            ..Default::default()
+        };
 
         let active_local = true;
         let manager =
             OrderManager::new(clock.clone(), cache.clone(), active_local, None, None, None);
 
         Self {
+            actor: DataActorCore::new(config),
             clock,
             cache,
             manager,
@@ -85,7 +115,27 @@ impl OrderEmulator {
             subscribed_strategies: AHashSet::new(),
             monitored_positions: AHashSet::new(),
             on_event_handler: None,
+            self_ref: None,
         }
+    }
+
+    /// Sets the weak self-reference for creating subscription handlers.
+    pub fn set_self_ref(&mut self, self_ref: WeakCell<Self>) {
+        self.self_ref = Some(self_ref);
+    }
+
+    /// Registers the emulator with the trading system.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if registration fails.
+    pub fn register(
+        &mut self,
+        trader_id: TraderId,
+        clock: Rc<RefCell<dyn Clock>>,
+        cache: Rc<RefCell<Cache>>,
+    ) -> anyhow::Result<()> {
+        self.actor.register(trader_id, clock, cache)
     }
 
     pub fn set_on_event_handler(&mut self, handler: ShareableMessageHandler) {
@@ -105,6 +155,51 @@ impl OrderEmulator {
     /// Sets the handler for modify order commands.
     pub fn set_modify_order_handler(&mut self, handler: ModifyOrderHandlerAny) {
         self.manager.set_modify_order_handler(handler);
+    }
+
+    /// Caches a submit order command for emulation tracking.
+    pub fn cache_submit_order_command(&mut self, command: SubmitOrder) {
+        self.manager.cache_submit_order_command(command);
+    }
+
+    /// Subscribes to quote data for the given instrument.
+    fn subscribe_quotes_for_instrument(&mut self, instrument_id: InstrumentId) {
+        let Some(self_ref) = self.self_ref.clone() else {
+            log::warn!("Cannot subscribe to quotes: self_ref not set");
+            return;
+        };
+
+        let topic = get_quotes_topic(instrument_id);
+        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
+            move |quote: &QuoteTick| {
+                if let Some(emulator) = self_ref.upgrade() {
+                    emulator.borrow_mut().on_quote_tick(*quote);
+                }
+            },
+        )));
+
+        self.actor
+            .subscribe_quotes(topic, handler, instrument_id, None, None);
+    }
+
+    /// Subscribes to trade data for the given instrument.
+    fn subscribe_trades_for_instrument(&mut self, instrument_id: InstrumentId) {
+        let Some(self_ref) = self.self_ref.clone() else {
+            log::warn!("Cannot subscribe to trades: self_ref not set");
+            return;
+        };
+
+        let topic = get_trades_topic(instrument_id);
+        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
+            move |trade: &TradeTick| {
+                if let Some(emulator) = self_ref.upgrade() {
+                    emulator.borrow_mut().on_trade_tick(*trade);
+                }
+            },
+        )));
+
+        self.actor
+            .subscribe_trades(topic, handler, instrument_id, None, None);
     }
 
     #[must_use]
@@ -376,19 +471,13 @@ impl OrderEmulator {
         match emulation_trigger.unwrap() {
             TriggerType::Default | TriggerType::BidAsk => {
                 if !self.subscribed_quotes.contains(&trigger_instrument_id) {
-                    if !trigger_instrument_id.is_synthetic() {
-                        // TODO: Impl Actor Trait
-                        // self.subscribe_order_book_deltas(&trigger_instrument_id);
-                    }
-                    // TODO: Impl Actor Trait
-                    // self.subscribe_quote_ticks(&trigger_instrument_id)?;
+                    self.subscribe_quotes_for_instrument(trigger_instrument_id);
                     self.subscribed_quotes.insert(trigger_instrument_id);
                 }
             }
             TriggerType::LastPrice => {
                 if !self.subscribed_trades.contains(&trigger_instrument_id) {
-                    // TODO: Impl Actor Trait
-                    // self.subscribe_trade_ticks(&trigger_instrument_id)?;
+                    self.subscribe_trades_for_instrument(trigger_instrument_id);
                     self.subscribed_trades.insert(trigger_instrument_id);
                 }
             }
@@ -491,7 +580,6 @@ impl OrderEmulator {
                 None => order.trigger_price(),
             };
 
-            // Generate event
             let ts_now = self.clock.borrow().timestamp_ns();
             let event = OrderUpdated::new(
                 order.trader_id(),
@@ -593,7 +681,6 @@ impl OrderEmulator {
             order.client_order_id(),
         );
 
-        // Generate event
         let ts_now = self.clock.borrow().timestamp_ns();
         let event = OrderUpdated::new(
             order.trader_id(),
@@ -739,11 +826,13 @@ impl OrderEmulator {
             log::error!("Cannot delete order: {e:?}");
         }
 
+        self.manager
+            .pop_submit_order_command(order.client_order_id());
+
         self.cache
             .borrow_mut()
             .update_order_pending_cancel_local(&order);
 
-        // Generate event
         let ts_now = self.clock.borrow().timestamp_ns();
         let event = OrderCanceled::new(
             order.trader_id(),
@@ -937,7 +1026,6 @@ impl OrderEmulator {
                 transformed.last_event(),
             );
 
-            // Generate event
             let event = OrderReleased::new(
                 order.trader_id(),
                 order.strategy_id(),
@@ -1064,7 +1152,6 @@ impl OrderEmulator {
                 transformed.last_event(),
             );
 
-            // Generate event
             let ts_now = self.clock.borrow().timestamp_ns();
             let event = OrderReleased::new(
                 order.trader_id(),
@@ -1178,5 +1265,360 @@ impl OrderEmulator {
             return;
         }
         self.manager.send_risk_event(wrapped);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use nautilus_common::{cache::Cache, clock::TestClock};
+    use nautilus_core::{UUID4, WeakCell};
+    use nautilus_model::{
+        data::{QuoteTick, TradeTick},
+        enums::{AggressorSide, OrderSide, OrderType, TriggerType},
+        identifiers::{StrategyId, TradeId, TraderId},
+        instruments::{
+            CryptoPerpetual, Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt,
+        },
+        orders::OrderTestBuilder,
+        types::{Price, Quantity},
+    };
+    use rstest::{fixture, rstest};
+
+    use super::*;
+
+    #[fixture]
+    fn instrument() -> CryptoPerpetual {
+        crypto_perpetual_ethusdt()
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn create_emulator() -> (
+        Rc<RefCell<dyn Clock>>,
+        Rc<RefCell<Cache>>,
+        Rc<RefCell<OrderEmulator>>,
+    ) {
+        let clock: Rc<RefCell<dyn Clock>> = Rc::new(RefCell::new(TestClock::new()));
+        let cache = Rc::new(RefCell::new(Cache::new(None, None)));
+        let emulator = Rc::new(RefCell::new(OrderEmulator::new(
+            clock.clone(),
+            cache.clone(),
+        )));
+
+        // Register with trader for subscription support
+        emulator
+            .borrow_mut()
+            .register(TraderId::from("TRADER-001"), clock.clone(), cache.clone())
+            .unwrap();
+
+        // Set self-ref for subscription handlers
+        let self_ref = WeakCell::from(Rc::downgrade(&emulator));
+        emulator.borrow_mut().set_self_ref(self_ref);
+
+        (clock, cache, emulator)
+    }
+
+    fn create_stop_market_order(instrument: &CryptoPerpetual, trigger: TriggerType) -> OrderAny {
+        OrderTestBuilder::new(OrderType::StopMarket)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .trigger_price(Price::from("5100.00"))
+            .quantity(Quantity::from(1))
+            .emulation_trigger(trigger)
+            .build()
+    }
+
+    fn create_submit_order(instrument: &CryptoPerpetual, order: OrderAny) -> SubmitOrder {
+        SubmitOrder::new(
+            TraderId::from("TRADER-001"),
+            None,
+            StrategyId::from("STRATEGY-001"),
+            instrument.id(),
+            order,
+            None,
+            None,
+            None,
+            UUID4::new(),
+            0.into(),
+        )
+    }
+
+    fn create_quote_tick(instrument: &CryptoPerpetual, bid: &str, ask: &str) -> QuoteTick {
+        QuoteTick::new(
+            instrument.id(),
+            Price::from(bid),
+            Price::from(ask),
+            Quantity::from(10),
+            Quantity::from(10),
+            0.into(),
+            0.into(),
+        )
+    }
+
+    fn create_trade_tick(instrument: &CryptoPerpetual, price: &str) -> TradeTick {
+        TradeTick::new(
+            instrument.id(),
+            Price::from(price),
+            Quantity::from(1),
+            AggressorSide::Buyer,
+            TradeId::from("T-001"),
+            0.into(),
+            0.into(),
+        )
+    }
+
+    fn add_instrument_to_cache(cache: &Rc<RefCell<Cache>>, instrument: &CryptoPerpetual) {
+        cache
+            .borrow_mut()
+            .add_instrument(InstrumentAny::CryptoPerpetual(*instrument))
+            .unwrap();
+    }
+
+    #[rstest]
+    fn test_subscribed_quotes_initially_empty() {
+        let (_clock, _cache, emulator) = create_emulator();
+
+        assert!(emulator.borrow().subscribed_quotes().is_empty());
+    }
+
+    #[rstest]
+    fn test_subscribed_trades_initially_empty() {
+        let (_clock, _cache, emulator) = create_emulator();
+
+        assert!(emulator.borrow().subscribed_trades().is_empty());
+    }
+
+    #[rstest]
+    fn test_get_submit_order_commands_initially_empty() {
+        let (_clock, _cache, emulator) = create_emulator();
+
+        assert!(emulator.borrow().get_submit_order_commands().is_empty());
+    }
+
+    #[rstest]
+    fn test_get_matching_core_returns_none_when_not_created(instrument: CryptoPerpetual) {
+        let (_clock, _cache, emulator) = create_emulator();
+
+        assert!(
+            emulator
+                .borrow()
+                .get_matching_core(&instrument.id())
+                .is_none()
+        );
+    }
+
+    #[rstest]
+    fn test_create_matching_core(instrument: CryptoPerpetual) {
+        let (_clock, _cache, emulator) = create_emulator();
+
+        emulator
+            .borrow_mut()
+            .create_matching_core(instrument.id(), instrument.price_increment);
+
+        assert!(
+            emulator
+                .borrow()
+                .get_matching_core(&instrument.id())
+                .is_some()
+        );
+    }
+
+    #[rstest]
+    fn test_on_quote_tick_no_matching_core_does_not_panic(instrument: CryptoPerpetual) {
+        let (_clock, _cache, emulator) = create_emulator();
+        let quote = create_quote_tick(&instrument, "5060.00", "5070.00");
+
+        emulator.borrow_mut().on_quote_tick(quote);
+    }
+
+    #[rstest]
+    fn test_on_trade_tick_no_matching_core_does_not_panic(instrument: CryptoPerpetual) {
+        let (_clock, _cache, emulator) = create_emulator();
+        let trade = create_trade_tick(&instrument, "5065.00");
+
+        emulator.borrow_mut().on_trade_tick(trade);
+    }
+
+    #[rstest]
+    fn test_submit_order_bid_ask_trigger_creates_matching_core(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        assert!(
+            emulator
+                .borrow()
+                .get_matching_core(&instrument.id())
+                .is_some()
+        );
+    }
+
+    #[rstest]
+    fn test_submit_order_bid_ask_trigger_tracks_quote_subscription(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        assert_eq!(emulator.borrow().subscribed_quotes(), vec![instrument.id()]);
+        assert!(emulator.borrow().subscribed_trades().is_empty());
+    }
+
+    #[rstest]
+    fn test_submit_order_last_price_trigger_tracks_trade_subscription(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::LastPrice);
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        assert!(emulator.borrow().subscribed_quotes().is_empty());
+        assert_eq!(emulator.borrow().subscribed_trades(), vec![instrument.id()]);
+    }
+
+    #[rstest]
+    fn test_submit_order_caches_command(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
+        let client_order_id = order.client_order_id();
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        let commands = emulator.borrow().get_submit_order_commands();
+        assert!(commands.contains_key(&client_order_id));
+    }
+
+    #[rstest]
+    fn test_quote_tick_updates_matching_core_prices(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        let quote = create_quote_tick(&instrument, "5060.00", "5070.00");
+        emulator.borrow_mut().on_quote_tick(quote);
+
+        let core = emulator
+            .borrow()
+            .get_matching_core(&instrument.id())
+            .unwrap();
+        assert_eq!(core.bid, Some(Price::from("5060.00")));
+        assert_eq!(core.ask, Some(Price::from("5070.00")));
+    }
+
+    #[rstest]
+    fn test_trade_tick_updates_matching_core_last_price(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::LastPrice);
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        let trade = create_trade_tick(&instrument, "5065.00");
+        emulator.borrow_mut().on_trade_tick(trade);
+
+        let core = emulator
+            .borrow()
+            .get_matching_core(&instrument.id())
+            .unwrap();
+        assert_eq!(core.last, Some(Price::from("5065.00")));
+    }
+
+    #[rstest]
+    fn test_cancel_order_removes_from_matching_core(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order.clone(), None, None, false)
+            .unwrap();
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        emulator.borrow_mut().cancel_order(&order);
+
+        let core = emulator
+            .borrow()
+            .get_matching_core(&instrument.id())
+            .unwrap();
+        assert!(core.get_orders().is_empty());
+    }
+
+    #[rstest]
+    fn test_cancel_order_removes_cached_command(instrument: CryptoPerpetual) {
+        let (_clock, cache, emulator) = create_emulator();
+        add_instrument_to_cache(&cache, &instrument);
+        let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
+        let client_order_id = order.client_order_id();
+        let command = create_submit_order(&instrument, order.clone());
+        cache
+            .borrow_mut()
+            .add_order(order.clone(), None, None, false)
+            .unwrap();
+        emulator
+            .borrow_mut()
+            .cache_submit_order_command(command.clone());
+        emulator.borrow_mut().handle_submit_order(command);
+
+        emulator.borrow_mut().cancel_order(&order);
+
+        let commands = emulator.borrow().get_submit_order_commands();
+        assert!(!commands.contains_key(&client_order_id));
     }
 }
