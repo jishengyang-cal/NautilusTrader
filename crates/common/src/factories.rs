@@ -15,8 +15,10 @@
 
 //! Factories for constructing domain objects such as orders.
 
+use std::{cell::RefCell, rc::Rc};
+
 use indexmap::IndexMap;
-use nautilus_core::{AtomicTime, UUID4};
+use nautilus_core::UUID4;
 use nautilus_model::{
     enums::{ContingencyType, OrderSide, TimeInForce, TriggerType},
     identifiers::{
@@ -30,14 +32,14 @@ use nautilus_model::{
 };
 use ustr::Ustr;
 
-use crate::generators::{
-    client_order_id::ClientOrderIdGenerator, order_list_id::OrderListIdGenerator,
+use crate::{
+    clock::Clock,
+    generators::{client_order_id::ClientOrderIdGenerator, order_list_id::OrderListIdGenerator},
 };
 
-#[repr(C)]
 #[derive(Debug)]
 pub struct OrderFactory {
-    clock: &'static AtomicTime,
+    clock: Rc<RefCell<dyn Clock>>,
     trader_id: TraderId,
     strategy_id: StrategyId,
     order_id_generator: ClientOrderIdGenerator,
@@ -51,7 +53,7 @@ impl OrderFactory {
         strategy_id: StrategyId,
         init_order_id_count: Option<usize>,
         init_order_list_id_count: Option<usize>,
-        clock: &'static AtomicTime,
+        clock: Rc<RefCell<dyn Clock>>,
         use_uuids_for_client_order_ids: bool,
         use_hyphens_in_client_order_ids: bool,
     ) -> Self {
@@ -59,7 +61,7 @@ impl OrderFactory {
             trader_id,
             strategy_id,
             init_order_id_count.unwrap_or(0),
-            clock,
+            clock.clone(),
             use_uuids_for_client_order_ids,
             use_hyphens_in_client_order_ids,
         );
@@ -68,7 +70,7 @@ impl OrderFactory {
             trader_id,
             strategy_id,
             init_order_list_id_count.unwrap_or(0),
-            clock,
+            clock.clone(),
         );
 
         Self {
@@ -136,7 +138,7 @@ impl OrderFactory {
             quantity,
             time_in_force.unwrap_or(TimeInForce::Gtc),
             UUID4::new(),
-            self.clock.get_time_ns(),
+            self.clock.borrow().timestamp_ns(),
             reduce_only.unwrap_or(false),
             quote_quantity.unwrap_or(false),
             Some(ContingencyType::NoContingency),
@@ -203,7 +205,7 @@ impl OrderFactory {
             exec_spawn_id,
             tags,
             UUID4::new(),
-            self.clock.get_time_ns(),
+            self.clock.borrow().timestamp_ns(),
         );
         OrderAny::Limit(order)
     }
@@ -260,7 +262,7 @@ impl OrderFactory {
             exec_spawn_id,
             tags,
             UUID4::new(),
-            self.clock.get_time_ns(),
+            self.clock.borrow().timestamp_ns(),
         );
         OrderAny::StopMarket(order)
     }
@@ -321,7 +323,7 @@ impl OrderFactory {
             exec_spawn_id,
             tags,
             UUID4::new(),
-            self.clock.get_time_ns(),
+            self.clock.borrow().timestamp_ns(),
         );
         OrderAny::StopLimit(order)
     }
@@ -376,7 +378,7 @@ impl OrderFactory {
             exec_spawn_id,
             tags,
             UUID4::new(),
-            self.clock.get_time_ns(),
+            self.clock.borrow().timestamp_ns(),
         );
         OrderAny::MarketIfTouched(order)
     }
@@ -437,7 +439,7 @@ impl OrderFactory {
             exec_spawn_id,
             tags,
             UUID4::new(),
-            self.clock.get_time_ns(),
+            self.clock.borrow().timestamp_ns(),
         );
         OrderAny::LimitIfTouched(order)
     }
@@ -466,7 +468,7 @@ impl OrderFactory {
         tags: Option<Vec<Ustr>>,
     ) -> OrderList {
         let order_list_id = self.generate_order_list_id();
-        let ts_init = self.clock.get_time_ns();
+        let ts_init = self.clock.borrow().timestamp_ns();
 
         let entry_client_order_id = self.generate_client_order_id();
         let sl_client_order_id = self.generate_client_order_id();
@@ -681,7 +683,8 @@ impl OrderFactory {
 
 #[cfg(test)]
 pub mod tests {
-    use nautilus_core::time::get_atomic_clock_static;
+    use std::{cell::RefCell, rc::Rc};
+
     use nautilus_model::{
         enums::{ContingencyType, OrderSide, TimeInForce, TriggerType},
         identifiers::{
@@ -693,18 +696,19 @@ pub mod tests {
     };
     use rstest::{fixture, rstest};
 
-    use crate::factories::OrderFactory;
+    use crate::{clock::TestClock, factories::OrderFactory};
 
     #[fixture]
     pub fn order_factory() -> OrderFactory {
         let trader_id = trader_id();
         let strategy_id = strategy_id_ema_cross();
+        let clock = Rc::new(RefCell::new(TestClock::new()));
         OrderFactory::new(
             trader_id,
             strategy_id,
             None,
             None,
-            get_atomic_clock_static(),
+            clock,
             false, // use_uuids_for_client_order_ids
             true,  // use_hyphens_in_client_order_ids
         )
@@ -769,12 +773,13 @@ pub mod tests {
     pub fn order_factory_with_uuids() -> OrderFactory {
         let trader_id = trader_id();
         let strategy_id = strategy_id_ema_cross();
+        let clock = Rc::new(RefCell::new(TestClock::new()));
         OrderFactory::new(
             trader_id,
             strategy_id,
             None,
             None,
-            get_atomic_clock_static(),
+            clock,
             true, // use_uuids_for_client_order_ids
             true, // use_hyphens_in_client_order_ids
         )
@@ -784,12 +789,13 @@ pub mod tests {
     pub fn order_factory_with_hyphens_removed() -> OrderFactory {
         let trader_id = trader_id();
         let strategy_id = strategy_id_ema_cross();
+        let clock = Rc::new(RefCell::new(TestClock::new()));
         OrderFactory::new(
             trader_id,
             strategy_id,
             None,
             None,
-            get_atomic_clock_static(),
+            clock,
             false, // use_uuids_for_client_order_ids
             false, // use_hyphens_in_client_order_ids
         )
@@ -799,12 +805,13 @@ pub mod tests {
     pub fn order_factory_with_uuids_and_hyphens_removed() -> OrderFactory {
         let trader_id = trader_id();
         let strategy_id = strategy_id_ema_cross();
+        let clock = Rc::new(RefCell::new(TestClock::new()));
         OrderFactory::new(
             trader_id,
             strategy_id,
             None,
             None,
-            get_atomic_clock_static(),
+            clock,
             true,  // use_uuids_for_client_order_ids
             false, // use_hyphens_in_client_order_ids
         )

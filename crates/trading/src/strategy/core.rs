@@ -27,7 +27,6 @@ use nautilus_common::{
     clock::Clock,
     factories::OrderFactory,
 };
-use nautilus_core::time::get_atomic_clock_static;
 use nautilus_execution::order_manager::manager::OrderManager;
 use nautilus_model::identifiers::{ActorId, ClientOrderId, StrategyId, TraderId};
 use nautilus_portfolio::portfolio::Portfolio;
@@ -112,7 +111,7 @@ impl StrategyCore {
             strategy_id,
             None,
             None,
-            get_atomic_clock_static(),
+            clock.clone(),
             self.config.use_uuid_client_order_ids,
             self.config.use_hyphens_in_client_order_ids,
         ));
