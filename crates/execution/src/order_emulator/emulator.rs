@@ -37,7 +37,11 @@ use nautilus_model::{
 };
 
 use crate::{
-    matching_core::OrderMatchingCore, order_manager::manager::OrderManager,
+    matching_core::OrderMatchingCore,
+    order_manager::{
+        handlers::{CancelOrderHandlerAny, ModifyOrderHandlerAny, SubmitOrderHandlerAny},
+        manager::OrderManager,
+    },
     trailing::trailing_stop_calculate,
 };
 
@@ -68,7 +72,8 @@ impl OrderEmulator {
         // self.register_base(portfolio, msgbus, cache, clock);
 
         let active_local = true;
-        let manager = OrderManager::new(clock.clone(), cache.clone(), active_local);
+        let manager =
+            OrderManager::new(clock.clone(), cache.clone(), active_local, None, None, None);
 
         Self {
             clock,
@@ -87,18 +92,20 @@ impl OrderEmulator {
         self.on_event_handler = Some(handler);
     }
 
-    // TODO: WIP
-    // pub fn set_submit_order_handler(&mut self, handler: SubmitOrderHandlerAny) {
-    //     self.manager.set_submit_order_handler(handler);
-    // }
-    //
-    // pub fn set_cancel_order_handler(&mut self, handler: CancelOrderHandlerAny) {
-    //     self.manager.set_cancel_order_handler(handler);
-    // }
-    //
-    // pub fn set_modify_order_handler(&mut self, handler: ModifyOrderHandlerAny) {
-    //     self.manager.set_modify_order_handler(handler);
-    // }
+    /// Sets the handler for submit order commands.
+    pub fn set_submit_order_handler(&mut self, handler: SubmitOrderHandlerAny) {
+        self.manager.set_submit_order_handler(handler);
+    }
+
+    /// Sets the handler for cancel order commands.
+    pub fn set_cancel_order_handler(&mut self, handler: CancelOrderHandlerAny) {
+        self.manager.set_cancel_order_handler(handler);
+    }
+
+    /// Sets the handler for modify order commands.
+    pub fn set_modify_order_handler(&mut self, handler: ModifyOrderHandlerAny) {
+        self.manager.set_modify_order_handler(handler);
+    }
 
     #[must_use]
     pub fn subscribed_quotes(&self) -> Vec<InstrumentId> {
