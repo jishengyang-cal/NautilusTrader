@@ -17,7 +17,6 @@ import asyncio
 import json
 from collections import OrderedDict
 from collections import defaultdict
-from collections.abc import Coroutine
 from typing import Any
 
 import msgspec
@@ -211,12 +210,19 @@ class PolymarketExecutionClient(LiveExecutionClient):
 
         # WebSocket API
         self._ws_auth = ws_auth
-        self._ws_client: PolymarketWebSocketClient = self._create_websocket_client()
-        self._ws_clients: dict[InstrumentId, PolymarketWebSocketClient] = {}
+        self._ws_client: PolymarketWebSocketClient = PolymarketWebSocketClient(
+            self._clock,
+            base_url=self._config.base_url_ws,
+            channel=PolymarketWebSocketChannel.USER,
+            handler=self._handle_ws_message,
+            handler_reconnect=None,
+            loop=self._loop,
+            auth=self._ws_auth,
+            max_subscriptions_per_connection=self._config.ws_max_subscriptions_per_connection,
+        )
         self._decoder_user_msg = msgspec.json.Decoder(USER_WS_MESSAGE)
 
         # Hot caches
-        self._active_markets: set[str] = set()
         self._processed_fills: OrderedDict[tuple[TradeId, VenueOrderId], None] = OrderedDict()
         self._processed_trades: OrderedDict[TradeId, PolymarketTradeStatus] = OrderedDict()
         self._finalized_trades: OrderedDict[TradeId, None] = OrderedDict()
@@ -226,13 +232,15 @@ class PolymarketExecutionClient(LiveExecutionClient):
     async def _connect(self) -> None:
         await self._instrument_provider.initialize()
 
-        # Set up initial active markets
+        # Add initial market subscriptions
         instruments = self._cache.instruments(venue=POLYMARKET_VENUE)
         for instrument in instruments:
-            await self._maintain_active_market(instrument.id)
+            condition_id = get_polymarket_condition_id(instrument.id)
+            self._ws_client.add_subscription(condition_id)
 
         try:
-            if self._ws_client.is_disconnected():
+            # Only connect if we have subscriptions (avoids empty = all behavior)
+            if self._ws_client.has_subscriptions:
                 await self._ws_client.connect()
 
             await self._update_account_state()
@@ -244,58 +252,14 @@ class PolymarketExecutionClient(LiveExecutionClient):
             raise e
 
     async def _disconnect(self) -> None:
-        # Shutdown websockets
-        tasks: set[Coroutine[Any, Any, None]] = set()
-
-        if self._ws_client.is_connected():
-            tasks.add(self._ws_client.disconnect())
-
-        for ws_client in self._ws_clients.values():
-            if ws_client.is_connected():
-                tasks.add(ws_client.disconnect())
-
-        if tasks:
-            await asyncio.gather(*tasks)
+        await self._ws_client.disconnect()
 
     def _stop(self) -> None:
         self._retry_manager_pool.shutdown()
 
-    def _create_websocket_client(self) -> PolymarketWebSocketClient:
-        self._log.info("Creating new PolymarketWebSocketClient", LogColor.MAGENTA)
-        return PolymarketWebSocketClient(
-            self._clock,
-            base_url=self._config.base_url_ws,
-            channel=PolymarketWebSocketChannel.USER,
-            handler=self._handle_ws_message,
-            handler_reconnect=None,
-            loop=self._loop,
-            auth=self._ws_auth,
-        )
-
     async def _maintain_active_market(self, instrument_id: InstrumentId) -> None:
         condition_id = get_polymarket_condition_id(instrument_id)
-        if condition_id in self._active_markets:
-            return  # Already active
-
-        # Register immediately to prevent race conditions with concurrent calls
-        self._active_markets.add(condition_id)
-
-        if not self._ws_client.is_connected():
-            ws_client = self._ws_client
-            if condition_id in ws_client.market_subscriptions():
-                return  # Already subscribed
-            ws_client.subscribe_market(condition_id=condition_id)
-        else:
-            ws_client = self._create_websocket_client()
-            self._ws_clients[instrument_id] = ws_client
-            ws_client.subscribe_market(condition_id=condition_id)
-            try:
-                await ws_client.connect()
-            except Exception as e:
-                self._active_markets.discard(condition_id)
-                self._ws_clients.pop(instrument_id, None)
-                self._log.error(f"Failed to connect WebSocket for {instrument_id}: {e}")
-                raise
+        await self._ws_client.subscribe(condition_id)
 
     async def _update_account_state(self) -> None:
         self._log.info("Checking account balance")

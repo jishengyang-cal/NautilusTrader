@@ -39,6 +39,7 @@ Released on TBD (UTC).
 - Added Polymarket data loader rate limiting
 - Refactored computation of greeks (#3393), thanks @faysou
 - Refactored `TearsheetConfig.charts` to chart objects (removed `chart_args`) (#3398), thanks @KaulSe
+- Refactored Polymarket WebSocket to multi-client pool pattern
 - Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou
 - Improved checks before writing data in catalog._write_chunk (#3411), thanks @faysou
 - Refined closing of streaming writer (#3394), thanks @fayosu

@@ -152,21 +152,15 @@ class TestPolymarketExecutionClient:
         mock_ws_client = MagicMock()
         mock_ws_client.is_disconnected.return_value = False
         mock_ws_client.is_connected.return_value = True
+        mock_ws_client.has_subscriptions = True
+        mock_ws_client.subscriptions = []
         mock_ws_client.market_subscriptions.return_value = []
         mock_ws_client.connect = AsyncMock()
         mock_ws_client.disconnect = AsyncMock()
+        mock_ws_client.subscribe = AsyncMock()
+        mock_ws_client.unsubscribe = AsyncMock()
+        mock_ws_client.add_subscription = MagicMock()
         self.exec_client._ws_client = mock_ws_client
-
-        def create_mock_ws_client():
-            client = MagicMock()
-            client.is_disconnected.return_value = True
-            client.is_connected.return_value = False
-            client.market_subscriptions.return_value = []
-            client.connect = AsyncMock()
-            client.disconnect = AsyncMock()
-            return client
-
-        self.exec_client._create_websocket_client = create_mock_ws_client
 
         self.exec_engine.register_client(self.exec_client)
 
