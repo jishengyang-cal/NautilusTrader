@@ -8,6 +8,8 @@ Released on TBD (UTC).
 ### Breaking Changes
 - Removed `init_tracing()` function from Python bindings (tracing crate removed from Rust codebase; `RUST_LOG` no longer has any effect)
 - Removed dead `subscribe_order_book_snapshots` and `unsubscribe_order_book_snapshots` methods from `LiveMarketDataClient` (were never called by the data engine)
+- Removed OKX URL environment variable overrides (`OKX_BASE_URL_HTTP`, `OKX_BASE_URL_WS_*`, `OKX_DEMO_BASE_URL_WS_*`); use config `base_url_*` fields instead
+- Removed deprecated `get_ws_base_url` function from OKX Rust adapter; use `get_ws_base_url_private` or `get_ws_base_url_public` instead
 - Renamed `subscribed_order_book_snapshots` to `subscribed_order_book_depth` for consistency with data engine routing
 - Adapter implementations should now override `_subscribe_order_book_depth` and `_unsubscribe_order_book_depth` for `OrderBookDepth10` subscriptions
 
