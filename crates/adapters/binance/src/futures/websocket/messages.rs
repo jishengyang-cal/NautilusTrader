@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
 use crate::common::enums::{
-    BinanceFuturesOrderType, BinanceKlineInterval, BinanceOrderStatus, BinanceSide,
-    BinanceTimeInForce, BinanceWsMethod,
+    BinanceFuturesOrderType, BinanceKlineInterval, BinanceMarginType, BinanceOrderStatus,
+    BinancePositionSide, BinanceSide, BinanceTimeInForce, BinanceWorkingType, BinanceWsMethod,
 };
 
 /// Output message from the Futures WebSocket handler.
@@ -39,6 +39,16 @@ pub enum NautilusFuturesWsMessage {
     Deltas(OrderBookDeltas),
     /// Instrument update.
     Instrument(Box<InstrumentAny>),
+    /// Account update from user data stream.
+    AccountUpdate(BinanceFuturesAccountUpdateMsg),
+    /// Order/trade update from user data stream.
+    OrderUpdate(Box<BinanceFuturesOrderUpdateMsg>),
+    /// Margin call warning from user data stream.
+    MarginCall(BinanceFuturesMarginCallMsg),
+    /// Account configuration change from user data stream.
+    AccountConfigUpdate(BinanceFuturesAccountConfigMsg),
+    /// Listen key expired - need to reconnect user data stream.
+    ListenKeyExpired,
     /// Error from the server.
     Error(BinanceFuturesWsErrorMsg),
     /// Raw JSON message (for debugging or unhandled types).
@@ -76,10 +86,6 @@ pub enum BinanceFuturesHandlerCommand {
     /// Unsubscribe from streams.
     Unsubscribe { streams: Vec<String> },
 }
-
-// ------------------------------------------------------------------------------------------------
-// JSON Stream Messages from Binance Futures WebSocket
-// ------------------------------------------------------------------------------------------------
 
 /// Aggregate trade stream message.
 #[derive(Debug, Clone, Deserialize)]
@@ -360,10 +366,6 @@ pub struct BinanceFuturesLiquidationOrder {
     pub trade_time: i64,
 }
 
-// ------------------------------------------------------------------------------------------------
-// Subscription Request/Response
-// ------------------------------------------------------------------------------------------------
-
 /// WebSocket subscription request.
 #[derive(Debug, Clone, Serialize)]
 pub struct BinanceFuturesWsSubscribeRequest {
@@ -393,4 +395,373 @@ pub struct BinanceFuturesWsErrorResponse {
     pub msg: String,
     /// Request ID if available.
     pub id: Option<u64>,
+}
+
+/// Account update event from user data stream.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BinanceFuturesAccountUpdateMsg {
+    /// Event type.
+    #[serde(rename = "e")]
+    pub event_type: String,
+    /// Event time in milliseconds.
+    #[serde(rename = "E")]
+    pub event_time: i64,
+    /// Transaction time in milliseconds.
+    #[serde(rename = "T")]
+    pub transaction_time: i64,
+    /// Account update data.
+    #[serde(rename = "a")]
+    pub account: AccountUpdateData,
+}
+
+/// Account update data payload.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountUpdateData {
+    /// Reason for account update.
+    #[serde(rename = "m")]
+    pub reason: AccountUpdateReason,
+    /// Balance updates.
+    #[serde(rename = "B", default)]
+    pub balances: Vec<BalanceUpdate>,
+    /// Position updates.
+    #[serde(rename = "P", default)]
+    pub positions: Vec<PositionUpdate>,
+}
+
+/// Account update reason type.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AccountUpdateReason {
+    Deposit,
+    Withdraw,
+    Order,
+    FundingFee,
+    WithdrawReject,
+    Adjustment,
+    InsuranceClear,
+    AdminDeposit,
+    AdminWithdraw,
+    MarginTransfer,
+    MarginTypeChange,
+    AssetTransfer,
+    OptionsPremiumFee,
+    OptionsSettleProfit,
+    AutoExchange,
+    CoinSwapDeposit,
+    CoinSwapWithdraw,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Balance update within account update.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BalanceUpdate {
+    /// Asset name.
+    #[serde(rename = "a")]
+    pub asset: Ustr,
+    /// Wallet balance.
+    #[serde(rename = "wb")]
+    pub wallet_balance: String,
+    /// Cross wallet balance.
+    #[serde(rename = "cw")]
+    pub cross_wallet_balance: String,
+    /// Balance change (except for PnL and commission).
+    #[serde(rename = "bc", default)]
+    pub balance_change: Option<String>,
+}
+
+/// Position update within account update.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PositionUpdate {
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: Ustr,
+    /// Position amount.
+    #[serde(rename = "pa")]
+    pub position_amount: String,
+    /// Entry price.
+    #[serde(rename = "ep")]
+    pub entry_price: String,
+    /// Break-even price.
+    #[serde(rename = "bep", default)]
+    pub break_even_price: Option<String>,
+    /// Accumulated realized (pre-fee).
+    #[serde(rename = "cr")]
+    pub accumulated_realized: String,
+    /// Unrealized PnL.
+    #[serde(rename = "up")]
+    pub unrealized_pnl: String,
+    /// Margin type.
+    #[serde(rename = "mt")]
+    pub margin_type: BinanceMarginType,
+    /// Isolated wallet (if isolated position).
+    #[serde(rename = "iw")]
+    pub isolated_wallet: String,
+    /// Position side.
+    #[serde(rename = "ps")]
+    pub position_side: BinancePositionSide,
+}
+
+/// Order/trade update event from user data stream.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BinanceFuturesOrderUpdateMsg {
+    /// Event type.
+    #[serde(rename = "e")]
+    pub event_type: String,
+    /// Event time in milliseconds.
+    #[serde(rename = "E")]
+    pub event_time: i64,
+    /// Transaction time in milliseconds.
+    #[serde(rename = "T")]
+    pub transaction_time: i64,
+    /// Order data.
+    #[serde(rename = "o")]
+    pub order: OrderUpdateData,
+}
+
+/// Order update data payload.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrderUpdateData {
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: Ustr,
+    /// Client order ID.
+    #[serde(rename = "c")]
+    pub client_order_id: String,
+    /// Order side.
+    #[serde(rename = "S")]
+    pub side: BinanceSide,
+    /// Order type.
+    #[serde(rename = "o")]
+    pub order_type: BinanceFuturesOrderType,
+    /// Time in force.
+    #[serde(rename = "f")]
+    pub time_in_force: BinanceTimeInForce,
+    /// Original quantity.
+    #[serde(rename = "q")]
+    pub original_qty: String,
+    /// Original price.
+    #[serde(rename = "p")]
+    pub original_price: String,
+    /// Average price.
+    #[serde(rename = "ap")]
+    pub average_price: String,
+    /// Stop price.
+    #[serde(rename = "sp")]
+    pub stop_price: String,
+    /// Execution type.
+    #[serde(rename = "x")]
+    pub execution_type: BinanceExecutionType,
+    /// Order status.
+    #[serde(rename = "X")]
+    pub order_status: BinanceOrderStatus,
+    /// Order ID.
+    #[serde(rename = "i")]
+    pub order_id: i64,
+    /// Last executed quantity.
+    #[serde(rename = "l")]
+    pub last_filled_qty: String,
+    /// Cumulative filled quantity.
+    #[serde(rename = "z")]
+    pub cumulative_filled_qty: String,
+    /// Last executed price.
+    #[serde(rename = "L")]
+    pub last_filled_price: String,
+    /// Commission asset.
+    #[serde(rename = "N", default)]
+    pub commission_asset: Option<Ustr>,
+    /// Commission amount.
+    #[serde(rename = "n", default)]
+    pub commission: Option<String>,
+    /// Order trade time.
+    #[serde(rename = "T")]
+    pub trade_time: i64,
+    /// Trade ID.
+    #[serde(rename = "t")]
+    pub trade_id: i64,
+    /// Bids notional.
+    #[serde(rename = "b", default)]
+    pub bids_notional: Option<String>,
+    /// Asks notional.
+    #[serde(rename = "a", default)]
+    pub asks_notional: Option<String>,
+    /// Is maker.
+    #[serde(rename = "m")]
+    pub is_maker: bool,
+    /// Is reduce only.
+    #[serde(rename = "R")]
+    pub is_reduce_only: bool,
+    /// Working type.
+    #[serde(rename = "wt")]
+    pub working_type: BinanceWorkingType,
+    /// Original order type.
+    #[serde(rename = "ot")]
+    pub original_order_type: BinanceFuturesOrderType,
+    /// Position side.
+    #[serde(rename = "ps")]
+    pub position_side: BinancePositionSide,
+    /// Close all (for stop orders).
+    #[serde(rename = "cp", default)]
+    pub close_position: Option<bool>,
+    /// Activation price (for trailing stop).
+    #[serde(rename = "AP", default)]
+    pub activation_price: Option<String>,
+    /// Callback rate (for trailing stop).
+    #[serde(rename = "cr", default)]
+    pub callback_rate: Option<String>,
+    /// Price protection.
+    #[serde(rename = "pP", default)]
+    pub price_protect: Option<bool>,
+    /// Realized profit.
+    #[serde(rename = "rp")]
+    pub realized_profit: String,
+    /// Self-trade prevention mode.
+    #[serde(rename = "V", default)]
+    pub stp_mode: Option<String>,
+    /// Price match mode.
+    #[serde(rename = "pm", default)]
+    pub price_match: Option<String>,
+    /// Good till date for GTD orders.
+    #[serde(rename = "gtd", default)]
+    pub good_till_date: Option<i64>,
+}
+
+impl OrderUpdateData {
+    /// Returns true if this is a liquidation order.
+    #[must_use]
+    pub fn is_liquidation(&self) -> bool {
+        self.client_order_id.starts_with("autoclose-")
+    }
+
+    /// Returns true if this is an ADL (Auto-Deleveraging) order.
+    #[must_use]
+    pub fn is_adl(&self) -> bool {
+        self.client_order_id.starts_with("adl_autoclose")
+    }
+
+    /// Returns true if this is a settlement order.
+    #[must_use]
+    pub fn is_settlement(&self) -> bool {
+        self.client_order_id.starts_with("settlement_autoclose-")
+    }
+
+    /// Returns true if this is an exchange-generated order.
+    #[must_use]
+    pub fn is_exchange_generated(&self) -> bool {
+        self.is_liquidation() || self.is_adl() || self.is_settlement()
+    }
+}
+
+/// Execution type for order updates.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BinanceExecutionType {
+    /// New order accepted.
+    New,
+    /// Order canceled.
+    Canceled,
+    /// Calculated (liquidation, ADL).
+    Calculated,
+    /// Order expired.
+    Expired,
+    /// Trade (partial or full fill).
+    Trade,
+    /// Amendment (order modified).
+    Amendment,
+}
+
+/// Margin call event from user data stream.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BinanceFuturesMarginCallMsg {
+    /// Event type.
+    #[serde(rename = "e")]
+    pub event_type: String,
+    /// Event time in milliseconds.
+    #[serde(rename = "E")]
+    pub event_time: i64,
+    /// Cross wallet balance.
+    #[serde(rename = "cw")]
+    pub cross_wallet_balance: String,
+    /// Positions at risk.
+    #[serde(rename = "p")]
+    pub positions: Vec<MarginCallPosition>,
+}
+
+/// Position at risk in margin call.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MarginCallPosition {
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: Ustr,
+    /// Position side.
+    #[serde(rename = "ps")]
+    pub position_side: BinancePositionSide,
+    /// Position amount.
+    #[serde(rename = "pa")]
+    pub position_amount: String,
+    /// Margin type.
+    #[serde(rename = "mt")]
+    pub margin_type: BinanceMarginType,
+    /// Isolated wallet (if any).
+    #[serde(rename = "iw")]
+    pub isolated_wallet: String,
+    /// Mark price.
+    #[serde(rename = "mp")]
+    pub mark_price: String,
+    /// Unrealized PnL.
+    #[serde(rename = "up")]
+    pub unrealized_pnl: String,
+    /// Maintenance margin required.
+    #[serde(rename = "mm")]
+    pub maintenance_margin: String,
+}
+
+/// Account configuration update event.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BinanceFuturesAccountConfigMsg {
+    /// Event type.
+    #[serde(rename = "e")]
+    pub event_type: String,
+    /// Event time in milliseconds.
+    #[serde(rename = "E")]
+    pub event_time: i64,
+    /// Transaction time in milliseconds.
+    #[serde(rename = "T")]
+    pub transaction_time: i64,
+    /// Leverage configuration data.
+    #[serde(rename = "ac", default)]
+    pub leverage_config: Option<LeverageConfig>,
+    /// Asset index price data (for multi-assets mode).
+    #[serde(rename = "ai", default)]
+    pub asset_index: Option<AssetIndexConfig>,
+}
+
+/// Leverage configuration change.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LeverageConfig {
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: Ustr,
+    /// New leverage value.
+    #[serde(rename = "l")]
+    pub leverage: u32,
+}
+
+/// Asset index configuration (multi-assets mode).
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssetIndexConfig {
+    /// Symbol.
+    #[serde(rename = "s")]
+    pub symbol: Ustr,
+}
+
+/// Listen key expired event.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BinanceFuturesListenKeyExpiredMsg {
+    /// Event type.
+    #[serde(rename = "e")]
+    pub event_type: String,
+    /// Event time in milliseconds.
+    #[serde(rename = "E")]
+    pub event_time: i64,
 }

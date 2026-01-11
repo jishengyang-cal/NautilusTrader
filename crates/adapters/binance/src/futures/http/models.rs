@@ -15,6 +15,15 @@
 
 //! Binance Futures HTTP response models.
 
+use anyhow::Context;
+use nautilus_core::{UUID4, UnixNanos, time::get_atomic_clock_realtime};
+use nautilus_model::{
+    enums::{LiquiditySide, OrderSide, OrderStatus, OrderType, TimeInForce},
+    identifiers::{AccountId, ClientOrderId, InstrumentId, TradeId, VenueOrderId},
+    reports::{FillReport, OrderStatusReport},
+    types::{Currency, Money, Price, Quantity},
+};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ustr::Ustr;
@@ -506,6 +515,97 @@ pub struct BinanceUserTrade {
     pub margin_asset: Option<Ustr>,
 }
 
+/// Futures account information from `GET /fapi/v3/account`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceFuturesAccountInfo {
+    /// Total initial margin required.
+    #[serde(default)]
+    pub total_initial_margin: Option<String>,
+    /// Total maintenance margin required.
+    #[serde(default)]
+    pub total_maint_margin: Option<String>,
+    /// Total wallet balance.
+    #[serde(default)]
+    pub total_wallet_balance: Option<String>,
+    /// Total unrealized profit.
+    #[serde(default)]
+    pub total_unrealized_profit: Option<String>,
+    /// Total margin balance.
+    #[serde(default)]
+    pub total_margin_balance: Option<String>,
+    /// Total position initial margin.
+    #[serde(default)]
+    pub total_position_initial_margin: Option<String>,
+    /// Total open order initial margin.
+    #[serde(default)]
+    pub total_open_order_initial_margin: Option<String>,
+    /// Total cross wallet balance.
+    #[serde(default)]
+    pub total_cross_wallet_balance: Option<String>,
+    /// Total cross unrealized PnL.
+    #[serde(default)]
+    pub total_cross_un_pnl: Option<String>,
+    /// Available balance.
+    #[serde(default)]
+    pub available_balance: Option<String>,
+    /// Max withdraw amount.
+    #[serde(default)]
+    pub max_withdraw_amount: Option<String>,
+    /// Can deposit.
+    #[serde(default)]
+    pub can_deposit: Option<bool>,
+    /// Can trade.
+    #[serde(default)]
+    pub can_trade: Option<bool>,
+    /// Can withdraw.
+    #[serde(default)]
+    pub can_withdraw: Option<bool>,
+    /// Multi-assets margin mode.
+    #[serde(default)]
+    pub multi_assets_margin: Option<bool>,
+    /// Update time.
+    #[serde(default)]
+    pub update_time: Option<i64>,
+    /// Account balances.
+    #[serde(default)]
+    pub assets: Vec<BinanceFuturesBalance>,
+    /// Account positions.
+    #[serde(default)]
+    pub positions: Vec<BinancePositionRisk>,
+}
+
+/// Hedge mode (dual side position) response.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceHedgeModeResponse {
+    /// Whether dual side position mode is enabled.
+    pub dual_side_position: bool,
+}
+
+/// Leverage change response.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceLeverageResponse {
+    /// Symbol.
+    pub symbol: Ustr,
+    /// New leverage value.
+    pub leverage: u32,
+    /// Max notional value at this leverage.
+    #[serde(default)]
+    pub max_notional_value: Option<String>,
+}
+
+/// Cancel all orders response.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceCancelAllOrdersResponse {
+    /// Response code (200 = success).
+    pub code: i32,
+    /// Response message.
+    pub msg: String,
+}
+
 /// Futures order information.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -581,4 +681,169 @@ pub struct BinanceFuturesOrder {
     /// Working order ID for tracking.
     #[serde(default)]
     pub working_type_id: Option<i64>,
+}
+
+impl BinanceFuturesOrder {
+    /// Converts this Binance order to a Nautilus [`OrderStatusReport`].
+    pub fn to_order_status_report(
+        &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        size_precision: u8,
+    ) -> anyhow::Result<OrderStatusReport> {
+        let ts_now = get_atomic_clock_realtime().get_time_ns();
+        let ts_event = self
+            .update_time
+            .map_or(ts_now, |t| UnixNanos::from((t * 1_000_000) as u64));
+
+        let client_order_id = ClientOrderId::new(&self.client_order_id);
+        let venue_order_id = VenueOrderId::new(self.order_id.to_string());
+
+        let order_side = match self.side {
+            BinanceSide::Buy => OrderSide::Buy,
+            BinanceSide::Sell => OrderSide::Sell,
+        };
+
+        let order_type = self.order_type.to_nautilus_order_type();
+        let time_in_force = self.time_in_force.to_nautilus_time_in_force();
+        let order_status = self.status.to_nautilus_order_status();
+
+        let quantity: Decimal = self.orig_qty.parse().context("invalid orig_qty")?;
+        let filled_qty: Decimal = self.executed_qty.parse().context("invalid executed_qty")?;
+
+        Ok(OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            Some(client_order_id),
+            venue_order_id,
+            order_side,
+            order_type,
+            time_in_force,
+            order_status,
+            Quantity::new(quantity.to_string().parse()?, size_precision),
+            Quantity::new(filled_qty.to_string().parse()?, size_precision),
+            ts_event,
+            ts_event,
+            ts_now,
+            Some(UUID4::new()),
+        ))
+    }
+}
+
+impl BinanceFuturesOrderType {
+    /// Returns whether this order type is post-only.
+    #[must_use]
+    pub fn is_post_only(&self) -> bool {
+        false // Binance Futures doesn't have a dedicated post-only type
+    }
+
+    /// Converts to Nautilus order type.
+    #[must_use]
+    pub fn to_nautilus_order_type(&self) -> OrderType {
+        match self {
+            Self::Market => OrderType::Market,
+            Self::Limit => OrderType::Limit,
+            Self::Stop => OrderType::StopLimit,
+            Self::StopMarket => OrderType::StopMarket,
+            Self::TakeProfit => OrderType::LimitIfTouched,
+            Self::TakeProfitMarket => OrderType::MarketIfTouched,
+            Self::TrailingStopMarket => OrderType::TrailingStopMarket,
+            Self::Liquidation | Self::Adl => OrderType::Market, // Forced closes
+            Self::Unknown => OrderType::Market,
+        }
+    }
+}
+
+impl BinanceTimeInForce {
+    /// Converts to Nautilus time in force.
+    #[must_use]
+    pub fn to_nautilus_time_in_force(&self) -> TimeInForce {
+        match self {
+            Self::Gtc => TimeInForce::Gtc,
+            Self::Ioc => TimeInForce::Ioc,
+            Self::Fok => TimeInForce::Fok,
+            Self::Gtx => TimeInForce::Gtc, // GTX is GTC with post-only
+            Self::Gtd => TimeInForce::Gtd,
+            Self::Unknown => TimeInForce::Gtc, // default
+        }
+    }
+}
+
+impl BinanceOrderStatus {
+    /// Converts to Nautilus order status.
+    #[must_use]
+    pub fn to_nautilus_order_status(&self) -> OrderStatus {
+        match self {
+            Self::New => OrderStatus::Accepted,
+            Self::PartiallyFilled => OrderStatus::PartiallyFilled,
+            Self::Filled => OrderStatus::Filled,
+            Self::Canceled => OrderStatus::Canceled,
+            Self::PendingCancel => OrderStatus::PendingCancel,
+            Self::Rejected => OrderStatus::Rejected,
+            Self::Expired => OrderStatus::Expired,
+            Self::ExpiredInMatch => OrderStatus::Expired,
+            Self::Unknown => OrderStatus::Initialized,
+        }
+    }
+}
+
+impl BinanceUserTrade {
+    /// Converts this Binance trade to a Nautilus [`FillReport`].
+    pub fn to_fill_report(
+        &self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        price_precision: u8,
+        size_precision: u8,
+    ) -> anyhow::Result<FillReport> {
+        let ts_now = get_atomic_clock_realtime().get_time_ns();
+        let ts_event = UnixNanos::from((self.time * 1_000_000) as u64);
+
+        let venue_order_id = VenueOrderId::new(self.order_id.to_string());
+        let trade_id = TradeId::new(self.id.to_string());
+
+        let order_side = match self.side {
+            BinanceSide::Buy => OrderSide::Buy,
+            BinanceSide::Sell => OrderSide::Sell,
+        };
+
+        let liquidity_side = if self.maker {
+            LiquiditySide::Maker
+        } else {
+            LiquiditySide::Taker
+        };
+
+        let last_qty: Decimal = self.qty.parse().context("invalid qty")?;
+        let last_px: Decimal = self.price.parse().context("invalid price")?;
+
+        let commission = {
+            let comm_val: f64 = self
+                .commission
+                .as_ref()
+                .and_then(|c| c.parse().ok())
+                .unwrap_or(0.0);
+            let comm_asset = self
+                .commission_asset
+                .as_ref()
+                .map_or_else(Currency::USDT, Currency::from);
+            Money::new(comm_val, comm_asset)
+        };
+
+        Ok(FillReport::new(
+            account_id,
+            instrument_id,
+            venue_order_id,
+            trade_id,
+            order_side,
+            Quantity::new(last_qty.to_string().parse()?, size_precision),
+            Price::new(last_px.to_string().parse()?, price_precision),
+            commission,
+            liquidity_side,
+            None, // client_order_id
+            None, // venue_position_id
+            ts_event,
+            ts_now,
+            Some(UUID4::new()),
+        ))
+    }
 }

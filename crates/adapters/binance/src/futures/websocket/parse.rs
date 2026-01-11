@@ -17,8 +17,14 @@
 
 use nautilus_core::nanos::UnixNanos;
 use nautilus_model::{
-    data::{BookOrder, OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick},
-    enums::{AggressorSide, BookAction, OrderSide, RecordFlag},
+    data::{
+        Bar, BarSpecification, BarType, BookOrder, IndexPriceUpdate, MarkPriceUpdate,
+        OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick,
+    },
+    enums::{
+        AggregationSource, AggressorSide, BarAggregation, BookAction, OrderSide, PriceType,
+        RecordFlag,
+    },
     identifiers::TradeId,
     instruments::{Instrument, InstrumentAny},
     types::{Price, Quantity},
@@ -27,9 +33,12 @@ use ustr::Ustr;
 
 use super::messages::{
     BinanceFuturesAggTradeMsg, BinanceFuturesBookTickerMsg, BinanceFuturesDepthUpdateMsg,
-    BinanceFuturesTradeMsg,
+    BinanceFuturesKlineMsg, BinanceFuturesMarkPriceMsg, BinanceFuturesTradeMsg,
 };
-use crate::{common::enums::BinanceWsEventType, websocket::error::BinanceWsResult};
+use crate::{
+    common::enums::{BinanceKlineInterval, BinanceWsEventType},
+    websocket::error::BinanceWsResult,
+};
 
 /// Parses an aggregate trade message into a `TradeTick`.
 ///
@@ -248,6 +257,166 @@ pub fn parse_depth_update(
     }
 
     Ok(OrderBookDeltas::new(instrument_id, deltas))
+}
+
+/// Parses a mark price message into `MarkPriceUpdate` and `IndexPriceUpdate`.
+///
+/// # Errors
+///
+/// Returns an error if parsing fails.
+pub fn parse_mark_price(
+    msg: &BinanceFuturesMarkPriceMsg,
+    instrument: &InstrumentAny,
+) -> BinanceWsResult<(MarkPriceUpdate, IndexPriceUpdate)> {
+    let instrument_id = instrument.id();
+    let price_precision = instrument.price_precision();
+
+    let mark_price = msg
+        .mark_price
+        .parse::<f64>()
+        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+    let index_price = msg
+        .index_price
+        .parse::<f64>()
+        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+
+    let ts_event = UnixNanos::from(msg.event_time as u64 * 1_000_000); // ms to ns
+
+    let mark_update = MarkPriceUpdate::new(
+        instrument_id,
+        Price::new(mark_price, price_precision),
+        ts_event,
+        ts_event,
+    );
+
+    let index_update = IndexPriceUpdate::new(
+        instrument_id,
+        Price::new(index_price, price_precision),
+        ts_event,
+        ts_event,
+    );
+
+    Ok((mark_update, index_update))
+}
+
+/// Converts a Binance kline interval to a Nautilus `BarSpecification`.
+fn interval_to_bar_spec(interval: BinanceKlineInterval) -> BarSpecification {
+    match interval {
+        BinanceKlineInterval::Second1 => {
+            BarSpecification::new(1, BarAggregation::Second, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute1 => {
+            BarSpecification::new(1, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute3 => {
+            BarSpecification::new(3, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute5 => {
+            BarSpecification::new(5, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute15 => {
+            BarSpecification::new(15, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Minute30 => {
+            BarSpecification::new(30, BarAggregation::Minute, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour1 => {
+            BarSpecification::new(1, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour2 => {
+            BarSpecification::new(2, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour4 => {
+            BarSpecification::new(4, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour6 => {
+            BarSpecification::new(6, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour8 => {
+            BarSpecification::new(8, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Hour12 => {
+            BarSpecification::new(12, BarAggregation::Hour, PriceType::Last)
+        }
+        BinanceKlineInterval::Day1 => {
+            BarSpecification::new(1, BarAggregation::Day, PriceType::Last)
+        }
+        BinanceKlineInterval::Day3 => {
+            BarSpecification::new(3, BarAggregation::Day, PriceType::Last)
+        }
+        BinanceKlineInterval::Week1 => {
+            BarSpecification::new(1, BarAggregation::Week, PriceType::Last)
+        }
+        BinanceKlineInterval::Month1 => {
+            BarSpecification::new(1, BarAggregation::Month, PriceType::Last)
+        }
+    }
+}
+
+/// Parses a kline message into a `Bar`.
+///
+/// Returns `None` if the kline is not closed yet.
+///
+/// # Errors
+///
+/// Returns an error if parsing fails.
+pub fn parse_kline(
+    msg: &BinanceFuturesKlineMsg,
+    instrument: &InstrumentAny,
+) -> BinanceWsResult<Option<Bar>> {
+    // Only emit bars when the kline is closed
+    if !msg.kline.is_closed {
+        return Ok(None);
+    }
+
+    let instrument_id = instrument.id();
+    let price_precision = instrument.price_precision();
+    let size_precision = instrument.size_precision();
+
+    let spec = interval_to_bar_spec(msg.kline.interval);
+    let bar_type = BarType::new(instrument_id, spec, AggregationSource::External);
+
+    let open = msg
+        .kline
+        .open
+        .parse::<f64>()
+        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+    let high = msg
+        .kline
+        .high
+        .parse::<f64>()
+        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+    let low = msg
+        .kline
+        .low
+        .parse::<f64>()
+        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+    let close = msg
+        .kline
+        .close
+        .parse::<f64>()
+        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+    let volume = msg
+        .kline
+        .volume
+        .parse::<f64>()
+        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+
+    // Use the kline close time as the event timestamp
+    let ts_event = UnixNanos::from(msg.kline.close_time as u64 * 1_000_000); // ms to ns
+
+    let bar = Bar::new(
+        bar_type,
+        Price::new(open, price_precision),
+        Price::new(high, price_precision),
+        Price::new(low, price_precision),
+        Price::new(close, price_precision),
+        Quantity::new(volume, size_precision),
+        ts_event,
+        ts_event,
+    );
+
+    Ok(Some(bar))
 }
 
 /// Extracts the symbol from a raw JSON message.

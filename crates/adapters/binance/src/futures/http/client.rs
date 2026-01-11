@@ -31,11 +31,20 @@ use ustr::Ustr;
 use super::{
     error::{BinanceFuturesHttpError, BinanceFuturesHttpResult},
     models::{
-        BinanceBookTicker, BinanceFuturesCoinExchangeInfo, BinanceFuturesCoinSymbol,
-        BinanceFuturesMarkPrice, BinanceFuturesTicker24hr, BinanceFuturesUsdExchangeInfo,
-        BinanceFuturesUsdSymbol, BinanceOrderBook, BinancePriceTicker, BinanceServerTime,
+        BinanceBookTicker, BinanceCancelAllOrdersResponse, BinanceFuturesAccountInfo,
+        BinanceFuturesCoinExchangeInfo, BinanceFuturesCoinSymbol, BinanceFuturesMarkPrice,
+        BinanceFuturesOrder, BinanceFuturesTicker24hr, BinanceFuturesUsdExchangeInfo,
+        BinanceFuturesUsdSymbol, BinanceHedgeModeResponse, BinanceLeverageResponse,
+        BinanceOrderBook, BinancePositionRisk, BinancePriceTicker, BinanceServerTime,
+        BinanceUserTrade,
     },
-    query::{BinanceBookTickerParams, BinanceDepthParams, BinanceTicker24hrParams},
+    query::{
+        BinanceAllOrdersParams, BinanceBookTickerParams, BinanceCancelAllOrdersParams,
+        BinanceCancelOrderParams, BinanceDepthParams, BinanceModifyOrderParams,
+        BinanceNewOrderParams, BinanceOpenOrdersParams, BinanceOrderQueryParams,
+        BinancePositionRiskParams, BinanceSetLeverageParams, BinanceSetMarginTypeParams,
+        BinanceTicker24hrParams, BinanceUserTradesParams,
+    },
 };
 use crate::common::{
     consts::{
@@ -740,6 +749,118 @@ impl BinanceFuturesHttpClient {
             .request_delete("listenKey", Some(&params), true, false)
             .await?;
         Ok(())
+    }
+
+    /// Submits a new order.
+    pub async fn submit_order(
+        &self,
+        params: &BinanceNewOrderParams,
+    ) -> BinanceFuturesHttpResult<BinanceFuturesOrder> {
+        self.raw.post("order", Some(params), None, true, true).await
+    }
+
+    /// Cancels an existing order.
+    pub async fn cancel_order(
+        &self,
+        params: &BinanceCancelOrderParams,
+    ) -> BinanceFuturesHttpResult<BinanceFuturesOrder> {
+        self.raw
+            .request_delete("order", Some(params), true, true)
+            .await
+    }
+
+    /// Modifies an existing order (price and quantity only).
+    pub async fn modify_order(
+        &self,
+        params: &BinanceModifyOrderParams,
+    ) -> BinanceFuturesHttpResult<BinanceFuturesOrder> {
+        self.raw
+            .request_put("order", Some(params), true, true)
+            .await
+    }
+
+    /// Cancels all open orders for a symbol.
+    pub async fn cancel_all_orders(
+        &self,
+        params: &BinanceCancelAllOrdersParams,
+    ) -> BinanceFuturesHttpResult<BinanceCancelAllOrdersResponse> {
+        self.raw
+            .request_delete("allOpenOrders", Some(params), true, true)
+            .await
+    }
+
+    /// Queries a single order by order ID or client order ID.
+    pub async fn query_order(
+        &self,
+        params: &BinanceOrderQueryParams,
+    ) -> BinanceFuturesHttpResult<BinanceFuturesOrder> {
+        self.raw.get("order", Some(params), true, false).await
+    }
+
+    /// Queries all open orders.
+    pub async fn query_open_orders(
+        &self,
+        params: &BinanceOpenOrdersParams,
+    ) -> BinanceFuturesHttpResult<Vec<BinanceFuturesOrder>> {
+        self.raw.get("openOrders", Some(params), true, false).await
+    }
+
+    /// Queries all orders (including historical).
+    pub async fn query_all_orders(
+        &self,
+        params: &BinanceAllOrdersParams,
+    ) -> BinanceFuturesHttpResult<Vec<BinanceFuturesOrder>> {
+        self.raw.get("allOrders", Some(params), true, false).await
+    }
+
+    /// Fetches account information including balances and positions.
+    pub async fn query_account(&self) -> BinanceFuturesHttpResult<BinanceFuturesAccountInfo> {
+        self.raw.get::<(), _>("account", None, true, false).await
+    }
+
+    /// Fetches position risk information.
+    pub async fn query_positions(
+        &self,
+        params: &BinancePositionRiskParams,
+    ) -> BinanceFuturesHttpResult<Vec<BinancePositionRisk>> {
+        self.raw
+            .get("positionRisk", Some(params), true, false)
+            .await
+    }
+
+    /// Fetches user trades for a symbol.
+    pub async fn query_user_trades(
+        &self,
+        params: &BinanceUserTradesParams,
+    ) -> BinanceFuturesHttpResult<Vec<BinanceUserTrade>> {
+        self.raw.get("userTrades", Some(params), true, false).await
+    }
+
+    /// Sets leverage for a symbol.
+    pub async fn set_leverage(
+        &self,
+        params: &BinanceSetLeverageParams,
+    ) -> BinanceFuturesHttpResult<BinanceLeverageResponse> {
+        self.raw
+            .post("leverage", Some(params), None, true, false)
+            .await
+    }
+
+    /// Sets margin type for a symbol.
+    pub async fn set_margin_type(
+        &self,
+        params: &BinanceSetMarginTypeParams,
+    ) -> BinanceFuturesHttpResult<serde_json::Value> {
+        self.raw
+            .post("marginType", Some(params), None, true, false)
+            .await
+    }
+
+    /// Queries hedge mode (dual side position) setting.
+    pub async fn query_hedge_mode(&self) -> BinanceFuturesHttpResult<BinanceHedgeModeResponse> {
+        self.raw
+            .get::<(), _>("positionSide/dual", None, true, false)
+            .await
     }
 }
 
