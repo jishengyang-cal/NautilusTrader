@@ -582,6 +582,8 @@ We recommend using environment variables to manage your credentials.
 When starting the trading node, you'll receive immediate confirmation of whether your
 credentials are valid and have trading permissions.
 
+## Contributing
+
 :::info
 For additional features or to contribute to the Bybit adapter, please see our
 [contributing guide](https://github.com/nautechsystems/nautilus_trader/blob/develop/CONTRIBUTING.md).
