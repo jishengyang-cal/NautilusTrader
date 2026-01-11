@@ -137,6 +137,7 @@ pub struct SimulatedExchange {
     use_random_ids: bool,
     use_reduce_only: bool,
     use_message_queue: bool,
+    use_market_order_acks: bool,
     allow_cash_borrowing: bool,
     frozen_account: bool,
     price_protection_points: u32,
@@ -185,6 +186,7 @@ impl SimulatedExchange {
         use_random_ids: Option<bool>,
         use_reduce_only: Option<bool>,
         use_message_queue: Option<bool>,
+        use_market_order_acks: Option<bool>,
         allow_cash_borrowing: Option<bool>,
         frozen_account: Option<bool>,
         price_protection_points: Option<u32>,
@@ -227,6 +229,7 @@ impl SimulatedExchange {
             use_random_ids: use_random_ids.unwrap_or(false),
             use_reduce_only: use_reduce_only.unwrap_or(true),
             use_message_queue: use_message_queue.unwrap_or(true),
+            use_market_order_acks: use_market_order_acks.unwrap_or(false),
             allow_cash_borrowing: allow_cash_borrowing.unwrap_or(false),
             frozen_account: frozen_account.unwrap_or(false),
             price_protection_points: price_protection_points.unwrap_or(0),
@@ -300,6 +303,7 @@ impl SimulatedExchange {
             self.use_position_ids,
             self.use_random_ids,
             self.use_reduce_only,
+            self.use_market_order_acks,
         )
         .with_price_protection_points(price_protection);
         let instrument_id = instrument.id();
@@ -882,6 +886,7 @@ mod tests {
                 None, // use_random_ids
                 None, // use_reduce_only
                 None, // use_message_queue
+                None, // use_market_order_acks
                 None, // allow_cash_borrowing
                 None, // frozen_account
                 None, // price_protection_points

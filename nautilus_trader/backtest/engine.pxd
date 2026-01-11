@@ -248,6 +248,8 @@ cdef class SimulatedExchange:
     """If the `reduce_only` option on orders will be honored.\n\n:returns: `bool`"""
     cdef readonly bint use_message_queue
     """If an internal message queue is being used to sequentially process incoming trading commands.\n\n:returns: `bool`"""
+    cdef readonly bint use_market_order_acks
+    """If OrderAccepted events will be generated for market orders.\n\n:returns: `bool`"""
     cdef readonly bint bar_execution
     """If bars should be processed by the matching engine(s) (and move the market).\n\n:returns: `bool`"""
     cdef readonly bint bar_adaptive_high_low_ordering
@@ -346,6 +348,7 @@ cdef class OrderMatchingEngine:
     cdef bint _use_position_ids
     cdef bint _use_random_ids
     cdef bint _use_reduce_only
+    cdef bint _use_market_order_acks
     cdef bint _bar_execution
     cdef bint _bar_adaptive_high_low_ordering
     cdef bint _trade_execution

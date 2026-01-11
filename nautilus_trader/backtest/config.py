@@ -94,6 +94,8 @@ class BacktestVenueConfig(NautilusConfig, frozen=True):
         If all venue generated identifiers will be random UUID4's.
     use_reduce_only : bool, default True
         If the `reduce_only` execution instruction on orders will be honored.
+    use_market_order_acks : bool, default False
+        If OrderAccepted events will be generated for market orders before filling.
     bar_execution : bool, default True
         If bars should be processed by the matching engine(s) (and move the market).
     bar_adaptive_high_low_ordering : bool, default False
@@ -139,6 +141,7 @@ class BacktestVenueConfig(NautilusConfig, frozen=True):
     use_position_ids: bool = True
     use_random_ids: bool = False
     use_reduce_only: bool = True
+    use_market_order_acks: bool = False
     bar_execution: bool = True
     bar_adaptive_high_low_ordering: bool = False
     trade_execution: bool = False

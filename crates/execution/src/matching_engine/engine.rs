@@ -1166,9 +1166,6 @@ impl OrderMatchingEngine {
         }
 
         // Check if market exists
-        let order_side = order.order_side();
-        let is_ask_initialized = self.core.is_ask_initialized;
-        let is_bid_initialized = self.core.is_bid_initialized;
         if (order.order_side() == OrderSide::Buy && !self.core.is_ask_initialized)
             || (order.order_side() == OrderSide::Sell && !self.core.is_bid_initialized)
         {
@@ -1177,6 +1174,11 @@ impl OrderMatchingEngine {
                 format!("No market for {}", order.instrument_id()).into(),
             );
             return;
+        }
+
+        if self.config.use_market_order_acks {
+            let venue_order_id = self.ids_generator.get_venue_order_id(order).unwrap();
+            self.generate_order_accepted(order, venue_order_id);
         }
 
         self.fill_market_order(order);
@@ -1194,11 +1196,8 @@ impl OrderMatchingEngine {
         }
 
         // Check if market exists
-        let order_side = order.order_side();
-        let is_ask_initialized = self.core.is_ask_initialized;
-        let is_bid_initialized = self.core.is_bid_initialized;
-        if (order_side == OrderSide::Buy && !self.core.is_ask_initialized)
-            || (order_side == OrderSide::Sell && !self.core.is_bid_initialized)
+        if (order.order_side() == OrderSide::Buy && !self.core.is_ask_initialized)
+            || (order.order_side() == OrderSide::Sell && !self.core.is_bid_initialized)
         {
             self.generate_order_rejected(
                 order,
@@ -1213,14 +1212,16 @@ impl OrderMatchingEngine {
             .price()
             .expect("Market order with protection must have a protection price");
 
-        // Order is valid and accepted
-        self.accept_order(order);
-
         // Check for immediate fill
         if self
             .core
             .is_limit_matched(order.order_side_specified(), protection_price)
         {
+            if self.config.use_market_order_acks {
+                let venue_order_id = self.ids_generator.get_venue_order_id(order).unwrap();
+                self.generate_order_accepted(order, venue_order_id);
+            }
+
             // Filling as liquidity taker
             if order.liquidity_side().is_some()
                 && order.liquidity_side().unwrap() == LiquiditySide::NoLiquiditySide
@@ -1228,8 +1229,13 @@ impl OrderMatchingEngine {
                 order.set_liquidity_side(LiquiditySide::Taker);
             }
             self.fill_limit_order(order);
-        } else if matches!(order.time_in_force(), TimeInForce::Fok | TimeInForce::Ioc) {
-            self.cancel_order(order, None);
+        } else {
+            // Order won't fill immediately, must accept into order book
+            self.accept_order(order);
+
+            if matches!(order.time_in_force(), TimeInForce::Fok | TimeInForce::Ioc) {
+                self.cancel_order(order, None);
+            }
         }
     }
 
@@ -1289,6 +1295,11 @@ impl OrderMatchingEngine {
                 format!("No market for {}", order.instrument_id()).into(),
             );
             return;
+        }
+
+        if self.config.use_market_order_acks {
+            let venue_order_id = self.ids_generator.get_venue_order_id(order).unwrap();
+            self.generate_order_accepted(order, venue_order_id);
         }
 
         // Immediately fill marketable order

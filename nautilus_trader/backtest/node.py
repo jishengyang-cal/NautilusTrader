@@ -401,6 +401,7 @@ class BacktestNode:
                 use_position_ids=venue_config.use_position_ids,
                 use_random_ids=venue_config.use_random_ids,
                 use_reduce_only=venue_config.use_reduce_only,
+                use_market_order_acks=venue_config.use_market_order_acks,
                 bar_execution=venue_config.bar_execution,
                 bar_adaptive_high_low_ordering=venue_config.bar_adaptive_high_low_ordering,
                 trade_execution=venue_config.trade_execution,

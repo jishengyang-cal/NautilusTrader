@@ -159,6 +159,7 @@ fn engine_config() -> OrderMatchingEngineConfig {
         use_position_ids: false,
         use_random_ids: false,
         use_reduce_only: true,
+        use_market_order_acks: false,
         price_protection_points: None,
     }
 }
@@ -865,6 +866,127 @@ fn test_valid_market_buy(
     assert_eq!(fill1.last_qty, Quantity::from("1.000"));
     assert_eq!(fill2.last_px, Price::from("1510.00"));
     assert_eq!(fill2.last_qty, Quantity::from("1.000"));
+}
+
+#[rstest]
+fn test_market_order_with_acks_generates_accepted_then_filled(
+    instrument_eth_usdt: InstrumentAny,
+    order_event_handler: ShareableMessageHandler,
+    account_id: AccountId,
+) {
+    msgbus::register(
+        MessagingSwitchboard::exec_engine_process(),
+        order_event_handler.clone(),
+    );
+
+    let config = OrderMatchingEngineConfig {
+        use_market_order_acks: true,
+        ..Default::default()
+    };
+    let mut engine =
+        get_order_matching_engine_l2(instrument_eth_usdt.clone(), None, None, Some(config), None);
+
+    let orderbook_delta = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            OrderSide::Sell,
+            Price::from("1500.00"),
+            Quantity::from("1.000"),
+            1,
+        ))
+        .build();
+    engine.process_order_book_delta(&orderbook_delta).unwrap();
+
+    let mut market_order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(ClientOrderId::from("O-19700101-000000-001-001-1"))
+        .submit(true)
+        .build();
+    engine.process_order(&mut market_order, account_id);
+
+    // Verify OrderAccepted is generated before OrderFilled
+    let saved_messages = get_order_event_handler_messages(order_event_handler);
+    assert_eq!(saved_messages.len(), 2);
+
+    let accepted = match saved_messages.first().unwrap() {
+        OrderEventAny::Accepted(a) => a,
+        other => panic!("Expected OrderAccepted, got {other:?}"),
+    };
+    assert_eq!(accepted.client_order_id, market_order.client_order_id());
+
+    let filled = match saved_messages.get(1).unwrap() {
+        OrderEventAny::Filled(f) => f,
+        other => panic!("Expected OrderFilled, got {other:?}"),
+    };
+    assert_eq!(filled.client_order_id, market_order.client_order_id());
+    assert_eq!(filled.last_px, Price::from("1500.00"));
+    assert_eq!(filled.last_qty, Quantity::from("1.000"));
+}
+
+#[rstest]
+fn test_market_order_with_protection_and_acks_generates_accepted_then_filled(
+    instrument_eth_usdt: InstrumentAny,
+    order_event_handler: ShareableMessageHandler,
+    account_id: AccountId,
+) {
+    msgbus::register(
+        MessagingSwitchboard::exec_engine_process(),
+        order_event_handler.clone(),
+    );
+
+    let config = OrderMatchingEngineConfig {
+        use_market_order_acks: true,
+        ..Default::default()
+    }
+    .with_price_protection_points(Some(600));
+
+    let mut engine =
+        get_order_matching_engine_l2(instrument_eth_usdt.clone(), None, None, Some(config), None);
+
+    let orderbook_delta = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            OrderSide::Sell,
+            Price::from("1500.00"),
+            Quantity::from("1.000"),
+            1,
+        ))
+        .build();
+    engine.process_order_book_delta(&orderbook_delta).unwrap();
+
+    let mut market_order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(ClientOrderId::from("O-19700101-000000-001-001-1"))
+        .submit(true)
+        .build();
+    engine.process_order(&mut market_order, account_id);
+
+    // Verify OrderUpdated (protection price), OrderAccepted, then OrderFilled
+    let saved_messages = get_order_event_handler_messages(order_event_handler);
+    assert_eq!(saved_messages.len(), 3);
+
+    let updated = match saved_messages.first().unwrap() {
+        OrderEventAny::Updated(u) => u,
+        other => panic!("Expected OrderUpdated, got {other:?}"),
+    };
+    assert_eq!(updated.client_order_id, market_order.client_order_id());
+    assert!(updated.protection_price.is_some());
+
+    let accepted = match saved_messages.get(1).unwrap() {
+        OrderEventAny::Accepted(a) => a,
+        other => panic!("Expected OrderAccepted, got {other:?}"),
+    };
+    assert_eq!(accepted.client_order_id, market_order.client_order_id());
+
+    let filled = match saved_messages.get(2).unwrap() {
+        OrderEventAny::Filled(f) => f,
+        other => panic!("Expected OrderFilled, got {other:?}"),
+    };
+    assert_eq!(filled.client_order_id, market_order.client_order_id());
 }
 
 #[rstest]
@@ -2846,7 +2968,7 @@ fn test_process_market_orders_with_protection_rejeceted_and_valid(
     );
 
     let config = OrderMatchingEngineConfig::new(
-        false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false, false,
     )
     .with_price_protection_points(Some(600));
 
@@ -2888,39 +3010,30 @@ fn test_process_market_orders_with_protection_rejeceted_and_valid(
     engine_l2.process_order(&mut market_sell_order, account_id);
     engine_l2.process_order(&mut market_buy_order, account_id);
 
-    // Check that we receive an OrderRejected event for the protected market sell order while the buy order is processed and partially filled
+    // Check that we receive an OrderRejected event for the protected market sell order
+    // while the buy order is processed and filled (no OrderAccepted since use_market_order_acks=false)
     let saved_messages = get_order_event_handler_messages(order_event_handler);
-    assert_eq!(saved_messages.len(), 4);
-    let event1 = saved_messages.first().unwrap();
-    let rejected = match event1 {
+    assert_eq!(saved_messages.len(), 3);
+
+    let rejected = match saved_messages.first().unwrap() {
         OrderEventAny::Rejected(rejected) => rejected,
         _ => panic!("Expected OrderRejected event in first message"),
     };
     assert_eq!(rejected.client_order_id, client_order_id_market_sell);
-
     assert_eq!(rejected.reason, "No market for ETHUSDT-PERP.BINANCE");
-    let event2 = saved_messages.get(1).unwrap();
-    let updated = match event2 {
+
+    let updated = match saved_messages.get(1).unwrap() {
         OrderEventAny::Updated(updated) => updated,
         _ => panic!("Expected OrderUpdated event in second message"),
     };
     assert_eq!(updated.client_order_id, client_order_id_market_buy);
-    //Protection price is calculated using the Best Ask Price + 6 Protection points
+
+    // Protection price is calculated using the Best Ask Price + 6 Protection points
     assert_eq!(updated.protection_price, Some(Price::new(1506.0, 2)));
 
-    let event3 = saved_messages.get(2).unwrap();
-    let accepted = match event3 {
-        OrderEventAny::Accepted(accepted) => accepted,
-        _ => panic!("Expected Accepted event in third message"),
-    };
-    assert_eq!(accepted.client_order_id, client_order_id_market_buy);
-
-    let event4 = saved_messages.get(3).unwrap();
-
-    //Aggressive order is partially filled
-    let filled = match event4 {
+    let filled = match saved_messages.get(2).unwrap() {
         OrderEventAny::Filled(filled) => filled,
-        _ => panic!("Expected Filled event in fourth message"),
+        _ => panic!("Expected Filled event in third message"),
     };
     assert_eq!(filled.client_order_id, client_order_id_market_buy);
 }
@@ -2937,7 +3050,7 @@ fn test_process_stop_orders_with_protection_rejeceted_and_valid(
     );
 
     let config = OrderMatchingEngineConfig::new(
-        false, false, false, false, false, false, false, false, false,
+        false, false, false, false, false, false, false, false, false, false,
     )
     .with_price_protection_points(Some(600));
 

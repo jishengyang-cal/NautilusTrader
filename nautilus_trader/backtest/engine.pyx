@@ -502,6 +502,7 @@ cdef class BacktestEngine:
         use_random_ids: bool = False,
         use_reduce_only: bool = True,
         use_message_queue: bool = True,
+        use_market_order_acks: bool = False,
         bar_execution: bool = True,
         bar_adaptive_high_low_ordering: bool = False,
         trade_execution: bool = False,
@@ -562,6 +563,8 @@ cdef class BacktestEngine:
             they have initially arrived. Setting this to False would be appropriate for real-time
             sandbox environments, where we don't want to introduce additional latency of waiting for
             the next data event before processing the trading command.
+        use_market_order_acks : bool, default False
+            If OrderAccepted events will be generated for market orders before filling.
         bar_execution : bool, default True
             If bars should be processed by the matching engine(s) (and move the market).
         bar_adaptive_high_low_ordering : bool, default False
@@ -616,9 +619,6 @@ cdef class BacktestEngine:
             else:
                 default_leverage = Decimal(1)
 
-        # Create exchange
-        normalized_price_protection = price_protection_points
-
         exchange = SimulatedExchange(
             venue=venue,
             oms_type=oms_type,
@@ -645,16 +645,16 @@ cdef class BacktestEngine:
             use_random_ids=use_random_ids,
             use_reduce_only=use_reduce_only,
             use_message_queue=use_message_queue,
+            use_market_order_acks=use_market_order_acks,
             bar_execution=bar_execution,
             bar_adaptive_high_low_ordering=bar_adaptive_high_low_ordering,
             trade_execution=trade_execution,
             liquidity_consumption=liquidity_consumption,
-            price_protection_points=normalized_price_protection,
+            price_protection_points=price_protection_points,
         )
 
         self._venues[venue] = exchange
 
-        # Create execution client for exchange
         exec_client = BacktestExecClient(
             exchange=exchange,
             msgbus=self._kernel.msgbus,
@@ -2532,6 +2532,8 @@ cdef class SimulatedExchange:
         they have initially arrived. Setting this to False would be appropriate for real-time
         sandbox environments, where we don't want to introduce additional latency of waiting for
         the next data event before processing the trading command.
+    use_market_order_acks : bool, default False
+        If OrderAccepted events will be generated for market orders before filling.
     bar_execution : bool, default True
         If bars should be processed by the matching engine(s) (and move the market).
     bar_adaptive_high_low_ordering : bool, default False
@@ -2595,6 +2597,7 @@ cdef class SimulatedExchange:
         bint use_random_ids = False,
         bint use_reduce_only = True,
         bint use_message_queue = True,
+        bint use_market_order_acks = False,
         bint bar_execution = True,
         bint bar_adaptive_high_low_ordering = False,
         bint trade_execution = False,
@@ -2638,6 +2641,7 @@ cdef class SimulatedExchange:
         self.use_random_ids = use_random_ids
         self.use_reduce_only = use_reduce_only
         self.use_message_queue = use_message_queue
+        self.use_market_order_acks = use_market_order_acks
         self.bar_execution = bar_execution
         self.bar_adaptive_high_low_ordering = bar_adaptive_high_low_ordering
         self.trade_execution = trade_execution
@@ -2798,6 +2802,7 @@ cdef class SimulatedExchange:
             use_position_ids=self.use_position_ids,
             use_random_ids=self.use_random_ids,
             use_reduce_only=self.use_reduce_only,
+            use_market_order_acks=self.use_market_order_acks,
             bar_execution=self.bar_execution,
             bar_adaptive_high_low_ordering=self.bar_adaptive_high_low_ordering,
             trade_execution=self.trade_execution,
@@ -3620,6 +3625,7 @@ cdef class OrderMatchingEngine:
         bint use_position_ids = True,
         bint use_random_ids = False,
         bint use_reduce_only = True,
+        bint use_market_order_acks = False,
         bint bar_execution = True,
         bint bar_adaptive_high_low_ordering = False,
         bint trade_execution = False,
@@ -3647,6 +3653,7 @@ cdef class OrderMatchingEngine:
         self._use_position_ids = use_position_ids
         self._use_random_ids = use_random_ids
         self._use_reduce_only = use_reduce_only
+        self._use_market_order_acks = use_market_order_acks
         self._bar_execution = bar_execution
         self._bar_adaptive_high_low_ordering = bar_adaptive_high_low_ordering
         self._trade_execution = trade_execution
@@ -4660,6 +4667,9 @@ cdef class OrderMatchingEngine:
             self._generate_order_rejected(order, f"no market for {order.instrument_id}")
             return  # Cannot accept order
 
+        if self._use_market_order_acks:
+            self._generate_order_accepted(order, venue_order_id=self._get_venue_order_id(order))
+
         # Immediately fill marketable order
         self.fill_market_order(order)
 
@@ -4671,6 +4681,9 @@ cdef class OrderMatchingEngine:
         elif order.side == OrderSide.SELL and not self._core.is_bid_initialized:
             self._generate_order_rejected(order, f"no market for {order.instrument_id}")
             return  # Cannot accept order
+
+        if self._use_market_order_acks:
+            self._generate_order_accepted(order, venue_order_id=self._get_venue_order_id(order))
 
         # Immediately fill marketable order
         self.fill_market_order(order)

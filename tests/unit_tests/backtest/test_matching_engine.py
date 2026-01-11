@@ -44,6 +44,7 @@ from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import TriggerType
+from nautilus_trader.model.events import OrderAccepted
 from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.model.events import OrderModifyRejected
 from nautilus_trader.model.identifiers import StrategyId
@@ -2581,6 +2582,110 @@ def test_modify_partially_filled_limit_order_crosses_new_book_level(
     assert filled_events[0].last_px == Price.from_str(second_level_price), (
         f"Fill price should be {second_level_price}, got {filled_events[0].last_px}"
     )
+
+
+class TestOrderMatchingEngineMarketOrderAcks:
+    """
+    Tests for use_market_order_acks feature.
+
+    When enabled, the matching engine generates OrderAccepted events for market orders
+    before filling them, mimicking behavior of venues like Binance.
+
+    """
+
+    def setup(self):
+        self.clock = TestClock()
+        self.trader_id = TestIdStubs.trader_id()
+        self.msgbus = MessageBus(
+            trader_id=self.trader_id,
+            clock=self.clock,
+        )
+        self.instrument = _ETHUSDT_PERP_BINANCE
+        self.account_id = TestIdStubs.account_id()
+        self.cache = TestComponentStubs.cache()
+        self.cache.add_instrument(self.instrument)
+
+    def test_market_order_with_acks_generates_accepted_then_filled(self) -> None:
+        # Arrange - create engine with use_market_order_acks enabled
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L1_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+            use_market_order_acks=True,
+        )
+
+        # Set up market with bid/ask
+        quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=1000.0,
+            ask_price=1001.0,
+        )
+        matching_engine.process_quote_tick(quote)
+
+        # Register to capture events
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Create and process market order
+        order: MarketOrder = TestExecStubs.market_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+        )
+        matching_engine.process_order(order, self.account_id)
+
+        # Assert - OrderAccepted should come before OrderFilled
+        assert len(messages) == 2
+        assert isinstance(messages[0], OrderAccepted)
+        assert isinstance(messages[1], OrderFilled)
+        assert messages[0].client_order_id == order.client_order_id
+        assert messages[1].client_order_id == order.client_order_id
+
+    def test_market_order_without_acks_generates_only_filled(self) -> None:
+        # Arrange - create engine with use_market_order_acks disabled (default)
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L1_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+            use_market_order_acks=False,
+        )
+
+        # Set up market with bid/ask
+        quote = TestDataStubs.quote_tick(
+            instrument=self.instrument,
+            bid_price=1000.0,
+            ask_price=1001.0,
+        )
+        matching_engine.process_quote_tick(quote)
+
+        # Register to capture events
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Create and process market order
+        order: MarketOrder = TestExecStubs.market_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+        )
+        matching_engine.process_order(order, self.account_id)
+
+        # Assert - only OrderFilled, no OrderAccepted
+        assert len(messages) == 1
+        assert isinstance(messages[0], OrderFilled)
+        assert messages[0].client_order_id == order.client_order_id
 
 
 class TestOrderMatchingEngineLiquidityConsumption:
