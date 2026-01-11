@@ -96,12 +96,12 @@ pub struct AxInstrument {
     /// Initial margin percentage.
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub initial_margin_pct: Decimal,
-    /// Current mark price for the contract (optional).
-    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
-    pub contract_mark_price: Option<Decimal>,
-    /// Contract size (optional).
-    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
-    pub contract_size: Option<Decimal>,
+    /// Contract mark price description (optional).
+    #[serde(default)]
+    pub contract_mark_price: Option<String>,
+    /// Contract size description (optional).
+    #[serde(default)]
+    pub contract_size: Option<String>,
     /// Instrument description (optional).
     #[serde(default)]
     pub description: Option<String>,
@@ -129,9 +129,9 @@ pub struct AxInstrument {
     /// Price quotation format (optional).
     #[serde(default)]
     pub price_quotation: Option<String>,
-    /// Underlying benchmark price (optional).
-    #[serde(default, deserialize_with = "deserialize_optional_decimal_from_str")]
-    pub underlying_benchmark_price: Option<Decimal>,
+    /// Underlying benchmark price description (optional).
+    #[serde(default)]
+    pub underlying_benchmark_price: Option<String>,
 }
 
 /// Response payload returned by `GET /instruments`.

@@ -15,9 +15,12 @@
 
 //! Live market data client implementation for the AX Exchange adapter.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use anyhow::Context;
@@ -42,8 +45,8 @@ use nautilus_core::{
     time::{AtomicTime, get_atomic_clock_realtime},
 };
 use nautilus_model::{
-    data::{BarType, Data, OrderBookDeltas_API},
-    identifiers::{ClientId, InstrumentId, Venue},
+    data::{Data, OrderBookDeltas_API},
+    identifiers::{ClientId, Venue},
     instruments::InstrumentAny,
 };
 use tokio::task::JoinHandle;
@@ -51,11 +54,7 @@ use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
 
 use crate::{
-    common::{
-        consts::AX_VENUE,
-        enums::{AxCandleWidth, AxMarketDataLevel},
-        parse::map_bar_spec_to_candle_width,
-    },
+    common::{consts::AX_VENUE, enums::AxMarketDataLevel, parse::map_bar_spec_to_candle_width},
     config::AxDataClientConfig,
     http::client::AxHttpClient,
     websocket::{data::client::AxMdWebSocketClient, messages::NautilusWsMessage},
@@ -90,14 +89,6 @@ pub struct AxDataClient {
     instruments: Arc<DashMap<Ustr, InstrumentAny>>,
     /// High-resolution clock for timestamps.
     clock: &'static AtomicTime,
-    /// Active quote subscriptions.
-    active_quote_subs: Arc<DashMap<InstrumentId, ()>>,
-    /// Active trade subscriptions.
-    active_trade_subs: Arc<DashMap<InstrumentId, ()>>,
-    /// Active order book subscriptions (maps instrument to level).
-    active_book_subs: Arc<DashMap<InstrumentId, AxMarketDataLevel>>,
-    /// Active bar subscriptions (maps instrument to candle width).
-    active_bar_subs: Arc<DashMap<InstrumentId, (BarType, AxCandleWidth)>>,
 }
 
 impl AxDataClient {
@@ -129,10 +120,6 @@ impl AxDataClient {
             data_sender,
             instruments,
             clock,
-            active_quote_subs: Arc::new(DashMap::new()),
-            active_trade_subs: Arc::new(DashMap::new()),
-            active_book_subs: Arc::new(DashMap::new()),
-            active_bar_subs: Arc::new(DashMap::new()),
         })
     }
 
@@ -150,12 +137,11 @@ impl AxDataClient {
 
     /// Spawns a message handler task to forward WebSocket data to the DataEngine.
     fn spawn_message_handler(&mut self) {
-        let mut ws_client = self.ws_client.clone();
+        let stream = self.ws_client.stream();
         let data_sender = self.data_sender.clone();
         let cancellation_token = self.cancellation_token.clone();
 
         let handle = get_runtime().spawn(async move {
-            let stream = ws_client.stream();
             tokio::pin!(stream);
 
             loop {
@@ -217,6 +203,17 @@ impl AxDataClient {
             }
         }
     }
+
+    fn spawn_ws<F>(&self, fut: F, context: &'static str)
+    where
+        F: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        get_runtime().spawn(async move {
+            if let Err(e) = fut.await {
+                log::error!("{context}: {e:?}");
+            }
+        });
+    }
 }
 
 #[async_trait(?Send)]
@@ -245,10 +242,6 @@ impl DataClient for AxDataClient {
         self.cancellation_token.cancel();
         self.tasks.clear();
         self.cancellation_token = CancellationToken::new();
-        self.active_quote_subs.clear();
-        self.active_trade_subs.clear();
-        self.active_book_subs.clear();
-        self.active_bar_subs.clear();
         Ok(())
     }
 
@@ -277,7 +270,7 @@ impl DataClient for AxDataClient {
                 .authenticate(api_key, api_secret, 86400) // 24 hour token
                 .await
                 .context("Failed to authenticate with Ax")?;
-            log::debug!("Authenticated with Ax");
+            log::info!("Authenticated with Ax");
             self.ws_client.set_auth_token(token);
         }
 
@@ -286,6 +279,10 @@ impl DataClient for AxDataClient {
             .request_instruments(None, None)
             .await
             .context("Failed to fetch instruments")?;
+
+        for instrument in &instruments {
+            self.ws_client.cache_instrument(instrument.clone());
+        }
         self.http_client.cache_instruments(instruments);
         log::info!(
             "Cached {} instruments",
@@ -321,157 +318,144 @@ impl DataClient for AxDataClient {
     }
 
     fn subscribe_quotes(&mut self, cmd: &SubscribeQuotes) -> anyhow::Result<()> {
-        let instrument_id = cmd.instrument_id;
-        let symbol = instrument_id.symbol.as_str();
-
-        if self.active_quote_subs.contains_key(&instrument_id) {
-            log::debug!("Already subscribed to quotes for {symbol}");
-            return Ok(());
-        }
-
+        let symbol = cmd.instrument_id.symbol.to_string();
         log::debug!("Subscribing to quotes for {symbol}");
 
-        get_runtime().block_on(async {
-            self.ws_client
-                .subscribe(symbol, AxMarketDataLevel::Level1)
-                .await
-        })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.subscribe(&symbol, AxMarketDataLevel::Level1)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "subscribe quotes",
+        );
 
-        self.active_quote_subs.insert(instrument_id, ());
         Ok(())
     }
 
     fn unsubscribe_quotes(&mut self, cmd: &UnsubscribeQuotes) -> anyhow::Result<()> {
-        let instrument_id = cmd.instrument_id;
-        let symbol = instrument_id.symbol.as_str();
-
-        if !self.active_quote_subs.contains_key(&instrument_id) {
-            log::debug!("Not subscribed to quotes for {symbol}");
-            return Ok(());
-        }
-
+        let symbol = cmd.instrument_id.symbol.to_string();
         log::debug!("Unsubscribing from quotes for {symbol}");
 
-        get_runtime().block_on(async { self.ws_client.unsubscribe(symbol).await })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.unsubscribe(&symbol)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "unsubscribe quotes",
+        );
 
-        self.active_quote_subs.remove(&instrument_id);
         Ok(())
     }
 
     fn subscribe_trades(&mut self, cmd: &SubscribeTrades) -> anyhow::Result<()> {
-        let instrument_id = cmd.instrument_id;
-        let symbol = instrument_id.symbol.as_str();
-
-        if self.active_trade_subs.contains_key(&instrument_id) {
-            log::debug!("Already subscribed to trades for {symbol}");
-            return Ok(());
-        }
-
+        let symbol = cmd.instrument_id.symbol.to_string();
         log::debug!("Subscribing to trades for {symbol}");
 
         // Trades come with Level1 subscription
-        get_runtime().block_on(async {
-            self.ws_client
-                .subscribe(symbol, AxMarketDataLevel::Level1)
-                .await
-        })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.subscribe(&symbol, AxMarketDataLevel::Level1)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "subscribe trades",
+        );
 
-        self.active_trade_subs.insert(instrument_id, ());
         Ok(())
     }
 
     fn unsubscribe_trades(&mut self, cmd: &UnsubscribeTrades) -> anyhow::Result<()> {
-        let instrument_id = cmd.instrument_id;
-        let symbol = instrument_id.symbol.as_str();
-
-        if !self.active_trade_subs.contains_key(&instrument_id) {
-            log::debug!("Not subscribed to trades for {symbol}");
-            return Ok(());
-        }
-
+        let symbol = cmd.instrument_id.symbol.to_string();
         log::debug!("Unsubscribing from trades for {symbol}");
 
-        get_runtime().block_on(async { self.ws_client.unsubscribe(symbol).await })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.unsubscribe(&symbol)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "unsubscribe trades",
+        );
 
-        self.active_trade_subs.remove(&instrument_id);
         Ok(())
     }
 
     fn subscribe_book_deltas(&mut self, cmd: &SubscribeBookDeltas) -> anyhow::Result<()> {
-        let instrument_id = cmd.instrument_id;
-        let symbol = instrument_id.symbol.as_str();
-
-        if self.active_book_subs.contains_key(&instrument_id) {
-            log::debug!("Already subscribed to book deltas for {symbol}");
-            return Ok(());
-        }
-
-        // Use Level2 for order book deltas
+        let symbol = cmd.instrument_id.symbol.to_string();
         let level = AxMarketDataLevel::Level2;
         log::debug!("Subscribing to book deltas for {symbol} at {level:?}");
 
-        get_runtime().block_on(async { self.ws_client.subscribe(symbol, level).await })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.subscribe(&symbol, level)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "subscribe book deltas",
+        );
 
-        self.active_book_subs.insert(instrument_id, level);
         Ok(())
     }
 
     fn unsubscribe_book_deltas(&mut self, cmd: &UnsubscribeBookDeltas) -> anyhow::Result<()> {
-        let instrument_id = cmd.instrument_id;
-        let symbol = instrument_id.symbol.as_str();
-
-        if !self.active_book_subs.contains_key(&instrument_id) {
-            log::debug!("Not subscribed to book deltas for {symbol}");
-            return Ok(());
-        }
-
+        let symbol = cmd.instrument_id.symbol.to_string();
         log::debug!("Unsubscribing from book deltas for {symbol}");
 
-        get_runtime().block_on(async { self.ws_client.unsubscribe(symbol).await })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.unsubscribe(&symbol)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "unsubscribe book deltas",
+        );
 
-        self.active_book_subs.remove(&instrument_id);
         Ok(())
     }
 
     fn subscribe_bars(&mut self, cmd: &SubscribeBars) -> anyhow::Result<()> {
         let bar_type = cmd.bar_type;
-        let instrument_id = bar_type.instrument_id();
-        let symbol = instrument_id.symbol.as_str();
-
-        if self.active_bar_subs.contains_key(&instrument_id) {
-            log::debug!("Already subscribed to bars for {symbol}");
-            return Ok(());
-        }
-
+        let symbol = bar_type.instrument_id().symbol.to_string();
         let width = map_bar_spec_to_candle_width(&bar_type.spec())?;
         log::debug!("Subscribing to bars for {bar_type} (width: {width:?})");
 
-        get_runtime().block_on(async { self.ws_client.subscribe_candles(symbol, width).await })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.subscribe_candles(&symbol, width)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "subscribe bars",
+        );
 
-        self.active_bar_subs
-            .insert(instrument_id, (bar_type, width));
         Ok(())
     }
 
     fn unsubscribe_bars(&mut self, cmd: &UnsubscribeBars) -> anyhow::Result<()> {
         let bar_type = cmd.bar_type;
-        let instrument_id = bar_type.instrument_id();
-        let symbol = instrument_id.symbol.as_str();
-
-        let width = match self.active_bar_subs.get(&instrument_id) {
-            Some(entry) => entry.value().1,
-            None => {
-                log::debug!("Not subscribed to bars for {symbol}");
-                return Ok(());
-            }
-        };
-
+        let symbol = bar_type.instrument_id().symbol.to_string();
+        let width = map_bar_spec_to_candle_width(&bar_type.spec())?;
         log::debug!("Unsubscribing from bars for {bar_type}");
 
-        get_runtime()
-            .block_on(async { self.ws_client.unsubscribe_candles(symbol, width).await })?;
+        let ws = self.ws_client.clone();
+        self.spawn_ws(
+            async move {
+                ws.unsubscribe_candles(&symbol, width)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            },
+            "unsubscribe bars",
+        );
 
-        self.active_bar_subs.remove(&instrument_id);
         Ok(())
     }
 

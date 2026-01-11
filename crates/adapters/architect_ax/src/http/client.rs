@@ -1024,6 +1024,12 @@ impl AxHttpClient {
                 continue;
             }
 
+            // Skip test instruments (not real tradable products)
+            if inst.symbol.as_str().starts_with("TEST") {
+                log::debug!("Skipping test instrument: {}", inst.symbol);
+                continue;
+            }
+
             match parse_perp_instrument(inst, maker_fee, taker_fee, ts_init, ts_init) {
                 Ok(instrument) => instruments.push(instrument),
                 Err(e) => {

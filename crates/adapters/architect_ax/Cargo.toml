@@ -50,6 +50,7 @@ nautilus-core = { workspace = true }
 nautilus-live = { workspace = true }
 nautilus-model = { workspace = true }
 nautilus-network = { workspace = true }
+nautilus-system = { workspace = true }
 
 ahash = { workspace = true }
 anyhow = { workspace = true }
@@ -85,6 +86,7 @@ nautilus-testkit = { workspace = true }
 
 axum = { workspace = true }
 criterion = { workspace = true }
+dotenvy = { workspace = true }
 rstest = { workspace = true }
 rust_decimal_macros = { workspace = true }
 url = { workspace = true }
@@ -111,4 +113,11 @@ doc = false
 [[bin]]
 name = "ax-ws-orders"
 path = "bin/ws_orders.rs"
+doc = false
+
+# cargo run --example ax-data-tester -p nautilus-architect-ax
+[[example]]
+name = "ax-data-tester"
+path = "examples/node_data_tester.rs"
+required-features = []
 doc = false

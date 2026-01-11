@@ -171,8 +171,9 @@ pub struct AxMdTrade {
     pub p: Decimal,
     /// Trade quantity.
     pub q: i64,
-    /// Trade direction: "B" (buy) or "S" (sell).
-    pub d: AxOrderSide,
+    /// Trade direction: "B" (buy) or "S" (sell). Optional for some message types.
+    #[serde(default)]
+    pub d: Option<AxOrderSide>,
 }
 
 /// Candle/OHLCV message from market data WebSocket.
@@ -910,7 +911,7 @@ mod tests {
     fn test_load_md_trade_from_file() {
         let json = include_str!("../../test_data/ws_md_trade.json");
         let msg: AxMdTrade = serde_json::from_str(json).unwrap();
-        assert_eq!(msg.d, AxOrderSide::Buy);
+        assert_eq!(msg.d, Some(AxOrderSide::Buy));
     }
 
     #[rstest]

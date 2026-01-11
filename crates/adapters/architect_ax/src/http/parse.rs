@@ -133,18 +133,28 @@ pub fn parse_perp_instrument(
     ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
-    // Ax perpetuals use format: {BASE}-PERP, quoted in USD
     let raw_symbol_str = definition.symbol.as_str();
     let raw_symbol = Symbol::new(raw_symbol_str);
     let instrument_id = InstrumentId::new(raw_symbol, *AX_VENUE);
 
-    let base_code = raw_symbol_str
+    // Extract base currency from symbol:
+    // - Crypto: BTC-PERP → base=BTC
+    // - FX: JPYUSD-PERP → base=JPY (strip quote currency suffix)
+    let symbol_prefix = raw_symbol_str
         .split('-')
         .next()
-        .context("Failed to extract base currency from symbol")?;
+        .context("Failed to extract symbol prefix")?;
+
+    let quote_code = definition.quote_currency.as_str();
+    let base_code = if symbol_prefix.ends_with(quote_code) && symbol_prefix.len() > quote_code.len()
+    {
+        &symbol_prefix[..symbol_prefix.len() - quote_code.len()]
+    } else {
+        symbol_prefix
+    };
     let base_currency = get_currency(base_code);
 
-    let quote_currency = get_currency(&definition.quote_currency);
+    let quote_currency = get_currency(quote_code);
     let settlement_currency = quote_currency;
 
     let price_increment = decimal_to_price(definition.tick_size, "tick_size")?;
@@ -463,8 +473,8 @@ mod tests {
             finding_settlement_currency: Ustr::from("USD"),
             maintenance_margin_pct: dec!(0.005),
             initial_margin_pct: dec!(0.01),
-            contract_mark_price: Some(dec!(45000.50)),
-            contract_size: Some(dec!(1.0)),
+            contract_mark_price: Some("45000.50".to_string()),
+            contract_size: Some("1 BTC per contract".to_string()),
             description: Some("Bitcoin Perpetual Futures".to_string()),
             funding_calendar_schedule: Some("0,8,16".to_string()),
             funding_frequency: Some("8h".to_string()),
@@ -474,7 +484,7 @@ mod tests {
             price_band_upper_deviation_pct: Some(dec!(0.05)),
             price_bands: Some("dynamic".to_string()),
             price_quotation: Some("USD".to_string()),
-            underlying_benchmark_price: Some(dec!(45000.00)),
+            underlying_benchmark_price: Some("CME CF BRR".to_string()),
         }
     }
 
