@@ -858,7 +858,7 @@ mod tests {
         assert_eq!(parsed["s"], "BTCUSD-PERP");
         assert_eq!(parsed["d"], "B");
         assert_eq!(parsed["q"], 100);
-        assert_eq!(parsed["p"], "50000.5");
+        assert_eq!(parsed["p"], "50000.50");
         assert_eq!(parsed["tif"], "GTC");
         assert_eq!(parsed["po"], false);
         assert_eq!(parsed["tag"], "trade001");

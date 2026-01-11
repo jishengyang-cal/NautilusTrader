@@ -1100,26 +1100,17 @@ mod tests {
             instrument_id,
             2,
             5,
-            Decimal::from_f64_retain(0.01).unwrap(),
-            Decimal::from_f64_retain(0.00001).unwrap(),
-            Decimal::from_f64_retain(10.0).unwrap(),
+            dec!(0.01),
+            dec!(0.00001),
+            dec!(10),
         );
 
         assert_eq!(info.instrument_id, instrument_id);
         assert_eq!(info.price_decimals, 2);
         assert_eq!(info.size_decimals, 5);
-        assert_eq!(
-            info.tick_size,
-            Some(Decimal::from_f64_retain(0.01).unwrap())
-        );
-        assert_eq!(
-            info.step_size,
-            Some(Decimal::from_f64_retain(0.00001).unwrap())
-        );
-        assert_eq!(
-            info.min_notional,
-            Some(Decimal::from_f64_retain(10.0).unwrap())
-        );
+        assert_eq!(info.tick_size, Some(dec!(0.01)));
+        assert_eq!(info.step_size, Some(dec!(0.00001)));
+        assert_eq!(info.min_notional, Some(dec!(10)));
     }
 
     #[rstest]
@@ -1139,18 +1130,18 @@ mod tests {
             InstrumentId::from("BTC.HYPER"),
             2,
             5,
-            Decimal::from_f64_retain(0.01).unwrap(),
-            Decimal::from_f64_retain(0.00001).unwrap(),
-            Decimal::from_f64_retain(10.0).unwrap(),
+            dec!(0.01),
+            dec!(0.00001),
+            dec!(10),
         );
 
         let eth_info = HyperliquidInstrumentInfo::with_metadata(
             InstrumentId::from("ETH.HYPER"),
             2,
             4,
-            Decimal::from_f64_retain(0.01).unwrap(),
-            Decimal::from_f64_retain(0.0001).unwrap(),
-            Decimal::from_f64_retain(10.0).unwrap(),
+            dec!(0.01),
+            dec!(0.0001),
+            dec!(10),
         );
 
         let mut cache = HyperliquidInstrumentCache::new();

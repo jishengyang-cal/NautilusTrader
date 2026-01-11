@@ -17,6 +17,8 @@
 //!
 //! Pure functions for reconciling orders and positions between local state and venue reports.
 
+use std::str::FromStr;
+
 use ahash::AHashMap;
 use nautilus_common::enums::LogColor;
 use nautilus_core::{UUID4, UnixNanos};
@@ -1421,7 +1423,7 @@ fn calculate_incremental_fill_price(
         let last_qty = report_filled_qty - order_filled_qty;
 
         let report_notional = report_avg_px * report_filled_qty.as_decimal();
-        let order_notional = Decimal::from_f64_retain(order_avg_px).unwrap_or_default()
+        let order_notional = Decimal::from_str(&order_avg_px.to_string()).unwrap_or_default()
             * order_filled_qty.as_decimal();
         let last_notional = report_notional - order_notional;
         let last_px_decimal = last_notional / last_qty.as_decimal();

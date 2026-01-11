@@ -952,13 +952,14 @@ pub fn parse_futures_position_status_report(
     };
 
     let quantity = Quantity::new(position.size, instrument.size_precision());
+    let size_decimal = Decimal::from_str(&position.size.to_string()).unwrap_or(dec!(0));
     let signed_decimal_qty = match position_side {
-        PositionSideSpecified::Long => Decimal::from_f64_retain(position.size).unwrap_or(dec!(0)),
-        PositionSideSpecified::Short => -Decimal::from_f64_retain(position.size).unwrap_or(dec!(0)),
+        PositionSideSpecified::Long => size_decimal,
+        PositionSideSpecified::Short => -size_decimal,
         PositionSideSpecified::Flat => dec!(0),
     };
 
-    let avg_px_open = Some(Decimal::from_f64_retain(position.price).unwrap_or(dec!(0)));
+    let avg_px_open = Decimal::from_str(&position.price.to_string()).ok();
 
     Ok(PositionStatusReport {
         account_id,

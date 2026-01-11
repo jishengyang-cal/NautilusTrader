@@ -961,7 +961,7 @@ impl ExecutionManager {
     ) -> Option<Vec<OrderEventAny>> {
         // Use signed quantities to detect both magnitude and side discrepancies
         let cached_signed_qty =
-            Decimal::from_f64_retain(position.signed_qty).unwrap_or(Decimal::ZERO);
+            Decimal::from_str(&position.signed_qty.to_string()).unwrap_or(Decimal::ZERO);
         let venue_signed_qty = venue_report.map_or(Decimal::ZERO, |r| r.signed_decimal_qty);
 
         let tolerance = Decimal::from_str("0.00000001").unwrap();
@@ -998,7 +998,7 @@ impl ExecutionManager {
         let instrument_id = position.instrument_id;
 
         let cached_avg_px = if position.avg_px_open > 0.0 {
-            Some(Decimal::from_f64_retain(position.avg_px_open).unwrap_or(Decimal::ZERO))
+            Decimal::from_str(&position.avg_px_open.to_string()).ok()
         } else {
             None
         };

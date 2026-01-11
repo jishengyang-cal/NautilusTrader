@@ -15,7 +15,7 @@
 
 //! Parsers that convert BitMEX WebSocket payloads into Nautilus data structures.
 
-use std::num::NonZero;
+use std::{num::NonZero, str::FromStr};
 
 use ahash::AHashMap;
 use dashmap::DashMap;
@@ -41,7 +41,7 @@ use nautilus_model::{
     reports::{FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, MarginBalance, Money, Price, Quantity},
 };
-use rust_decimal::{Decimal, prelude::FromPrimitive};
+use rust_decimal::Decimal;
 use ustr::Ustr;
 use uuid::Uuid;
 
@@ -845,7 +845,9 @@ pub fn parse_position_msg(
     let position_side = parse_position_side(msg.current_qty).as_specified();
     let quantity = parse_signed_contracts_quantity(msg.current_qty.unwrap_or(0), instrument);
     let venue_position_id = None; // Not applicable on BitMEX
-    let avg_px_open = msg.avg_entry_price.and_then(Decimal::from_f64);
+    let avg_px_open = msg
+        .avg_entry_price
+        .and_then(|p| Decimal::from_str(&p.to_string()).ok());
     let ts_last = parse_optional_datetime_to_unix_nanos(&msg.timestamp, "timestamp");
     let ts_init = get_atomic_clock_realtime().get_time_ns();
 

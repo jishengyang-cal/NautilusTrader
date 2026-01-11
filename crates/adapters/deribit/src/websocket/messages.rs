@@ -371,6 +371,9 @@ pub struct DeribitChartMsg {
 }
 
 /// Order parameters for private/buy and private/sell requests.
+///
+/// Note: Decimal fields are serialized as JSON floats per Deribit API requirements,
+/// which may cause precision loss for values with more than ~15 significant digits.
 #[derive(Debug, Clone, Serialize)]
 pub struct DeribitOrderParams {
     /// Instrument name (e.g., "BTC-PERPETUAL").
@@ -437,6 +440,9 @@ pub struct DeribitCancelAllByInstrumentParams {
 }
 
 /// Edit order parameters for private/edit request.
+///
+/// Note: Decimal fields are serialized as JSON floats per Deribit API requirements,
+/// which may cause precision loss for values with more than ~15 significant digits.
 #[derive(Debug, Clone, Serialize)]
 pub struct DeribitEditParams {
     /// Venue order ID to modify.

@@ -347,8 +347,8 @@ pub trait Instrument: 'static + Send {
     /// Returns an error if the value is not finite or cannot be converted to a `Price`.
     #[inline(always)]
     fn try_make_price(&self, value: f64) -> anyhow::Result<Price> {
-        let dec_value = Decimal::from_f64_retain(value)
-            .ok_or_else(|| anyhow::anyhow!("non-finite value passed to make_price"))?;
+        let dec_value = Decimal::from_str(&value.to_string())
+            .map_err(|_| anyhow::anyhow!("non-finite value passed to make_price"))?;
         let precision = self._min_price_increment_precision() as u32;
         let rounded_decimal =
             dec_value.round_dp_with_strategy(precision, RoundingStrategy::MidpointNearestEven);
@@ -364,8 +364,8 @@ pub trait Instrument: 'static + Send {
     /// Returns an error if the value is not finite or cannot be converted to a `Quantity`.
     #[inline(always)]
     fn try_make_qty(&self, value: f64, round_down: Option<bool>) -> anyhow::Result<Quantity> {
-        let dec_value = Decimal::from_f64_retain(value)
-            .ok_or_else(|| anyhow::anyhow!("non-finite value passed to make_qty"))?;
+        let dec_value = Decimal::from_str(&value.to_string())
+            .map_err(|_| anyhow::anyhow!("non-finite value passed to make_qty"))?;
         let precision = self._min_size_increment_precision() as u32;
         let strategy = if round_down.unwrap_or(false) {
             RoundingStrategy::ToZero
@@ -442,7 +442,7 @@ pub trait Instrument: 'static + Send {
         let price = if let Some(scheme) = self.tick_scheme() {
             scheme.next_bid_price(value, n, self.price_precision())?
         } else {
-            let value = Decimal::from_f64_retain(value)?;
+            let value = Decimal::from_str(&value.to_string()).ok()?;
             let increment = self.price_increment().as_decimal();
             if increment.is_zero() {
                 return None;
@@ -466,7 +466,7 @@ pub trait Instrument: 'static + Send {
         let price = if let Some(scheme) = self.tick_scheme() {
             scheme.next_ask_price(value, n, self.price_precision())?
         } else {
-            let value = Decimal::from_f64_retain(value)?;
+            let value = Decimal::from_str(&value.to_string()).ok()?;
             let increment = self.price_increment().as_decimal();
             if increment.is_zero() {
                 return None;

@@ -343,8 +343,7 @@ pub fn parse_ticker_linear_funding(
     let funding_rate = funding_rate_str
         .as_str()
         .parse::<Decimal>()
-        .context("invalid funding_rate value")?
-        .normalize();
+        .context("invalid funding_rate value")?;
 
     let next_funding_ns = if let Some(next_funding_time) = &data.next_funding_time {
         let next_funding_millis = next_funding_time

@@ -285,7 +285,7 @@ pub fn serialize_decimal_as_str<S>(decimal: &Decimal, serializer: S) -> Result<S
 where
     S: Serializer,
 {
-    serializer.serialize_str(&decimal.normalize().to_string())
+    serializer.serialize_str(&decimal.to_string())
 }
 
 /// Serializes an optional `Decimal` as a string.
@@ -301,7 +301,7 @@ where
     S: Serializer,
 {
     match decimal {
-        Some(d) => serializer.serialize_str(&d.normalize().to_string()),
+        Some(d) => serializer.serialize_str(&d.to_string()),
         None => serializer.serialize_none(),
     }
 }
@@ -320,7 +320,7 @@ where
 {
     let mut seq = serializer.serialize_seq(Some(decimals.len()))?;
     for decimal in decimals {
-        seq.serialize_element(&decimal.normalize().to_string())?;
+        seq.serialize_element(&decimal.to_string())?;
     }
     seq.end()
 }
