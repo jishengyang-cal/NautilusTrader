@@ -17,6 +17,7 @@ Released on TBD (UTC).
 ### Fixes
 - Fixed trade execution fills discarded with `liquidity_consumption`
 - Fixed `ExecAlgorithm` spawn quantity accounting (will now restore quantity from denied/rejected spawned orders)
+- Fixed analyzer epoch timestamp from empty shell positions
 - Fixed backtest clock monotonicity with time alerts (#3384), thanks @draphi
 - Fixed order updated panic during reconciliation (#3380), thanks for reporting @santivazq
 - Fixed missing currency registration when adding instruments to cache (#3400), thanks @filipmacek
