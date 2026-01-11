@@ -80,11 +80,12 @@ use super::{
 };
 use crate::{
     common::{
-        consts::BYBIT_NAUTILUS_BROKER_ID,
+        consts::{BYBIT_BASE_COIN, BYBIT_NAUTILUS_BROKER_ID, BYBIT_QUOTE_COIN},
         credential::Credential,
         enums::{
             BybitAccountType, BybitEnvironment, BybitMarginMode, BybitOpenOnly, BybitOrderFilter,
             BybitOrderSide, BybitOrderType, BybitPositionMode, BybitProductType, BybitTimeInForce,
+            BybitTriggerDirection,
         },
         models::{BybitErrorCheck, BybitResponseCheck},
         parse::{
@@ -1950,9 +1951,12 @@ impl BybitHttpClient {
         order_side: OrderSide,
         order_type: OrderType,
         quantity: Quantity,
-        time_in_force: TimeInForce,
+        time_in_force: Option<TimeInForce>,
         price: Option<Price>,
+        trigger_price: Option<Price>,
+        post_only: Option<bool>,
         reduce_only: bool,
+        is_quote_quantity: bool,
         is_leverage: bool,
     ) -> anyhow::Result<OrderStatusReport> {
         let instrument = self.instrument_from_cache(&instrument_id.symbol)?;
@@ -1964,17 +1968,64 @@ impl BybitHttpClient {
             _ => anyhow::bail!("Invalid order side: {order_side:?}"),
         };
 
-        let bybit_order_type = match order_type {
-            OrderType::Market => BybitOrderType::Market,
-            OrderType::Limit => BybitOrderType::Limit,
+        // For stop/conditional orders, Bybit uses Market/Limit with trigger parameters
+        let (bybit_order_type, is_stop_order) = match order_type {
+            OrderType::Market => (BybitOrderType::Market, false),
+            OrderType::Limit => (BybitOrderType::Limit, false),
+            OrderType::StopMarket | OrderType::MarketIfTouched => (BybitOrderType::Market, true),
+            OrderType::StopLimit | OrderType::LimitIfTouched => (BybitOrderType::Limit, true),
             _ => anyhow::bail!("Unsupported order type: {order_type:?}"),
         };
 
-        let bybit_tif = match time_in_force {
-            TimeInForce::Gtc => BybitTimeInForce::Gtc,
-            TimeInForce::Ioc => BybitTimeInForce::Ioc,
-            TimeInForce::Fok => BybitTimeInForce::Fok,
-            _ => anyhow::bail!("Unsupported time in force: {time_in_force:?}"),
+        // Match WebSocket client behavior: Market orders don't send TIF
+        let bybit_tif = if bybit_order_type == BybitOrderType::Market {
+            None
+        } else if post_only == Some(true) {
+            Some(BybitTimeInForce::PostOnly)
+        } else if let Some(tif) = time_in_force {
+            Some(match tif {
+                TimeInForce::Gtc => BybitTimeInForce::Gtc,
+                TimeInForce::Ioc => BybitTimeInForce::Ioc,
+                TimeInForce::Fok => BybitTimeInForce::Fok,
+                _ => anyhow::bail!("Unsupported time in force: {tif:?}"),
+            })
+        } else {
+            None
+        };
+
+        // For SPOT market orders, specify baseCoin/quoteCoin to interpret quantity correctly
+        let market_unit = if product_type == BybitProductType::Spot
+            && bybit_order_type == BybitOrderType::Market
+        {
+            if is_quote_quantity {
+                Some(BYBIT_QUOTE_COIN.to_string())
+            } else {
+                Some(BYBIT_BASE_COIN.to_string())
+            }
+        } else {
+            None
+        };
+
+        // Stop semantics: Buy stops trigger on rise, sell stops trigger on fall
+        // MIT semantics: Buy MIT triggers on fall, sell MIT triggers on rise
+        let trigger_direction = if is_stop_order {
+            match (order_type, order_side) {
+                (OrderType::StopMarket | OrderType::StopLimit, OrderSide::Buy) => {
+                    Some(BybitTriggerDirection::RisesTo)
+                }
+                (OrderType::StopMarket | OrderType::StopLimit, OrderSide::Sell) => {
+                    Some(BybitTriggerDirection::FallsTo)
+                }
+                (OrderType::MarketIfTouched | OrderType::LimitIfTouched, OrderSide::Buy) => {
+                    Some(BybitTriggerDirection::FallsTo)
+                }
+                (OrderType::MarketIfTouched | OrderType::LimitIfTouched, OrderSide::Sell) => {
+                    Some(BybitTriggerDirection::RisesTo)
+                }
+                _ => None,
+            }
+        } else {
+            None
         };
 
         let mut order_entry = BybitBatchPlaceOrderEntryBuilder::default();
@@ -1982,11 +2033,17 @@ impl BybitHttpClient {
         order_entry.side(bybit_side);
         order_entry.order_type(bybit_order_type);
         order_entry.qty(quantity.to_string());
-        order_entry.time_in_force(Some(bybit_tif));
+        order_entry.time_in_force(bybit_tif);
         order_entry.order_link_id(client_order_id.to_string());
+        order_entry.market_unit(market_unit);
+        order_entry.trigger_direction(trigger_direction);
 
         if let Some(price) = price {
             order_entry.price(Some(price.to_string()));
+        }
+
+        if let Some(trigger_price) = trigger_price {
+            order_entry.trigger_price(Some(trigger_price.to_string()));
         }
 
         if reduce_only {

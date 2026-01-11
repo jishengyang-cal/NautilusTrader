@@ -6318,9 +6318,12 @@ class BybitHttpClient:
         order_side: OrderSide,
         order_type: OrderType,
         quantity: Quantity,
-        time_in_force: TimeInForce,
+        time_in_force: TimeInForce | None = None,
         price: Price | None = None,
+        trigger_price: Price | None = None,
+        post_only: bool | None = None,
         reduce_only: bool = False,
+        is_quote_quantity: bool = False,
         is_leverage: bool = False,
     ) -> OrderStatusReport: ...
     async def cancel_order(
