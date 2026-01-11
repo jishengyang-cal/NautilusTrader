@@ -109,7 +109,7 @@ alloy-primitives = { version = "1.5.2", default-features = false, features = [
 ] }
 anyhow = "1.0.100"
 arraydeque = "0.5.1"
-arrow = { version = "57.1.0", default-features = false, features = [
+arrow = { version = "57.2.0", default-features = false, features = [
   "csv",
   "json",
   "ipc",
@@ -168,7 +168,7 @@ memchr = "2.7.6"
 object_store = { version = "0.12.4", default-features = false, features = [
   "fs",
 ] }
-parquet = { version = "57.1.0", default-features = false, features = [
+parquet = { version = "57.2.0", default-features = false, features = [
   "arrow",
   "async",
 ] }
