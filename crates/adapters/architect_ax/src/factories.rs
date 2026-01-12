@@ -17,19 +17,34 @@
 
 use std::{any::Any, cell::RefCell, rc::Rc};
 
-use nautilus_common::{cache::Cache, clients::DataClient, clock::Clock};
-use nautilus_model::identifiers::ClientId;
-use nautilus_system::factories::{ClientConfig, DataClientFactory};
+use nautilus_common::{
+    cache::Cache,
+    clients::{DataClient, ExecutionClient},
+    clock::Clock,
+};
+use nautilus_live::ExecutionClientCore;
+use nautilus_model::{
+    enums::{AccountType, OmsType},
+    identifiers::ClientId,
+};
+use nautilus_system::factories::{ClientConfig, DataClientFactory, ExecutionClientFactory};
 
 use crate::{
-    common::consts::{AX_WS_PUBLIC_URL, AX_WS_SANDBOX_PUBLIC_URL},
-    config::AxDataClientConfig,
+    common::consts::{AX_VENUE, AX_WS_PUBLIC_URL, AX_WS_SANDBOX_PUBLIC_URL},
+    config::{AxDataClientConfig, AxExecClientConfig},
     data::AxDataClient,
+    execution::AxExecutionClient,
     http::client::AxHttpClient,
     websocket::data::AxMdWebSocketClient,
 };
 
 impl ClientConfig for AxDataClientConfig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl ClientConfig for AxExecClientConfig {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -74,9 +89,21 @@ impl DataClientFactory for AxDataClientFactory {
         let client_id = ClientId::from(name);
 
         let http_client = if ax_config.has_api_credentials() {
+            let api_key = ax_config
+                .api_key
+                .clone()
+                .or_else(|| std::env::var("AX_API_KEY").ok())
+                .ok_or_else(|| anyhow::anyhow!("AX_API_KEY not configured"))?;
+
+            let api_secret = ax_config
+                .api_secret
+                .clone()
+                .or_else(|| std::env::var("AX_API_SECRET").ok())
+                .ok_or_else(|| anyhow::anyhow!("AX_API_SECRET not configured"))?;
+
             AxHttpClient::with_credentials(
-                ax_config.api_key.clone().unwrap(),
-                ax_config.api_secret.clone().unwrap(),
+                api_key,
+                api_secret,
                 Some(ax_config.http_base_url()),
                 None, // orders_base_url
                 ax_config.http_timeout_secs,
@@ -121,6 +148,72 @@ impl DataClientFactory for AxDataClientFactory {
 
     fn config_type(&self) -> &'static str {
         "AxDataClientConfig"
+    }
+}
+
+/// Factory for creating AX Exchange execution clients.
+#[derive(Debug)]
+pub struct AxExecutionClientFactory;
+
+impl AxExecutionClientFactory {
+    /// Creates a new [`AxExecutionClientFactory`] instance.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for AxExecutionClientFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExecutionClientFactory for AxExecutionClientFactory {
+    fn create(
+        &self,
+        name: &str,
+        config: &dyn ClientConfig,
+        cache: Rc<RefCell<Cache>>,
+        clock: Rc<RefCell<dyn Clock>>,
+    ) -> anyhow::Result<Box<dyn ExecutionClient>> {
+        let ax_config = config
+            .as_any()
+            .downcast_ref::<AxExecClientConfig>()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid config type for AxExecutionClientFactory. Expected AxExecClientConfig, was {config:?}",
+                )
+            })?
+            .clone();
+
+        // AX uses netting for perpetual futures
+        let oms_type = OmsType::Netting;
+        let account_type = AccountType::Margin;
+
+        let core = ExecutionClientCore::new(
+            ax_config.trader_id,
+            ClientId::from(name),
+            *AX_VENUE,
+            oms_type,
+            ax_config.account_id,
+            account_type,
+            None, // base_currency
+            clock,
+            cache,
+        );
+
+        let client = AxExecutionClient::new(core, ax_config)?;
+
+        Ok(Box::new(client))
+    }
+
+    fn name(&self) -> &'static str {
+        "AX"
+    }
+
+    fn config_type(&self) -> &'static str {
+        "AxExecClientConfig"
     }
 }
 

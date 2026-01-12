@@ -18,12 +18,20 @@
 //! This module contains request and response message structures for both
 //! market data and order management WebSocket streams.
 
-use nautilus_core::serialization::serialize_decimal_as_str;
+use nautilus_core::{
+    UnixNanos,
+    serialization::{
+        deserialize_optional_decimal, serialize_decimal_as_str, serialize_optional_decimal_as_str,
+    },
+};
 use nautilus_model::{
     data::{Bar, Data, OrderBookDeltas},
-    events::{OrderCancelRejected, OrderRejected},
-    identifiers::ClientOrderId,
+    events::{
+        OrderAccepted, OrderCancelRejected, OrderCanceled, OrderExpired, OrderFilled, OrderRejected,
+    },
+    identifiers::{ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId},
     reports::{FillReport, OrderStatusReport},
+    types::Currency,
 };
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -31,7 +39,9 @@ use ustr::Ustr;
 
 use super::error::AxWsErrorResponse;
 use crate::common::{
-    enums::{AxCandleWidth, AxMarketDataLevel, AxOrderSide, AxOrderStatus, AxTimeInForce},
+    enums::{
+        AxCandleWidth, AxMarketDataLevel, AxOrderSide, AxOrderStatus, AxOrderType, AxTimeInForce,
+    },
     parse::deserialize_decimal_or_zero,
 };
 
@@ -295,7 +305,7 @@ pub struct AxMdBookL3 {
 /// Place order request via WebSocket.
 ///
 /// # References
-/// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
+/// - <https://docs.architect.co/sdk-reference/order-entry>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsPlaceOrder {
     /// Request ID for correlation.
@@ -308,7 +318,7 @@ pub struct AxWsPlaceOrder {
     pub d: AxOrderSide,
     /// Order quantity.
     pub q: i64,
-    /// Order price.
+    /// Order price (limit price).
     #[serde(
         serialize_with = "serialize_decimal_as_str",
         deserialize_with = "deserialize_decimal_or_zero"
@@ -321,6 +331,17 @@ pub struct AxWsPlaceOrder {
     /// Optional order tag.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// Order type (defaults to LIMIT if not specified).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_type: Option<AxOrderType>,
+    /// Trigger price for stop-loss orders.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_optional_decimal_as_str",
+        deserialize_with = "deserialize_optional_decimal",
+        default
+    )]
+    pub trigger_price: Option<Decimal>,
 }
 
 /// Cancel order request via WebSocket.
@@ -666,36 +687,26 @@ pub enum NautilusWsMessage {
 /// Nautilus domain message for Ax orders WebSocket.
 ///
 /// This enum contains parsed messages from the WebSocket stream.
-/// Raw variants contain Ax-specific types for further processing.
-/// Nautilus variants contain fully-parsed domain objects.
+/// Domain event variants contain fully-parsed Nautilus domain objects.
+/// Raw variants are used for response messages and internal tracking.
 #[derive(Debug, Clone)]
 pub enum AxOrdersWsMessage {
+    /// Order accepted by the venue.
+    OrderAcceptedEvent(OrderAccepted),
+    /// Order filled (partial or complete).
+    OrderFilledEvent(Box<OrderFilled>),
+    /// Order canceled.
+    OrderCanceledEvent(OrderCanceled),
+    /// Order expired.
+    OrderExpiredEvent(OrderExpired),
+    /// Order rejected by venue.
+    OrderRejected(OrderRejected),
+    /// Order cancel rejected by venue.
+    OrderCancelRejected(OrderCancelRejected),
     /// Order status reports from order updates.
     OrderStatusReports(Vec<OrderStatusReport>),
     /// Fill reports from executions.
     FillReports(Vec<FillReport>),
-    /// Order rejected event (from failed order submission).
-    OrderRejected(OrderRejected),
-    /// Order cancel rejected event (from failed cancel operation).
-    OrderCancelRejected(OrderCancelRejected),
-    /// Order acknowledged by exchange.
-    OrderAcknowledged(AxWsOrderAcknowledged),
-    /// Order partially filled.
-    OrderPartiallyFilled(AxWsOrderPartiallyFilled),
-    /// Order fully filled.
-    OrderFilled(AxWsOrderFilled),
-    /// Order canceled.
-    OrderCanceled(AxWsOrderCanceled),
-    /// Order rejected by exchange.
-    OrderRejectedRaw(AxWsOrderRejected),
-    /// Order expired.
-    OrderExpired(AxWsOrderExpired),
-    /// Order replaced/amended.
-    OrderReplaced(AxWsOrderReplaced),
-    /// Order done for day.
-    OrderDoneForDay(AxWsOrderDoneForDay),
-    /// Cancel request rejected.
-    CancelRejected(AxWsCancelRejected),
     /// Place order response.
     PlaceOrderResponse(AxWsPlaceOrderResponse),
     /// Cancel order response.
@@ -758,10 +769,24 @@ impl From<AxWsErrorResponse> for AxWsError {
 /// Used to correlate order responses with the original request.
 #[derive(Debug, Clone)]
 pub struct OrderMetadata {
+    /// Trader ID for event generation.
+    pub trader_id: TraderId,
+    /// Strategy ID for event generation.
+    pub strategy_id: StrategyId,
+    /// Instrument ID for event generation.
+    pub instrument_id: InstrumentId,
     /// Client order ID for correlation.
     pub client_order_id: ClientOrderId,
-    /// Instrument symbol.
-    pub symbol: Ustr,
+    /// Venue order ID (populated after acknowledgment).
+    pub venue_order_id: Option<VenueOrderId>,
+    /// Original order timestamp.
+    pub ts_init: UnixNanos,
+    /// Instrument size precision for quantity conversion.
+    pub size_precision: u8,
+    /// Instrument price precision for price conversion.
+    pub price_precision: u8,
+    /// Quote currency for the instrument.
+    pub quote_currency: Currency,
 }
 
 #[cfg(test)]
@@ -849,6 +874,8 @@ mod tests {
             tif: AxTimeInForce::Gtc,
             po: false,
             tag: Some("trade001".to_string()),
+            order_type: None,
+            trigger_price: None,
         };
 
         let json = serde_json::to_string(&msg).unwrap();
@@ -863,6 +890,32 @@ mod tests {
         assert_eq!(parsed["tif"], "GTC");
         assert_eq!(parsed["po"], false);
         assert_eq!(parsed["tag"], "trade001");
+        assert!(parsed.get("order_type").is_none());
+        assert!(parsed.get("trigger_price").is_none());
+    }
+
+    #[rstest]
+    fn test_ws_place_stop_loss_order_serialization() {
+        let msg = AxWsPlaceOrder {
+            rid: 2,
+            t: "p".to_string(),
+            s: "BTCUSD-PERP".to_string(),
+            d: AxOrderSide::Sell,
+            q: 50,
+            p: dec!(48000.00),
+            tif: AxTimeInForce::Gtc,
+            po: false,
+            tag: None,
+            order_type: Some(AxOrderType::StopLossLimit),
+            trigger_price: Some(dec!(49000.00)),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["rid"], 2);
+        assert_eq!(parsed["order_type"], "STOP_LOSS_LIMIT");
+        assert_eq!(parsed["trigger_price"], "49000.00");
     }
 
     #[rstest]

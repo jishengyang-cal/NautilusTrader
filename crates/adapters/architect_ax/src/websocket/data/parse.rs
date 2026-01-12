@@ -63,10 +63,7 @@ pub fn parse_book_l1_quote(
             Quantity::new(bid.q as f64, size_precision),
         )
     } else {
-        (
-            Price::new(0.0, price_precision),
-            Quantity::zero(size_precision),
-        )
+        (Price::zero(price_precision), Quantity::zero(size_precision))
     };
 
     let (ask_price, ask_size) = if let Some(ask) = book.a.first() {
@@ -75,10 +72,7 @@ pub fn parse_book_l1_quote(
             Quantity::new(ask.q as f64, size_precision),
         )
     } else {
-        (
-            Price::new(0.0, price_precision),
-            Quantity::zero(size_precision),
-        )
+        (Price::zero(price_precision), Quantity::zero(size_precision))
     };
 
     let ts_event = UnixNanos::from((book.ts as u64) * NANOSECONDS_IN_SECOND);
@@ -409,8 +403,12 @@ mod tests {
         price_precision: u8,
         size_precision: u8,
     ) -> InstrumentAny {
-        let price_increment = Price::new(10f64.powi(-(price_precision as i32)), price_precision);
-        let size_increment = Quantity::new(10f64.powi(-(size_precision as i32)), size_precision);
+        let price_increment =
+            Price::from_decimal_dp(Decimal::new(1, price_precision as u32), price_precision)
+                .unwrap();
+        let size_increment =
+            Quantity::from_decimal_dp(Decimal::new(1, size_precision as u32), size_precision)
+                .unwrap();
 
         let instrument = CryptoPerpetual::new(
             InstrumentId::new(Symbol::new(symbol), *AX_VENUE),

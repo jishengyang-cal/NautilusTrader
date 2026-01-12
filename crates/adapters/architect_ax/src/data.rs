@@ -263,11 +263,23 @@ impl DataClient for AxDataClient {
         log::info!("Connecting {}", self.client_id);
 
         if self.config.has_api_credentials() {
-            let api_key = self.config.api_key.as_ref().unwrap();
-            let api_secret = self.config.api_secret.as_ref().unwrap();
+            let api_key = self
+                .config
+                .api_key
+                .clone()
+                .or_else(|| std::env::var("AX_API_KEY").ok())
+                .context("AX_API_KEY not configured")?;
+
+            let api_secret = self
+                .config
+                .api_secret
+                .clone()
+                .or_else(|| std::env::var("AX_API_SECRET").ok())
+                .context("AX_API_SECRET not configured")?;
+
             let token = self
                 .http_client
-                .authenticate(api_key, api_secret, 86400) // 24 hour token
+                .authenticate(&api_key, &api_secret, 86400)
                 .await
                 .context("Failed to authenticate with Ax")?;
             log::info!("Authenticated with Ax");
