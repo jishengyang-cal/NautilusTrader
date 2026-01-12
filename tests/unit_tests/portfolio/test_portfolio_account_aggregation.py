@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------------------------------
-#  Copyright (C) 2015-2025 Nautech Systems Pty Ltd. All rights reserved.
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
 #  https://nautechsystems.io
 #
 #  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
@@ -20,6 +20,8 @@ from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.component import TestClock
 from nautilus_trader.common.factories import OrderFactory
 from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.model.currencies import EUR
+from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.currencies import USDT
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import OmsType
@@ -388,3 +390,88 @@ class TestPortfolioAccountAggregation:
         # Now Total is Net Long (1.1 - 1.0 = 0.1)
         assert self.portfolio.is_net_long(BTCUSDT_BINANCE.id) is True
         assert self.portfolio.is_flat(BTCUSDT_BINANCE.id) is False
+
+    def test_net_exposure_returns_none_for_different_base_currencies(self):
+        # Arrange - Create accounts with different base currencies
+        account_id_usd = AccountId("BINANCE-USD")
+        account_id_eur = AccountId("BINANCE-EUR")
+
+        state_usd = AccountState(
+            account_id=account_id_usd,
+            account_type=AccountType.CASH,
+            base_currency=USD,
+            reported=True,
+            balances=[
+                AccountBalance(
+                    Money(100000.00, USD),
+                    Money(0.00, USD),
+                    Money(100000.00, USD),
+                ),
+            ],
+            margins=[],
+            info={},
+            event_id=UUID4(),
+            ts_event=0,
+            ts_init=0,
+        )
+
+        state_eur = AccountState(
+            account_id=account_id_eur,
+            account_type=AccountType.CASH,
+            base_currency=EUR,
+            reported=True,
+            balances=[
+                AccountBalance(
+                    Money(100000.00, EUR),
+                    Money(0.00, EUR),
+                    Money(100000.00, EUR),
+                ),
+            ],
+            margins=[],
+            info={},
+            event_id=UUID4(),
+            ts_event=0,
+            ts_init=0,
+        )
+
+        self.portfolio.update_account(state_usd)
+        self.portfolio.update_account(state_eur)
+
+        # Create positions in both accounts
+        order1 = self.order_factory.market(
+            BTCUSDT_BINANCE.id,
+            OrderSide.BUY,
+            Quantity.from_str("1.0"),
+        )
+        fill1 = TestEventStubs.order_filled(
+            order1,
+            instrument=BTCUSDT_BINANCE,
+            strategy_id=StrategyId("S-1"),
+            account_id=account_id_usd,
+            position_id=PositionId("P-USD"),
+            last_px=Price.from_str("50000.00"),
+        )
+        position1 = Position(instrument=BTCUSDT_BINANCE, fill=fill1)
+        self.cache.add_position(position1, OmsType.HEDGING)
+
+        order2 = self.order_factory.market(
+            BTCUSDT_BINANCE.id,
+            OrderSide.BUY,
+            Quantity.from_str("1.0"),
+        )
+        fill2 = TestEventStubs.order_filled(
+            order2,
+            instrument=BTCUSDT_BINANCE,
+            strategy_id=StrategyId("S-1"),
+            account_id=account_id_eur,
+            position_id=PositionId("P-EUR"),
+            last_px=Price.from_str("50000.00"),
+        )
+        position2 = Position(instrument=BTCUSDT_BINANCE, fill=fill2)
+        self.cache.add_position(position2, OmsType.HEDGING)
+
+        # Act - Aggregate exposure across accounts with different base currencies
+        result = self.portfolio.net_exposure(BTCUSDT_BINANCE.id)
+
+        # Assert - Should return None due to mismatched base currencies
+        assert result is None

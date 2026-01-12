@@ -50,6 +50,7 @@ from nautilus_trader.model.objects import Currency
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
+from nautilus_trader.model.orders import OrderList
 from nautilus_trader.model.position import Position
 from nautilus_trader.persistence.wranglers import QuoteTickDataWrangler
 from nautilus_trader.portfolio.portfolio import Portfolio
@@ -2689,6 +2690,161 @@ class TestCache:
         assert position1 in positions_closed_account1
         assert position2 not in positions_closed_account1
         assert len(positions_closed_account2) == 0
+
+    def test_order_lists_with_account_id_filtering(self):
+        # Arrange
+        account1_id = AccountId("SIM-001")
+        account1 = TestExecStubs.cash_account(account_id=account1_id)
+        self.cache.add_account(account1)
+
+        account2_id = AccountId("SIM-002")
+        account2 = TestExecStubs.cash_account(account_id=account2_id)
+        self.cache.add_account(account2)
+
+        # Create orders for different accounts
+        order1 = self.strategy.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        order1.apply(TestEventStubs.order_submitted(order1, account_id=account1_id))
+
+        order2 = self.strategy.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        order2.apply(TestEventStubs.order_submitted(order2, account_id=account2_id))
+
+        # Create order lists
+        order_list1 = OrderList(
+            order_list_id=OrderListId("OL-001"),
+            orders=[order1],
+        )
+        order_list2 = OrderList(
+            order_list_id=OrderListId("OL-002"),
+            orders=[order2],
+        )
+
+        self.cache.add_order(order1, PositionId("P-1"))
+        self.cache.add_order(order2, PositionId("P-2"))
+        self.cache.add_order_list(order_list1)
+        self.cache.add_order_list(order_list2)
+
+        # Act
+        lists_account1 = self.cache.order_lists(account_id=account1_id)
+        lists_account2 = self.cache.order_lists(account_id=account2_id)
+        all_lists = self.cache.order_lists()
+
+        # Assert
+        assert order_list1 in lists_account1
+        assert order_list2 not in lists_account1
+        assert order_list2 in lists_account2
+        assert order_list1 not in lists_account2
+        assert len(all_lists) == 2
+
+    def test_order_list_ids_with_account_id_filtering(self):
+        # Arrange
+        account1_id = AccountId("SIM-001")
+        account1 = TestExecStubs.cash_account(account_id=account1_id)
+        self.cache.add_account(account1)
+
+        account2_id = AccountId("SIM-002")
+        account2 = TestExecStubs.cash_account(account_id=account2_id)
+        self.cache.add_account(account2)
+
+        order1 = self.strategy.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        order1.apply(TestEventStubs.order_submitted(order1, account_id=account1_id))
+
+        order2 = self.strategy.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        order2.apply(TestEventStubs.order_submitted(order2, account_id=account2_id))
+
+        order_list1 = OrderList(
+            order_list_id=OrderListId("OL-001"),
+            orders=[order1],
+        )
+        order_list2 = OrderList(
+            order_list_id=OrderListId("OL-002"),
+            orders=[order2],
+        )
+
+        self.cache.add_order(order1, PositionId("P-1"))
+        self.cache.add_order(order2, PositionId("P-2"))
+        self.cache.add_order_list(order_list1)
+        self.cache.add_order_list(order_list2)
+
+        # Act
+        list_ids_account1 = self.cache.order_list_ids(account_id=account1_id)
+        list_ids_account2 = self.cache.order_list_ids(account_id=account2_id)
+        all_list_ids = self.cache.order_list_ids()
+
+        # Assert
+        assert order_list1.id in list_ids_account1
+        assert order_list2.id not in list_ids_account1
+        assert order_list2.id in list_ids_account2
+        assert order_list1.id not in list_ids_account2
+        assert len(all_list_ids) == 2
+
+    def test_build_index_with_position_having_none_account_id(self):
+        # Arrange - Create a position and manipulate account_id to be None
+        order = self.strategy.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        position_id = PositionId("P-1")
+        self.cache.add_order(order, position_id)
+
+        fill = TestEventStubs.order_filled(
+            order,
+            instrument=AUDUSD_SIM,
+            position_id=position_id,
+            last_px=Price.from_str("1.00000"),
+        )
+        position = Position(instrument=AUDUSD_SIM, fill=fill)
+        self.cache.add_position(position, OmsType.HEDGING)
+
+        # Act - Build index should not raise even with positions
+        self.cache.build_index()
+
+        # Assert - Index was built successfully
+        assert position_id in self.cache.position_ids()
+
+    def test_build_index_with_position_having_none_strategy_id(self):
+        # Arrange
+        order = self.strategy.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        position_id = PositionId("P-1")
+        self.cache.add_order(order, position_id)
+
+        fill = TestEventStubs.order_filled(
+            order,
+            instrument=AUDUSD_SIM,
+            position_id=position_id,
+            last_px=Price.from_str("1.00000"),
+        )
+        position = Position(instrument=AUDUSD_SIM, fill=fill)
+        self.cache.add_position(position, OmsType.HEDGING)
+
+        # Clear and rebuild index
+        self.cache.clear_index()
+
+        # Act - Should not raise
+        self.cache.build_index()
+
+        # Assert
+        assert position_id in self.cache.position_ids()
 
 
 class TestExecutionCacheIntegrityCheck:

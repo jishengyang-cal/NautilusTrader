@@ -1314,16 +1314,12 @@ cdef class Cache(CacheFacade):
             self._index_instrument_positions[position.instrument_id].add(position_id)
 
             # 5: Build _index_strategy_positions -> {StrategyId, {PositionId}}
-            if position.strategy_id is not None and position.strategy_id not in self._index_strategy_positions:
-                self._index_strategy_positions[position.strategy_id] = set()
-
-            self._index_strategy_positions[position.strategy_id].add(position.id)
+            if position.strategy_id is not None:
+                self._index_strategy_positions.setdefault(position.strategy_id, set()).add(position.id)
 
             # 6: Build _index_account_positions -> {AccountId, {PositionId}}
-            if position.account_id is not None and position.account_id not in self._index_account_positions:
-                    self._index_account_positions[position.account_id] = set()
-
-            self._index_account_positions[position.account_id].add(position_id)
+            if position.account_id is not None:
+                self._index_account_positions.setdefault(position.account_id, set()).add(position_id)
 
             # 7: Build _index_positions -> {PositionId}
             self._index_positions.add(position_id)
@@ -4877,7 +4873,7 @@ cdef class Cache(CacheFacade):
             order_lists = [ol for ol in order_lists if ol.strategy_id == strategy_id]
 
         if account_id is not None:
-            order_lists = [ol for ol in order_lists if account_id in ol.first.account_id == account_id]
+            order_lists = [ol for ol in order_lists if ol.first.account_id == account_id]
 
         return order_lists
 

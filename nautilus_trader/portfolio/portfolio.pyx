@@ -1395,6 +1395,7 @@ cdef class Portfolio(PortfolioFacade):
             Account account = None
             AccountId prev_account_id = None
             AccountId current_account_id
+            Currency first_base_currency = None
         for position in positions_open:
             # Get account for this position if account_id changed
             current_account_id = position.account_id
@@ -1404,6 +1405,18 @@ cdef class Portfolio(PortfolioFacade):
                     self._log.error(
                         f"Cannot calculate net exposure: "
                         f"no account registered for {current_account_id}",
+                    )
+                    return None
+
+                # Validate consistent base currency across accounts
+                if first_base_currency is None:
+                    first_base_currency = account.base_currency
+                elif account.base_currency is not None and account.base_currency != first_base_currency:
+                    self._log.error(
+                        f"Cannot calculate net exposure: "
+                        f"accounts have different base currencies "
+                        f"({first_base_currency} vs {account.base_currency}); "
+                        f"multi-account aggregation requires consistent base currencies",
                     )
                     return None
 
@@ -1622,14 +1635,12 @@ cdef class Portfolio(PortfolioFacade):
         for position in positions_open:
             account_id = position.account_id
             accounts_with_positions.add(account_id)
-            if account_id not in net_positions_by_account:
-                net_positions_by_account[account_id] = Decimal(0)
-
-            net_positions_by_account[account_id] += position.signed_decimal_qty()
+            net_positions_by_account[account_id] = (
+                net_positions_by_account.get(account_id, Decimal(0)) + position.signed_decimal_qty()
+            )
 
         # Ensure instrument entry exists
-        if instrument_id not in self._net_positions:
-            self._net_positions[instrument_id] = {}
+        self._net_positions.setdefault(instrument_id, {})
 
         # Update cache for each account with positions
         for account_id, net_position in net_positions_by_account.items():
@@ -1743,10 +1754,7 @@ cdef class Portfolio(PortfolioFacade):
         for item in items:
             account_id = item.account_id
             if account_id is not None:
-                if account_id not in result:
-                    result[account_id] = []
-
-                result[account_id].append(item)
+                result.setdefault(account_id, []).append(item)
 
         return result
 
@@ -1891,9 +1899,7 @@ cdef class Portfolio(PortfolioFacade):
             pnl = self._calculate_unrealized_pnl(instrument_id, price=None, account_id=account_id)
 
         if pnl is not None:
-            if instrument_id not in pnl_cache:
-                pnl_cache[instrument_id] = {}
-            pnl_cache[instrument_id][account_id] = pnl
+            pnl_cache.setdefault(instrument_id, {})[account_id] = pnl
 
         return pnl
 
