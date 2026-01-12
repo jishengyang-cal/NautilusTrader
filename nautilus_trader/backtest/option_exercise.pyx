@@ -127,13 +127,12 @@ cdef class OptionExerciseModule(SimulationModule):
             return
 
         # Check if this is an option position
-        instrument = self.exchange.cache.instrument(event.instrument_id)
-
+        cdef Instrument instrument = self.exchange.cache.instrument(event.instrument_id)
         if not isinstance(instrument, (OptionContract, CryptoOption)):
-            self._log.warning(f"Instrument {instrument.id} is not an option")
+            self._log.debug(f"Instrument {instrument.id} is not an option")
             return
 
-        expiry_ns = instrument.expiration_ns
+        cdef uint64_t expiry_ns = instrument.expiration_ns
 
         # Handle different position event types
         if isinstance(event, PositionOpened):
@@ -160,7 +159,7 @@ cdef class OptionExerciseModule(SimulationModule):
             return
 
         # Check if any option positions exist for this expiry
-        has_positions = False
+        cdef bint has_positions = False
 
         if self.exchange and self.exchange.cache:
             positions = self.exchange.cache.positions_open()
@@ -193,7 +192,7 @@ cdef class OptionExerciseModule(SimulationModule):
             self._log.warning(f"Failed to process expiring options at {event.ts_event}: exchange not available or exercise is disabled")
             return
 
-        expiry_ns = event.ts_event
+        cdef uint64_t expiry_ns = event.ts_event
 
         # Skip if already processed
         if expiry_ns in self.processed_expiries:
@@ -213,7 +212,7 @@ cdef class OptionExerciseModule(SimulationModule):
             return
 
         # Find options expiring at this timestamp
-        expiring_options = []
+        cdef list[Instrument] expiring_options = []
 
         for instrument in self.exchange.cache.instruments():
             if isinstance(instrument, (OptionContract, CryptoOption)):
@@ -237,8 +236,7 @@ cdef class OptionExerciseModule(SimulationModule):
             return
 
         # Get option positions
-        positions = self.exchange.cache.positions_open(venue=None, instrument_id=option.id)
-
+        cdef list[Position] positions = self.exchange.cache.positions_open(venue=None, instrument_id=option.id)
         if not positions:
             self._log.warning(f"No positions found for {option.id}")
             return
