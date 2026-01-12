@@ -108,7 +108,7 @@ impl OrderManager {
     /// Caches a submit order command for later processing.
     pub fn cache_submit_order_command(&mut self, command: SubmitOrder) {
         self.submit_order_commands
-            .insert(command.order.client_order_id(), command);
+            .insert(command.client_order_id, command);
     }
 
     /// Removes and returns a cached submit order command.
@@ -162,12 +162,17 @@ impl OrderManager {
         position_id: Option<PositionId>,
         client_id: Option<ClientId>,
     ) -> anyhow::Result<()> {
+        self.cache
+            .borrow_mut()
+            .add_order(order.clone(), position_id, client_id, true)?;
+
         let submit = SubmitOrder::new(
             order.trader_id(),
             client_id,
             order.strategy_id(),
             order.instrument_id(),
-            order.clone(),
+            order.client_order_id(),
+            order.init_event().clone(),
             order.exec_algorithm_id(),
             position_id,
             None, // params

@@ -114,12 +114,19 @@ fn test_deny_order_on_price_precision_exceeded(
         .quantity(Quantity::from("1000"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -184,12 +191,19 @@ fn test_deny_order_exceeding_max_notional(
         .quantity(Quantity::from("100"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -262,6 +276,7 @@ fn market_order_sell(instrument_eth_usdt: InstrumentAny) -> OrderAny {
 }
 
 #[fixture]
+#[allow(dead_code)]
 fn get_stub_submit_order(
     trader_id: TraderId,
     client_id_binance: ClientId,
@@ -269,19 +284,22 @@ fn get_stub_submit_order(
     _client_order_id: ClientOrderId,
     _venue_order_id: VenueOrderId,
     instrument_eth_usdt: InstrumentAny,
-) -> SubmitOrder {
-    SubmitOrder::new(
+) -> (OrderAny, SubmitOrder) {
+    let order = market_order_buy(instrument_eth_usdt.clone());
+    let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_eth_usdt.id(),
-        market_order_buy(instrument_eth_usdt),
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
         UUID4::new(),
         UnixNanos::from(10),
-    )
+    );
+    (order, submit_order)
 }
 
 #[fixture]
@@ -602,12 +620,19 @@ fn test_given_random_command_then_logs_and_continues(
         .quantity(Quantity::from("1000"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -665,12 +690,19 @@ fn test_submit_order_with_default_settings_then_sends_to_client(
         .quantity(Quantity::from("1000"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -717,12 +749,19 @@ fn test_submit_order_when_risk_bypassed_sends_to_execution_engine(
         .quantity(Quantity::from("1000"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -789,12 +828,19 @@ fn test_submit_reduce_only_order_when_position_already_closed_then_denies(
         .reduce_only(true)
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order1.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order1 = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order1.clone(),
+        order1.client_order_id(),
+        order1.init_event().clone(),
         None,
         None,
         None, // params
@@ -833,7 +879,8 @@ fn test_submit_reduce_only_order_when_position_already_closed_then_denies(
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order2.clone(),
+        order2.client_order_id(),
+        order2.init_event().clone(),
         None,
         None,
         None, // params
@@ -863,7 +910,8 @@ fn test_submit_reduce_only_order_when_position_already_closed_then_denies(
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order3,
+        order3.client_order_id(),
+        order3.init_event().clone(),
         None,
         None,
         None, // params
@@ -928,12 +976,19 @@ fn test_submit_reduce_only_order_when_position_would_be_increased_then_denies(
         .reduce_only(true)
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order1.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order1 = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order1.clone(),
+        order1.client_order_id(),
+        order1.init_event().clone(),
         None,
         None,
         None, // params
@@ -972,7 +1027,8 @@ fn test_submit_reduce_only_order_when_position_would_be_increased_then_denies(
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order2.clone(),
+        order2.client_order_id(),
+        order2.init_event().clone(),
         None,
         None,
         None, // params
@@ -1056,12 +1112,19 @@ fn test_submit_order_reduce_only_order_with_custom_position_id_not_open_then_den
         .reduce_only(true)
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         Some(PositionId::new("CUSTOM-001")), // <-- Custom position ID
         None,                                // params
@@ -1119,12 +1182,19 @@ fn test_submit_order_when_instrument_not_in_cache_then_denies(
         .quantity(Quantity::from("1000"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1186,12 +1256,19 @@ fn test_submit_order_when_invalid_price_precision_then_denies(
         .quantity(Quantity::from("1000"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1257,12 +1334,19 @@ fn test_submit_order_when_invalid_negative_price_and_not_option_then_denies(
         .quantity(Quantity::from("1000"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1321,12 +1405,19 @@ fn test_submit_order_when_negative_price_for_futures_spread_then_allows(
         .quantity(Quantity::from("1"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_futures_spread.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1380,12 +1471,19 @@ fn test_submit_order_when_negative_price_for_option_spread_then_allows(
         .quantity(Quantity::from("1"))
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_option_spread.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1443,12 +1541,19 @@ fn test_submit_order_when_invalid_trigger_price_then_denies(
         .trigger_price(Price::from_raw(1_000_000_000_000_000, FIXED_PRECISION)) // <- Invalid price
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1511,12 +1616,19 @@ fn test_submit_order_when_invalid_quantity_precision_then_denies(
         .quantity(Quantity::from_str("0.1").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1577,12 +1689,19 @@ fn test_submit_order_when_invalid_quantity_exceeds_maximum_then_denies(
         .quantity(Quantity::from_str("100000000").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1643,12 +1762,19 @@ fn test_submit_order_when_invalid_quantity_less_than_minimum_then_denies(
         .quantity(Quantity::from_str("1").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1712,12 +1838,19 @@ fn test_submit_order_when_market_order_and_no_market_then_logs_warning(
         .quantity(Quantity::from_str("100").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1789,12 +1922,19 @@ fn test_submit_order_when_less_than_min_notional_for_instrument_then_denies(
         .quantity(Quantity::from_str("0.9").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_xbtusd_with_high_size_precision.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1872,12 +2012,19 @@ fn test_submit_order_when_greater_than_max_notional_for_instrument_then_denies(
         .quantity(Quantity::from_str("10000001").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_xbtusd_bitmex.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -1952,12 +2099,19 @@ fn test_submit_order_when_buy_market_order_and_over_max_notional_then_denies(
         .quantity(Quantity::from_str("1000000").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -2032,12 +2186,19 @@ fn test_submit_order_when_sell_market_order_and_over_max_notional_then_denies(
         .quantity(Quantity::from_str("1000000").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -2100,12 +2261,19 @@ fn test_submit_order_when_market_order_and_over_free_balance_then_denies(
         .quantity(Quantity::from_str("100000").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -2171,12 +2339,19 @@ fn test_submit_order_when_market_order_over_free_balance_with_borrowing_enabled_
         .quantity(Quantity::from_str("100000").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -2391,12 +2566,19 @@ fn test_submit_order_when_trading_halted_then_denies_order(
         .quantity(Quantity::from_str("100").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         order.instrument_id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -2448,19 +2630,27 @@ fn test_submit_order_beyond_rate_limit_then_denies_order(
 
     let mut risk_engine =
         get_risk_engine(Some(Rc::new(RefCell::new(simple_cache))), None, None, false);
-    for _i in 0..11 {
+    for i in 0..11 {
         let order = OrderTestBuilder::new(OrderType::Market)
             .instrument_id(instrument_audusd.id())
+            .client_order_id(ClientOrderId::new(format!("O-{i}")))
             .side(OrderSide::Buy)
             .quantity(Quantity::from_str("100").unwrap())
             .build();
+
+        risk_engine
+            .cache()
+            .borrow_mut()
+            .add_order(order.clone(), None, Some(client_id_binance), false)
+            .unwrap();
 
         let submit_order = SubmitOrder::new(
             trader_id,
             Some(client_id_binance),
             strategy_id_ema_cross,
             order.instrument_id(),
-            order.clone(),
+            order.client_order_id(),
+            order.init_event().clone(),
             None,
             None,
             None, // params
@@ -2632,12 +2822,19 @@ fn test_submit_order_list_buys_when_trading_reducing_then_denies_orders(
         .quantity(Quantity::from_str("100").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(long.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_xbtusd_bitmex.id(),
-        long,
+        long.client_order_id(),
+        long.init_event().clone(),
         None,
         None,
         None, // params
@@ -2760,12 +2957,19 @@ fn test_submit_order_list_sells_when_trading_reducing_then_denies_orders(
         .quantity(Quantity::from_str("100").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(short.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_xbtusd_bitmex.id(),
-        short,
+        short.client_order_id(),
+        short.init_event().clone(),
         None,
         None,
         None, // params
@@ -3106,7 +3310,8 @@ fn test_modify_order_with_default_settings_then_sends_to_client(
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -3191,12 +3396,19 @@ fn test_submit_order_when_market_order_and_over_free_balance_then_denies_with_be
         .quantity(Quantity::from_str("100000").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_audusd.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -3262,12 +3474,19 @@ fn test_submit_order_for_less_than_max_cum_transaction_value_adausdt_with_crypto
         .quantity(Quantity::from_str("440").unwrap())
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_xbtusd_bitmex.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -3361,12 +3580,19 @@ fn test_submit_order_with_gtd_expire_time_already_passed(
         .expire_time(UnixNanos::from(1_000)) // <-- Set expire time in the past
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         instrument_xbtusd_bitmex.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -3471,12 +3697,19 @@ fn test_submit_order_with_quote_quantity_validates_correctly(
         .quote_quantity(true)
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         btc_usdt.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params
@@ -3590,12 +3823,19 @@ fn test_submit_order_with_quote_quantity_exceeds_max_after_conversion(
         .quote_quantity(true)
         .build();
 
+    risk_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(client_id_binance), false)
+        .unwrap();
+
     let submit_order = SubmitOrder::new(
         trader_id,
         Some(client_id_binance),
         strategy_id_ema_cross,
         btc_usdt.id(),
-        order,
+        order.client_order_id(),
+        order.init_event().clone(),
         None,
         None,
         None, // params

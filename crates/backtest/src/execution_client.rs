@@ -163,7 +163,7 @@ impl ExecutionClient for BacktestExecutionClient {
         self.core.generate_order_submitted(
             cmd.strategy_id,
             cmd.instrument_id,
-            cmd.client_order_id(),
+            cmd.client_order_id,
             self.clock.borrow().timestamp_ns(),
         );
 

@@ -51,7 +51,7 @@ use nautilus_model::{
     enums::{AccountType, OmsType, OrderSide, TimeInForce},
     events::{AccountState, OrderEventAny},
     identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, TraderId, Venue},
-    orders::{LimitOrder, OrderAny},
+    orders::{LimitOrder, Order, OrderAny},
     types::{AccountBalance, Money, Price, Quantity},
 };
 use nautilus_network::http::HttpClient;
@@ -697,12 +697,21 @@ async fn test_submit_order_generates_submitted_and_accepted_events() {
         UnixNanos::default(),
     );
 
+    let order_any = OrderAny::Limit(order);
+
+    // SubmitOrder references by ID, so order must be in cache first
+    cache
+        .borrow_mut()
+        .add_order(order_any.clone(), None, None, false)
+        .unwrap();
+
     let submit_cmd = SubmitOrder::new(
         trader_id,
         Some(ClientId::from("BINANCE")),
         strategy_id,
         instrument_id,
-        OrderAny::Limit(order),
+        order_any.client_order_id(),
+        order_any.init_event().clone(),
         None, // exec_algorithm_id
         None, // position_id
         None, // params

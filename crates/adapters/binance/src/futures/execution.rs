@@ -260,8 +260,9 @@ impl BinanceFuturesExecutionClient {
     }
 
     fn submit_order_internal(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = cmd.order.clone();
         let http_client = self.http_client.clone();
+
+        let order = self.core.get_order(&cmd.client_order_id)?;
         let exec_event_sender = self.exec_event_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
@@ -753,7 +754,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
     }
 
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = &cmd.order;
+        let order = self.core.get_order(&cmd.client_order_id)?;
 
         if order.is_closed() {
             let client_order_id = order.client_order_id();

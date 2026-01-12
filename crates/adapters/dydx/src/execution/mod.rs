@@ -565,7 +565,7 @@ impl ExecutionClient for DydxExecutionClient {
     /// Validates synchronously, generates OrderSubmitted event, then spawns async task for
     /// gRPC submission to avoid blocking. Unsupported order types generate OrderRejected.
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = cmd.order.clone();
+        let order = self.core.get_order(&cmd.client_order_id)?;
 
         // Check connection status
         if !self.is_connected() {

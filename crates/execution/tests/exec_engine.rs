@@ -314,11 +314,18 @@ fn test_submit_order_with_duplicate_client_order_id_handles_gracefully(
         .quantity(Quantity::from(100_000))
         .build();
 
+    execution_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
+        .unwrap();
+
     let submit_order = SubmitOrder {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -388,12 +395,25 @@ fn test_submit_order_for_random_venue_logs(mut execution_engine: ExecutionEngine
         .side(OrderSide::Buy)
         .quantity(Quantity::from(10))
         .build();
+
+    execution_engine
+        .cache()
+        .borrow_mut()
+        .add_order(
+            order.clone(),
+            None,
+            Some(ClientId::from("RANDOM_VENUE")),
+            true,
+        )
+        .unwrap();
+
     // This will test the scenario where no specific routing exists
     let submit_order = SubmitOrder {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("RANDOM_VENUE")), // No client registered with this ID
@@ -664,12 +684,20 @@ fn test_submit_order_successfully_processes_and_caches_order(
         .instrument_id(instrument.id)
         .quantity(Quantity::from(100_000))
         .build();
+
+    execution_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
+        .unwrap();
+
     let submit_order = SubmitOrder {
         trader_id,
         strategy_id,
         position_id: None,
         params: None,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         command_id: UUID4::new(),
         ts_init: UnixNanos::default(),
         client_id: Some(ClientId::from("STUB")),
@@ -748,12 +776,20 @@ fn test_submit_order_with_cleared_cache_logs_error(mut execution_engine: Executi
         .side(OrderSide::Buy)
         .quantity(Quantity::from(100_000))
         .build();
+
+    execution_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
+        .unwrap();
+
     let submit_order = SubmitOrder {
         trader_id,
         client_id: Some(ClientId::from("STUB")),
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         exec_algorithm_id: None,
         position_id: None,
         params: None,
@@ -831,12 +867,20 @@ fn test_when_applying_event_to_order_with_invalid_state_trigger_logs(
         .side(OrderSide::Buy)
         .quantity(Quantity::from(100_000))
         .build();
+
+    execution_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(ClientId::from("STUB")), true)
+        .unwrap();
+
     let submit_order = SubmitOrder {
         trader_id,
         client_id: Some(ClientId::from("STUB")),
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         exec_algorithm_id: None,
         position_id: None,
         params: None,
@@ -971,12 +1015,20 @@ fn test_cancel_order_for_already_closed_order_logs_and_does_nothing(
         .side(OrderSide::Buy)
         .quantity(Quantity::from(100_000))
         .build();
+
+    execution_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(ClientId::from("STUB")), false)
+        .unwrap();
+
     let submit_order = SubmitOrder {
         trader_id,
         client_id: Some(ClientId::from("STUB")),
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         exec_algorithm_id: None,
         position_id: None,
         params: None,
@@ -4082,11 +4134,19 @@ fn test_submit_order_with_quote_quantity_and_no_prices_denies(
     execution_engine
         .register_client(Box::new(stub_client))
         .unwrap();
+
+    execution_engine
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, Some(ClientId::from("STUB")), false)
+        .unwrap();
+
     let submit_order = SubmitOrder {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -4382,7 +4442,8 @@ fn test_submit_order_with_quote_quantity_and_quote_tick_converts_to_base_quantit
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -4518,7 +4579,8 @@ fn test_submit_order_with_quote_quantity_and_trade_ticks_converts_to_base_quanti
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -4875,7 +4937,8 @@ fn test_submit_market_should_not_add_to_own_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -4953,7 +5016,8 @@ fn test_submit_ioc_fok_should_not_add_to_own_book(#[case] time_in_force: TimeInF
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5028,7 +5092,8 @@ fn test_submit_order_adds_to_own_book_bid() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5174,7 +5239,8 @@ fn test_submit_order_adds_to_own_book_ask() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5336,7 +5402,8 @@ fn test_cancel_order_removes_from_own_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_bid.clone(),
+        client_order_id: order_bid.client_order_id(),
+        order_init: order_bid.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5349,7 +5416,8 @@ fn test_cancel_order_removes_from_own_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_ask.clone(),
+        client_order_id: order_ask.client_order_id(),
+        order_init: order_ask.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5498,7 +5566,8 @@ fn test_own_book_status_filtering() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_bid.clone(),
+        client_order_id: order_bid.client_order_id(),
+        order_init: order_bid.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5511,7 +5580,8 @@ fn test_own_book_status_filtering() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_ask.clone(),
+        client_order_id: order_ask.client_order_id(),
+        order_init: order_ask.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5698,7 +5768,8 @@ fn test_filled_order_removes_from_own_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_bid.clone(),
+        client_order_id: order_bid.client_order_id(),
+        order_init: order_bid.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5711,7 +5782,8 @@ fn test_filled_order_removes_from_own_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_ask.clone(),
+        client_order_id: order_ask.client_order_id(),
+        order_init: order_ask.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5896,7 +5968,8 @@ fn test_order_updates_in_own_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_bid.clone(),
+        client_order_id: order_bid.client_order_id(),
+        order_init: order_bid.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -5909,7 +5982,8 @@ fn test_order_updates_in_own_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order_ask.clone(),
+        client_order_id: order_ask.client_order_id(),
+        order_init: order_ask.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6116,7 +6190,8 @@ fn test_position_flip_with_own_order_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: buy_order.clone(),
+        client_order_id: buy_order.client_order_id(),
+        order_init: buy_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6206,7 +6281,8 @@ fn test_position_flip_with_own_order_book() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: sell_order.clone(),
+        client_order_id: sell_order.client_order_id(),
+        order_init: sell_order.init_event().clone(),
         position_id: Some(position_id),
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6370,7 +6446,8 @@ fn test_own_book_with_crossed_orders() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: buy_order.clone(),
+        client_order_id: buy_order.client_order_id(),
+        order_init: buy_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6383,7 +6460,8 @@ fn test_own_book_with_crossed_orders() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: sell_order.clone(),
+        client_order_id: sell_order.client_order_id(),
+        order_init: sell_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6524,7 +6602,8 @@ fn test_own_book_with_contingent_orders() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: entry_order.clone(),
+        client_order_id: entry_order.client_order_id(),
+        order_init: entry_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6537,7 +6616,8 @@ fn test_own_book_with_contingent_orders() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: tp_order.clone(),
+        client_order_id: tp_order.client_order_id(),
+        order_init: tp_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6550,7 +6630,8 @@ fn test_own_book_with_contingent_orders() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: sl_order.clone(),
+        client_order_id: sl_order.client_order_id(),
+        order_init: sl_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -6779,7 +6860,8 @@ fn test_own_book_order_status_filtering_parameterized(
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: order.clone(),
+        client_order_id: order.client_order_id(),
+        order_init: order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -7019,7 +7101,8 @@ fn test_own_book_combined_status_filtering() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: initialized_order,
+        client_order_id: initialized_order.client_order_id(),
+        order_init: initialized_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -7034,7 +7117,8 @@ fn test_own_book_combined_status_filtering() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: submitted_order.clone(),
+        client_order_id: submitted_order.client_order_id(),
+        order_init: submitted_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -7051,7 +7135,8 @@ fn test_own_book_combined_status_filtering() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: accepted_order.clone(),
+        client_order_id: accepted_order.client_order_id(),
+        order_init: accepted_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -7071,7 +7156,8 @@ fn test_own_book_combined_status_filtering() {
         trader_id,
         strategy_id,
         instrument_id: instrument.id,
-        order: partially_filled_order.clone(),
+        client_order_id: partially_filled_order.client_order_id(),
+        order_init: partially_filled_order.init_event().clone(),
         position_id: None,
         params: None,
         client_id: Some(ClientId::from("STUB")),
@@ -7247,7 +7333,8 @@ fn test_own_book_status_integrity_during_transitions() {
             trader_id,
             strategy_id,
             instrument_id: instrument.id,
-            order: order.clone(),
+            client_order_id: order.client_order_id(),
+            order_init: order.init_event().clone(),
             position_id: None,
             params: None,
             client_id: Some(ClientId::from("STUB")),

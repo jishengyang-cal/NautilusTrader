@@ -425,14 +425,14 @@ impl ExecutionClient for HyperliquidExecutionClient {
     }
 
     fn submit_order(&self, command: &SubmitOrder) -> anyhow::Result<()> {
-        let order = &command.order;
+        let order = self.core.get_order(&command.client_order_id)?;
 
         if order.is_closed() {
             log::warn!("Cannot submit closed order {}", order.client_order_id());
             return Ok(());
         }
 
-        if let Err(e) = self.validate_order_submission(order) {
+        if let Err(e) = self.validate_order_submission(&order) {
             self.core.generate_order_rejected(
                 order.strategy_id(),
                 order.instrument_id(),
@@ -452,10 +452,9 @@ impl ExecutionClient for HyperliquidExecutionClient {
         );
 
         let http_client = self.http_client.clone();
-        let order_clone = order.clone();
 
         self.spawn_task("submit_order", async move {
-            match order_any_to_hyperliquid_request(&order_clone) {
+            match order_any_to_hyperliquid_request(&order) {
                 Ok(hyperliquid_order) => {
                     // Create exchange action for order placement with typed struct
                     let action = ExchangeAction::order(vec![hyperliquid_order]);

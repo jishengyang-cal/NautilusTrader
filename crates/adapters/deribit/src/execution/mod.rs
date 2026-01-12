@@ -678,7 +678,8 @@ impl ExecutionClient for DeribitExecutionClient {
     }
 
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        self.submit_single_order(&cmd.order, cmd.ts_init, "submit_order")
+        let order = self.core.get_order(&cmd.client_order_id)?;
+        self.submit_single_order(&order, cmd.ts_init, "submit_order")
     }
 
     fn submit_order_list(&self, cmd: &SubmitOrderList) -> anyhow::Result<()> {
@@ -718,10 +719,7 @@ impl ExecutionClient for DeribitExecutionClient {
             qty
         } else {
             // Get order from cache to use its current quantity
-            let cache = self.core.cache().borrow();
-            let order = cache
-                .order(&cmd.client_order_id)
-                .ok_or_else(|| anyhow::anyhow!("Order not found in cache for modify_order"))?;
+            let order = self.core.get_order(&cmd.client_order_id)?;
             order.quantity()
         };
 

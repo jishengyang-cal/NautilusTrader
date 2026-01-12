@@ -2611,7 +2611,7 @@ fn test_process_market_to_limit_orders_not_fully_filled(
     let resting_orders = engine_l2.core.get_orders();
     assert_eq!(resting_orders.len(), 1);
     let first_order = resting_orders.first().unwrap();
-    assert_eq!(first_order.client_order_id(), client_order_id);
+    assert_eq!(first_order.client_order_id, client_order_id);
 }
 
 #[rstest]
@@ -3769,7 +3769,7 @@ fn test_stop_limit_triggered_not_filled_single_accept(
     let orders = engine_l2.core.get_orders();
     let matching_order_count = orders
         .iter()
-        .filter(|o| o.client_order_id() == client_order_id)
+        .filter(|o| o.client_order_id == client_order_id)
         .count();
     assert_eq!(
         matching_order_count, 1,
@@ -3824,7 +3824,7 @@ fn test_modify_limit_order_price_persists_to_core(
 
     // Verify order is in core at original price
     let order_in_core = engine_l2.core.get_order(client_order_id).unwrap();
-    assert_eq!(order_in_core.price(), Some(Price::from("1490.00")));
+    assert_eq!(order_in_core.limit_price, Some(Price::from("1490.00")));
 
     clear_order_event_handler_messages(order_event_handler);
 
@@ -3849,7 +3849,7 @@ fn test_modify_limit_order_price_persists_to_core(
     // Verify: order in core should have new price
     let order_in_core = engine_l2.core.get_order(client_order_id).unwrap();
     assert_eq!(
-        order_in_core.price(),
+        order_in_core.limit_price,
         Some(Price::from("1495.00")),
         "Modified price should persist to core"
     );
@@ -3934,7 +3934,7 @@ fn test_rejected_modify_does_not_change_book_priority(
     // Verify: order should still be in core with original price
     let order_in_core = engine_l2.core.get_order(client_order_id).unwrap();
     assert_eq!(
-        order_in_core.price(),
+        order_in_core.limit_price,
         Some(Price::from("1490.00")),
         "Order price should be unchanged after rejected modify"
     );

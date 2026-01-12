@@ -35,6 +35,7 @@ use nautilus_core::{
     correctness::{FAILED, check_equal},
 };
 use nautilus_execution::{
+    matching_core::OrderMatchInfo,
     matching_engine::{config::OrderMatchingEngineConfig, engine::OrderMatchingEngine},
     models::{fee::FeeModelAny, fill::FillModel, latency::LatencyModel},
 };
@@ -48,7 +49,6 @@ use nautilus_model::{
     identifiers::{InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
     orderbook::OrderBook,
-    orders::PassiveOrderAny,
     types::{AccountBalance, Currency, Money, Price},
 };
 use rust_decimal::Decimal;
@@ -368,7 +368,7 @@ impl SimulatedExchange {
     }
 
     #[must_use]
-    pub fn get_open_orders(&self, instrument_id: Option<InstrumentId>) -> Vec<PassiveOrderAny> {
+    pub fn get_open_orders(&self, instrument_id: Option<InstrumentId>) -> Vec<OrderMatchInfo> {
         instrument_id
             .and_then(|id| {
                 self.matching_engines
@@ -384,7 +384,7 @@ impl SimulatedExchange {
     }
 
     #[must_use]
-    pub fn get_open_bid_orders(&self, instrument_id: Option<InstrumentId>) -> Vec<PassiveOrderAny> {
+    pub fn get_open_bid_orders(&self, instrument_id: Option<InstrumentId>) -> Vec<OrderMatchInfo> {
         instrument_id
             .and_then(|id| {
                 self.matching_engines
@@ -400,7 +400,7 @@ impl SimulatedExchange {
     }
 
     #[must_use]
-    pub fn get_open_ask_orders(&self, instrument_id: Option<InstrumentId>) -> Vec<PassiveOrderAny> {
+    pub fn get_open_ask_orders(&self, instrument_id: Option<InstrumentId>) -> Vec<OrderMatchInfo> {
         instrument_id
             .and_then(|id| {
                 self.matching_engines
@@ -423,6 +423,12 @@ impl SimulatedExchange {
         self.exec_client
             .as_ref()
             .map(|client| client.get_account().unwrap())
+    }
+
+    /// Returns a reference to the cache.
+    #[must_use]
+    pub fn cache(&self) -> &Rc<RefCell<Cache>> {
+        &self.cache
     }
 
     /// # Panics
@@ -750,8 +756,14 @@ impl SimulatedExchange {
                 panic!("Execution client should be initialized");
             };
             match command {
-                TradingCommand::SubmitOrder(mut command) => {
-                    matching_engine.process_order(&mut command.order, account_id);
+                TradingCommand::SubmitOrder(command) => {
+                    let mut order = self
+                        .cache
+                        .borrow()
+                        .order(&command.client_order_id)
+                        .cloned()
+                        .expect("Order must exist in cache");
+                    matching_engine.process_order(&mut order, account_id);
                 }
                 TradingCommand::ModifyOrder(ref command) => {
                     matching_engine.process_modify(command, account_id);
@@ -839,9 +851,11 @@ mod tests {
             OmsType, OrderSide, OrderType,
         },
         events::AccountState,
-        identifiers::{AccountId, InstrumentId, StrategyId, TradeId, TraderId, Venue},
+        identifiers::{
+            AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, Venue,
+        },
         instruments::{CryptoPerpetual, InstrumentAny, stubs::crypto_perpetual_ethusdt},
-        orders::OrderTestBuilder,
+        orders::{Order, OrderAny, OrderTestBuilder},
         stubs::TestDefault,
         types::{AccountBalance, Currency, Money, Price, Quantity},
     };
@@ -911,24 +925,30 @@ mod tests {
         exchange
     }
 
-    fn create_submit_order_command(ts_init: UnixNanos) -> TradingCommand {
+    fn create_submit_order_command(
+        ts_init: UnixNanos,
+        client_order_id: &str,
+    ) -> (OrderAny, TradingCommand) {
         let instrument_id = InstrumentId::from("ETHUSDT-PERP.BINANCE");
         let order = OrderTestBuilder::new(OrderType::Market)
             .instrument_id(instrument_id)
+            .client_order_id(ClientOrderId::new(client_order_id))
             .quantity(Quantity::from(1))
             .build();
-        TradingCommand::SubmitOrder(SubmitOrder::new(
+        let command = TradingCommand::SubmitOrder(SubmitOrder::new(
             TraderId::test_default(),
             None,
             StrategyId::test_default(),
             instrument_id,
-            order,
+            order.client_order_id(),
+            order.init_event().clone(),
             None,
             None,
             None, // params
             UUID4::default(),
             ts_init,
-        ))
+        ));
+        (order, command)
     }
 
     #[rstest]
@@ -1356,21 +1376,13 @@ mod tests {
     #[rstest]
     fn test_inflight_commands_binary_heap_ordering_respecting_timestamp_counter() {
         // Create 3 inflight commands with different timestamps and counters
-        let inflight1 = InflightCommand::new(
-            UnixNanos::from(100),
-            1,
-            create_submit_order_command(UnixNanos::from(100)),
-        );
-        let inflight2 = InflightCommand::new(
-            UnixNanos::from(200),
-            2,
-            create_submit_order_command(UnixNanos::from(200)),
-        );
-        let inflight3 = InflightCommand::new(
-            UnixNanos::from(100),
-            2,
-            create_submit_order_command(UnixNanos::from(100)),
-        );
+        let (_, cmd1) = create_submit_order_command(UnixNanos::from(100), "O-1");
+        let (_, cmd2) = create_submit_order_command(UnixNanos::from(200), "O-2");
+        let (_, cmd3) = create_submit_order_command(UnixNanos::from(100), "O-3");
+
+        let inflight1 = InflightCommand::new(UnixNanos::from(100), 1, cmd1);
+        let inflight2 = InflightCommand::new(UnixNanos::from(200), 2, cmd2);
+        let inflight3 = InflightCommand::new(UnixNanos::from(100), 2, cmd3);
 
         // Create a binary heap and push the inflight commands
         let mut inflight_heap = BinaryHeap::new();
@@ -1404,8 +1416,21 @@ mod tests {
         let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
         exchange.borrow_mut().add_instrument(instrument).unwrap();
 
-        let command1 = create_submit_order_command(UnixNanos::from(100));
-        let command2 = create_submit_order_command(UnixNanos::from(200));
+        let (order1, command1) = create_submit_order_command(UnixNanos::from(100), "O-1");
+        let (order2, command2) = create_submit_order_command(UnixNanos::from(200), "O-2");
+
+        exchange
+            .borrow()
+            .cache()
+            .borrow_mut()
+            .add_order(order1, None, None, false)
+            .unwrap();
+        exchange
+            .borrow()
+            .cache()
+            .borrow_mut()
+            .add_order(order2, None, None, false)
+            .unwrap();
 
         exchange.borrow_mut().send(command1);
         exchange.borrow_mut().send(command2);
@@ -1444,8 +1469,22 @@ mod tests {
         let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
         exchange.borrow_mut().add_instrument(instrument).unwrap();
 
-        let command1 = create_submit_order_command(UnixNanos::from(100));
-        let command2 = create_submit_order_command(UnixNanos::from(150));
+        let (order1, command1) = create_submit_order_command(UnixNanos::from(100), "O-1");
+        let (order2, command2) = create_submit_order_command(UnixNanos::from(150), "O-2");
+
+        exchange
+            .borrow()
+            .cache()
+            .borrow_mut()
+            .add_order(order1, None, None, false)
+            .unwrap();
+        exchange
+            .borrow()
+            .cache()
+            .borrow_mut()
+            .add_order(order2, None, None, false)
+            .unwrap();
+
         exchange.borrow_mut().send(command1);
         exchange.borrow_mut().send(command2);
 

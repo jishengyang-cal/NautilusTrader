@@ -42,12 +42,12 @@ use nautilus_model::{
     events::{OrderCanceled, OrderEmulated, OrderEventAny, OrderReleased, OrderUpdated},
     identifiers::{ActorId, ClientOrderId, InstrumentId, PositionId, StrategyId, TraderId},
     instruments::Instrument,
-    orders::{LimitOrder, MarketOrder, Order, OrderAny, PassiveOrderAny},
+    orders::{LimitOrder, MarketOrder, Order, OrderAny},
     types::{Price, Quantity},
 };
 
 use crate::{
-    matching_core::OrderMatchingCore,
+    matching_core::{OrderMatchInfo, OrderMatchingCore},
     order_manager::{
         handlers::{CancelOrderHandlerAny, ModifyOrderHandlerAny, SubmitOrderHandlerAny},
         manager::OrderManager,
@@ -297,7 +297,8 @@ impl OrderEmulator {
                 client_id,
                 order.strategy_id(),
                 order.instrument_id(),
-                order.clone(),
+                order.client_order_id(),
+                order.init_event().clone(),
                 order.exec_algorithm_id(),
                 position_id,
                 None, // params
@@ -322,9 +323,7 @@ impl OrderEmulator {
         if let Some(order) = self.cache.borrow().order(&event.client_order_id())
             && order.is_closed()
             && let Some(matching_core) = self.matching_cores.get_mut(&order.instrument_id())
-            && let Err(e) = matching_core.delete_order(
-                &PassiveOrderAny::try_from(order.clone()).expect("passive order conversion"),
-            )
+            && let Err(e) = matching_core.delete_order(event.client_order_id())
         {
             log::error!("Error deleting order: {e}");
         }
@@ -368,21 +367,29 @@ impl OrderEmulator {
 
     /// # Panics
     ///
-    /// Panics if the emulation trigger type is `NoTrigger`.
+    /// Panics if the emulation trigger type is `NoTrigger` or if order not in cache.
     pub fn handle_submit_order(&mut self, command: SubmitOrder) {
-        let mut order = command.order.clone();
+        let client_order_id = command.client_order_id;
+
+        let mut order = self
+            .cache
+            .borrow()
+            .order(&client_order_id)
+            .cloned()
+            .expect("order must exist in cache");
+
         let emulation_trigger = order.emulation_trigger();
 
         assert_ne!(
             emulation_trigger,
             Some(TriggerType::NoTrigger),
-            "command.order.emulation_trigger must not be TriggerType::NoTrigger"
+            "order.emulation_trigger must not be TriggerType::NoTrigger"
         );
         assert!(
             self.manager
                 .get_submit_order_commands()
-                .contains_key(&order.client_order_id()),
-            "command.order.client_order_id must be in submit_order_commands"
+                .contains_key(&client_order_id),
+            "client_order_id must be in submit_order_commands"
         );
 
         if !matches!(
@@ -462,10 +469,15 @@ impl OrderEmulator {
         self.manager.cache_submit_order_command(command);
 
         // Check if immediately marketable
-        matching_core.match_order(
-            &PassiveOrderAny::try_from(order.clone()).expect("passive order conversion"),
-            true,
+        let match_info = OrderMatchInfo::new(
+            order.client_order_id(),
+            order.order_side().as_specified(),
+            order.order_type(),
+            order.trigger_price(),
+            order.price(),
+            true, // is_activated
         );
+        matching_core.match_order(&match_info);
 
         // Handle data subscriptions
         match emulation_trigger.unwrap() {
@@ -497,12 +509,7 @@ impl OrderEmulator {
         }
 
         // Hold in matching core
-        if let Err(e) = matching_core
-            .add_order(PassiveOrderAny::try_from(order.clone()).expect("passive order conversion"))
-        {
-            log::error!("Cannot add order: {e:?}");
-            return;
-        }
+        matching_core.add_order(match_info);
 
         // Generate emulated event if needed
         if order.status() == OrderStatus::Initialized {
@@ -605,10 +612,15 @@ impl OrderEmulator {
                 .unwrap_or_else(|| order.instrument_id());
 
             if let Some(matching_core) = self.matching_cores.get_mut(&trigger_instrument_id) {
-                matching_core.match_order(
-                    &PassiveOrderAny::try_from(order.clone()).expect("passive order conversion"),
-                    false,
+                let match_info = OrderMatchInfo::new(
+                    order.client_order_id(),
+                    order.order_side().as_specified(),
+                    order.order_type(),
+                    trigger_price,
+                    price,
+                    true, // is_activated
                 );
+                matching_core.match_order(&match_info);
             } else {
                 log::error!(
                     "Cannot handle `ModifyOrder`: no matching core for trigger instrument {trigger_instrument_id}"
@@ -670,8 +682,15 @@ impl OrderEmulator {
         };
 
         // Process all orders in a single iteration
-        for order in orders_to_cancel {
-            self.manager.cancel_order(&OrderAny::from(order));
+        for match_info in orders_to_cancel {
+            if let Some(order) = self
+                .cache
+                .borrow()
+                .order(&match_info.client_order_id)
+                .cloned()
+            {
+                self.manager.cancel_order(&order);
+            }
         }
     }
 
@@ -790,18 +809,29 @@ impl OrderEmulator {
             return;
         };
 
-        for order in orders {
+        for match_info in orders {
+            if !matches!(
+                match_info.order_type,
+                OrderType::TrailingStopMarket | OrderType::TrailingStopLimit
+            ) {
+                continue;
+            }
+
+            let mut order = match self
+                .cache
+                .borrow()
+                .order(&match_info.client_order_id)
+                .cloned()
+            {
+                Some(order) => order,
+                None => continue,
+            };
+
             if order.is_closed() {
                 continue;
             }
 
-            let mut order: OrderAny = order.clone().into();
-            if matches!(
-                order.order_type(),
-                OrderType::TrailingStopMarket | OrderType::TrailingStopLimit
-            ) {
-                self.update_trailing_stop_order(&mut order);
-            }
+            self.update_trailing_stop_order(&mut order);
         }
     }
 
@@ -819,9 +849,7 @@ impl OrderEmulator {
             .unwrap_or(order.instrument_id());
 
         if let Some(matching_core) = self.matching_cores.get_mut(&trigger_instrument_id)
-            && let Err(e) = matching_core.delete_order(
-                &PassiveOrderAny::try_from(order.clone()).expect("passive order conversion"),
-            )
+            && let Err(e) = matching_core.delete_order(order.client_order_id())
         {
             log::error!("Cannot delete order: {e:?}");
         }
@@ -904,13 +932,23 @@ impl OrderEmulator {
     /// # Panics
     ///
     /// Panics if the order type is invalid for a stop order.
-    pub fn trigger_stop_order(&mut self, order: &mut OrderAny) {
+    pub fn trigger_stop_order(&mut self, client_order_id: ClientOrderId) {
+        let order = match self.cache.borrow().order(&client_order_id).cloned() {
+            Some(order) => order,
+            None => {
+                log::error!(
+                    "Cannot trigger stop order: order {client_order_id} not found in cache"
+                );
+                return;
+            }
+        };
+
         match order.order_type() {
             OrderType::StopLimit | OrderType::LimitIfTouched | OrderType::TrailingStopLimit => {
-                self.fill_limit_order(order);
+                self.fill_limit_order(client_order_id);
             }
             OrderType::Market | OrderType::MarketIfTouched | OrderType::TrailingStopMarket => {
-                self.fill_market_order(order);
+                self.fill_market_order(client_order_id);
             }
             _ => panic!("invalid `OrderType`, was {}", order.order_type()),
         }
@@ -919,9 +957,17 @@ impl OrderEmulator {
     /// # Panics
     ///
     /// Panics if a limit order has no price.
-    pub fn fill_limit_order(&mut self, order: &mut OrderAny) {
+    pub fn fill_limit_order(&mut self, client_order_id: ClientOrderId) {
+        let order = match self.cache.borrow().order(&client_order_id).cloned() {
+            Some(order) => order,
+            None => {
+                log::error!("Cannot fill limit order: order {client_order_id} not found in cache");
+                return;
+            }
+        };
+
         if matches!(order.order_type(), OrderType::Limit) {
-            self.fill_market_order(order);
+            self.fill_market_order(client_order_id);
             return;
         }
 
@@ -940,12 +986,12 @@ impl OrderEmulator {
         };
 
         let released_price =
-            match self.validate_release(order, matching_core, trigger_instrument_id) {
+            match self.validate_release(&order, matching_core, trigger_instrument_id) {
                 Some(price) => price,
                 None => return, // Order stays queued for retry
             };
 
-        let mut command = match self
+        let command = match self
             .manager
             .pop_submit_order_command(order.client_order_id())
         {
@@ -954,9 +1000,7 @@ impl OrderEmulator {
         };
 
         if let Some(matching_core) = self.matching_cores.get_mut(&trigger_instrument_id) {
-            if let Err(e) = matching_core.delete_order(
-                &PassiveOrderAny::try_from(order.clone()).expect("passive order conversion"),
-            ) {
+            if let Err(e) = matching_core.delete_order(client_order_id) {
                 log::error!("Error deleting order: {e:?}");
             }
 
@@ -1018,9 +1062,6 @@ impl OrderEmulator {
                 log::error!("Failed to add order: {e}");
             }
 
-            // Replace commands order with transformed order
-            command.order = OrderAny::Limit(transformed.clone());
-
             msgbus::publish(
                 format!("events.order.{}", order.strategy_id()).into(),
                 transformed.last_event(),
@@ -1071,7 +1112,15 @@ impl OrderEmulator {
     /// # Panics
     ///
     /// Panics if a market order command is missing.
-    pub fn fill_market_order(&mut self, order: &mut OrderAny) {
+    pub fn fill_market_order(&mut self, client_order_id: ClientOrderId) {
+        let mut order = match self.cache.borrow().order(&client_order_id).cloned() {
+            Some(order) => order,
+            None => {
+                log::error!("Cannot fill market order: order {client_order_id} not found in cache");
+                return;
+            }
+        };
+
         let trigger_instrument_id = order
             .trigger_instrument_id()
             .unwrap_or(order.instrument_id());
@@ -1087,20 +1136,18 @@ impl OrderEmulator {
         };
 
         let released_price =
-            match self.validate_release(order, matching_core, trigger_instrument_id) {
+            match self.validate_release(&order, matching_core, trigger_instrument_id) {
                 Some(price) => price,
                 None => return, // Order stays queued for retry
             };
 
-        let mut command = self
+        let command = self
             .manager
             .pop_submit_order_command(order.client_order_id())
             .expect("invalid operation `fill_market_order` with no command");
 
         if let Some(matching_core) = self.matching_cores.get_mut(&trigger_instrument_id) {
-            if let Err(e) = matching_core.delete_order(
-                &PassiveOrderAny::try_from(order.clone()).expect("passive order conversion"),
-            ) {
+            if let Err(e) = matching_core.delete_order(client_order_id) {
                 log::error!("Cannot delete order: {e:?}");
             }
 
@@ -1143,9 +1190,6 @@ impl OrderEmulator {
             ) {
                 log::error!("Failed to add order: {e}");
             }
-
-            // Replace commands order with transformed order
-            command.order = OrderAny::Market(transformed.clone());
 
             msgbus::publish(
                 format!("events.order.{}", order.strategy_id()).into(),
@@ -1329,13 +1373,14 @@ mod tests {
             .build()
     }
 
-    fn create_submit_order(instrument: &CryptoPerpetual, order: OrderAny) -> SubmitOrder {
+    fn create_submit_order(instrument: &CryptoPerpetual, order: &OrderAny) -> SubmitOrder {
         SubmitOrder::new(
             TraderId::from("TRADER-001"),
             None,
             StrategyId::from("STRATEGY-001"),
             instrument.id(),
-            order,
+            order.client_order_id(),
+            order.init_event().clone(),
             None,
             None,
             None,
@@ -1445,7 +1490,7 @@ mod tests {
         let (_clock, cache, emulator) = create_emulator();
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order, None, None, false)
@@ -1469,7 +1514,7 @@ mod tests {
         let (_clock, cache, emulator) = create_emulator();
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order, None, None, false)
@@ -1489,7 +1534,7 @@ mod tests {
         let (_clock, cache, emulator) = create_emulator();
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::LastPrice);
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order, None, None, false)
@@ -1510,7 +1555,7 @@ mod tests {
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
         let client_order_id = order.client_order_id();
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order, None, None, false)
@@ -1530,7 +1575,7 @@ mod tests {
         let (_clock, cache, emulator) = create_emulator();
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order, None, None, false)
@@ -1556,7 +1601,7 @@ mod tests {
         let (_clock, cache, emulator) = create_emulator();
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::LastPrice);
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order, None, None, false)
@@ -1581,7 +1626,7 @@ mod tests {
         let (_clock, cache, emulator) = create_emulator();
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order.clone(), None, None, false)
@@ -1606,7 +1651,7 @@ mod tests {
         add_instrument_to_cache(&cache, &instrument);
         let order = create_stop_market_order(&instrument, TriggerType::BidAsk);
         let client_order_id = order.client_order_id();
-        let command = create_submit_order(&instrument, order.clone());
+        let command = create_submit_order(&instrument, &order);
         cache
             .borrow_mut()
             .add_order(order.clone(), None, None, false)

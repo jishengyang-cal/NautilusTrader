@@ -38,6 +38,7 @@ use nautilus_model::{
         AccountId, ClientId, ClientOrderId, InstrumentId, PositionId, StrategyId, TradeId,
         TraderId, Venue, VenueOrderId,
     },
+    orders::OrderAny,
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, Currency, MarginBalance, Money, Price, Quantity},
 };
@@ -124,6 +125,19 @@ impl ExecutionClientCore {
     #[must_use]
     pub fn get_account(&self) -> Option<AccountAny> {
         self.cache.borrow().account(&self.account_id).cloned()
+    }
+
+    /// Returns the order for the given client order ID from the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order is not found in the cache.
+    pub fn get_order(&self, client_order_id: &ClientOrderId) -> anyhow::Result<OrderAny> {
+        self.cache
+            .borrow()
+            .order(client_order_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Order not found in cache for {client_order_id}"))
     }
 
     /// Generates and publishes the account state event.

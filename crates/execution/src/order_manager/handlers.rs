@@ -103,7 +103,7 @@ mod tests {
         enums::{OrderSide, OrderType, TriggerType},
         identifiers::{StrategyId, TraderId},
         instruments::{Instrument, stubs::audusd_sim},
-        orders::OrderTestBuilder,
+        orders::{Order, OrderTestBuilder},
         types::{Price, Quantity},
     };
     use rstest::rstest;
@@ -190,7 +190,8 @@ mod tests {
             None,
             StrategyId::from("STRATEGY-001"),
             instrument.id(),
-            order,
+            order.client_order_id(),
+            order.init_event().clone(),
             None,
             None,
             None,

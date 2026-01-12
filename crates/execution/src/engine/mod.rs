@@ -870,25 +870,26 @@ impl ExecutionEngine {
     }
 
     fn handle_submit_order(&self, client: &dyn ExecutionClient, cmd: &SubmitOrder) {
-        let mut order = cmd.order.clone();
-        let client_order_id = order.client_order_id();
-        let instrument_id = order.instrument_id();
+        let client_order_id = cmd.client_order_id;
 
-        // Check if the order exists in the cache
-        if !self.cache.borrow().order_exists(&client_order_id) {
-            // Add order to cache in a separate scope to drop the mutable borrow
-            {
-                let mut cache = self.cache.borrow_mut();
-                if let Err(e) = cache.add_order(order.clone(), cmd.position_id, cmd.client_id, true)
-                {
-                    log::error!("Error adding order to cache: {e}");
+        // Order should already exist, added by creator
+        let mut order = {
+            let cache = self.cache.borrow();
+            match cache.order(&client_order_id) {
+                Some(order) => order.clone(),
+                None => {
+                    log::error!(
+                        "Cannot handle submit order: order not found in cache for {client_order_id}"
+                    );
                     return;
                 }
             }
+        };
 
-            if self.config.snapshot_orders {
-                self.create_order_state_snapshot(&order);
-            }
+        let instrument_id = order.instrument_id();
+
+        if self.config.snapshot_orders {
+            self.create_order_state_snapshot(&order);
         }
 
         // Get instrument in a separate scope to manage borrows
@@ -934,10 +935,7 @@ impl ExecutionEngine {
         // Send the order to the execution client
         if let Err(e) = client.submit_order(cmd) {
             log::error!("Error submitting order to client: {e}");
-            self.deny_order(
-                &cmd.order,
-                &format!("failed-to-submit-order-to-client: {e}"),
-            );
+            self.deny_order(&order, &format!("failed-to-submit-order-to-client: {e}"));
         }
     }
 

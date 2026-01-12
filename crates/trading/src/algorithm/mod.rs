@@ -118,7 +118,8 @@ pub trait ExecutionAlgorithm: DataActor {
         match command {
             TradingCommand::SubmitOrder(cmd) => {
                 self.subscribe_to_strategy_events(cmd.strategy_id);
-                self.on_order(cmd.order)
+                let order = self.core_mut().get_order(&cmd.client_order_id)?;
+                self.on_order(order)
             }
             TradingCommand::SubmitOrderList(cmd) => {
                 self.subscribe_to_strategy_events(cmd.strategy_id);
@@ -472,7 +473,8 @@ pub trait ExecutionAlgorithm: DataActor {
             client_id,
             strategy_id,
             order.instrument_id(),
-            order.clone(),
+            order.client_order_id(),
+            order.init_event().clone(),
             order.exec_algorithm_id(),
             position_id,
             None, // params
@@ -1322,7 +1324,6 @@ mod tests {
         // Make accepted so OrderUpdated can be applied
         let mut primary = TestOrderStubs::make_accepted_order(&order);
 
-        // Add order to cache first
         {
             let cache_rc = algo.core.cache_rc();
             let mut cache = cache_rc.borrow_mut();
@@ -1365,7 +1366,6 @@ mod tests {
         // Make accepted so OrderUpdated can be applied
         let mut primary = TestOrderStubs::make_accepted_order(&order);
 
-        // Add order to cache first
         {
             let cache_rc = algo.core.cache_rc();
             let mut cache = cache_rc.borrow_mut();
@@ -1455,7 +1455,6 @@ mod tests {
             0.into(),
         ));
 
-        // Add order to cache
         {
             let cache_rc = algo.core.cache_rc();
             let mut cache = cache_rc.borrow_mut();

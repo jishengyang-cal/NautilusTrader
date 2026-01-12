@@ -499,7 +499,7 @@ impl ExecutionClient for BitmexExecutionClient {
     }
 
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = cmd.order.clone();
+        let order = self.core.get_order(&cmd.client_order_id)?;
 
         if order.is_closed() {
             log::warn!("Cannot submit closed order {}", order.client_order_id());

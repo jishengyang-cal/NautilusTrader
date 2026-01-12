@@ -28,7 +28,10 @@ use nautilus_common::{
     cache::Cache,
     clock::Clock,
 };
-use nautilus_model::identifiers::{ActorId, ClientOrderId, ExecAlgorithmId, StrategyId, TraderId};
+use nautilus_model::{
+    identifiers::{ActorId, ClientOrderId, ExecAlgorithmId, StrategyId, TraderId},
+    orders::OrderAny,
+};
 
 use super::config::ExecutionAlgorithmConfig;
 
@@ -157,6 +160,18 @@ impl ExecutionAlgorithmCore {
     pub fn reset(&mut self) {
         self.exec_spawn_ids.clear();
         self.subscribed_strategies.clear();
+    }
+
+    /// Returns the order for the given client order ID from the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the order is not found in the cache.
+    pub fn get_order(&self, client_order_id: &ClientOrderId) -> anyhow::Result<OrderAny> {
+        self.cache()
+            .order(client_order_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Order not found in cache for {client_order_id}"))
     }
 }
 
