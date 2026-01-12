@@ -17,6 +17,15 @@
 //!
 //! These models represent Binance venue-specific response types decoded from SBE.
 
+use nautilus_core::{UUID4, nanos::UnixNanos};
+use nautilus_model::{
+    enums::AccountType,
+    events::AccountState,
+    identifiers::AccountId,
+    types::{AccountBalance, Currency, Money},
+};
+use rust_decimal::Decimal;
+
 use crate::common::sbe::spot::{
     order_side::OrderSide, order_status::OrderStatus, order_type::OrderType,
     self_trade_prevention_mode::SelfTradePreventionMode, time_in_force::TimeInForce,
@@ -266,6 +275,59 @@ pub struct BinanceAccountInfo {
     pub account_type: String,
     /// Account balances.
     pub balances: Vec<BinanceBalance>,
+}
+
+impl BinanceAccountInfo {
+    /// Converts this Binance account info to a Nautilus [`AccountState`].
+    #[must_use]
+    pub fn to_account_state(&self, account_id: AccountId, ts_init: UnixNanos) -> AccountState {
+        let mut balances = Vec::with_capacity(self.balances.len());
+
+        for asset in &self.balances {
+            let currency =
+                Currency::get_or_create_crypto_with_context(&asset.asset, Some("spot balance"));
+
+            let exponent = asset.exponent as i32;
+            let multiplier = Decimal::new(1, (-exponent) as u32);
+
+            let free = Decimal::new(asset.free_mantissa, 0) * multiplier;
+            let locked = Decimal::new(asset.locked_mantissa, 0) * multiplier;
+            let total = free + locked;
+
+            let total_money = Money::from_decimal(total, currency)
+                .unwrap_or_else(|_| Money::new(total.to_string().parse().unwrap_or(0.0), currency));
+            let locked_money = Money::from_decimal(locked, currency).unwrap_or_else(|_| {
+                Money::new(locked.to_string().parse().unwrap_or(0.0), currency)
+            });
+            let free_money = Money::from_decimal(free, currency)
+                .unwrap_or_else(|_| Money::new(free.to_string().parse().unwrap_or(0.0), currency));
+
+            let balance = AccountBalance::new(total_money, locked_money, free_money);
+            balances.push(balance);
+        }
+
+        // Ensure at least one balance exists
+        if balances.is_empty() {
+            let zero_currency = Currency::USDT();
+            let zero_money = Money::new(0.0, zero_currency);
+            let zero_balance = AccountBalance::new(zero_money, zero_money, zero_money);
+            balances.push(zero_balance);
+        }
+
+        let ts_event = UnixNanos::from((self.update_time * 1_000) as u64);
+
+        AccountState::new(
+            account_id,
+            AccountType::Cash,
+            balances,
+            vec![], // No margins for spot
+            true,   // is_reported
+            UUID4::new(),
+            ts_event,
+            ts_init,
+            None, // No base currency for spot
+        )
+    }
 }
 
 /// Price filter from SBE response.

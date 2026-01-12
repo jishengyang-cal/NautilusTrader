@@ -16,6 +16,8 @@
 //! Binance Futures HTTP query parameter builders.
 
 use derive_builder::Builder;
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::common::enums::{
@@ -412,6 +414,14 @@ pub struct BinanceSetMarginTypeParams {
 /// Single order item for batch submit operations.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "python",
+    pyclass(
+        module = "nautilus_trader.core.nautilus_pyo3.binance",
+        name = "FuturesBatchOrderItem",
+        get_all
+    )
+)]
 pub struct BatchOrderItem {
     /// Trading symbol.
     pub symbol: String,
@@ -443,9 +453,50 @@ pub struct BatchOrderItem {
     pub position_side: Option<String>,
 }
 
+#[cfg(feature = "python")]
+#[pymethods]
+impl BatchOrderItem {
+    #[new]
+    #[pyo3(signature = (symbol, side, order_type, time_in_force=None, quantity=None, price=None, reduce_only=None, new_client_order_id=None, stop_price=None, position_side=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn py_new(
+        symbol: String,
+        side: String,
+        order_type: String,
+        time_in_force: Option<String>,
+        quantity: Option<String>,
+        price: Option<String>,
+        reduce_only: Option<bool>,
+        new_client_order_id: Option<String>,
+        stop_price: Option<String>,
+        position_side: Option<String>,
+    ) -> Self {
+        Self {
+            symbol,
+            side,
+            order_type,
+            time_in_force,
+            quantity,
+            price,
+            reduce_only,
+            new_client_order_id,
+            stop_price,
+            position_side,
+        }
+    }
+}
+
 /// Single cancel item for batch cancel operations.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "python",
+    pyclass(
+        module = "nautilus_trader.core.nautilus_pyo3.binance",
+        name = "FuturesBatchCancelItem",
+        get_all
+    )
+)]
 pub struct BatchCancelItem {
     /// Trading symbol.
     pub symbol: String,
@@ -482,9 +533,45 @@ impl BatchCancelItem {
     }
 }
 
+#[cfg(feature = "python")]
+#[pymethods]
+impl BatchCancelItem {
+    #[new]
+    #[pyo3(signature = (symbol, order_id=None, orig_client_order_id=None))]
+    fn py_new(symbol: String, order_id: Option<i64>, orig_client_order_id: Option<String>) -> Self {
+        Self {
+            symbol,
+            order_id,
+            orig_client_order_id,
+        }
+    }
+
+    /// Creates a batch cancel item by order ID.
+    #[staticmethod]
+    #[pyo3(name = "by_order_id")]
+    fn py_by_order_id(symbol: String, order_id: i64) -> Self {
+        Self::by_order_id(symbol, order_id)
+    }
+
+    /// Creates a batch cancel item by client order ID.
+    #[staticmethod]
+    #[pyo3(name = "by_client_order_id")]
+    fn py_by_client_order_id(symbol: String, client_order_id: String) -> Self {
+        Self::by_client_order_id(symbol, client_order_id)
+    }
+}
+
 /// Single modify item for batch modify operations.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "python",
+    pyclass(
+        module = "nautilus_trader.core.nautilus_pyo3.binance",
+        name = "FuturesBatchModifyItem",
+        get_all
+    )
+)]
 pub struct BatchModifyItem {
     /// Trading symbol.
     pub symbol: String,
@@ -500,6 +587,30 @@ pub struct BatchModifyItem {
     pub quantity: String,
     /// New price.
     pub price: String,
+}
+
+#[cfg(feature = "python")]
+#[pymethods]
+impl BatchModifyItem {
+    #[new]
+    #[pyo3(signature = (symbol, side, quantity, price, order_id=None, orig_client_order_id=None))]
+    fn py_new(
+        symbol: String,
+        side: String,
+        quantity: String,
+        price: String,
+        order_id: Option<i64>,
+        orig_client_order_id: Option<String>,
+    ) -> Self {
+        Self {
+            symbol,
+            order_id,
+            orig_client_order_id,
+            side,
+            quantity,
+            price,
+        }
+    }
 }
 
 /// Listen key request parameters.

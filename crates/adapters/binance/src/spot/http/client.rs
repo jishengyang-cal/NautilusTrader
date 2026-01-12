@@ -35,10 +35,13 @@ use std::{collections::HashMap, fmt::Debug, num::NonZeroU32, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use nautilus_core::{consts::NAUTILUS_USER_AGENT, nanos::UnixNanos};
+use nautilus_core::{
+    consts::NAUTILUS_USER_AGENT, nanos::UnixNanos, time::get_atomic_clock_realtime,
+};
 use nautilus_model::{
     data::{Bar, BarType, TradeTick},
     enums::{AggregationSource, BarAggregation, OrderSide, OrderType, TimeInForce},
+    events::AccountState,
     identifiers::{AccountId, ClientOrderId, InstrumentId, VenueOrderId},
     instruments::{Instrument, any::InstrumentAny},
     reports::{FillReport, OrderStatusReport},
@@ -1474,16 +1477,19 @@ impl BinanceSpotHttpClient {
         parse_klines_to_bars(&klines, bar_type, &instrument, ts_init)
     }
 
-    /// Requests account state including balances.
+    /// Requests the account state with Nautilus types.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails or SBE decoding fails.
     pub async fn request_account_state(
         &self,
-        params: &AccountInfoParams,
-    ) -> BinanceSpotHttpResult<BinanceAccountInfo> {
-        self.inner.account(params).await
+        account_id: AccountId,
+    ) -> anyhow::Result<AccountState> {
+        let ts_init = get_atomic_clock_realtime().get_time_ns();
+        let params = AccountInfoParams::default();
+        let account_info = self.inner.account(&params).await?;
+        Ok(account_info.to_account_state(account_id, ts_init))
     }
 
     /// Requests the status of a specific order.
@@ -1494,7 +1500,7 @@ impl BinanceSpotHttpClient {
     ///
     /// Returns an error if neither identifier is provided, the request fails,
     /// instrument is not cached, or parsing fails.
-    pub async fn request_order_status(
+    pub async fn request_order_status_report(
         &self,
         account_id: AccountId,
         instrument_id: InstrumentId,

@@ -153,6 +153,10 @@ impl TryFrom<OrderSide> for BinanceSide {
 /// Position side for dual-side position mode.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.binance", eq)
+)]
 pub enum BinancePositionSide {
     /// Single position mode (both).
     Both,

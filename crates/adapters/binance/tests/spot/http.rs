@@ -1789,7 +1789,7 @@ async fn test_domain_request_order_status() {
     let venue_order_id = VenueOrderId::from("12345");
 
     let report = client
-        .request_order_status(account_id, instrument_id, Some(venue_order_id), None)
+        .request_order_status_report(account_id, instrument_id, Some(venue_order_id), None)
         .await
         .unwrap();
 

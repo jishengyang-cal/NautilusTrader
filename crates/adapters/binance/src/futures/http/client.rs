@@ -22,7 +22,7 @@ use dashmap::DashMap;
 use nautilus_core::{consts::NAUTILUS_USER_AGENT, nanos::UnixNanos};
 use nautilus_model::{
     data::{Bar, BarType, TradeTick},
-    enums::{AggregationSource, AggressorSide, BarAggregation},
+    enums::{AggregationSource, AggressorSide, BarAggregation, OrderSide, OrderType, TimeInForce},
     events::AccountState,
     identifiers::{AccountId, ClientOrderId, InstrumentId, TradeId, VenueOrderId},
     instruments::any::InstrumentAny,
@@ -64,7 +64,8 @@ use crate::common::{
     },
     credential::Credential,
     enums::{
-        BinanceEnvironment, BinanceProductType, BinanceRateLimitInterval, BinanceRateLimitType,
+        BinanceEnvironment, BinanceFuturesOrderType, BinancePositionSide, BinanceProductType,
+        BinanceRateLimitInterval, BinanceRateLimitType, BinanceSide, BinanceTimeInForce,
     },
     models::BinanceErrorResponse,
     parse::{parse_coinm_instrument, parse_usdm_instrument},
@@ -1330,16 +1331,77 @@ impl BinanceFuturesHttpClient {
         self.raw.query_user_trades(params).await
     }
 
-    /// Submits a new order using Binance params.
+    /// Submits a new order.
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails.
+    /// Returns an error if:
+    /// - The instrument is not cached.
+    /// - The order type or time-in-force is unsupported.
+    /// - Stop orders are submitted without a trigger price.
+    /// - The request fails.
+    #[allow(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
-        params: &BinanceNewOrderParams,
-    ) -> BinanceFuturesHttpResult<BinanceFuturesOrder> {
-        self.raw.submit_order(params).await
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        client_order_id: ClientOrderId,
+        order_side: OrderSide,
+        order_type: OrderType,
+        quantity: Quantity,
+        time_in_force: TimeInForce,
+        price: Option<Price>,
+        trigger_price: Option<Price>,
+        reduce_only: bool,
+        position_side: Option<BinancePositionSide>,
+    ) -> anyhow::Result<OrderStatusReport> {
+        let symbol = format_binance_symbol(&instrument_id);
+        let size_precision = self.get_size_precision(&symbol)?;
+
+        let binance_side = BinanceSide::try_from(order_side)?;
+        let binance_order_type = order_type_to_binance_futures(order_type)?;
+        let binance_tif = BinanceTimeInForce::try_from(time_in_force)?;
+
+        let requires_trigger_price = matches!(
+            order_type,
+            OrderType::StopMarket
+                | OrderType::StopLimit
+                | OrderType::TrailingStopMarket
+                | OrderType::MarketIfTouched
+                | OrderType::LimitIfTouched
+        );
+        if requires_trigger_price && trigger_price.is_none() {
+            anyhow::bail!("Order type {order_type:?} requires a trigger price");
+        }
+
+        let qty_str = quantity.to_string();
+        let price_str = price.map(|p| p.to_string());
+        let stop_price_str = trigger_price.map(|p| p.to_string());
+        let client_id_str = client_order_id.to_string();
+
+        let params = BinanceNewOrderParams {
+            symbol,
+            side: binance_side,
+            order_type: binance_order_type,
+            time_in_force: Some(binance_tif),
+            quantity: Some(qty_str),
+            price: price_str,
+            new_client_order_id: Some(client_id_str),
+            stop_price: stop_price_str,
+            reduce_only: if reduce_only { Some(true) } else { None },
+            position_side,
+            close_position: None,
+            activation_price: None,
+            callback_rate: None,
+            working_type: None,
+            price_protect: None,
+            new_order_resp_type: None,
+            good_till_date: None,
+            recv_window: None,
+        };
+
+        let order = self.raw.submit_order(&params).await?;
+        order.to_order_status_report(account_id, instrument_id, size_precision)
     }
 
     /// Submits multiple orders in a single request (up to 5 orders).
@@ -1357,16 +1419,54 @@ impl BinanceFuturesHttpClient {
         self.raw.submit_order_list(orders).await
     }
 
-    /// Modifies an existing order (price and quantity only) using Binance params.
+    /// Modifies an existing order (price and quantity only).
+    ///
+    /// Either `venue_order_id` or `client_order_id` must be provided.
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails.
+    /// Returns an error if:
+    /// - Neither venue_order_id nor client_order_id is provided.
+    /// - The instrument is not cached.
+    /// - The request fails.
+    #[allow(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
-        params: &BinanceModifyOrderParams,
-    ) -> BinanceFuturesHttpResult<BinanceFuturesOrder> {
-        self.raw.modify_order(params).await
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        venue_order_id: Option<VenueOrderId>,
+        client_order_id: Option<ClientOrderId>,
+        order_side: OrderSide,
+        quantity: Quantity,
+        price: Price,
+    ) -> anyhow::Result<OrderStatusReport> {
+        anyhow::ensure!(
+            venue_order_id.is_some() || client_order_id.is_some(),
+            "Either venue_order_id or client_order_id must be provided"
+        );
+
+        let symbol = format_binance_symbol(&instrument_id);
+        let size_precision = self.get_size_precision(&symbol)?;
+
+        let binance_side = BinanceSide::try_from(order_side)?;
+
+        let order_id = venue_order_id
+            .map(|id| id.inner().parse::<i64>())
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("Invalid venue order ID"))?;
+
+        let params = BinanceModifyOrderParams {
+            symbol,
+            order_id,
+            orig_client_order_id: client_order_id.map(|id| id.to_string()),
+            side: binance_side,
+            quantity: quantity.to_string(),
+            price: price.to_string(),
+            recv_window: None,
+        };
+
+        let order = self.raw.modify_order(&params).await?;
+        order.to_order_status_report(account_id, instrument_id, size_precision)
     }
 
     /// Modifies multiple orders in a single request (up to 5 orders).
@@ -1384,28 +1484,66 @@ impl BinanceFuturesHttpClient {
         self.raw.batch_modify_orders(modifies).await
     }
 
-    /// Cancels an existing order using Binance params.
+    /// Cancels an order by venue order ID or client order ID.
+    ///
+    /// Either `venue_order_id` or `client_order_id` must be provided.
     ///
     /// # Errors
     ///
-    /// Returns an error if the request fails.
+    /// Returns an error if:
+    /// - Neither venue_order_id nor client_order_id is provided.
+    /// - The request fails.
     pub async fn cancel_order(
         &self,
-        params: &BinanceCancelOrderParams,
-    ) -> BinanceFuturesHttpResult<BinanceFuturesOrder> {
-        self.raw.cancel_order(params).await
+        instrument_id: InstrumentId,
+        venue_order_id: Option<VenueOrderId>,
+        client_order_id: Option<ClientOrderId>,
+    ) -> anyhow::Result<VenueOrderId> {
+        anyhow::ensure!(
+            venue_order_id.is_some() || client_order_id.is_some(),
+            "Either venue_order_id or client_order_id must be provided"
+        );
+
+        let symbol = format_binance_symbol(&instrument_id);
+
+        let order_id = venue_order_id
+            .map(|id| id.inner().parse::<i64>())
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("Invalid venue order ID"))?;
+
+        let params = BinanceCancelOrderParams {
+            symbol,
+            order_id,
+            orig_client_order_id: client_order_id.map(|id| id.to_string()),
+            recv_window: None,
+        };
+
+        let order = self.raw.cancel_order(&params).await?;
+        Ok(VenueOrderId::new(order.order_id.to_string()))
     }
 
-    /// Cancels all open orders for a symbol using Binance params.
+    /// Cancels all open orders for a symbol.
     ///
     /// # Errors
     ///
     /// Returns an error if the request fails.
     pub async fn cancel_all_orders(
         &self,
-        params: &BinanceCancelAllOrdersParams,
-    ) -> BinanceFuturesHttpResult<BinanceCancelAllOrdersResponse> {
-        self.raw.cancel_all_orders(params).await
+        instrument_id: InstrumentId,
+    ) -> anyhow::Result<Vec<VenueOrderId>> {
+        let symbol = format_binance_symbol(&instrument_id);
+
+        let params = BinanceCancelAllOrdersParams {
+            symbol,
+            recv_window: None,
+        };
+
+        let response = self.raw.cancel_all_orders(&params).await?;
+        if response.code == 200 {
+            Ok(vec![])
+        } else {
+            anyhow::bail!("Cancel all orders failed: {}", response.msg);
+        }
     }
 
     /// Cancels multiple orders in a single request (up to 5 orders).
@@ -1451,6 +1589,20 @@ impl BinanceFuturesHttpClient {
         };
 
         Ok(precision as u8)
+    }
+
+    /// Requests the current account state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or parsing fails.
+    pub async fn request_account_state(
+        &self,
+        account_id: AccountId,
+    ) -> anyhow::Result<AccountState> {
+        let ts_init = UnixNanos::default();
+        let account_info = self.raw.query_account().await?;
+        account_info.to_account_state(account_id, ts_init)
     }
 
     /// Requests a single order status report.
@@ -1601,20 +1753,6 @@ impl BinanceFuturesHttpClient {
         Ok(reports)
     }
 
-    /// Requests the current account state.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or parsing fails.
-    pub async fn request_account_state(
-        &self,
-        account_id: AccountId,
-    ) -> anyhow::Result<AccountState> {
-        let ts_init = UnixNanos::default();
-        let account_info = self.raw.query_account().await?;
-        account_info.to_account_state(account_id, ts_init)
-    }
-
     /// Requests recent public trades for an instrument.
     ///
     /// # Errors
@@ -1733,6 +1871,20 @@ impl BinanceFuturesHttpClient {
         }
 
         Ok(result)
+    }
+}
+
+/// Converts a Nautilus order type to a Binance Futures order type.
+fn order_type_to_binance_futures(order_type: OrderType) -> anyhow::Result<BinanceFuturesOrderType> {
+    match order_type {
+        OrderType::Market => Ok(BinanceFuturesOrderType::Market),
+        OrderType::Limit => Ok(BinanceFuturesOrderType::Limit),
+        OrderType::StopMarket => Ok(BinanceFuturesOrderType::StopMarket),
+        OrderType::StopLimit => Ok(BinanceFuturesOrderType::Stop),
+        OrderType::MarketIfTouched => Ok(BinanceFuturesOrderType::TakeProfitMarket),
+        OrderType::LimitIfTouched => Ok(BinanceFuturesOrderType::TakeProfit),
+        OrderType::TrailingStopMarket => Ok(BinanceFuturesOrderType::TrailingStopMarket),
+        _ => anyhow::bail!("Unsupported order type for Binance Futures: {order_type:?}"),
     }
 }
 

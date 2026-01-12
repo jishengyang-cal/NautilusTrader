@@ -38,11 +38,14 @@ use nautilus_common::{
         },
     },
 };
-use nautilus_core::{MUTEX_POISONED, UUID4, UnixNanos, time::get_atomic_clock_realtime};
+use nautilus_core::{
+    MUTEX_POISONED, UUID4, UnixNanos,
+    time::{AtomicTime, get_atomic_clock_realtime},
+};
 use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{OmsType, OrderSide, OrderType, PositionSideSpecified, TimeInForce},
+    enums::{OmsType, OrderSide, PositionSideSpecified},
     events::{
         AccountState, OrderAccepted, OrderCancelRejected, OrderCanceled, OrderEventAny,
         OrderModifyRejected, OrderRejected, OrderSubmitted, OrderUpdated,
@@ -60,9 +63,7 @@ use super::http::{
     client::BinanceFuturesHttpClient,
     models::{BatchOrderResult, BinancePositionRisk},
     query::{
-        BatchCancelItem, BinanceAllOrdersParamsBuilder, BinanceCancelAllOrdersParamsBuilder,
-        BinanceCancelOrderParamsBuilder, BinanceModifyOrderParamsBuilder, BinanceNewOrderParams,
-        BinanceNewOrderParamsBuilder, BinanceOpenOrdersParamsBuilder,
+        BatchCancelItem, BinanceAllOrdersParamsBuilder, BinanceOpenOrdersParamsBuilder,
         BinanceOrderQueryParamsBuilder, BinancePositionRiskParamsBuilder,
         BinanceUserTradesParamsBuilder,
     },
@@ -70,12 +71,10 @@ use super::http::{
 use crate::{
     common::{
         consts::BINANCE_VENUE,
-        enums::{
-            BinanceFuturesOrderType, BinancePositionSide, BinanceProductType, BinanceSide,
-            BinanceTimeInForce,
-        },
+        enums::{BinancePositionSide, BinanceProductType},
     },
     config::BinanceExecClientConfig,
+    futures::http::models::BinanceFuturesAccountInfo,
 };
 
 /// Live execution client for Binance Futures trading.
@@ -88,6 +87,7 @@ pub struct BinanceFuturesExecutionClient {
     core: ExecutionClientCore,
     config: BinanceExecClientConfig,
     http_client: BinanceFuturesHttpClient,
+    clock: &'static AtomicTime,
     exec_event_sender: Option<tokio::sync::mpsc::UnboundedSender<ExecutionEvent>>,
     started: bool,
     connected: AtomicBool,
@@ -144,6 +144,7 @@ impl BinanceFuturesExecutionClient {
             core,
             config,
             http_client,
+            clock: get_atomic_clock_realtime(),
             exec_event_sender: None,
             started: false,
             connected: AtomicBool::new(false),
@@ -159,12 +160,37 @@ impl BinanceFuturesExecutionClient {
         self.is_hedge_mode.load(Ordering::Acquire)
     }
 
-    /// Converts Binance futures account info to Nautilus account state.
-    fn create_account_state(
+    /// Determines the position side for hedge mode based on order direction.
+    fn determine_position_side(
         &self,
-        account_info: &super::http::models::BinanceFuturesAccountInfo,
-    ) -> AccountState {
-        let ts_now = get_atomic_clock_realtime().get_time_ns();
+        order_side: OrderSide,
+        reduce_only: bool,
+    ) -> Option<BinancePositionSide> {
+        if !self.is_hedge_mode() {
+            return None;
+        }
+
+        // In hedge mode, position side depends on whether we're opening or closing
+        Some(if reduce_only {
+            // Closing: Buy closes Short, Sell closes Long
+            match order_side {
+                OrderSide::Buy => BinancePositionSide::Short,
+                OrderSide::Sell => BinancePositionSide::Long,
+                _ => BinancePositionSide::Both,
+            }
+        } else {
+            // Opening: Buy opens Long, Sell opens Short
+            match order_side {
+                OrderSide::Buy => BinancePositionSide::Long,
+                OrderSide::Sell => BinancePositionSide::Short,
+                _ => BinancePositionSide::Both,
+            }
+        })
+    }
+
+    /// Converts Binance futures account info to Nautilus account state.
+    fn create_account_state(&self, account_info: &BinanceFuturesAccountInfo) -> AccountState {
+        let ts_now = self.clock.get_time_ns();
 
         let balances: Vec<AccountBalance> = account_info
             .assets
@@ -233,115 +259,9 @@ impl BinanceFuturesExecutionClient {
         Ok(response.dual_side_position)
     }
 
-    fn order_to_new_order_params(
-        &self,
-        order: &dyn Order,
-    ) -> anyhow::Result<BinanceNewOrderParams> {
-        let symbol = order.instrument_id().symbol.to_string();
-        let side = match order.order_side() {
-            OrderSide::Buy => BinanceSide::Buy,
-            OrderSide::Sell => BinanceSide::Sell,
-            _ => anyhow::bail!("Invalid order side: {:?}", order.order_side()),
-        };
-
-        let order_type = self.map_order_type(order)?;
-        let time_in_force = self.map_time_in_force(order);
-
-        let position_side = if self.is_hedge_mode() {
-            Some(self.determine_position_side(order))
-        } else {
-            None
-        };
-
-        let quantity = Some(order.quantity().to_string());
-        let price = order.price().map(|p| p.to_string());
-        let stop_price = order.trigger_price().map(|p| p.to_string());
-
-        let new_client_order_id = Some(order.client_order_id().to_string());
-        let reduce_only = if order.is_reduce_only() {
-            Some(true)
-        } else {
-            None
-        };
-
-        let mut builder = BinanceNewOrderParamsBuilder::default();
-        builder.symbol(symbol).side(side).order_type(order_type);
-
-        if let Some(ps) = position_side {
-            builder.position_side(ps);
-        }
-        if let Some(tif) = time_in_force {
-            builder.time_in_force(tif);
-        }
-        if let Some(qty) = quantity {
-            builder.quantity(qty);
-        }
-        if let Some(px) = price {
-            builder.price(px);
-        }
-        if let Some(sp) = stop_price {
-            builder.stop_price(sp);
-        }
-        if let Some(coid) = new_client_order_id {
-            builder.new_client_order_id(coid);
-        }
-        if let Some(ro) = reduce_only {
-            builder.reduce_only(ro);
-        }
-
-        builder
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build order params: {e}"))
-    }
-
-    fn map_order_type(&self, order: &dyn Order) -> anyhow::Result<BinanceFuturesOrderType> {
-        match order.order_type() {
-            OrderType::Market => Ok(BinanceFuturesOrderType::Market),
-            OrderType::Limit => Ok(BinanceFuturesOrderType::Limit),
-            OrderType::StopMarket => Ok(BinanceFuturesOrderType::StopMarket),
-            OrderType::StopLimit => Ok(BinanceFuturesOrderType::Stop),
-            OrderType::MarketIfTouched => Ok(BinanceFuturesOrderType::TakeProfitMarket),
-            OrderType::LimitIfTouched => Ok(BinanceFuturesOrderType::TakeProfit),
-            OrderType::TrailingStopMarket => Ok(BinanceFuturesOrderType::TrailingStopMarket),
-            _ => anyhow::bail!(
-                "Unsupported order type for futures: {:?}",
-                order.order_type()
-            ),
-        }
-    }
-
-    fn map_time_in_force(&self, order: &dyn Order) -> Option<BinanceTimeInForce> {
-        match order.time_in_force() {
-            TimeInForce::Gtc => Some(BinanceTimeInForce::Gtc),
-            TimeInForce::Ioc => Some(BinanceTimeInForce::Ioc),
-            TimeInForce::Fok => Some(BinanceTimeInForce::Fok),
-            TimeInForce::Gtd => Some(BinanceTimeInForce::Gtd),
-            _ => None,
-        }
-    }
-
-    fn determine_position_side(&self, order: &dyn Order) -> BinancePositionSide {
-        // Simplified: a full implementation would consult existing positions
-        if order.is_reduce_only() {
-            match order.order_side() {
-                OrderSide::Buy => BinancePositionSide::Short,
-                OrderSide::Sell => BinancePositionSide::Long,
-                _ => BinancePositionSide::Both,
-            }
-        } else {
-            match order.order_side() {
-                OrderSide::Buy => BinancePositionSide::Long,
-                OrderSide::Sell => BinancePositionSide::Short,
-                _ => BinancePositionSide::Both,
-            }
-        }
-    }
-
     fn submit_order_internal(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
         let order = cmd.order.clone();
         let http_client = self.http_client.clone();
-
-        let params = self.order_to_new_order_params(&order)?;
         let exec_event_sender = self.exec_event_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
@@ -349,16 +269,36 @@ impl BinanceFuturesExecutionClient {
         let client_order_id = order.client_order_id();
         let strategy_id = order.strategy_id();
         let instrument_id = order.instrument_id();
+        let order_side = order.order_side();
+        let order_type = order.order_type();
+        let quantity = order.quantity();
+        let time_in_force = order.time_in_force();
+        let price = order.price();
+        let trigger_price = order.trigger_price();
+        let reduce_only = order.is_reduce_only();
+        let position_side = self.determine_position_side(order_side, reduce_only);
+        let clock = self.clock;
 
         self.spawn_task("submit_order", async move {
             let result = http_client
-                .submit_order(&params)
-                .await
-                .map_err(|e| anyhow::anyhow!("Submit order failed: {e}"));
+                .submit_order(
+                    account_id,
+                    instrument_id,
+                    client_order_id,
+                    order_side,
+                    order_type,
+                    quantity,
+                    time_in_force,
+                    price,
+                    trigger_price,
+                    reduce_only,
+                    position_side,
+                )
+                .await;
 
             match result {
-                Ok(response) => {
-                    let venue_order_id = VenueOrderId::new(response.order_id.to_string());
+                Ok(report) => {
+                    let venue_order_id = report.venue_order_id;
                     let accepted_event = OrderAccepted::new(
                         trader_id,
                         strategy_id,
@@ -368,7 +308,7 @@ impl BinanceFuturesExecutionClient {
                         account_id,
                         UUID4::new(),
                         ts_init,
-                        get_atomic_clock_realtime().get_time_ns(),
+                        clock.get_time_ns(),
                         false,
                     );
 
@@ -390,7 +330,7 @@ impl BinanceFuturesExecutionClient {
                         format!("submit-order-error: {e}").into(),
                         UUID4::new(),
                         ts_init,
-                        get_atomic_clock_realtime().get_time_ns(),
+                        clock.get_time_ns(),
                         false,
                         false,
                     );
@@ -416,39 +356,22 @@ impl BinanceFuturesExecutionClient {
     fn cancel_order_internal(&self, cmd: &CancelOrder) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
-
         let exec_event_sender = self.exec_event_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
-
-        let symbol = command.instrument_id.symbol.to_string();
-        let order_id = command.venue_order_id.map(|id| {
-            id.inner()
-                .parse::<i64>()
-                .expect("venue_order_id should be numeric")
-        });
-        let orig_client_order_id = Some(command.client_order_id.to_string());
+        let instrument_id = command.instrument_id;
+        let venue_order_id = command.venue_order_id;
+        let client_order_id = Some(command.client_order_id);
+        let clock = self.clock;
 
         self.spawn_task("cancel_order", async move {
-            let mut builder = BinanceCancelOrderParamsBuilder::default();
-            builder.symbol(symbol);
-            if let Some(oid) = order_id {
-                builder.order_id(oid);
-            }
-            if let Some(coid) = orig_client_order_id {
-                builder.orig_client_order_id(coid);
-            }
-            let params = builder.build().expect("cancel order params");
-
             let result = http_client
-                .cancel_order(&params)
-                .await
-                .map_err(|e| anyhow::anyhow!("Cancel order failed: {e}"));
+                .cancel_order(instrument_id, venue_order_id, client_order_id)
+                .await;
 
             match result {
-                Ok(response) => {
-                    let venue_order_id = VenueOrderId::new(response.order_id.to_string());
+                Ok(venue_order_id) => {
                     let canceled_event = OrderCanceled::new(
                         trader_id,
                         command.strategy_id,
@@ -456,7 +379,7 @@ impl BinanceFuturesExecutionClient {
                         command.client_order_id,
                         UUID4::new(),
                         ts_init,
-                        get_atomic_clock_realtime().get_time_ns(),
+                        clock.get_time_ns(),
                         false,
                         Some(venue_order_id),
                         Some(account_id),
@@ -478,7 +401,7 @@ impl BinanceFuturesExecutionClient {
                         command.client_order_id,
                         format!("cancel-order-error: {e}").into(),
                         UUID4::new(),
-                        get_atomic_clock_realtime().get_time_ns(),
+                        clock.get_time_ns(),
                         ts_init,
                         false,
                         command.venue_order_id,
@@ -589,7 +512,7 @@ impl BinanceFuturesExecutionClient {
             PositionSideSpecified::Short
         };
 
-        let ts_now = get_atomic_clock_realtime().get_time_ns();
+        let ts_now = self.clock.get_time_ns();
 
         Ok(PositionStatusReport::new(
             self.core.account_id,
@@ -846,7 +769,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             self.core.account_id,
             UUID4::new(),
             cmd.ts_init,
-            get_atomic_clock_realtime().get_time_ns(),
+            self.clock.get_time_ns(),
         );
 
         if let Some(sender) = &self.exec_event_sender {
@@ -887,7 +810,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                 cmd.client_order_id,
                 "Order not found in cache for modify".into(),
                 UUID4::new(),
-                get_atomic_clock_realtime().get_time_ns(),
+                self.clock.get_time_ns(),
                 cmd.ts_init,
                 false,
                 cmd.venue_order_id,
@@ -906,28 +829,14 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
         let http_client = self.http_client.clone();
         let command = cmd.clone();
-
         let exec_event_sender = self.exec_event_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
-
-        let symbol = command.instrument_id.symbol.to_string();
-        let order_id = command.venue_order_id.map(|id| {
-            id.inner()
-                .parse::<i64>()
-                .expect("venue_order_id should be numeric")
-        });
-
-        let side = match order.order_side() {
-            OrderSide::Buy => BinanceSide::Buy,
-            OrderSide::Sell => BinanceSide::Sell,
-            _ => {
-                log::warn!("Invalid order side for modify: {:?}", order.order_side());
-                return Ok(());
-            }
-        };
-
+        let instrument_id = command.instrument_id;
+        let venue_order_id = command.venue_order_id;
+        let client_order_id = Some(command.client_order_id);
+        let order_side = order.order_side();
         let quantity = command.quantity.unwrap_or_else(|| order.quantity());
         let price = command.price.or_else(|| order.price());
 
@@ -943,7 +852,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                 cmd.client_order_id,
                 "Price required for order modification".into(),
                 UUID4::new(),
-                get_atomic_clock_realtime().get_time_ns(),
+                self.clock.get_time_ns(),
                 cmd.ts_init,
                 false,
                 cmd.venue_order_id,
@@ -959,26 +868,23 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             }
             return Ok(());
         };
+        let clock = self.clock;
 
         self.spawn_task("modify_order", async move {
-            let mut builder = BinanceModifyOrderParamsBuilder::default();
-            builder
-                .symbol(symbol)
-                .side(side)
-                .quantity(quantity.to_string())
-                .price(price.to_string());
+            let result = http_client
+                .modify_order(
+                    account_id,
+                    instrument_id,
+                    venue_order_id,
+                    client_order_id,
+                    order_side,
+                    quantity,
+                    price,
+                )
+                .await;
 
-            if let Some(oid) = order_id {
-                builder.order_id(oid);
-            } else {
-                builder.orig_client_order_id(command.client_order_id.to_string());
-            }
-
-            let params = builder.build().expect("modify order params");
-
-            match http_client.modify_order(&params).await {
-                Ok(response) => {
-                    let venue_order_id = VenueOrderId::new(response.order_id.to_string());
+            match result {
+                Ok(report) => {
                     let updated_event = OrderUpdated::new(
                         trader_id,
                         command.strategy_id,
@@ -987,9 +893,9 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         quantity,
                         UUID4::new(),
                         ts_init,
-                        get_atomic_clock_realtime().get_time_ns(),
+                        clock.get_time_ns(),
                         false,
-                        Some(venue_order_id),
+                        Some(report.venue_order_id),
                         Some(account_id),
                         Some(price),
                         None,
@@ -1011,7 +917,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         command.client_order_id,
                         format!("modify-order-failed: {e}").into(),
                         UUID4::new(),
-                        get_atomic_clock_realtime().get_time_ns(),
+                        clock.get_time_ns(),
                         ts_init,
                         false,
                         command.venue_order_id,
@@ -1042,28 +948,15 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
     fn cancel_all_orders(&self, cmd: &CancelAllOrders) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
-
-        let symbol = cmd.instrument_id.symbol.to_string();
+        let instrument_id = cmd.instrument_id;
 
         self.spawn_task("cancel_all_orders", async move {
-            let params = BinanceCancelAllOrdersParamsBuilder::default()
-                .symbol(symbol.clone())
-                .build()
-                .expect("cancel all orders params");
-
-            let result = http_client.cancel_all_orders(&params).await;
-
-            match result {
-                Ok(response) => {
-                    if response.code == 200 {
-                        log::info!("Cancelled all orders for {symbol}: {}", response.msg);
-
-                        // Query open orders to get the cancelled order IDs
-                        // Note: In a real implementation, we'd track pending orders
-                    }
+            match http_client.cancel_all_orders(instrument_id).await {
+                Ok(_) => {
+                    log::info!("Cancelled all orders for {instrument_id}");
                 }
                 Err(e) => {
-                    log::error!("Failed to cancel all orders for {symbol}: {e}");
+                    log::error!("Failed to cancel all orders for {instrument_id}: {e}");
                 }
             }
 
@@ -1086,6 +979,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         let exec_event_sender = self.exec_event_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
+        let clock = self.clock;
 
         self.spawn_task("batch_cancel_orders", async move {
             for chunk in command.cancels.chunks(BATCH_SIZE) {
@@ -1129,7 +1023,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                         cancel.client_order_id,
                                         UUID4::new(),
                                         cancel.ts_init,
-                                        get_atomic_clock_realtime().get_time_ns(),
+                                        clock.get_time_ns(),
                                         false,
                                         Some(venue_order_id),
                                         Some(account_id),
@@ -1155,7 +1049,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                         )
                                         .into(),
                                         UUID4::new(),
-                                        get_atomic_clock_realtime().get_time_ns(),
+                                        clock.get_time_ns(),
                                         cancel.ts_init,
                                         false,
                                         cancel.venue_order_id,
@@ -1182,7 +1076,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                 cancel.client_order_id,
                                 format!("batch-cancel-request-failed: {e}").into(),
                                 UUID4::new(),
-                                get_atomic_clock_realtime().get_time_ns(),
+                                clock.get_time_ns(),
                                 cancel.ts_init,
                                 false,
                                 cancel.venue_order_id,
@@ -1402,7 +1296,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
     ) -> anyhow::Result<Option<ExecutionMassStatus>> {
         log::info!("Generating ExecutionMassStatus (lookback_mins={lookback_mins:?})");
 
-        let ts_now = get_atomic_clock_realtime().get_time_ns();
+        let ts_now = self.clock.get_time_ns();
 
         let start = lookback_mins.map(|mins| {
             let lookback_ns = mins * 60 * 1_000_000_000;
