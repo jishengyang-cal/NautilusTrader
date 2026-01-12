@@ -77,6 +77,11 @@ pub enum MarketDataMessage {
 ///
 /// Validates the message header (including schema ID) and routes to the
 /// appropriate decoder based on template ID.
+///
+/// # Errors
+///
+/// Returns an error if the buffer is too short, schema validation fails,
+/// or the template ID is unknown.
 pub fn decode_market_data(buf: &[u8]) -> Result<MarketDataMessage, StreamDecodeError> {
     let header = MessageHeader::decode(buf)?;
     header.validate_schema()?;

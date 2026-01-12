@@ -18,10 +18,11 @@
 use anyhow::Context;
 use nautilus_core::{UUID4, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_model::{
-    enums::{LiquiditySide, OrderSide, OrderStatus, OrderType, TimeInForce},
-    identifiers::{AccountId, ClientOrderId, InstrumentId, TradeId, VenueOrderId},
+    enums::{AccountType, LiquiditySide, OrderSide, OrderStatus, OrderType, TimeInForce},
+    events::AccountState,
+    identifiers::{AccountId, ClientOrderId, InstrumentId, Symbol, TradeId, Venue, VenueOrderId},
     reports::{FillReport, OrderStatusReport},
-    types::{Currency, Money, Price, Quantity},
+    types::{AccountBalance, Currency, MarginBalance, Money, Price, Quantity},
 };
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,77 @@ use crate::common::{
 pub struct BinanceServerTime {
     /// Server timestamp in milliseconds.
     pub server_time: i64,
+}
+
+/// Public trade from `GET /fapi/v1/trades`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceFuturesTrade {
+    /// Trade ID.
+    pub id: i64,
+    /// Trade price.
+    pub price: String,
+    /// Trade quantity.
+    pub qty: String,
+    /// Quote asset quantity.
+    pub quote_qty: String,
+    /// Trade timestamp in milliseconds.
+    pub time: i64,
+    /// Whether the buyer is the maker.
+    pub is_buyer_maker: bool,
+}
+
+/// Kline/candlestick data from `GET /fapi/v1/klines`.
+#[derive(Clone, Debug)]
+pub struct BinanceFuturesKline {
+    /// Open time in milliseconds.
+    pub open_time: i64,
+    /// Open price.
+    pub open: String,
+    /// High price.
+    pub high: String,
+    /// Low price.
+    pub low: String,
+    /// Close price.
+    pub close: String,
+    /// Volume.
+    pub volume: String,
+    /// Close time in milliseconds.
+    pub close_time: i64,
+    /// Quote asset volume.
+    pub quote_volume: String,
+    /// Number of trades.
+    pub num_trades: i64,
+    /// Taker buy base volume.
+    pub taker_buy_base_volume: String,
+    /// Taker buy quote volume.
+    pub taker_buy_quote_volume: String,
+}
+
+impl<'de> Deserialize<'de> for BinanceFuturesKline {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let arr: Vec<Value> = Vec::deserialize(deserializer)?;
+        if arr.len() < 11 {
+            return Err(serde::de::Error::custom("Invalid kline array length"));
+        }
+
+        Ok(Self {
+            open_time: arr[0].as_i64().unwrap_or(0),
+            open: arr[1].as_str().unwrap_or("0").to_string(),
+            high: arr[2].as_str().unwrap_or("0").to_string(),
+            low: arr[3].as_str().unwrap_or("0").to_string(),
+            close: arr[4].as_str().unwrap_or("0").to_string(),
+            volume: arr[5].as_str().unwrap_or("0").to_string(),
+            close_time: arr[6].as_i64().unwrap_or(0),
+            quote_volume: arr[7].as_str().unwrap_or("0").to_string(),
+            num_trades: arr[8].as_i64().unwrap_or(0),
+            taker_buy_base_volume: arr[9].as_str().unwrap_or("0").to_string(),
+            taker_buy_quote_volume: arr[10].as_str().unwrap_or("0").to_string(),
+        })
+    }
 }
 
 /// USD-M Futures exchange information response from `GET /fapi/v1/exchangeInfo`.
@@ -575,6 +647,103 @@ pub struct BinanceFuturesAccountInfo {
     pub positions: Vec<BinancePositionRisk>,
 }
 
+impl BinanceFuturesAccountInfo {
+    /// Converts this Binance account info to a Nautilus [`AccountState`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if balance parsing fails.
+    pub fn to_account_state(
+        &self,
+        account_id: AccountId,
+        ts_init: UnixNanos,
+    ) -> anyhow::Result<AccountState> {
+        let mut balances = Vec::with_capacity(self.assets.len());
+
+        for asset in &self.assets {
+            let currency = Currency::get_or_create_crypto_with_context(
+                asset.asset.as_str(),
+                Some("futures balance"),
+            );
+
+            let total: Decimal = asset.balance.parse().context("invalid balance")?;
+            let available: Decimal = asset
+                .available_balance
+                .parse()
+                .context("invalid available_balance")?;
+            let locked = total - available;
+
+            let total_money = Money::from_decimal(total, currency)
+                .unwrap_or_else(|_| Money::new(total.to_string().parse().unwrap_or(0.0), currency));
+            let locked_money = Money::from_decimal(locked, currency).unwrap_or_else(|_| {
+                Money::new(locked.to_string().parse().unwrap_or(0.0), currency)
+            });
+            let free_money = Money::from_decimal(available, currency).unwrap_or_else(|_| {
+                Money::new(available.to_string().parse().unwrap_or(0.0), currency)
+            });
+
+            let balance = AccountBalance::new(total_money, locked_money, free_money);
+            balances.push(balance);
+        }
+
+        // Ensure at least one balance exists
+        if balances.is_empty() {
+            let zero_currency = Currency::USDT();
+            let zero_money = Money::new(0.0, zero_currency);
+            let zero_balance = AccountBalance::new(zero_money, zero_money, zero_money);
+            balances.push(zero_balance);
+        }
+
+        // Parse margin requirements
+        let mut margins = Vec::new();
+
+        let initial_margin_dec = self
+            .total_initial_margin
+            .as_ref()
+            .and_then(|s| Decimal::from_str_exact(s).ok());
+        let maint_margin_dec = self
+            .total_maint_margin
+            .as_ref()
+            .and_then(|s| Decimal::from_str_exact(s).ok());
+
+        if let (Some(initial_margin_dec), Some(maint_margin_dec)) =
+            (initial_margin_dec, maint_margin_dec)
+        {
+            let has_margin = !initial_margin_dec.is_zero() || !maint_margin_dec.is_zero();
+            if has_margin {
+                let margin_currency = Currency::USDT();
+                let margin_instrument_id =
+                    InstrumentId::new(Symbol::new("ACCOUNT"), Venue::new("BINANCE"));
+
+                let initial_margin = Money::from_decimal(initial_margin_dec, margin_currency)
+                    .unwrap_or_else(|_| Money::zero(margin_currency));
+                let maintenance_margin = Money::from_decimal(maint_margin_dec, margin_currency)
+                    .unwrap_or_else(|_| Money::zero(margin_currency));
+
+                let margin_balance =
+                    MarginBalance::new(initial_margin, maintenance_margin, margin_instrument_id);
+                margins.push(margin_balance);
+            }
+        }
+
+        let ts_event = self
+            .update_time
+            .map_or(ts_init, |t| UnixNanos::from((t * 1_000_000) as u64));
+
+        Ok(AccountState::new(
+            account_id,
+            AccountType::Margin,
+            balances,
+            margins,
+            true, // is_reported
+            UUID4::new(),
+            ts_event,
+            ts_init,
+            None,
+        ))
+    }
+}
+
 /// Hedge mode (dual side position) response.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -685,6 +854,10 @@ pub struct BinanceFuturesOrder {
 
 impl BinanceFuturesOrder {
     /// Converts this Binance order to a Nautilus [`OrderStatusReport`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if quantity parsing fails.
     pub fn to_order_status_report(
         &self,
         account_id: AccountId,
@@ -789,6 +962,10 @@ impl BinanceOrderStatus {
 
 impl BinanceUserTrade {
     /// Converts this Binance trade to a Nautilus [`FillReport`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if quantity or price parsing fails.
     pub fn to_fill_report(
         &self,
         account_id: AccountId,
@@ -846,4 +1023,33 @@ impl BinanceUserTrade {
             Some(UUID4::new()),
         ))
     }
+}
+
+/// Result of a single order in a batch operation.
+///
+/// Each item in a batch response can be either a success or an error.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum BatchOrderResult {
+    /// Successful order operation.
+    Success(Box<BinanceFuturesOrder>),
+    /// Failed order operation.
+    Error(BatchOrderError),
+}
+
+/// Error in a batch order response.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BatchOrderError {
+    /// Error code from Binance.
+    pub code: i64,
+    /// Error message.
+    pub msg: String,
+}
+
+/// Listen key response from user data stream endpoints.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListenKeyResponse {
+    /// The listen key for WebSocket user data stream.
+    pub listen_key: String,
 }

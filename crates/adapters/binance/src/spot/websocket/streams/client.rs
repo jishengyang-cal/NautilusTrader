@@ -46,14 +46,12 @@ use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
 
 use super::{
+    super::error::{BinanceWsError, BinanceWsResult},
     handler::BinanceSpotWsFeedHandler,
     messages::{HandlerCommand, NautilusWsMessage},
     subscription::MAX_STREAMS_PER_CONNECTION,
 };
-use crate::{
-    common::{consts::BINANCE_SPOT_SBE_WS_URL, credential::Ed25519Credential},
-    websocket::error::{BinanceWsError, BinanceWsResult},
-};
+use crate::common::{consts::BINANCE_SPOT_SBE_WS_URL, credential::Ed25519Credential};
 
 /// Binance Spot WebSocket client for SBE market data streams.
 #[derive(Clone)]

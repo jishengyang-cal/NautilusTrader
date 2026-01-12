@@ -54,14 +54,17 @@ use ustr::Ustr;
 use super::{
     error::{BinanceSpotHttpError, BinanceSpotHttpResult},
     models::{
-        BinanceAccountInfo, BinanceAccountTrade, BinanceCancelOrderResponse, BinanceDepth,
-        BinanceKlines, BinanceNewOrderResponse, BinanceOrderResponse, BinanceTrades,
+        AvgPrice, BatchCancelResult, BatchOrderResult, BinanceAccountInfo, BinanceAccountTrade,
+        BinanceCancelOrderResponse, BinanceDepth, BinanceKlines, BinanceNewOrderResponse,
+        BinanceOrderResponse, BinanceTrades, BookTicker, ListenKeyResponse, Ticker24hr,
+        TickerPrice, TradeFee,
     },
     parse,
     query::{
-        AccountInfoParams, AccountTradesParams, AllOrdersParams, CancelOpenOrdersParams,
-        CancelOrderParams, CancelReplaceOrderParams, DepthParams, KlinesParams, NewOrderParams,
-        OpenOrdersParams, QueryOrderParams, TradesParams,
+        AccountInfoParams, AccountTradesParams, AllOrdersParams, AvgPriceParams, BatchCancelItem,
+        BatchOrderItem, CancelOpenOrdersParams, CancelOrderParams, CancelReplaceOrderParams,
+        DepthParams, KlinesParams, ListenKeyParams, NewOrderParams, OpenOrdersParams,
+        QueryOrderParams, TickerParams, TradeFeeParams, TradesParams,
     },
 };
 use crate::{
@@ -192,6 +195,10 @@ impl BinanceRawSpotHttpClient {
     }
 
     /// Performs a GET request and returns raw response bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
     pub async fn get<P>(&self, path: &str, params: Option<&P>) -> BinanceSpotHttpResult<Vec<u8>>
     where
         P: Serialize + ?Sized,
@@ -200,6 +207,10 @@ impl BinanceRawSpotHttpClient {
     }
 
     /// Performs a signed GET request and returns raw response bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing or the request fails.
     pub async fn get_signed<P>(
         &self,
         path: &str,
@@ -507,6 +518,368 @@ impl BinanceRawSpotHttpClient {
         Ok(klines)
     }
 
+    /// Performs a public GET request that returns JSON.
+    async fn get_json<P>(&self, path: &str, params: Option<&P>) -> BinanceSpotHttpResult<Vec<u8>>
+    where
+        P: Serialize + ?Sized,
+    {
+        let query = params
+            .map(serde_urlencoded::to_string)
+            .transpose()
+            .map_err(|e| BinanceSpotHttpError::ValidationError(e.to_string()))?
+            .unwrap_or_default();
+
+        let url = self.build_url(path, &query);
+        let keys = vec![BINANCE_GLOBAL_RATE_KEY.to_string()];
+
+        let response = self
+            .client
+            .request(
+                Method::GET,
+                url,
+                None::<&HashMap<String, Vec<String>>>,
+                None,
+                None,
+                None,
+                Some(keys),
+            )
+            .await?;
+
+        if !response.status.is_success() {
+            return self.parse_error_response(response);
+        }
+
+        Ok(response.body.to_vec())
+    }
+
+    /// Returns 24-hour ticker price change statistics.
+    ///
+    /// If `symbol` is None, returns statistics for all symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn ticker_24hr(
+        &self,
+        symbol: Option<&str>,
+    ) -> BinanceSpotHttpResult<Vec<Ticker24hr>> {
+        let params = symbol.map(TickerParams::for_symbol);
+        let bytes = self.get_json("ticker/24hr", params.as_ref()).await?;
+
+        // Single symbol returns object, multiple returns array
+        if symbol.is_some() {
+            let ticker: Ticker24hr = serde_json::from_slice(&bytes)
+                .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+            Ok(vec![ticker])
+        } else {
+            let tickers: Vec<Ticker24hr> = serde_json::from_slice(&bytes)
+                .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+            Ok(tickers)
+        }
+    }
+
+    /// Returns latest price for a symbol or all symbols.
+    ///
+    /// If `symbol` is None, returns prices for all symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn ticker_price(
+        &self,
+        symbol: Option<&str>,
+    ) -> BinanceSpotHttpResult<Vec<TickerPrice>> {
+        let params = symbol.map(TickerParams::for_symbol);
+        let bytes = self.get_json("ticker/price", params.as_ref()).await?;
+
+        // Single symbol returns object, multiple returns array
+        if symbol.is_some() {
+            let ticker: TickerPrice = serde_json::from_slice(&bytes)
+                .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+            Ok(vec![ticker])
+        } else {
+            let tickers: Vec<TickerPrice> = serde_json::from_slice(&bytes)
+                .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+            Ok(tickers)
+        }
+    }
+
+    /// Returns best bid/ask price for a symbol or all symbols.
+    ///
+    /// If `symbol` is None, returns book ticker for all symbols.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn ticker_book(
+        &self,
+        symbol: Option<&str>,
+    ) -> BinanceSpotHttpResult<Vec<BookTicker>> {
+        let params = symbol.map(TickerParams::for_symbol);
+        let bytes = self.get_json("ticker/bookTicker", params.as_ref()).await?;
+
+        // Single symbol returns object, multiple returns array
+        if symbol.is_some() {
+            let ticker: BookTicker = serde_json::from_slice(&bytes)
+                .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+            Ok(vec![ticker])
+        } else {
+            let tickers: Vec<BookTicker> = serde_json::from_slice(&bytes)
+                .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+            Ok(tickers)
+        }
+    }
+
+    /// Returns current average price for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn avg_price(&self, symbol: &str) -> BinanceSpotHttpResult<AvgPrice> {
+        let params = AvgPriceParams::new(symbol);
+        let bytes = self.get_json("avgPrice", Some(&params)).await?;
+
+        let avg_price: AvgPrice = serde_json::from_slice(&bytes)
+            .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+        Ok(avg_price)
+    }
+
+    /// Returns trading fee rates for symbols.
+    ///
+    /// If `symbol` is None, returns fee rates for all symbols.
+    /// Uses SAPI endpoint (requires authentication).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing or the request fails.
+    pub async fn get_trade_fee(
+        &self,
+        symbol: Option<&str>,
+    ) -> BinanceSpotHttpResult<Vec<TradeFee>> {
+        let params = symbol.map(TradeFeeParams::for_symbol);
+        let bytes = self
+            .get_signed_sapi("asset/tradeFee", params.as_ref())
+            .await?;
+
+        let fees: Vec<TradeFee> = serde_json::from_slice(&bytes)
+            .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+        Ok(fees)
+    }
+
+    /// Performs a signed GET request to SAPI endpoints (returns JSON).
+    async fn get_signed_sapi<P>(
+        &self,
+        path: &str,
+        params: Option<&P>,
+    ) -> BinanceSpotHttpResult<Vec<u8>>
+    where
+        P: Serialize + ?Sized,
+    {
+        let cred = self
+            .credential
+            .as_ref()
+            .ok_or(BinanceSpotHttpError::MissingCredentials)?;
+
+        let mut query = params
+            .map(serde_urlencoded::to_string)
+            .transpose()
+            .map_err(|e| BinanceSpotHttpError::ValidationError(e.to_string()))?
+            .unwrap_or_default();
+
+        if !query.is_empty() {
+            query.push('&');
+        }
+
+        let timestamp = Utc::now().timestamp_millis();
+        query.push_str(&format!("timestamp={timestamp}"));
+
+        if let Some(recv_window) = self.recv_window {
+            query.push_str(&format!("&recvWindow={recv_window}"));
+        }
+
+        let signature = cred.sign(&query);
+        query.push_str(&format!("&signature={signature}"));
+
+        // Build SAPI URL (different from regular API path)
+        let normalized_path = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        };
+
+        let mut url = format!("{}/sapi/v1{}", self.base_url, normalized_path);
+        if !query.is_empty() {
+            url.push('?');
+            url.push_str(&query);
+        }
+
+        let mut headers = HashMap::new();
+        headers.insert("X-MBX-APIKEY".to_string(), cred.api_key().to_string());
+
+        let keys = vec![BINANCE_GLOBAL_RATE_KEY.to_string()];
+
+        let response = self
+            .client
+            .request(
+                Method::GET,
+                url,
+                None::<&HashMap<String, Vec<String>>>,
+                Some(headers),
+                None,
+                None,
+                Some(keys),
+            )
+            .await?;
+
+        if !response.status.is_success() {
+            return self.parse_error_response(response);
+        }
+
+        Ok(response.body.to_vec())
+    }
+
+    /// Percent-encodes a string for use in URL query parameters.
+    fn percent_encode(input: &str) -> String {
+        let mut result = String::with_capacity(input.len() * 3);
+        for byte in input.bytes() {
+            match byte {
+                // Unreserved characters (RFC 3986)
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    result.push(byte as char);
+                }
+                _ => {
+                    result.push('%');
+                    result.push_str(&format!("{byte:02X}"));
+                }
+            }
+        }
+        result
+    }
+
+    /// Submits multiple orders in a single request (up to 5 orders).
+    ///
+    /// Each order in the batch is processed independently. The response contains
+    /// the result for each order, which can be either a success or an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing, the request fails, or
+    /// JSON parsing fails. Individual order failures are returned in the
+    /// response array as `BatchOrderResult::Error`.
+    pub async fn batch_submit_orders(
+        &self,
+        orders: &[BatchOrderItem],
+    ) -> BinanceSpotHttpResult<Vec<BatchOrderResult>> {
+        if orders.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        if orders.len() > 5 {
+            return Err(BinanceSpotHttpError::ValidationError(
+                "Batch order limit is 5 orders maximum".to_string(),
+            ));
+        }
+
+        let batch_json = serde_json::to_string(orders)
+            .map_err(|e| BinanceSpotHttpError::ValidationError(e.to_string()))?;
+
+        let bytes = self
+            .batch_request(Method::POST, "batchOrders", &batch_json)
+            .await?;
+
+        let results: Vec<BatchOrderResult> = serde_json::from_slice(&bytes)
+            .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+
+        Ok(results)
+    }
+
+    /// Cancels multiple orders in a single request (up to 5 orders).
+    ///
+    /// Each cancel in the batch is processed independently. The response contains
+    /// the result for each cancel, which can be either a success or an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing, the request fails, or
+    /// JSON parsing fails. Individual cancel failures are returned in the
+    /// response array as `BatchCancelResult::Error`.
+    pub async fn batch_cancel_orders(
+        &self,
+        cancels: &[BatchCancelItem],
+    ) -> BinanceSpotHttpResult<Vec<BatchCancelResult>> {
+        if cancels.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        if cancels.len() > 5 {
+            return Err(BinanceSpotHttpError::ValidationError(
+                "Batch cancel limit is 5 orders maximum".to_string(),
+            ));
+        }
+
+        let batch_json = serde_json::to_string(cancels)
+            .map_err(|e| BinanceSpotHttpError::ValidationError(e.to_string()))?;
+
+        let bytes = self
+            .batch_request(Method::DELETE, "batchOrders", &batch_json)
+            .await?;
+
+        let results: Vec<BatchCancelResult> = serde_json::from_slice(&bytes)
+            .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+
+        Ok(results)
+    }
+
+    /// Performs a signed batch request with the batchOrders parameter.
+    async fn batch_request(
+        &self,
+        method: Method,
+        path: &str,
+        batch_json: &str,
+    ) -> BinanceSpotHttpResult<Vec<u8>> {
+        let cred = self
+            .credential
+            .as_ref()
+            .ok_or(BinanceSpotHttpError::MissingCredentials)?;
+
+        let encoded_batch = Self::percent_encode(batch_json);
+        let timestamp = Utc::now().timestamp_millis();
+        let mut query = format!("batchOrders={encoded_batch}&timestamp={timestamp}");
+
+        if let Some(recv_window) = self.recv_window {
+            query.push_str(&format!("&recvWindow={recv_window}"));
+        }
+
+        let signature = cred.sign(&query);
+        query.push_str(&format!("&signature={signature}"));
+
+        let url = self.build_url(path, &query);
+
+        let mut headers = HashMap::new();
+        headers.insert("X-MBX-APIKEY".to_string(), cred.api_key().to_string());
+
+        let keys = self.rate_limit_keys(true);
+
+        let response = self
+            .client
+            .request(
+                method,
+                url,
+                None::<&HashMap<String, Vec<String>>>,
+                Some(headers),
+                None,
+                None,
+                Some(keys),
+            )
+            .await?;
+
+        if !response.status.is_success() {
+            return self.parse_error_response(response);
+        }
+
+        Ok(response.body.to_vec())
+    }
+
     /// Returns account information including balances.
     ///
     /// # Errors
@@ -751,6 +1124,99 @@ impl BinanceRawSpotHttpClient {
         let bytes = self.delete_order("openOrders", Some(&params)).await?;
         let response = parse::decode_cancel_open_orders(&bytes)?;
         Ok(response)
+    }
+
+    /// Performs an API-key authenticated request (no signature) that returns JSON.
+    async fn request_with_api_key<P>(
+        &self,
+        method: Method,
+        path: &str,
+        params: Option<&P>,
+    ) -> BinanceSpotHttpResult<Vec<u8>>
+    where
+        P: Serialize + ?Sized,
+    {
+        let cred = self
+            .credential
+            .as_ref()
+            .ok_or(BinanceSpotHttpError::MissingCredentials)?;
+
+        let query = params
+            .map(serde_urlencoded::to_string)
+            .transpose()
+            .map_err(|e| BinanceSpotHttpError::ValidationError(e.to_string()))?
+            .unwrap_or_default();
+
+        let url = self.build_url(path, &query);
+
+        let mut headers = HashMap::new();
+        headers.insert("X-MBX-APIKEY".to_string(), cred.api_key().to_string());
+
+        let keys = vec![BINANCE_GLOBAL_RATE_KEY.to_string()];
+
+        let response = self
+            .client
+            .request(
+                method,
+                url,
+                None::<&HashMap<String, Vec<String>>>,
+                Some(headers),
+                None,
+                None,
+                Some(keys),
+            )
+            .await?;
+
+        if !response.status.is_success() {
+            return self.parse_error_response(response);
+        }
+
+        Ok(response.body.to_vec())
+    }
+
+    /// Creates a new listen key for the user data stream.
+    ///
+    /// Listen keys are valid for 60 minutes. Use `extend_listen_key` to keep
+    /// the stream alive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing or the request fails.
+    pub async fn create_listen_key(&self) -> BinanceSpotHttpResult<ListenKeyResponse> {
+        let bytes = self
+            .request_with_api_key(Method::POST, "userDataStream", None::<&()>)
+            .await?;
+
+        let response: ListenKeyResponse = serde_json::from_slice(&bytes)
+            .map_err(|e| BinanceSpotHttpError::JsonError(e.to_string()))?;
+
+        Ok(response)
+    }
+
+    /// Extends the validity of a listen key by 60 minutes.
+    ///
+    /// Should be called periodically to keep the user data stream alive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing or the request fails.
+    pub async fn extend_listen_key(&self, listen_key: &str) -> BinanceSpotHttpResult<()> {
+        let params = ListenKeyParams::new(listen_key);
+        self.request_with_api_key(Method::PUT, "userDataStream", Some(&params))
+            .await?;
+        Ok(())
+    }
+
+    /// Closes a listen key, terminating the user data stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing or the request fails.
+    pub async fn close_listen_key(&self, listen_key: &str) -> BinanceSpotHttpResult<()> {
+        let params = ListenKeyParams::new(listen_key);
+        self.request_with_api_key(Method::DELETE, "userDataStream", Some(&params))
+            .await?;
+        Ok(())
     }
 }
 
@@ -1245,6 +1711,20 @@ impl BinanceSpotHttpClient {
         parse_new_order_response_sbe(&response, account_id, &instrument, ts_init)
     }
 
+    /// Submits multiple orders in a single batch request.
+    ///
+    /// Binance limits batch submit to 5 orders maximum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or JSON parsing fails.
+    pub async fn submit_order_list(
+        &self,
+        orders: &[BatchOrderItem],
+    ) -> BinanceSpotHttpResult<Vec<BatchOrderResult>> {
+        self.inner.batch_submit_orders(orders).await
+    }
+
     /// Modifies an existing order (cancel and replace atomically).
     ///
     /// # Errors
@@ -1331,6 +1811,20 @@ impl BinanceSpotHttpClient {
             .map_err(|e| anyhow::anyhow!(e))?;
 
         Ok(VenueOrderId::new(response.order_id.to_string()))
+    }
+
+    /// Cancels multiple orders in a single batch request.
+    ///
+    /// Binance limits batch cancel to 5 orders maximum.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or JSON parsing fails.
+    pub async fn batch_cancel_orders(
+        &self,
+        cancels: &[BatchCancelItem],
+    ) -> BinanceSpotHttpResult<Vec<BatchCancelResult>> {
+        self.inner.batch_cancel_orders(cancels).await
     }
 
     /// Cancels all open orders for a symbol.

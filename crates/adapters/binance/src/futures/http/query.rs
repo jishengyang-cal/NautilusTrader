@@ -34,6 +34,38 @@ pub struct BinanceDepthParams {
     pub limit: Option<u32>,
 }
 
+/// Query parameters for `GET /fapi/v1/trades` or `GET /dapi/v1/trades`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Builder)]
+#[builder(setter(into, strip_option), default)]
+pub struct BinanceTradesParams {
+    /// Trading symbol (required).
+    pub symbol: String,
+    /// Number of trades to return (default 500, max 1000).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Query parameters for `GET /fapi/v1/klines` or `GET /dapi/v1/klines`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Builder)]
+#[builder(setter(into, strip_option), default)]
+pub struct BinanceKlinesParams {
+    /// Trading symbol (required).
+    pub symbol: String,
+    /// Kline interval (e.g., "1m", "5m", "1h", "1d").
+    pub interval: String,
+    /// Start time in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "startTime")]
+    pub start_time: Option<i64>,
+    /// End time in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "endTime")]
+    pub end_time: Option<i64>,
+    /// Number of klines to return (default 500, max 1500).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
 /// Query parameters for `GET /fapi/v1/ticker/24hr` or `GET /dapi/v1/ticker/24hr`.
 #[derive(Clone, Debug, Deserialize, Serialize, Default, Builder)]
 #[builder(default)]
@@ -148,6 +180,9 @@ pub struct BinanceIncomeHistoryParams {
 pub struct BinanceUserTradesParams {
     /// Trading symbol (required).
     pub symbol: String,
+    /// Order ID to filter trades for a specific order.
+    #[serde(rename = "orderId", skip_serializing_if = "Option::is_none")]
+    pub order_id: Option<i64>,
     /// Start time in milliseconds.
     #[serde(rename = "startTime", skip_serializing_if = "Option::is_none")]
     pub start_time: Option<i64>,
@@ -372,6 +407,107 @@ pub struct BinanceSetMarginTypeParams {
     #[serde(rename = "recvWindow", skip_serializing_if = "Option::is_none")]
     #[builder(default)]
     pub recv_window: Option<u64>,
+}
+
+/// Single order item for batch submit operations.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchOrderItem {
+    /// Trading symbol.
+    pub symbol: String,
+    /// Order side.
+    pub side: String,
+    /// Order type.
+    #[serde(rename = "type")]
+    pub order_type: String,
+    /// Time in force.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_in_force: Option<String>,
+    /// Order quantity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantity: Option<String>,
+    /// Limit price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price: Option<String>,
+    /// Reduce-only flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reduce_only: Option<bool>,
+    /// Client order ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_client_order_id: Option<String>,
+    /// Stop price for stop orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_price: Option<String>,
+    /// Position side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_side: Option<String>,
+}
+
+/// Single cancel item for batch cancel operations.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCancelItem {
+    /// Trading symbol.
+    pub symbol: String,
+    /// Order ID to cancel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_id: Option<i64>,
+    /// Original client order ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orig_client_order_id: Option<String>,
+}
+
+impl BatchCancelItem {
+    /// Creates a batch cancel item by order ID.
+    #[must_use]
+    pub fn by_order_id(symbol: impl Into<String>, order_id: i64) -> Self {
+        Self {
+            symbol: symbol.into(),
+            order_id: Some(order_id),
+            orig_client_order_id: None,
+        }
+    }
+
+    /// Creates a batch cancel item by client order ID.
+    #[must_use]
+    pub fn by_client_order_id(
+        symbol: impl Into<String>,
+        client_order_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            symbol: symbol.into(),
+            order_id: None,
+            orig_client_order_id: Some(client_order_id.into()),
+        }
+    }
+}
+
+/// Single modify item for batch modify operations.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchModifyItem {
+    /// Trading symbol.
+    pub symbol: String,
+    /// Order ID to modify.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_id: Option<i64>,
+    /// Original client order ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orig_client_order_id: Option<String>,
+    /// New order side.
+    pub side: String,
+    /// New quantity.
+    pub quantity: String,
+    /// New price.
+    pub price: String,
+}
+
+/// Listen key request parameters.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListenKeyParams {
+    /// The listen key to extend or close.
+    pub listen_key: String,
 }
 
 #[cfg(test)]

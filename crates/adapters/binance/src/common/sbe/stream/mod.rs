@@ -13,6 +13,9 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+// SBE stream decoders - all methods return StreamDecodeError on decode failure
+#![allow(clippy::missing_errors_doc)]
+
 //! Binance SBE market data stream decoders (schema 1:0).
 //!
 //! These decoders are hand-written for the 4 market data stream message types:

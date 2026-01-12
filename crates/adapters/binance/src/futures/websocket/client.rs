@@ -47,16 +47,14 @@ use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
 
 use super::{
+    error::{BinanceWsError, BinanceWsResult},
     handler::BinanceFuturesWsFeedHandler,
     messages::{BinanceFuturesHandlerCommand, NautilusFuturesWsMessage},
 };
-use crate::{
-    common::{
-        credential::Credential,
-        enums::{BinanceEnvironment, BinanceProductType},
-        urls::get_ws_base_url,
-    },
-    websocket::error::{BinanceWsError, BinanceWsResult},
+use crate::common::{
+    credential::Credential,
+    enums::{BinanceEnvironment, BinanceProductType},
+    urls::get_ws_base_url,
 };
 
 /// Maximum streams per WebSocket connection for Futures.

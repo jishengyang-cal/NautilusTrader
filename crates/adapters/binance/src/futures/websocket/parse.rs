@@ -31,14 +31,14 @@ use nautilus_model::{
 };
 use ustr::Ustr;
 
-use super::messages::{
-    BinanceFuturesAggTradeMsg, BinanceFuturesBookTickerMsg, BinanceFuturesDepthUpdateMsg,
-    BinanceFuturesKlineMsg, BinanceFuturesMarkPriceMsg, BinanceFuturesTradeMsg,
+use super::{
+    error::{BinanceWsError, BinanceWsResult},
+    messages::{
+        BinanceFuturesAggTradeMsg, BinanceFuturesBookTickerMsg, BinanceFuturesDepthUpdateMsg,
+        BinanceFuturesKlineMsg, BinanceFuturesMarkPriceMsg, BinanceFuturesTradeMsg,
+    },
 };
-use crate::{
-    common::enums::{BinanceKlineInterval, BinanceWsEventType},
-    websocket::error::BinanceWsResult,
-};
+use crate::common::enums::{BinanceKlineInterval, BinanceWsEventType};
 
 /// Parses an aggregate trade message into a `TradeTick`.
 ///
@@ -56,11 +56,11 @@ pub fn parse_agg_trade(
     let price = msg
         .price
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let size = msg
         .quantity
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
     let aggressor_side = if msg.is_buyer_maker {
         AggressorSide::Seller
@@ -98,11 +98,11 @@ pub fn parse_trade(
     let price = msg
         .price
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let size = msg
         .quantity
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
     let aggressor_side = if msg.is_buyer_maker {
         AggressorSide::Seller
@@ -140,19 +140,19 @@ pub fn parse_book_ticker(
     let bid_price = msg
         .best_bid_price
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let bid_size = msg
         .best_bid_qty
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let ask_price = msg
         .best_ask_price
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let ask_size = msg
         .best_ask_qty
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
     let ts_event = UnixNanos::from(msg.transaction_time as u64 * 1_000_000); // ms to ns
 
@@ -188,10 +188,10 @@ pub fn parse_depth_update(
     for (i, bid) in msg.bids.iter().enumerate() {
         let price = bid[0]
             .parse::<f64>()
-            .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+            .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
         let size = bid[1]
             .parse::<f64>()
-            .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+            .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
         let action = if size == 0.0 {
             BookAction::Delete
@@ -224,10 +224,10 @@ pub fn parse_depth_update(
     for (i, ask) in msg.asks.iter().enumerate() {
         let price = ask[0]
             .parse::<f64>()
-            .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+            .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
         let size = ask[1]
             .parse::<f64>()
-            .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+            .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
         let action = if size == 0.0 {
             BookAction::Delete
@@ -274,11 +274,11 @@ pub fn parse_mark_price(
     let mark_price = msg
         .mark_price
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let index_price = msg
         .index_price
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
     let ts_event = UnixNanos::from(msg.event_time as u64 * 1_000_000); // ms to ns
 
@@ -380,27 +380,27 @@ pub fn parse_kline(
         .kline
         .open
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let high = msg
         .kline
         .high
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let low = msg
         .kline
         .low
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let close = msg
         .kline
         .close
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
     let volume = msg
         .kline
         .volume
         .parse::<f64>()
-        .map_err(|e| crate::websocket::error::BinanceWsError::ParseError(e.to_string()))?;
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
     // Use the kline close time as the event timestamp
     let ts_event = UnixNanos::from(msg.kline.close_time as u64 * 1_000_000); // ms to ns

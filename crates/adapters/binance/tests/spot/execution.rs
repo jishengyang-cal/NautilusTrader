@@ -31,7 +31,7 @@ use nautilus_binance::{
         sbe::spot::{SBE_SCHEMA_ID, SBE_SCHEMA_VERSION},
     },
     config::BinanceExecClientConfig,
-    execution::BinanceSpotExecutionClient,
+    spot::execution::BinanceSpotExecutionClient,
 };
 use nautilus_common::{
     cache::Cache,

@@ -709,3 +709,172 @@ pub struct KlinesParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
 }
+
+/// Query parameters for listen key operations (extend/close).
+#[derive(Debug, Clone, Serialize)]
+pub struct ListenKeyParams {
+    /// The listen key to extend or close.
+    #[serde(rename = "listenKey")]
+    pub listen_key: String,
+}
+
+impl ListenKeyParams {
+    /// Creates new listen key params.
+    #[must_use]
+    pub fn new(listen_key: impl Into<String>) -> Self {
+        Self {
+            listen_key: listen_key.into(),
+        }
+    }
+}
+
+/// Query parameters for ticker endpoints.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct TickerParams {
+    /// Trading pair symbol (optional, omit for all symbols).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+}
+
+impl TickerParams {
+    /// Creates ticker params for all symbols.
+    #[must_use]
+    pub fn all() -> Self {
+        Self { symbol: None }
+    }
+
+    /// Creates ticker params for a specific symbol.
+    #[must_use]
+    pub fn for_symbol(symbol: impl Into<String>) -> Self {
+        Self {
+            symbol: Some(symbol.into()),
+        }
+    }
+}
+
+/// Query parameters for average price endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct AvgPriceParams {
+    /// Trading pair symbol (required).
+    pub symbol: String,
+}
+
+impl AvgPriceParams {
+    /// Creates average price params.
+    #[must_use]
+    pub fn new(symbol: impl Into<String>) -> Self {
+        Self {
+            symbol: symbol.into(),
+        }
+    }
+}
+
+/// Query parameters for trade fee endpoint.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct TradeFeeParams {
+    /// Trading pair symbol (optional, omit for all symbols).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+}
+
+impl TradeFeeParams {
+    /// Creates trade fee params for all symbols.
+    #[must_use]
+    pub fn all() -> Self {
+        Self { symbol: None }
+    }
+
+    /// Creates trade fee params for a specific symbol.
+    #[must_use]
+    pub fn for_symbol(symbol: impl Into<String>) -> Self {
+        Self {
+            symbol: Some(symbol.into()),
+        }
+    }
+}
+
+/// Single order in a batch order request (JSON format for batchOrders param).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchOrderItem {
+    /// Trading pair symbol.
+    pub symbol: String,
+    /// Order side (BUY or SELL).
+    pub side: String,
+    /// Order type.
+    #[serde(rename = "type")]
+    pub order_type: String,
+    /// Time in force.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_in_force: Option<String>,
+    /// Order quantity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantity: Option<String>,
+    /// Limit price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price: Option<String>,
+    /// Client order ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_client_order_id: Option<String>,
+    /// Stop price for stop orders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_price: Option<String>,
+}
+
+impl BatchOrderItem {
+    /// Creates a batch order item from NewOrderParams.
+    #[must_use]
+    pub fn from_params(params: &NewOrderParams) -> Self {
+        Self {
+            symbol: params.symbol.clone(),
+            side: format!("{:?}", params.side).to_uppercase(),
+            order_type: format!("{:?}", params.order_type).to_uppercase(),
+            time_in_force: params
+                .time_in_force
+                .map(|t| format!("{t:?}").to_uppercase()),
+            quantity: params.quantity.clone(),
+            price: params.price.clone(),
+            new_client_order_id: params.new_client_order_id.clone(),
+            stop_price: params.stop_price.clone(),
+        }
+    }
+}
+
+/// Single cancel in a batch cancel request.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchCancelItem {
+    /// Trading pair symbol.
+    pub symbol: String,
+    /// Order ID to cancel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_id: Option<i64>,
+    /// Original client order ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orig_client_order_id: Option<String>,
+}
+
+impl BatchCancelItem {
+    /// Creates a batch cancel item by order ID.
+    #[must_use]
+    pub fn by_order_id(symbol: impl Into<String>, order_id: i64) -> Self {
+        Self {
+            symbol: symbol.into(),
+            order_id: Some(order_id),
+            orig_client_order_id: None,
+        }
+    }
+
+    /// Creates a batch cancel item by client order ID.
+    #[must_use]
+    pub fn by_client_order_id(
+        symbol: impl Into<String>,
+        client_order_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            symbol: symbol.into(),
+            order_id: None,
+            orig_client_order_id: Some(client_order_id.into()),
+        }
+    }
+}

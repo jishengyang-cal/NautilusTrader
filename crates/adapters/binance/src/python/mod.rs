@@ -16,8 +16,10 @@
 //! Python bindings for the Binance adapter.
 
 pub mod enums;
+pub mod http_futures;
 pub mod http_spot;
-pub mod websocket;
+pub mod websocket_futures;
+pub mod websocket_spot;
 
 use pyo3::prelude::*;
 
@@ -34,6 +36,10 @@ use crate::{
 /// Binance adapter Python module.
 ///
 /// Loaded as `nautilus_pyo3.binance`.
+///
+/// # Errors
+///
+/// Returns an error if module initialization fails.
 #[pymodule]
 pub fn binance(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BinanceProductType>()?;

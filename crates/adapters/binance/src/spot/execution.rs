@@ -57,7 +57,11 @@ use tokio::task::JoinHandle;
 use crate::{
     common::consts::BINANCE_VENUE,
     config::BinanceExecClientConfig,
-    spot::http::{client::BinanceSpotHttpClient, query::AccountInfoParams},
+    spot::http::{
+        client::BinanceSpotHttpClient,
+        models::BatchCancelResult,
+        query::{AccountInfoParams, BatchCancelItem},
+    },
 };
 
 /// Live execution client for Binance Spot trading.
@@ -838,11 +842,135 @@ impl ExecutionClient for BinanceSpotExecutionClient {
     }
 
     fn batch_cancel_orders(&self, cmd: &BatchCancelOrders) -> anyhow::Result<()> {
-        // Binance doesn't have a true batch cancel endpoint for spot
-        // Cancel orders individually
-        for cancel in &cmd.cancels {
-            self.cancel_order_internal(cancel)?;
+        const BATCH_SIZE: usize = 5;
+
+        if cmd.cancels.is_empty() {
+            return Ok(());
         }
+
+        let http_client = self.http_client.clone();
+        let command = cmd.clone();
+
+        let exec_event_sender = self.exec_event_sender.clone();
+        let trader_id = self.core.trader_id;
+        let account_id = self.core.account_id;
+
+        self.spawn_task("batch_cancel_orders", async move {
+            for chunk in command.cancels.chunks(BATCH_SIZE) {
+                let batch_items: Vec<BatchCancelItem> = chunk
+                    .iter()
+                    .map(|cancel| {
+                        if let Some(venue_order_id) = cancel.venue_order_id {
+                            let order_id = venue_order_id.inner().parse::<i64>().unwrap_or(0);
+                            if order_id != 0 {
+                                BatchCancelItem::by_order_id(
+                                    command.instrument_id.symbol.to_string(),
+                                    order_id,
+                                )
+                            } else {
+                                BatchCancelItem::by_client_order_id(
+                                    command.instrument_id.symbol.to_string(),
+                                    cancel.client_order_id.to_string(),
+                                )
+                            }
+                        } else {
+                            BatchCancelItem::by_client_order_id(
+                                command.instrument_id.symbol.to_string(),
+                                cancel.client_order_id.to_string(),
+                            )
+                        }
+                    })
+                    .collect();
+
+                match http_client.batch_cancel_orders(&batch_items).await {
+                    Ok(results) => {
+                        for (i, result) in results.iter().enumerate() {
+                            let cancel = &chunk[i];
+                            match result {
+                                BatchCancelResult::Success(success) => {
+                                    let venue_order_id =
+                                        VenueOrderId::new(success.order_id.to_string());
+                                    let canceled_event = OrderCanceled::new(
+                                        trader_id,
+                                        cancel.strategy_id,
+                                        cancel.instrument_id,
+                                        cancel.client_order_id,
+                                        UUID4::new(),
+                                        cancel.ts_init,
+                                        get_atomic_clock_realtime().get_time_ns(),
+                                        false,
+                                        Some(venue_order_id),
+                                        Some(account_id),
+                                    );
+
+                                    if let Some(sender) = &exec_event_sender
+                                        && let Err(e) = sender.send(ExecutionEvent::Order(
+                                            OrderEventAny::Canceled(canceled_event),
+                                        ))
+                                    {
+                                        log::warn!("Failed to send OrderCanceled event: {e}");
+                                    }
+                                }
+                                BatchCancelResult::Error(error) => {
+                                    let rejected_event = OrderCancelRejected::new(
+                                        trader_id,
+                                        cancel.strategy_id,
+                                        cancel.instrument_id,
+                                        cancel.client_order_id,
+                                        format!(
+                                            "batch-cancel-error: code={}, msg={}",
+                                            error.code, error.msg
+                                        )
+                                        .into(),
+                                        UUID4::new(),
+                                        get_atomic_clock_realtime().get_time_ns(),
+                                        cancel.ts_init,
+                                        false,
+                                        cancel.venue_order_id,
+                                        Some(account_id),
+                                    );
+
+                                    if let Some(sender) = &exec_event_sender
+                                        && let Err(e) = sender.send(ExecutionEvent::Order(
+                                            OrderEventAny::CancelRejected(rejected_event),
+                                        ))
+                                    {
+                                        log::warn!("Failed to send OrderCancelRejected event: {e}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        for cancel in chunk {
+                            let rejected_event = OrderCancelRejected::new(
+                                trader_id,
+                                cancel.strategy_id,
+                                cancel.instrument_id,
+                                cancel.client_order_id,
+                                format!("batch-cancel-request-failed: {e}").into(),
+                                UUID4::new(),
+                                get_atomic_clock_realtime().get_time_ns(),
+                                cancel.ts_init,
+                                false,
+                                cancel.venue_order_id,
+                                Some(account_id),
+                            );
+
+                            if let Some(sender) = &exec_event_sender
+                                && let Err(send_err) = sender.send(ExecutionEvent::Order(
+                                    OrderEventAny::CancelRejected(rejected_event),
+                                ))
+                            {
+                                log::warn!("Failed to send OrderCancelRejected event: {send_err}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(())
+        });
 
         Ok(())
     }

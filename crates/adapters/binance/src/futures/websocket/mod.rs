@@ -16,6 +16,7 @@
 //! Binance Futures WebSocket client module.
 
 pub mod client;
+pub mod error;
 pub mod handler;
 pub mod messages;
 pub mod parse;
