@@ -5259,6 +5259,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "derive_builder",
+ "dotenvy",
  "dydx-proto",
  "hex",
  "indexmap 2.13.0",

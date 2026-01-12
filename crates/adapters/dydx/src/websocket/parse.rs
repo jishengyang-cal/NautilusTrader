@@ -118,8 +118,11 @@ fn convert_ws_order_to_http(
 
     let total_filled: Decimal = ws_order
         .total_filled
-        .parse()
-        .context("Failed to parse total_filled")?;
+        .as_ref()
+        .map(|s| s.parse())
+        .transpose()
+        .context("Failed to parse total_filled")?
+        .unwrap_or(Decimal::ZERO);
 
     // Saturate to zero if total_filled exceeds size (edge case: rounding or partial fills)
     let remaining_size = (size - total_filled).max(Decimal::ZERO);
@@ -128,11 +131,16 @@ fn convert_ws_order_to_http(
 
     let created_at_height: u64 = ws_order
         .created_at_height
-        .parse()
-        .context("Failed to parse created_at_height")?;
+        .as_ref()
+        .map(|s| s.parse())
+        .transpose()
+        .context("Failed to parse created_at_height")?
+        .unwrap_or(0);
 
     let client_metadata: u32 = ws_order
         .client_metadata
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Missing required field: client_metadata"))?
         .parse()
         .context("Failed to parse client_metadata")?;
 
@@ -255,13 +263,23 @@ fn convert_ws_fill_to_http(ws_fill: &DydxWsFillSubaccountMessageContents) -> any
 
     let created_at_height: u64 = ws_fill
         .created_at_height
-        .parse()
-        .context("Failed to parse created_at_height")?;
+        .as_ref()
+        .map(|s| s.parse())
+        .transpose()
+        .context("Failed to parse created_at_height")?
+        .unwrap_or(0);
 
     let client_metadata: u32 = ws_fill
         .client_metadata
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Missing required field: client_metadata"))?
         .parse()
         .context("Failed to parse client_metadata")?;
+
+    let order_id = ws_fill
+        .order_id
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Missing required field: order_id"))?;
 
     let created_at = DateTime::parse_from_rfc3339(&ws_fill.created_at)
         .context("Failed to parse created_at")?
@@ -279,7 +297,7 @@ fn convert_ws_fill_to_http(ws_fill: &DydxWsFillSubaccountMessageContents) -> any
         fee,
         created_at,
         created_at_height,
-        order_id: ws_fill.order_id.clone(),
+        order_id,
         client_metadata,
     })
 }
@@ -476,10 +494,10 @@ mod tests {
             order_flags: "0".to_string(),
             good_til_block: Some("1000".to_string()),
             good_til_block_time: None,
-            created_at_height: "900".to_string(),
-            client_metadata: "0".to_string(),
+            created_at_height: Some("900".to_string()),
+            client_metadata: Some("0".to_string()),
             trigger_price: None,
-            total_filled: "0.5".to_string(),
+            total_filled: Some("0.5".to_string()),
             updated_at: Some("2024-11-14T10:00:00Z".to_string()),
             updated_at_height: Some("950".to_string()),
         };
@@ -513,10 +531,10 @@ mod tests {
             order_flags: "0".to_string(),
             good_til_block: Some("2000".to_string()),
             good_til_block_time: None,
-            created_at_height: "1800".to_string(),
-            client_metadata: "0".to_string(),
+            created_at_height: Some("1800".to_string()),
+            client_metadata: Some("0".to_string()),
             trigger_price: None,
-            total_filled: "0.0".to_string(),
+            total_filled: Some("0.0".to_string()),
             updated_at: None,
             updated_at_height: None,
         };
@@ -564,10 +582,10 @@ mod tests {
             order_flags: "0".to_string(),
             good_til_block: Some("1000".to_string()),
             good_til_block_time: None,
-            created_at_height: "900".to_string(),
-            client_metadata: "0".to_string(),
+            created_at_height: Some("900".to_string()),
+            client_metadata: Some("0".to_string()),
             trigger_price: None,
-            total_filled: "0.0".to_string(),
+            total_filled: Some("0.0".to_string()),
             updated_at: None,
             updated_at_height: None,
         };
@@ -613,9 +631,9 @@ mod tests {
             size: "0.1".to_string(),
             fee: "-2.5".to_string(), // Negative for maker rebate
             created_at: "2024-01-15T10:30:00Z".to_string(),
-            created_at_height: "12345".to_string(),
-            order_id: "order456".to_string(),
-            client_metadata: "999".to_string(),
+            created_at_height: Some("12345".to_string()),
+            order_id: Some("order456".to_string()),
+            client_metadata: Some("999".to_string()),
         };
 
         let result = convert_ws_fill_to_http(&ws_fill);
@@ -660,9 +678,9 @@ mod tests {
             size: "0.5".to_string(),
             fee: "12.375".to_string(), // Positive for taker fee
             created_at: "2024-01-15T11:00:00Z".to_string(),
-            created_at_height: "12400".to_string(),
-            order_id: "order999".to_string(),
-            client_metadata: "888".to_string(),
+            created_at_height: Some("12400".to_string()),
+            order_id: Some("order999".to_string()),
+            client_metadata: Some("888".to_string()),
         };
 
         let account_id = AccountId::new("DYDX-001");
@@ -701,9 +719,9 @@ mod tests {
             size: "1.0".to_string(),
             fee: "-1.5".to_string(),
             created_at: "2024-01-15T12:00:00Z".to_string(),
-            created_at_height: "12500".to_string(),
-            order_id: "order111".to_string(),
-            client_metadata: "777".to_string(),
+            created_at_height: Some("12500".to_string()),
+            order_id: Some("order111".to_string()),
+            client_metadata: Some("777".to_string()),
         };
 
         let account_id = AccountId::new("DYDX-001");
@@ -922,10 +940,10 @@ mod tests {
             order_flags: "0".to_string(),
             good_til_block: Some("1000".to_string()),
             good_til_block_time: None,
-            created_at_height: "900".to_string(),
-            client_metadata: "0".to_string(),
+            created_at_height: Some("900".to_string()),
+            client_metadata: Some("0".to_string()),
             trigger_price: None,
-            total_filled: total_filled.to_string(),
+            total_filled: Some(total_filled.to_string()),
             updated_at: Some("2024-11-14T10:00:00Z".to_string()),
             updated_at_height: Some("950".to_string()),
         };
@@ -987,10 +1005,10 @@ mod tests {
             order_flags: "32".to_string(),
             good_til_block: None,
             good_til_block_time: Some("2024-12-31T23:59:59Z".to_string()),
-            created_at_height: "1000".to_string(),
-            client_metadata: "100".to_string(),
+            created_at_height: Some("1000".to_string()),
+            client_metadata: Some("100".to_string()),
             trigger_price: Some("51500.0".to_string()),
-            total_filled: "0.0".to_string(),
+            total_filled: Some("0.0".to_string()),
             updated_at: Some("2024-11-14T11:00:00Z".to_string()),
             updated_at_height: Some("1050".to_string()),
         };
@@ -1039,10 +1057,10 @@ mod tests {
             order_flags: "0".to_string(),
             good_til_block: Some("1000".to_string()),
             good_til_block_time: None,
-            created_at_height: "900".to_string(),
-            client_metadata: "0".to_string(),
+            created_at_height: Some("900".to_string()),
+            client_metadata: Some("0".to_string()),
             trigger_price: None,
-            total_filled: "0.5".to_string(),
+            total_filled: Some("0.5".to_string()),
             updated_at: Some("2024-11-14T10:01:00Z".to_string()),
             updated_at_height: Some("901".to_string()),
         };
@@ -1090,10 +1108,10 @@ mod tests {
             order_flags: "0".to_string(),
             good_til_block: Some("1000".to_string()),
             good_til_block_time: None,
-            created_at_height: "900".to_string(),
-            client_metadata: "0".to_string(),
+            created_at_height: Some("900".to_string()),
+            client_metadata: Some("0".to_string()),
             trigger_price: None,
-            total_filled: "0.0".to_string(),
+            total_filled: Some("0.0".to_string()),
             updated_at: None,
             updated_at_height: None,
         };
@@ -1188,9 +1206,9 @@ mod tests {
             size: "1.0".to_string(),
             fee: "-15.0".to_string(), // Negative fee = rebate
             created_at: "2024-01-15T13:00:00Z".to_string(),
-            created_at_height: "13000".to_string(),
-            order_id: "order_maker".to_string(),
-            client_metadata: "200".to_string(),
+            created_at_height: Some("13000".to_string()),
+            order_id: Some("order_maker".to_string()),
+            client_metadata: Some("200".to_string()),
         };
 
         let account_id = AccountId::new("DYDX-001");
@@ -1230,9 +1248,9 @@ mod tests {
             size: "0.75".to_string(),
             fee: "18.675".to_string(), // Positive fee for taker
             created_at: "2024-01-15T14:00:00Z".to_string(),
-            created_at_height: "14000".to_string(),
-            order_id: "order_taker".to_string(),
-            client_metadata: "300".to_string(),
+            created_at_height: Some("14000".to_string()),
+            order_id: Some("order_taker".to_string()),
+            client_metadata: Some("300".to_string()),
         };
 
         let account_id = AccountId::new("DYDX-001");

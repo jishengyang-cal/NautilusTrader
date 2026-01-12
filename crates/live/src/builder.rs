@@ -17,7 +17,7 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use nautilus_common::enums::Environment;
+use nautilus_common::{enums::Environment, logging::logger::LoggerConfig};
 use nautilus_core::UUID4;
 use nautilus_data::client::DataClientAdapter;
 use nautilus_model::identifiers::TraderId;
@@ -168,6 +168,13 @@ impl LiveNodeBuilder {
     #[must_use]
     pub const fn with_delay_shutdown_secs(mut self, delay_secs: u64) -> Self {
         self.config.timeout_shutdown = Duration::from_secs(delay_secs);
+        self
+    }
+
+    /// Set the logging configuration.
+    #[must_use]
+    pub fn with_logging(mut self, logging: LoggerConfig) -> Self {
+        self.config.logging = logging;
         self
     }
 

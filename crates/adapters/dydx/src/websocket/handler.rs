@@ -54,7 +54,7 @@ use ustr::Ustr;
 use super::{
     DydxWsError, DydxWsResult,
     client::DYDX_RATE_LIMIT_KEY_SUBSCRIPTION,
-    enums::{DydxWsChannel, DydxWsMessage, NautilusWsMessage},
+    enums::{DydxWsChannel, DydxWsMessage, DydxWsMessageType, NautilusWsMessage},
     error::DydxWebSocketError,
     messages::{
         DydxBlockHeightChannelContents, DydxCandle, DydxMarketsContents, DydxOrderbookContents,
@@ -174,6 +174,7 @@ impl FeedHandler {
 
     /// Main processing loop for the handler.
     pub async fn run(&mut self) {
+        log::info!("WebSocket handler started");
         loop {
             tokio::select! {
                 Some(cmd) = self.cmd_rx.recv() => {
@@ -181,11 +182,13 @@ impl FeedHandler {
                 }
 
                 Some(msg) = self.raw_rx.recv() => {
-                    if let Some(nautilus_msg) = self.process_raw_message(msg).await
-                        && self.out_tx.send(nautilus_msg).is_err()
-                    {
-                        log::debug!("Receiver dropped, stopping handler");
-                        break;
+                    log::trace!("Handler received raw message");
+                    if let Some(nautilus_msg) = self.process_raw_message(msg).await {
+                        log::trace!("Handler sending message: {:?}", std::mem::discriminant(&nautilus_msg));
+                        if self.out_tx.send(nautilus_msg).is_err() {
+                            log::debug!("Receiver dropped, stopping handler");
+                            break;
+                        }
                     }
                 }
 
@@ -218,10 +221,19 @@ impl FeedHandler {
                         let val_clone = val.clone();
 
                         // Try two-level parsing first (channel → type)
-                        if let Ok(feed_msg) =
-                            serde_json::from_value::<DydxWsFeedMessage>(val.clone())
-                        {
-                            return self.handle_feed_message(feed_msg).await;
+                        match serde_json::from_value::<DydxWsFeedMessage>(val.clone()) {
+                            Ok(feed_msg) => {
+                                return self.handle_feed_message(feed_msg).await;
+                            }
+                            Err(e) => {
+                                // Log the raw message for debugging feed parsing failures
+                                if let Some(channel) = val.get("channel") {
+                                    // Only log if it has a channel field but failed to parse as feed
+                                    log::debug!(
+                                        "Feed message parse failed for channel {channel:?}: {e}"
+                                    );
+                                }
+                            }
                         }
 
                         // Fall back to single-level parsing for non-channel messages
@@ -232,19 +244,21 @@ impl FeedHandler {
                                     serde_json::from_value::<DydxWsConnectedMsg>(val)
                                         .map(DydxWsMessage::Connected)
                                 } else if meta.is_subscribed() {
+                                    log::info!("Processing subscribed message via fallback path");
                                     if let Ok(sub_msg) =
                                         serde_json::from_value::<DydxWsSubscriptionMsg>(val.clone())
                                     {
                                         if sub_msg.channel == DydxWsChannel::Subaccounts {
+                                            log::info!(
+                                                "Parsing subaccounts subscription (fallback)"
+                                            );
                                             serde_json::from_value::<DydxWsSubaccountsSubscribed>(
                                                 val.clone(),
                                             )
                                             .map(DydxWsMessage::SubaccountsSubscribed)
                                             .or_else(|e| {
-                                                log::debug!(
-                                                    "Failed to parse subaccounts subscription (fallback to standard): {e}. Raw: {}",
-                                                    serde_json::to_string(&val_clone)
-                                                        .unwrap_or_else(|_| "<invalid json>".into())
+                                                log::warn!(
+                                                    "Failed to parse subaccounts subscription: {e}"
                                                 );
                                                 Ok(DydxWsMessage::Subscribed(sub_msg))
                                             })
@@ -326,6 +340,10 @@ impl FeedHandler {
 
     /// Handles a two-level channel-tagged feed message.
     async fn handle_feed_message(&self, feed_msg: DydxWsFeedMessage) -> Option<NautilusWsMessage> {
+        log::trace!(
+            "Handling feed message: {:?}",
+            std::mem::discriminant(&feed_msg)
+        );
         match feed_msg {
             DydxWsFeedMessage::Subaccounts(msg) => match msg {
                 DydxWsSubaccountsMessage::Subscribed(data) => {
@@ -333,11 +351,12 @@ impl FeedHandler {
                         .await
                 }
                 DydxWsSubaccountsMessage::ChannelData(data) => {
+                    // Explicitly set channel since we know it's subaccounts from outer tag
                     self.handle_dydx_message(DydxWsMessage::ChannelData(DydxWsChannelDataMsg {
                         msg_type: data.msg_type,
                         connection_id: data.connection_id,
                         message_id: data.message_id,
-                        channel: data.channel,
+                        channel: DydxWsChannel::Subaccounts,
                         id: Some(data.id),
                         contents: serde_json::to_value(&data.contents)
                             .unwrap_or(serde_json::Value::Null),
@@ -347,39 +366,53 @@ impl FeedHandler {
                 }
             },
             DydxWsFeedMessage::Orderbook(msg) => match msg {
-                DydxWsOrderbookMessage::Subscribed(data)
-                | DydxWsOrderbookMessage::ChannelData(data) => {
+                DydxWsOrderbookMessage::Subscribed(mut data) => {
+                    data.channel = DydxWsChannel::Orderbook;
+                    data.msg_type = DydxWsMessageType::Subscribed;
                     self.handle_dydx_message(DydxWsMessage::ChannelData(data))
                         .await
                 }
-                DydxWsOrderbookMessage::ChannelBatchData(data) => {
+                DydxWsOrderbookMessage::ChannelData(mut data) => {
+                    data.channel = DydxWsChannel::Orderbook;
+                    data.msg_type = DydxWsMessageType::ChannelData;
+                    self.handle_dydx_message(DydxWsMessage::ChannelData(data))
+                        .await
+                }
+                DydxWsOrderbookMessage::ChannelBatchData(mut data) => {
+                    data.channel = DydxWsChannel::Orderbook;
+                    data.msg_type = DydxWsMessageType::ChannelBatchData;
                     self.handle_dydx_message(DydxWsMessage::ChannelBatchData(data))
                         .await
                 }
             },
             DydxWsFeedMessage::Trades(msg) => match msg {
-                DydxWsTradesMessage::Subscribed(data) | DydxWsTradesMessage::ChannelData(data) => {
+                DydxWsTradesMessage::Subscribed(mut data)
+                | DydxWsTradesMessage::ChannelData(mut data) => {
+                    data.channel = DydxWsChannel::Trades;
                     self.handle_dydx_message(DydxWsMessage::ChannelData(data))
                         .await
                 }
             },
             DydxWsFeedMessage::Markets(msg) => match msg {
-                DydxWsMarketsMessage::Subscribed(data)
-                | DydxWsMarketsMessage::ChannelData(data) => {
+                DydxWsMarketsMessage::Subscribed(mut data)
+                | DydxWsMarketsMessage::ChannelData(mut data) => {
+                    data.channel = DydxWsChannel::Markets;
                     self.handle_dydx_message(DydxWsMessage::ChannelData(data))
                         .await
                 }
             },
             DydxWsFeedMessage::Candles(msg) => match msg {
-                DydxWsCandlesMessage::Subscribed(data)
-                | DydxWsCandlesMessage::ChannelData(data) => {
+                DydxWsCandlesMessage::Subscribed(mut data)
+                | DydxWsCandlesMessage::ChannelData(mut data) => {
+                    data.channel = DydxWsChannel::Candles;
                     self.handle_dydx_message(DydxWsMessage::ChannelData(data))
                         .await
                 }
             },
             DydxWsFeedMessage::ParentSubaccounts(msg) => match msg {
-                super::messages::DydxWsParentSubaccountsMessage::Subscribed(data)
-                | super::messages::DydxWsParentSubaccountsMessage::ChannelData(data) => {
+                super::messages::DydxWsParentSubaccountsMessage::Subscribed(mut data)
+                | super::messages::DydxWsParentSubaccountsMessage::ChannelData(mut data) => {
+                    data.channel = DydxWsChannel::ParentSubaccounts;
                     self.handle_dydx_message(DydxWsMessage::ChannelData(data))
                         .await
                 }
@@ -417,10 +450,18 @@ impl FeedHandler {
                 self.instruments.insert(symbol, *instrument);
             }
             HandlerCommand::InitializeInstruments(instruments) => {
+                log::debug!(
+                    "Initializing {} instruments in WebSocket handler",
+                    instruments.len()
+                );
                 for instrument in instruments {
                     let symbol = instrument.id().symbol.inner();
                     self.instruments.insert(symbol, instrument);
                 }
+                log::debug!(
+                    "Handler now has {} instruments cached",
+                    self.instruments.len()
+                );
             }
             HandlerCommand::RegisterBarType { topic, bar_type } => {
                 self.bar_types.insert(topic, bar_type);
@@ -529,7 +570,7 @@ impl FeedHandler {
                 Ok(None)
             }
             DydxWsMessage::SubaccountsSubscribed(msg) => {
-                log::debug!("Subaccounts subscribed with initial state");
+                log::info!("Subaccounts subscribed with initial state");
                 let topic = self.topic_from_msg(&msg.channel, &Some(msg.id.clone()));
                 self.subscriptions.confirm_subscribe(&topic);
                 self.parse_subaccounts_subscribed(&msg)
@@ -559,9 +600,20 @@ impl FeedHandler {
         &self,
         data: DydxWsChannelDataMsg,
     ) -> DydxWsResult<Option<NautilusWsMessage>> {
+        log::trace!(
+            "Handling channel data: channel={:?}, id={:?}, msg_type={:?}",
+            data.channel,
+            data.id,
+            data.msg_type
+        );
         match data.channel {
             DydxWsChannel::Trades => self.parse_trades(&data),
-            DydxWsChannel::Orderbook => self.parse_orderbook(&data, false),
+            DydxWsChannel::Orderbook => {
+                // Subscribed messages contain snapshot data (object format)
+                // ChannelData messages contain delta updates (tuple format)
+                let is_snapshot = matches!(data.msg_type, DydxWsMessageType::Subscribed);
+                self.parse_orderbook(&data, is_snapshot)
+            }
             DydxWsChannel::Candles => self.parse_candles(&data),
             DydxWsChannel::Markets => self.parse_markets(&data),
             DydxWsChannel::Subaccounts | DydxWsChannel::ParentSubaccounts => {
@@ -1045,6 +1097,10 @@ impl FeedHandler {
         &self,
         data: &DydxWsChannelDataMsg,
     ) -> DydxWsResult<Option<NautilusWsMessage>> {
+        log::info!(
+            "Parsing subaccounts channel data (msg_type={:?})",
+            data.msg_type
+        );
         let contents: DydxWsSubaccountsChannelContents =
             serde_json::from_value(data.contents.clone()).map_err(|e| {
                 DydxWsError::Parse(format!("Failed to parse subaccounts contents: {e}"))
@@ -1056,7 +1112,7 @@ impl FeedHandler {
         if has_orders || has_fills {
             // Forward raw channel data to execution client for parsing
             // The execution client has the clob_pair_id and instrument mappings needed
-            log::debug!(
+            log::info!(
                 "Received {} order(s), {} fill(s) - forwarding to execution client",
                 contents.orders.as_ref().map_or(0, |o| o.len()),
                 contents.fills.as_ref().map_or(0, |f| f.len())

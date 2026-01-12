@@ -234,9 +234,6 @@ impl DydxDataClient {
     /// - Instrument parsing fails.
     ///
     async fn bootstrap_instruments(&mut self) -> anyhow::Result<Vec<InstrumentAny>> {
-        log::info!("Bootstrapping dYdX instruments");
-
-        // Populates all HTTP cache layers (instruments, clob_pair_id, market_params)
         self.http_client
             .fetch_and_cache_instruments()
             .await
@@ -250,11 +247,11 @@ impl DydxDataClient {
             .collect();
 
         if instruments.is_empty() {
-            log::warn!("No dYdX instruments were loaded");
+            log::warn!("No instruments were loaded");
             return Ok(instruments);
         }
 
-        log::info!("Loaded {} dYdX instruments", instruments.len());
+        log::info!("Loaded {} instruments", instruments.len());
 
         self.ws_client.cache_instruments(instruments.clone());
 
@@ -274,7 +271,7 @@ impl DataClient for DydxDataClient {
 
     fn start(&mut self) -> anyhow::Result<()> {
         log::info!(
-            "Starting dYdX data client: client_id={}, is_testnet={}",
+            "Starting: client_id={}, is_testnet={}",
             self.client_id,
             self.http_client.is_testnet()
         );
@@ -282,14 +279,14 @@ impl DataClient for DydxDataClient {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        log::info!("Stopping dYdX data client {}", self.client_id);
+        log::info!("Stopping {}", self.client_id);
         self.cancellation_token.cancel();
         self.is_connected.store(false, Ordering::Relaxed);
         Ok(())
     }
 
     fn reset(&mut self) -> anyhow::Result<()> {
-        log::debug!("Resetting dYdX data client {}", self.client_id);
+        log::debug!("Resetting {}", self.client_id);
         self.is_connected.store(false, Ordering::Relaxed);
         self.cancellation_token = CancellationToken::new();
         self.tasks.clear();
@@ -297,7 +294,7 @@ impl DataClient for DydxDataClient {
     }
 
     fn dispose(&mut self) -> anyhow::Result<()> {
-        log::debug!("Disposing dYdX data client {}", self.client_id);
+        log::debug!("Disposing {}", self.client_id);
         self.stop()
     }
 
@@ -306,7 +303,7 @@ impl DataClient for DydxDataClient {
             return Ok(());
         }
 
-        log::info!("Connecting dYdX data client");
+        log::info!("Connecting");
 
         // Bootstrap instruments first
         self.bootstrap_instruments().await?;
@@ -324,6 +321,7 @@ impl DataClient for DydxDataClient {
 
         // Start message processing task (handler already converts to NautilusWsMessage)
         if let Some(rx) = self.ws_client.take_receiver() {
+            log::debug!("Starting message processing task");
             let data_tx = self.data_sender.clone();
             let instruments = self.instruments.clone();
             let order_books = self.order_books.clone();
@@ -347,14 +345,17 @@ impl DataClient for DydxDataClient {
             };
 
             let task = get_runtime().spawn(async move {
+                log::debug!("Message processing task started");
                 let mut rx = rx;
+
                 while let Some(msg) = rx.recv().await {
                     Self::handle_ws_message(msg, &ctx);
                 }
+                log::debug!("Message processing task ended (channel closed)");
             });
             self.tasks.push(task);
         } else {
-            log::warn!("No inbound WS receiver available after connect");
+            log::error!("No inbound WS receiver available after connect");
         }
 
         // Start orderbook snapshot refresh task
@@ -364,7 +365,7 @@ impl DataClient for DydxDataClient {
         self.start_instrument_refresh_task()?;
 
         self.is_connected.store(true, Ordering::Relaxed);
-        log::info!("Connected dYdX data client");
+        log::info!("Connected");
 
         Ok(())
     }
@@ -374,7 +375,7 @@ impl DataClient for DydxDataClient {
             return Ok(());
         }
 
-        log::info!("Disconnecting dYdX data client");
+        log::info!("Disconnecting");
 
         self.ws_client
             .disconnect()
@@ -417,10 +418,26 @@ impl DataClient for DydxDataClient {
         Ok(())
     }
 
-    fn subscribe_instrument(&mut self, _cmd: &SubscribeInstrument) -> anyhow::Result<()> {
-        // dYdX markets channel auto-subscribes to all instruments
-        // Individual instrument subscriptions not supported - full feed only
-        log::debug!("subscribe_instrument: dYdX auto-subscribes via markets channel");
+    fn subscribe_instrument(&mut self, cmd: &SubscribeInstrument) -> anyhow::Result<()> {
+        // dYdX instruments are already cached from HTTP during connect()
+        // Look up and send the requested instrument to the data engine
+        let symbol = cmd.instrument_id.symbol.inner();
+
+        if let Some(instrument) = self.instruments.get(&symbol) {
+            log::debug!("Sending cached instrument for {}", cmd.instrument_id);
+            if let Err(e) = self
+                .data_sender
+                .send(DataEvent::Instrument(instrument.clone()))
+            {
+                log::warn!("Failed to send instrument {}: {e}", cmd.instrument_id);
+            }
+        } else {
+            log::warn!(
+                "Instrument {} not found in cache (available: {})",
+                cmd.instrument_id,
+                self.instruments.len()
+            );
+        }
         Ok(())
     }
 

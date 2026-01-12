@@ -20,6 +20,7 @@
 
 use std::{fmt::Debug, str::FromStr};
 
+use anyhow::Context;
 use cosmrs::{
     AccountId,
     bip32::{DerivationPath, Language, Mnemonic, Seed},
@@ -67,8 +68,15 @@ impl Wallet {
     /// # Errors
     ///
     /// Returns an error if the mnemonic is invalid or cannot be converted to a seed.
-    pub fn from_mnemonic(mnemonic: &str) -> Result<Self, anyhow::Error> {
-        let seed = Mnemonic::new(mnemonic, Language::English)?.to_seed("");
+    pub fn from_mnemonic(mnemonic: &str) -> anyhow::Result<Self> {
+        let word_count = mnemonic.split_whitespace().count();
+        let mnemonic_obj = Mnemonic::new(mnemonic, Language::English).with_context(|| {
+            format!(
+                "Invalid BIP-39 mnemonic: expected 12, 15, 18, 21, or 24 words, got {word_count}. \
+                 Ensure words are space-separated and from the BIP-39 English wordlist"
+            )
+        })?;
+        let seed = mnemonic_obj.to_seed("");
         Ok(Self { seed })
     }
 
