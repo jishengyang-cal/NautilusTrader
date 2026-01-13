@@ -182,7 +182,7 @@ class TearsheetConfig(NautilusConfig, frozen=True, kw_only=True):
         `charts=[TearsheetRunInfoChart(title="Run Info")]`.
     theme : str, default "plotly_white"
         Theme name for visualization styling.
-        Built-in themes: "plotly_white", "plotly_dark", "nautilus".
+        Built-in themes: "plotly_white", "plotly_dark", "nautilus", "nautilus_dark".
     layout : GridLayout | None, default None
         Custom grid layout specification. If None, auto-calculated based on charts.
     title : str, default "NautilusTrader Backtest Results"
