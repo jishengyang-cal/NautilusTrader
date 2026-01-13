@@ -6259,6 +6259,12 @@ class BybitHttpClient:
         instrument_id: InstrumentId,
         limit: int | None = None,
     ) -> list[TradeTick]: ...
+    async def request_orderbook_snapshot(
+        self,
+        product_type: BybitProductType,
+        instrument_id: InstrumentId,
+        limit: int | None = None,
+    ) -> OrderBookDeltas: ...
     async def request_bars(
         self,
         product_type: BybitProductType,
