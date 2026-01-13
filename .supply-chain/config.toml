@@ -131,7 +131,7 @@ version = "0.4.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-chains]]
@@ -139,15 +139,15 @@ version = "0.2.27"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-consensus]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-consensus-any]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-contract]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-core]]
@@ -171,7 +171,7 @@ version = "0.6.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-eips]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-json-abi]]
@@ -179,15 +179,15 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-json-rpc]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-network]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-network-primitives]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-primitives]]
@@ -195,7 +195,7 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-provider]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-rlp]]
@@ -207,27 +207,27 @@ version = "0.3.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-rpc-client]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-rpc-types-any]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-rpc-types-eth]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-serde]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-signer]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-signer-local]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-sol-macro]]
@@ -251,11 +251,11 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-transport]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-transport-http]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-trie]]
@@ -263,7 +263,7 @@ version = "0.9.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-tx-macros]]
-version = "1.4.0"
+version = "1.4.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.anstream]]
@@ -631,7 +631,7 @@ version = "4.6.7"
 criteria = "safe-to-deploy"
 
 [[exemptions.comfy-table]]
-version = "7.2.1"
+version = "7.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.compression-codecs]]
@@ -1883,7 +1883,7 @@ version = "0.7.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rand_core]]
-version = "0.9.4"
+version = "0.9.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.rand_xorshift]]
@@ -2363,15 +2363,15 @@ version = "0.17.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.time]]
-version = "0.3.44"
+version = "0.3.45"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-core]]
-version = "0.1.6"
+version = "0.1.7"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-macros]]
-version = "0.2.24"
+version = "0.2.25"
 criteria = "safe-to-deploy"
 
 [[exemptions.tiny-keccak]]
@@ -2911,7 +2911,7 @@ version = "0.5.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.zmij]]
-version = "1.0.13"
+version = "1.0.14"
 criteria = "safe-to-deploy"
 
 [[exemptions.zstd]]

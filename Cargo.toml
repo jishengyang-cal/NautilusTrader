@@ -274,12 +274,12 @@ webpki-roots = "1.0.5"
 # -----------------------------------------------------------------------------
 # Adapter dependencies
 # -----------------------------------------------------------------------------
-alloy = { version = "1.4.0", default-features = false, features = [
+alloy = { version = "1.4.1", default-features = false, features = [
   "sol-types",
   "contract",
 ] }
-alloy-signer = { version = "1.4.0", default-features = false }
-alloy-signer-local = { version = "1.4.0", default-features = false, features = [
+alloy-signer = { version = "1.4.1", default-features = false }
+alloy-signer-local = { version = "1.4.1", default-features = false, features = [
   "mnemonic",
 ] }
 alloy-sol-types = "1.5.2"
@@ -301,7 +301,7 @@ prost = { version = "0.13.5", default-features = false, features = ["std"] }
 ryu = "1.0.22"
 serde_repr = "0.1.20"
 serde_with = "3.16.1"
-time = { version = "0.3.44", default-features = false, features = [
+time = { version = "0.3.45", default-features = false, features = [
   "macros",
   "parsing",
   "serde",
@@ -353,7 +353,7 @@ cargo-edit = "0.13.8"
 cargo-llvm-cov = "0.6.23"
 cargo-machete = "0.9.1"
 cargo-nextest = "0.9.121"
-cargo-vet = "0.10.1"
+cargo-vet = "0.10.2"
 lychee = "0.22.0"
 
 # cargo-vet supply chain security configuration
