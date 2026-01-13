@@ -586,11 +586,21 @@ pub trait Strategy: DataActor {
         let ts_init = core.clock().timestamp_ns();
         let cache = core.cache();
 
-        let open_orders =
-            cache.orders_open(None, Some(&instrument_id), Some(&strategy_id), order_side);
+        let open_orders = cache.orders_open(
+            None,
+            Some(&instrument_id),
+            Some(&strategy_id),
+            None,
+            order_side,
+        );
 
-        let emulated_orders =
-            cache.orders_emulated(None, Some(&instrument_id), Some(&strategy_id), order_side);
+        let emulated_orders = cache.orders_emulated(
+            None,
+            Some(&instrument_id),
+            Some(&strategy_id),
+            None,
+            order_side,
+        );
 
         let exec_algorithm_ids = cache.exec_algorithm_ids();
         let mut algo_orders = Vec::new();
@@ -601,6 +611,7 @@ pub trait Strategy: DataActor {
                 None,
                 Some(&instrument_id),
                 Some(&strategy_id),
+                None,
                 order_side,
             );
             algo_orders.extend(orders.iter().map(|o| (*o).clone()));
@@ -737,6 +748,7 @@ pub trait Strategy: DataActor {
             None,
             Some(&instrument_id),
             Some(&strategy_id),
+            None,
             position_side,
         );
 
@@ -1169,7 +1181,7 @@ pub trait Strategy: DataActor {
         let current_time_ns = core.clock().timestamp_ns();
         let cache = core.cache();
 
-        let open_orders = cache.orders_open(None, None, Some(&strategy_id), None);
+        let open_orders = cache.orders_open(None, None, Some(&strategy_id), None, None);
 
         let gtd_orders: Vec<_> = open_orders
             .iter()

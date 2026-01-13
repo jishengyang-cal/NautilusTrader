@@ -1876,7 +1876,7 @@ fn test_handle_order_fill_event_with_no_position_id_correctly_handles_fill(
 
     execution_engine.process(&order_filled_event);
     let cache = execution_engine.cache().borrow();
-    let position_ids = cache.position_ids(None, None, None);
+    let position_ids = cache.position_ids(None, None, None, None);
     assert_eq!(position_ids.len(), 1, "Should have exactly one position");
 
     // Get the actual position ID that was created
@@ -1906,19 +1906,19 @@ fn test_handle_order_fill_event_with_no_position_id_correctly_handles_fill(
     );
 
     assert_eq!(
-        cache.positions_total_count(None, None, None, None),
+        cache.positions_total_count(None, None, None, None, None),
         1,
         "Total position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_open_count(None, None, None, None),
+        cache.positions_open_count(None, None, None, None, None),
         1,
         "Open position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_closed_count(None, None, None, None),
+        cache.positions_closed_count(None, None, None, None, None),
         0,
         "Closed position count should be 0"
     );
@@ -2042,7 +2042,7 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
     println!("  Position strategy: {:?}", position.strategy_id);
     assert!(
         cache
-            .position_open_ids(None, None, None)
+            .position_open_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position should be in open IDs (unfiltered)"
     );
@@ -2068,7 +2068,7 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
 
     assert!(
         cache
-            .position_ids(None, None, None)
+            .position_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position ID should be in position IDs list"
     );
@@ -2078,7 +2078,8 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
             .position_closed_ids(
                 Some(&Venue::test_default()),
                 Some(&instrument.id),
-                Some(&strategy_id)
+                Some(&strategy_id),
+                None
             )
             .contains(&expected_position_id),
         "Position should not be in closed IDs for strategy"
@@ -2086,7 +2087,7 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
 
     assert!(
         !cache
-            .position_closed_ids(None, None, None)
+            .position_closed_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position should not be in closed IDs"
     );
@@ -2096,7 +2097,8 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
             .position_open_ids(
                 Some(&Venue::test_default()),
                 Some(&instrument.id),
-                Some(&strategy_id)
+                Some(&strategy_id),
+                None
             )
             .contains(&expected_position_id),
         "Position should be in open IDs for strategy"
@@ -2104,25 +2106,25 @@ fn test_handle_order_fill_event(mut execution_engine: ExecutionEngine) {
 
     assert!(
         cache
-            .position_open_ids(None, None, None)
+            .position_open_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position should be in open IDs"
     );
 
     assert_eq!(
-        cache.positions_total_count(None, None, None, None),
+        cache.positions_total_count(None, None, None, None, None),
         1,
         "Total position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_open_count(None, None, None, None),
+        cache.positions_open_count(None, None, None, None, None),
         1,
         "Open position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_closed_count(None, None, None, None),
+        cache.positions_closed_count(None, None, None, None, None),
         0,
         "Closed position count should be 0"
     );
@@ -2312,7 +2314,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
 
     assert!(
         cache
-            .position_ids(None, None, None)
+            .position_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position ID should be in position IDs list"
     );
@@ -2322,7 +2324,8 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
             .position_closed_ids(
                 Some(&Venue::test_default()),
                 Some(&instrument.id),
-                Some(&strategy_id)
+                Some(&strategy_id),
+                None
             )
             .contains(&expected_position_id),
         "Position should not be in closed IDs for strategy"
@@ -2330,7 +2333,7 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
 
     assert!(
         !cache
-            .position_closed_ids(None, None, None)
+            .position_closed_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position should not be in closed IDs"
     );
@@ -2340,7 +2343,8 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
             .position_open_ids(
                 Some(&Venue::test_default()),
                 Some(&instrument.id),
-                Some(&strategy_id)
+                Some(&strategy_id),
+                None
             )
             .contains(&expected_position_id),
         "Position should be in open IDs for strategy"
@@ -2348,25 +2352,25 @@ fn test_handle_multiple_partial_fill_events(mut execution_engine: ExecutionEngin
 
     assert!(
         cache
-            .position_open_ids(None, None, None)
+            .position_open_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position should be in open IDs"
     );
 
     assert_eq!(
-        cache.positions_total_count(None, None, None, None),
+        cache.positions_total_count(None, None, None, None, None),
         1,
         "Total position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_open_count(None, None, None, None),
+        cache.positions_open_count(None, None, None, None, None),
         1,
         "Open position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_closed_count(None, None, None, None),
+        cache.positions_closed_count(None, None, None, None, None),
         0,
         "Closed position count should be 0"
     );
@@ -2440,7 +2444,7 @@ fn test_handle_position_opening_with_position_id_none(mut execution_engine: Exec
 
     execution_engine.process(&order_filled_event);
     let cache = execution_engine.cache().borrow();
-    let position_ids = cache.position_ids(None, None, None);
+    let position_ids = cache.position_ids(None, None, None, None);
     assert_eq!(position_ids.len(), 1, "Should have exactly one position");
 
     // Get the generated position ID
@@ -2484,39 +2488,39 @@ fn test_handle_position_opening_with_position_id_none(mut execution_engine: Exec
 
     assert!(
         cache
-            .position_ids(None, None, None)
+            .position_ids(None, None, None, None)
             .contains(generated_position_id),
         "Position ID should be in position IDs list"
     );
 
     assert!(
         cache
-            .position_open_ids(None, None, None)
+            .position_open_ids(None, None, None, None)
             .contains(generated_position_id),
         "Position should be in open IDs"
     );
 
     assert!(
         !cache
-            .position_closed_ids(None, None, None)
+            .position_closed_ids(None, None, None, None)
             .contains(generated_position_id),
         "Position should not be in closed IDs"
     );
 
     assert_eq!(
-        cache.positions_total_count(None, None, None, None),
+        cache.positions_total_count(None, None, None, None, None),
         1,
         "Total position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_open_count(None, None, None, None),
+        cache.positions_open_count(None, None, None, None, None),
         1,
         "Open position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_closed_count(None, None, None, None),
+        cache.positions_closed_count(None, None, None, None, None),
         0,
         "Closed position count should be 0"
     );
@@ -2592,7 +2596,7 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
 
     // Get the created position ID
     let cache = execution_engine.cache().borrow();
-    let position_ids = cache.position_ids(None, None, None);
+    let position_ids = cache.position_ids(None, None, None, None);
 
     assert_eq!(
         position_ids.len(),
@@ -2682,33 +2686,33 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
     );
 
     assert_eq!(
-        cache.positions_total_count(None, None, None, None),
+        cache.positions_total_count(None, None, None, None, None),
         1,
         "Total position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_open_count(None, None, None, None),
+        cache.positions_open_count(None, None, None, None, None),
         1,
         "Open position count should be 1"
     );
 
     assert_eq!(
-        cache.positions_closed_count(None, None, None, None),
+        cache.positions_closed_count(None, None, None, None, None),
         0,
         "Closed position count should be 0"
     );
 
     assert!(
         cache
-            .position_open_ids(None, None, None)
+            .position_open_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position should be in open IDs"
     );
 
     assert!(
         !cache
-            .position_closed_ids(None, None, None)
+            .position_closed_ids(None, None, None, None)
             .contains(&expected_position_id),
         "Position should not be in closed IDs"
     );
@@ -2718,7 +2722,8 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
             .position_open_ids(
                 Some(&Venue::test_default()),
                 Some(&instrument.id),
-                Some(&strategy_id)
+                Some(&strategy_id),
+                None
             )
             .len(),
         1,
@@ -2730,7 +2735,8 @@ fn test_add_to_existing_position_on_order_fill(mut execution_engine: ExecutionEn
             .position_closed_ids(
                 Some(&Venue::test_default()),
                 Some(&instrument.id),
-                Some(&strategy_id)
+                Some(&strategy_id),
+                None
             )
             .len(),
         0,
@@ -2907,33 +2913,33 @@ fn test_close_position_on_order_fill(mut execution_engine: ExecutionEngine) {
         );
 
         assert_eq!(
-            cache.positions_total_count(None, None, None, None),
+            cache.positions_total_count(None, None, None, None, None),
             1,
             "Total position count should be 1"
         );
 
         assert_eq!(
-            cache.positions_open_count(None, None, None, None),
+            cache.positions_open_count(None, None, None, None, None),
             0,
             "Open position count should be 0"
         );
 
         assert_eq!(
-            cache.positions_closed_count(None, None, None, None),
+            cache.positions_closed_count(None, None, None, None, None),
             1,
             "Closed position count should be 1"
         );
 
         assert!(
             !cache
-                .position_open_ids(None, None, None)
+                .position_open_ids(None, None, None, None)
                 .contains(&position_id),
             "Position should not be in open IDs"
         );
 
         assert!(
             cache
-                .position_closed_ids(None, None, None)
+                .position_closed_ids(None, None, None, None)
                 .contains(&position_id),
             "Position should be in closed IDs"
         );
@@ -3095,35 +3101,54 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
     let venue = Venue::test_default();
     assert!(
         cache
-            .position_ids(Some(&venue), Some(&instrument.id), Some(&strategy1_id))
+            .position_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy1_id),
+                None
+            )
             .contains(&position1_id),
         "Position 1 should be in strategy1's position IDs"
     );
     assert!(
         cache
-            .position_ids(Some(&venue), Some(&instrument.id), Some(&strategy2_id))
+            .position_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy2_id),
+                None
+            )
             .contains(&position2_id),
         "Position 2 should be in strategy2's position IDs"
     );
 
     assert!(
-        cache.position_ids(None, None, None).contains(&position1_id),
+        cache
+            .position_ids(None, None, None, None)
+            .contains(&position1_id),
         "Position 1 should be in global position IDs"
     );
     assert!(
-        cache.position_ids(None, None, None).contains(&position2_id),
+        cache
+            .position_ids(None, None, None, None)
+            .contains(&position2_id),
         "Position 2 should be in global position IDs"
     );
 
     assert_eq!(
-        cache.position_open_ids(None, None, None).len(),
+        cache.position_open_ids(None, None, None, None).len(),
         2,
         "Should have 2 open positions globally"
     );
 
     assert_eq!(
         cache
-            .position_open_ids(Some(&venue), Some(&instrument.id), Some(&strategy1_id))
+            .position_open_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy1_id),
+                None
+            )
             .len(),
         1,
         "Strategy1 should have 1 open position"
@@ -3131,7 +3156,12 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
 
     assert_eq!(
         cache
-            .position_open_ids(Some(&venue), Some(&instrument.id), Some(&strategy2_id))
+            .position_open_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy2_id),
+                None
+            )
             .len(),
         1,
         "Strategy2 should have 1 open position"
@@ -3139,68 +3169,88 @@ fn test_multiple_strategy_positions_opened(mut execution_engine: ExecutionEngine
 
     assert!(
         cache
-            .position_open_ids(Some(&venue), Some(&instrument.id), Some(&strategy1_id))
+            .position_open_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy1_id),
+                None
+            )
             .contains(&position1_id),
         "Position 1 should be in strategy1's open IDs"
     );
     assert!(
         cache
-            .position_open_ids(Some(&venue), Some(&instrument.id), Some(&strategy2_id))
+            .position_open_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy2_id),
+                None
+            )
             .contains(&position2_id),
         "Position 2 should be in strategy2's open IDs"
     );
     assert!(
         cache
-            .position_open_ids(None, None, None)
+            .position_open_ids(None, None, None, None)
             .contains(&position1_id),
         "Position 1 should be in global open IDs"
     );
     assert!(
         cache
-            .position_open_ids(None, None, None)
+            .position_open_ids(None, None, None, None)
             .contains(&position2_id),
         "Position 2 should be in global open IDs"
     );
 
     assert!(
         !cache
-            .position_closed_ids(Some(&venue), Some(&instrument.id), Some(&strategy1_id))
+            .position_closed_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy1_id),
+                None
+            )
             .contains(&position1_id),
         "Position 1 should not be in strategy1's closed IDs"
     );
     assert!(
         !cache
-            .position_closed_ids(Some(&venue), Some(&instrument.id), Some(&strategy2_id))
+            .position_closed_ids(
+                Some(&venue),
+                Some(&instrument.id),
+                Some(&strategy2_id),
+                None
+            )
             .contains(&position2_id),
         "Position 2 should not be in strategy2's closed IDs"
     );
     assert!(
         !cache
-            .position_closed_ids(None, None, None)
+            .position_closed_ids(None, None, None, None)
             .contains(&position1_id),
         "Position 1 should not be in global closed IDs"
     );
     assert!(
         !cache
-            .position_closed_ids(None, None, None)
+            .position_closed_ids(None, None, None, None)
             .contains(&position2_id),
         "Position 2 should not be in global closed IDs"
     );
 
     assert_eq!(
-        cache.positions_total_count(None, None, None, None),
+        cache.positions_total_count(None, None, None, None, None),
         2,
         "Total position count should be 2"
     );
 
     assert_eq!(
-        cache.positions_open_count(None, None, None, None),
+        cache.positions_open_count(None, None, None, None, None),
         2,
         "Open position count should be 2"
     );
 
     assert_eq!(
-        cache.positions_closed_count(None, None, None, None),
+        cache.positions_closed_count(None, None, None, None, None),
         0,
         "Closed position count should be 0"
     );
@@ -3342,7 +3392,7 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
 
     // In Rust Netting OMS, position flipping behavior is different from Python
     // Let's check what actually happened:
-    let all_position_ids = cache.position_ids(None, None, None);
+    let all_position_ids = cache.position_ids(None, None, None, None);
     println!("All position IDs after flip: {all_position_ids:?}");
 
     // There should be at least one position (possibly 2 if a new flipped position was created)
@@ -3370,7 +3420,7 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
     }
 
     // Look for a flipped position (either with 'F' suffix or just another position)
-    let open_positions = cache.position_open_ids(None, None, None);
+    let open_positions = cache.position_open_ids(None, None, None, None);
     println!("Open position IDs after flip: {open_positions:?}");
 
     if open_positions.is_empty() {
@@ -3417,19 +3467,19 @@ fn test_flip_position_on_opposite_filled_same_position_sell(mut execution_engine
         );
 
         assert_eq!(
-            cache.positions_open_count(None, None, None, None),
+            cache.positions_open_count(None, None, None, None, None),
             1,
             "Should have 1 open position (flipped position)"
         );
 
         assert_eq!(
-            cache.positions_closed_count(None, None, None, None),
+            cache.positions_closed_count(None, None, None, None, None),
             1,
             "Should have 1 closed position (original position)"
         );
 
         assert_eq!(
-            cache.positions_total_count(None, None, None, None),
+            cache.positions_total_count(None, None, None, None, None),
             2,
             "Total position count should be 2 (original + flipped)"
         );
@@ -3573,7 +3623,7 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
     let cache = execution_engine.cache().borrow();
 
     // Get all position IDs to see what was created
-    let all_position_ids = cache.position_ids(None, None, None);
+    let all_position_ids = cache.position_ids(None, None, None, None);
     println!("All position IDs after flip: {all_position_ids:?}");
 
     // There should be at least one position (possibly 2 if a new flipped position was created)
@@ -3601,7 +3651,7 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
     }
 
     // Look for a flipped position (either with 'F' suffix or just another position)
-    let open_positions = cache.position_open_ids(None, None, None);
+    let open_positions = cache.position_open_ids(None, None, None, None);
     println!("Open position IDs after flip: {open_positions:?}");
 
     if open_positions.is_empty() {
@@ -3648,19 +3698,19 @@ fn test_flip_position_on_opposite_filled_same_position_buy(mut execution_engine:
         );
 
         assert_eq!(
-            cache.positions_open_count(None, None, None, None),
+            cache.positions_open_count(None, None, None, None, None),
             1,
             "Should have 1 open position (flipped position)"
         );
 
         assert_eq!(
-            cache.positions_closed_count(None, None, None, None),
+            cache.positions_closed_count(None, None, None, None, None),
             1,
             "Should have 1 closed position (original position)"
         );
 
         assert_eq!(
-            cache.positions_total_count(None, None, None, None),
+            cache.positions_total_count(None, None, None, None, None),
             2,
             "Total position count should be 2 (original + flipped)"
         );
@@ -6235,7 +6285,7 @@ fn test_position_flip_with_own_order_book() {
     // The position ID should be generated by the execution engine
     // Let's find the position that was created
     let cache = execution_engine.cache().borrow();
-    let positions = cache.positions(None, None, None, None);
+    let positions = cache.positions(None, None, None, None, None);
     assert_eq!(
         positions.len(),
         1,
@@ -6324,7 +6374,7 @@ fn test_position_flip_with_own_order_book() {
 
     let cache = execution_engine.cache().borrow();
 
-    let positions = cache.positions(None, None, None, None);
+    let positions = cache.positions(None, None, None, None, None);
     assert_eq!(
         positions.len(),
         1,
@@ -8047,7 +8097,7 @@ fn test_own_book_status_integrity_during_transitions() {
         assert!(position1.is_closed());
 
         // New flipped position should exist with different ID
-        let positions = cache.positions_open(None, None, None, None);
+        let positions = cache.positions_open(None, None, None, None, None);
         assert_eq!(positions.len(), 1, "Should have 1 open position");
         assert_ne!(
             positions[0].id, position_id1,

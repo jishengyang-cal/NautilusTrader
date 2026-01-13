@@ -502,7 +502,7 @@ impl ExecutionEngine {
         let positions: Vec<Position> = self
             .cache
             .borrow()
-            .positions_open(None, None, None, None)
+            .positions_open(None, None, None, None, None)
             .into_iter()
             .cloned()
             .collect();
@@ -530,7 +530,7 @@ impl ExecutionEngine {
             let _ = cache.check_integrity();
 
             if self.config.manage_own_order_books {
-                for order in cache.orders(None, None, None, None) {
+                for order in cache.orders(None, None, None, None, None) {
                     if order.is_closed() || !should_handle_own_book_order(order) {
                         continue;
                     }
@@ -722,7 +722,8 @@ impl ExecutionEngine {
     ) {
         log::info!("Reconciling NET position for {}", report.instrument_id);
 
-        let positions_open = cache.positions_open(None, Some(&report.instrument_id), None, None);
+        let positions_open =
+            cache.positions_open(None, Some(&report.instrument_id), None, None, None);
 
         // Sum up cached position quantities using domain types to avoid f64 precision loss
         let cached_signed_qty: Decimal = positions_open
@@ -1697,7 +1698,7 @@ impl ExecutionEngine {
     /// Sets the internal position ID generator counts based on existing cached positions.
     pub fn set_position_id_counts(&mut self) {
         let cache = self.cache.borrow();
-        let positions = cache.positions(None, None, None, None);
+        let positions = cache.positions(None, None, None, None, None);
 
         // Count positions per instrument_id using a HashMap
         let mut counts: HashMap<StrategyId, usize> = HashMap::new();

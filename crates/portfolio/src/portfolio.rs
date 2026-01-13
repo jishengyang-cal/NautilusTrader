@@ -383,7 +383,7 @@ impl Portfolio {
     pub fn unrealized_pnls(&mut self, venue: &Venue) -> AHashMap<Currency, Money> {
         let instrument_ids = {
             let cache = self.cache.borrow();
-            let positions = cache.positions(Some(venue), None, None, None);
+            let positions = cache.positions(Some(venue), None, None, None, None);
 
             if positions.is_empty() {
                 return AHashMap::new(); // Nothing to calculate
@@ -424,7 +424,7 @@ impl Portfolio {
     pub fn realized_pnls(&mut self, venue: &Venue) -> AHashMap<Currency, Money> {
         let instrument_ids = {
             let cache = self.cache.borrow();
-            let positions = cache.positions(Some(venue), None, None, None);
+            let positions = cache.positions(Some(venue), None, None, None, None);
 
             if positions.is_empty() {
                 return AHashMap::new(); // Nothing to calculate
@@ -468,7 +468,7 @@ impl Portfolio {
             return None; // Cannot calculate
         };
 
-        let positions_open = cache.positions_open(Some(venue), None, None, None);
+        let positions_open = cache.positions_open(Some(venue), None, None, None, None);
         if positions_open.is_empty() {
             return Some(AHashMap::new()); // Nothing to calculate
         }
@@ -629,15 +629,6 @@ impl Portfolio {
     #[must_use]
     pub fn net_exposure(&self, instrument_id: &InstrumentId) -> Option<Money> {
         let cache = self.cache.borrow();
-        let account = if let Some(account) = cache.account_for_venue(&instrument_id.venue) {
-            account
-        } else {
-            log::error!(
-                "Cannot calculate net exposure: no account registered for {}",
-                instrument_id.venue
-            );
-            return None;
-        };
 
         let instrument = if let Some(instrument) = cache.instrument(instrument_id) {
             instrument
@@ -651,6 +642,7 @@ impl Portfolio {
             Some(instrument_id),
             None,
             None,
+            None,
         );
 
         if positions_open.is_empty() {
@@ -658,8 +650,40 @@ impl Portfolio {
         }
 
         let mut net_exposure = 0.0;
+        let mut first_base_currency: Option<Currency> = None;
+        let mut first_account: Option<&AccountAny> = None;
 
-        for position in positions_open {
+        for position in &positions_open {
+            // Get account for THIS position
+            let account = if let Some(account) = cache.account(&position.account_id) {
+                account
+            } else {
+                log::error!(
+                    "Cannot calculate net exposure: no account for {}",
+                    position.account_id
+                );
+                return None;
+            };
+
+            // Validate consistent base currency across accounts
+            if let Some(base) = account.base_currency() {
+                match first_base_currency {
+                    None => {
+                        first_base_currency = Some(base);
+                        first_account = Some(account);
+                    }
+                    Some(first) if first != base => {
+                        log::error!(
+                            "Cannot calculate net exposure: accounts have different base \
+                            currencies ({first} vs {base}); multi-account aggregation requires \
+                            consistent base currencies"
+                        );
+                        return None;
+                    }
+                    _ => {}
+                }
+            }
+
             let price = self.get_price(position)?;
             let xrate = if let Some(xrate) =
                 self.calculate_xrate_to_base(instrument, account, position.entry)
@@ -667,12 +691,11 @@ impl Portfolio {
                 xrate
             } else {
                 log::error!(
-                    // TODO: Improve logging
                     "Cannot calculate net exposures: insufficient data for {}/{:?}",
                     instrument.settlement_currency(),
                     account.base_currency()
                 );
-                return None; // Cannot calculate
+                return None;
             };
 
             let notional_value =
@@ -680,8 +703,8 @@ impl Portfolio {
             net_exposure += notional_value.as_f64() * xrate;
         }
 
-        let settlement_currency = account
-            .base_currency()
+        let settlement_currency = first_account
+            .and_then(|a| a.base_currency())
             .unwrap_or_else(|| instrument.settlement_currency());
 
         Some(Money::new(net_exposure, settlement_currency))
@@ -746,7 +769,7 @@ impl Portfolio {
         let mut initialized = true;
         let orders_and_instruments = {
             let cache = self.cache.borrow();
-            let all_orders_open = cache.orders_open(None, None, None, None);
+            let all_orders_open = cache.orders_open(None, None, None, None, None);
 
             let mut instruments_with_orders = Vec::new();
             let mut instruments = AHashSet::new();
@@ -758,7 +781,7 @@ impl Portfolio {
             for instrument_id in instruments {
                 if let Some(instrument) = cache.instrument(&instrument_id) {
                     let orders = cache
-                        .orders_open(None, Some(&instrument_id), None, None)
+                        .orders_open(None, Some(&instrument_id), None, None, None)
                         .into_iter()
                         .cloned()
                         .collect::<Vec<OrderAny>>();
@@ -832,7 +855,7 @@ impl Portfolio {
         {
             let cache = self.cache.borrow();
             all_positions_open = cache
-                .positions_open(None, None, None, None)
+                .positions_open(None, None, None, None, None)
                 .into_iter()
                 .cloned()
                 .collect();
@@ -847,7 +870,7 @@ impl Portfolio {
             let positions_open: Vec<Position> = {
                 let cache = self.cache.borrow();
                 cache
-                    .positions_open(None, Some(&instrument_id), None, None)
+                    .positions_open(None, Some(&instrument_id), None, None, None)
                     .into_iter()
                     .cloned()
                     .collect()
@@ -902,7 +925,7 @@ impl Portfolio {
                 break;
             };
             let positions: Vec<Position> = cache
-                .positions_open(None, Some(&instrument_id), None, None)
+                .positions_open(None, Some(&instrument_id), None, None, None)
                 .into_iter()
                 .cloned()
                 .collect();
@@ -1039,6 +1062,7 @@ impl Portfolio {
         let positions_open = cache.positions_open(
             None, // Faster query filtering
             Some(instrument_id),
+            None,
             None,
             None,
         );
@@ -1338,6 +1362,7 @@ impl Portfolio {
         let positions = cache.positions(
             None, // Faster query filtering
             Some(instrument_id),
+            None,
             None,
             None,
         );
@@ -1668,13 +1693,13 @@ fn update_instrument_id(
 
         // Clone the orders and positions to own the data
         let orders_open: Vec<OrderAny> = cache_ref
-            .orders_open(None, Some(instrument_id), None, None)
+            .orders_open(None, Some(instrument_id), None, None, None)
             .iter()
             .map(|o| (*o).clone())
             .collect();
 
         let positions_open: Vec<Position> = cache_ref
-            .positions_open(None, Some(instrument_id), None, None)
+            .positions_open(None, Some(instrument_id), None, None, None)
             .iter()
             .map(|p| (*p).clone())
             .collect();
@@ -1823,7 +1848,7 @@ fn update_order(
         }
     }
 
-    let orders_open = cache_ref.orders_open(None, Some(&event.instrument_id()), None, None);
+    let orders_open = cache_ref.orders_open(None, Some(&event.instrument_id()), None, None, None);
 
     let account_state = inner.borrow_mut().accounts.update_orders(
         account,
@@ -1861,7 +1886,7 @@ fn update_position(
         let cache_ref = cache.borrow();
 
         cache_ref
-            .positions_open(None, Some(&instrument_id), None, None)
+            .positions_open(None, Some(&instrument_id), None, None, None)
             .iter()
             .map(|o| (*o).clone())
             .collect()

@@ -733,6 +733,7 @@ impl GreeksCalculator {
             venue.as_ref(),
             instrument_id.as_ref(),
             strategy_id.as_ref(),
+            None, // account_id
             Some(side),
         );
         let open_positions: Vec<Position> = open_positions.iter().map(|&p| p.clone()).collect();

@@ -670,6 +670,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
             Some(&self.core.venue),
             Some(&command.instrument_id),
             None,
+            None,
             Some(command.order_side),
         );
 

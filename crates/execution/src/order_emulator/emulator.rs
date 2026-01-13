@@ -239,7 +239,7 @@ impl OrderEmulator {
         let emulated_orders: Vec<OrderAny> = self
             .cache
             .borrow()
-            .orders_emulated(None, None, None, None)
+            .orders_emulated(None, None, None, None, None)
             .into_iter()
             .cloned()
             .collect();

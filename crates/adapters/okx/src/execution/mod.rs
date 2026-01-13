@@ -867,7 +867,7 @@ impl ExecutionClient for OKXExecutionClient {
         } else {
             // Cancel orders individually via batch cancel (works for all users)
             let cache = self.core.cache().borrow();
-            let open_orders = cache.orders_open(None, Some(&cmd.instrument_id), None, None);
+            let open_orders = cache.orders_open(None, Some(&cmd.instrument_id), None, None, None);
 
             if open_orders.is_empty() {
                 log::debug!("No open orders to cancel for {}", cmd.instrument_id);

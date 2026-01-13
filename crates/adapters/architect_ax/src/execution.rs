@@ -602,7 +602,7 @@ impl ExecutionClient for AxExecutionClient {
 
     fn cancel_all_orders(&self, cmd: &CancelAllOrders) -> anyhow::Result<()> {
         let cache = self.core.cache().borrow();
-        let open_orders = cache.orders_open(None, Some(&cmd.instrument_id), None, None);
+        let open_orders = cache.orders_open(None, Some(&cmd.instrument_id), None, None, None);
 
         if open_orders.is_empty() {
             log::debug!("No open orders to cancel for {}", cmd.instrument_id);

@@ -698,12 +698,24 @@ impl RiskEngine {
         let (net_long_qty_raw, pending_sell_qty_raw) = {
             let cache = self.cache.borrow();
             let long_qty: QuantityRaw = cache
-                .positions_open(None, Some(&instrument.id()), None, Some(PositionSide::Long))
+                .positions_open(
+                    None,
+                    Some(&instrument.id()),
+                    None,
+                    None,
+                    Some(PositionSide::Long),
+                )
                 .iter()
                 .map(|pos| pos.quantity.raw)
                 .sum();
             let pending_sells: QuantityRaw = cache
-                .orders_open(None, Some(&instrument.id()), None, Some(OrderSide::Sell))
+                .orders_open(
+                    None,
+                    Some(&instrument.id()),
+                    None,
+                    None,
+                    Some(OrderSide::Sell),
+                )
                 .iter()
                 .map(|ord| ord.leaves_qty().raw)
                 .sum();

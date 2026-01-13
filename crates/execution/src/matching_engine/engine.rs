@@ -1149,7 +1149,7 @@ impl OrderMatchingEngine {
         let open_orders = self
             .cache
             .borrow()
-            .orders_open(None, Some(&instrument_id), None, None)
+            .orders_open(None, Some(&instrument_id), None, None, None)
             .into_iter()
             .cloned()
             .collect::<Vec<OrderAny>>();

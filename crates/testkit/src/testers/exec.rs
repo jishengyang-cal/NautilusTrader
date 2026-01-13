@@ -516,7 +516,7 @@ impl DataActor for ExecTester {
             if self.config.use_individual_cancels_on_stop {
                 let cache = self.cache();
                 let open_orders: Vec<OrderAny> = cache
-                    .orders_open(None, Some(&instrument_id), Some(&strategy_id), None)
+                    .orders_open(None, Some(&instrument_id), Some(&strategy_id), None, None)
                     .iter()
                     .map(|o| (*o).clone())
                     .collect();
@@ -530,7 +530,7 @@ impl DataActor for ExecTester {
             } else if self.config.use_batch_cancel_on_stop {
                 let cache = self.cache();
                 let open_orders: Vec<OrderAny> = cache
-                    .orders_open(None, Some(&instrument_id), Some(&strategy_id), None)
+                    .orders_open(None, Some(&instrument_id), Some(&strategy_id), None, None)
                     .iter()
                     .map(|o| (*o).clone())
                     .collect();

@@ -127,7 +127,7 @@ impl IdsGenerator {
             // Netting OMS (position id will be derived from instrument and strategy)
             let cache = self.cache.as_ref().borrow();
             let positions_open =
-                cache.positions_open(None, Some(&order.instrument_id()), None, None);
+                cache.positions_open(None, Some(&order.instrument_id()), None, None, None);
             if positions_open.is_empty() {
                 None
             } else {

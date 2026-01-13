@@ -1028,7 +1028,7 @@ impl ExecutionClient for DydxExecutionClient {
         // Query all open orders from cache
         let cache = self.core.cache().borrow();
         let mut open_orders: Vec<_> = cache
-            .orders_open(None, None, None, None)
+            .orders_open(None, None, None, None, None)
             .into_iter()
             .collect();
 

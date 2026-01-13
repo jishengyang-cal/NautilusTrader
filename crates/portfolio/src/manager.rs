@@ -67,7 +67,8 @@ impl AccountsManager {
         let position_id = if let Some(position_id) = fill.position_id {
             position_id
         } else {
-            let positions_open = cache.positions_open(None, Some(&fill.instrument_id), None, None);
+            let positions_open =
+                cache.positions_open(None, Some(&fill.instrument_id), None, None, None);
             positions_open
                 .first()
                 .unwrap_or_else(|| panic!("List of Positions is empty"))

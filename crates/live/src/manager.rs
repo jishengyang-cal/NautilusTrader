@@ -591,7 +591,7 @@ impl ExecutionManager {
 
         let filtered_orders: Vec<OrderAny> = {
             let cache = self.cache.borrow();
-            let open_orders = cache.orders_open(None, None, None, None);
+            let open_orders = cache.orders_open(None, None, None, None, None);
 
             if self.config.reconciliation_instrument_ids.is_empty() {
                 open_orders.iter().map(|o| (*o).clone()).collect()
@@ -698,7 +698,7 @@ impl ExecutionManager {
 
         let open_positions = {
             let cache = self.cache.borrow();
-            let positions = cache.positions_open(None, None, None, None);
+            let positions = cache.positions_open(None, None, None, None, None);
 
             if self.config.reconciliation_instrument_ids.is_empty() {
                 positions.iter().map(|p| (*p).clone()).collect()

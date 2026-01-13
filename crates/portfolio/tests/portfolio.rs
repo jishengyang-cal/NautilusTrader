@@ -1113,13 +1113,15 @@ fn test_opening_positions_with_multi_asset_account(
         .quantity(Quantity::from("10000"))
         .build();
 
+    let account_id = AccountId::new("BITMEX-01234");
+
     let filled = OrderFilled::new(
         order.trader_id(),
         order.strategy_id(),
         order.instrument_id(),
         order.client_order_id(),
         VenueOrderId::new("123456"),
-        AccountId::new("SIM-001"),
+        account_id,
         TradeId::new("1"),
         order.order_side(),
         order.order_type(),
