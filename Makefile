@@ -558,6 +558,17 @@ cargo-test-coverage-crate-%: check-nextest-installed check-llvm-cov-installed
 cargo-test-coverage-crate-%:  #-- Run Rust tests with coverage reporting for a specific crate (usage: make cargo-test-coverage-crate-<crate_name>)
 	cargo llvm-cov nextest --lib $(FAIL_FAST_FLAG) --cargo-profile nextest -p $* $(if $(FEATURES),--features "$(FEATURES)")
 
+.PHONY: cargo-test-coverage-html
+cargo-test-coverage-html: check-nextest-installed check-llvm-cov-installed
+cargo-test-coverage-html:  #-- Run Rust tests with HTML coverage report (opens in browser)
+	cargo llvm-cov nextest --workspace --features "$(CARGO_FEATURES)" --html --open
+
+.PHONY: cargo-test-coverage-crate-html-%
+cargo-test-coverage-crate-html-%: export RUST_BACKTRACE=1
+cargo-test-coverage-crate-html-%: check-nextest-installed check-llvm-cov-installed
+cargo-test-coverage-crate-html-%:  #-- Run coverage for specific crate with HTML report (usage: make cargo-test-coverage-crate-html-<crate_name>)
+	cargo llvm-cov nextest --lib $(FAIL_FAST_FLAG) --cargo-profile nextest -p $* $(if $(FEATURES),--features "$(FEATURES)") --html --open
+
 #------------------------------------------------------------------------------
 # Benchmarks
 #------------------------------------------------------------------------------
