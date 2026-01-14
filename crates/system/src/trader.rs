@@ -32,7 +32,7 @@ use nautilus_common::{
     enums::{ComponentState, ComponentTrigger, Environment},
     msgbus,
     msgbus::{
-        handler::{ShareableMessageHandler, TypedMessageHandler},
+        TypedHandler,
         switchboard::{get_event_orders_topic, get_event_positions_topic},
     },
     timer::{TimeEvent, TimeEventCallback},
@@ -373,28 +373,24 @@ impl Trader {
 
         let order_topic = get_event_orders_topic(strategy_id);
         let order_actor_id = actor_id;
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |event: &OrderEventAny| {
-                if let Some(mut strategy) = try_get_actor_unchecked::<T>(&order_actor_id) {
-                    strategy.handle_order_event(event.clone());
-                } else {
-                    log::error!("Strategy {order_actor_id} not found for order event handling");
-                }
-            },
-        )));
-        msgbus::subscribe_topic(order_topic, handler, None);
+        let handler = TypedHandler::from(move |event: &OrderEventAny| {
+            if let Some(mut strategy) = try_get_actor_unchecked::<T>(&order_actor_id) {
+                strategy.handle_order_event(event.clone());
+            } else {
+                log::error!("Strategy {order_actor_id} not found for order event handling");
+            }
+        });
+        msgbus::subscribe_order_events(order_topic.into(), handler, None);
 
         let position_topic = get_event_positions_topic(strategy_id);
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |event: &PositionEvent| {
-                if let Some(mut strategy) = try_get_actor_unchecked::<T>(&actor_id) {
-                    strategy.handle_position_event(event.clone());
-                } else {
-                    log::error!("Strategy {actor_id} not found for position event handling");
-                }
-            },
-        )));
-        msgbus::subscribe_topic(position_topic, handler, None);
+        let handler = TypedHandler::from(move |event: &PositionEvent| {
+            if let Some(mut strategy) = try_get_actor_unchecked::<T>(&actor_id) {
+                strategy.handle_position_event(event.clone());
+            } else {
+                log::error!("Strategy {actor_id} not found for position event handling");
+            }
+        });
+        msgbus::subscribe_position_events(position_topic.into(), handler, None);
 
         self.strategy_ids.push(strategy_id);
 

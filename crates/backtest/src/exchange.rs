@@ -1318,7 +1318,7 @@ mod tests {
         let account_type = AccountType::Margin;
         let mut cache = Cache::default();
         let handler = get_message_saving_handler::<AccountState>(None);
-        msgbus::register("Portfolio.update_account".into(), handler.clone());
+        msgbus::register_any("Portfolio.update_account".into(), handler.clone());
         let margin_account = MarginAccount::new(
             AccountState::new(
                 AccountId::from("SIM-001"),

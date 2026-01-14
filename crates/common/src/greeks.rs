@@ -27,7 +27,7 @@ use nautilus_model::{
     position::Position,
 };
 
-use crate::{cache::Cache, clock::Clock, msgbus};
+use crate::{cache::Cache, clock::Clock, msgbus, msgbus::TypedHandler};
 
 /// Type alias for a greeks filter function.
 pub type GreeksFilter = Box<dyn Fn(&GreeksData) -> bool>;
@@ -513,7 +513,7 @@ impl GreeksCalculator {
                     instrument_id.symbol.as_str()
                 )
                 .into();
-                msgbus::publish(topic, &greeks_data.clone().unwrap());
+                msgbus::publish_greeks(topic, &greeks_data.clone().unwrap());
             }
         }
 
@@ -794,38 +794,20 @@ impl GreeksCalculator {
     /// Useful for reading greeks from a backtesting data catalog and caching them for later use.
     pub fn subscribe_greeks<F>(&self, underlying: &str, handler: Option<F>)
     where
-        F: Fn(GreeksData) + 'static + Send + Sync,
+        F: Fn(&GreeksData) + 'static,
     {
         let pattern = format!("data.GreeksData.instrument_id={underlying}*").into();
 
         if let Some(custom_handler) = handler {
-            let handler = msgbus::handler::TypedMessageHandler::with_any(
-                move |greeks: &dyn std::any::Any| {
-                    if let Some(greeks_data) = greeks.downcast_ref::<GreeksData>() {
-                        custom_handler(greeks_data.clone());
-                    }
-                },
-            );
-            msgbus::subscribe(
-                pattern,
-                msgbus::handler::ShareableMessageHandler(Rc::new(handler)),
-                None,
-            );
+            let typed_handler = TypedHandler::from(custom_handler);
+            msgbus::subscribe_greeks(pattern, typed_handler, None);
         } else {
             let cache_ref = self.cache.clone();
-            let default_handler = msgbus::handler::TypedMessageHandler::with_any(
-                move |greeks: &dyn std::any::Any| {
-                    if let Some(greeks_data) = greeks.downcast_ref::<GreeksData>() {
-                        let mut cache = cache_ref.borrow_mut();
-                        cache.add_greeks(greeks_data.clone()).unwrap_or_default();
-                    }
-                },
-            );
-            msgbus::subscribe(
-                pattern,
-                msgbus::handler::ShareableMessageHandler(Rc::new(default_handler)),
-                None,
-            );
+            let typed_handler = TypedHandler::from(move |greeks: &GreeksData| {
+                let mut cache = cache_ref.borrow_mut();
+                cache.add_greeks(greeks.clone()).unwrap_or_default();
+            });
+            msgbus::subscribe_greeks(pattern, typed_handler, None);
         }
     }
 }

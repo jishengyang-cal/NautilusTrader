@@ -281,7 +281,7 @@ impl RiskEngine {
         // TODO: Create a new Event "TradingStateChanged" in OrderEventAny enum.
         // let event = OrderEventAny::TradingStateChanged(TradingStateChanged::new(..,self.trading_state,..));
 
-        msgbus::publish("events.risk".into(), &"message"); // TODO: Send the new Event here
+        msgbus::publish_any("events.risk".into(), &"message"); // TODO: Send the new Event here
 
         log::info!("Trading state set to {state:?}");
     }

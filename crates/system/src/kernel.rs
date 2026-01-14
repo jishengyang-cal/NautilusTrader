@@ -169,7 +169,7 @@ impl NautilusKernel {
                 }
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         // Register DataEngine command queueing
         let endpoint = MessagingSwitchboard::data_engine_queue_execute();
@@ -178,7 +178,7 @@ impl NautilusKernel {
                 get_data_cmd_sender().clone().execute(cmd.clone());
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         // Register DataEngine process handler
         let endpoint = MessagingSwitchboard::data_engine_process();
@@ -190,7 +190,7 @@ impl NautilusKernel {
                 }
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         // Register DataEngine response handler
         let endpoint = MessagingSwitchboard::data_engine_response();
@@ -202,7 +202,7 @@ impl NautilusKernel {
                 }
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         // Register RiskEngine execute handler
         let risk_engine_weak = WeakCell::from(Rc::downgrade(&risk_engine));
@@ -214,7 +214,7 @@ impl NautilusKernel {
                 }
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         // Register ExecEngine execute handler
         let exec_engine_weak1 = WeakCell::from(Rc::downgrade(&exec_engine));
@@ -226,7 +226,7 @@ impl NautilusKernel {
                 }
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         // Register ExecEngine process handler
         let exec_engine_weak2 = WeakCell::from(Rc::downgrade(&exec_engine));
@@ -238,7 +238,7 @@ impl NautilusKernel {
                 }
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         // Register ExecEngine report handler
         let exec_engine_weak3 = WeakCell::from(Rc::downgrade(&exec_engine));
@@ -250,7 +250,7 @@ impl NautilusKernel {
                 }
             },
         )));
-        msgbus::register(endpoint, handler);
+        msgbus::register_any(endpoint, handler);
 
         let trader = Trader::new(
             config.trader_id(),

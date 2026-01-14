@@ -169,3 +169,147 @@ impl From<Rc<dyn MessageHandler>> for ShareableMessageHandler {
         Self(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_typed_message_handler_with_custom_id() {
+        let handler = TypedMessageHandler::new(Some("custom-id"), |_msg: &i32| {});
+
+        assert_eq!(handler.id(), Ustr::from("custom-id"));
+    }
+
+    #[rstest]
+    fn test_typed_message_handler_auto_generated_id() {
+        let handler = TypedMessageHandler::from(|_msg: &i32| {});
+
+        // Auto-generated ID should contain a UUID pattern
+        let id = handler.id().to_string();
+        assert!(id.contains('-')); // UUIDs contain dashes
+    }
+
+    #[rstest]
+    fn test_typed_message_handler_handles_correct_type() {
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+
+        let handler = TypedMessageHandler::new(Some("test"), move |msg: &String| {
+            received_clone.borrow_mut().push(msg.clone());
+        });
+
+        handler.handle(&"hello".to_string() as &dyn Any);
+        handler.handle(&"world".to_string() as &dyn Any);
+
+        assert_eq!(*received.borrow(), vec!["hello", "world"]);
+    }
+
+    #[rstest]
+    fn test_typed_message_handler_ignores_wrong_type() {
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+
+        let handler = TypedMessageHandler::new(Some("test"), move |msg: &String| {
+            received_clone.borrow_mut().push(msg.clone());
+        });
+
+        // Pass wrong type - should be ignored (logs error)
+        handler.handle(&42i32 as &dyn Any);
+
+        assert!(received.borrow().is_empty());
+    }
+
+    #[rstest]
+    fn test_typed_message_handler_any() {
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+
+        let handler = TypedMessageHandler::with_any(move |msg: &dyn Any| {
+            if let Some(s) = msg.downcast_ref::<String>() {
+                received_clone.borrow_mut().push(format!("String:{s}"));
+            } else if let Some(i) = msg.downcast_ref::<i32>() {
+                received_clone.borrow_mut().push(format!("i32:{i}"));
+            }
+        });
+
+        handler.handle(&"test".to_string() as &dyn Any);
+        handler.handle(&42i32 as &dyn Any);
+
+        assert_eq!(*received.borrow(), vec!["String:test", "i32:42"]);
+    }
+
+    #[rstest]
+    fn test_shareable_message_handler_id() {
+        let handler = TypedMessageHandler::new(Some("shareable-test"), |_: &i32| {});
+        let shareable = ShareableMessageHandler(Rc::new(handler));
+
+        assert_eq!(shareable.id(), Ustr::from("shareable-test"));
+    }
+
+    #[rstest]
+    fn test_shareable_message_handler_debug() {
+        let handler = TypedMessageHandler::new(Some("debug-test"), |_: &i32| {});
+        let shareable = ShareableMessageHandler(Rc::new(handler));
+
+        let debug_str = format!("{shareable:?}");
+        assert!(debug_str.contains("ShareableMessageHandler"));
+        assert!(debug_str.contains("debug-test"));
+    }
+
+    #[rstest]
+    fn test_shareable_message_handler_from_rc() {
+        let handler: Rc<dyn MessageHandler> =
+            Rc::new(TypedMessageHandler::new(Some("from-rc"), |_: &i32| {}));
+        let shareable: ShareableMessageHandler = handler.into();
+
+        assert_eq!(shareable.id(), Ustr::from("from-rc"));
+    }
+
+    #[rstest]
+    fn test_shareable_message_handler_clone() {
+        let received = Rc::new(RefCell::new(0));
+        let received_clone = received.clone();
+
+        let handler = TypedMessageHandler::new(Some("clone-test"), move |_: &i32| {
+            *received_clone.borrow_mut() += 1;
+        });
+        let shareable = ShareableMessageHandler(Rc::new(handler));
+        let cloned = shareable.clone();
+
+        // Both should point to same handler
+        shareable.0.handle(&1i32 as &dyn Any);
+        cloned.0.handle(&2i32 as &dyn Any);
+
+        assert_eq!(*received.borrow(), 2);
+    }
+
+    #[rstest]
+    fn test_message_handler_equality() {
+        let handler1: Rc<dyn MessageHandler> =
+            Rc::new(TypedMessageHandler::new(Some("same-id"), |_: &i32| {}));
+        let handler2: Rc<dyn MessageHandler> =
+            Rc::new(TypedMessageHandler::new(Some("same-id"), |_: &i32| {}));
+        let handler3: Rc<dyn MessageHandler> =
+            Rc::new(TypedMessageHandler::new(Some("different-id"), |_: &i32| {}));
+
+        assert!((*handler1).eq(&*handler2));
+        assert!(!(*handler1).eq(&*handler3));
+    }
+
+    #[rstest]
+    fn test_typed_message_handler_new_any() {
+        let handler = TypedMessageHandler::new_any(Some("new-any-test"), |_: &dyn Any| {});
+        assert_eq!(handler.id(), Ustr::from("new-any-test"));
+    }
+
+    #[rstest]
+    fn test_typed_message_handler_from_any() {
+        let handler = TypedMessageHandler::from_any(Some("from-any-test"), |_: &dyn Any| {});
+        assert_eq!(handler.id(), Ustr::from("from-any-test"));
+    }
+}

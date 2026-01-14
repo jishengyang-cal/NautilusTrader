@@ -233,7 +233,7 @@ where
     pub fn to_actor(self) -> Rc<UnsafeCell<Self>> {
         // Register process endpoint
         let process_handler = ThrottlerProcess::<T, F>::new(self.actor_id);
-        msgbus::register(
+        msgbus::register_any(
             process_handler.id().as_str().into(),
             ShareableMessageHandler::from(Rc::new(process_handler) as Rc<dyn MessageHandler>),
         );

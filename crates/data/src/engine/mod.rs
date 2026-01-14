@@ -39,7 +39,7 @@ use std::{
     any::Any,
     cell::{Ref, RefCell},
     collections::hash_map::Entry,
-    fmt::Display,
+    fmt::{Debug, Display},
     num::NonZeroUsize,
     rc::Rc,
 };
@@ -60,7 +60,7 @@ use nautilus_common::{
         UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeBookSnapshots,
         UnsubscribeCommand,
     },
-    msgbus::{self, MStr, Topic, handler::ShareableMessageHandler, switchboard},
+    msgbus::{self, MStr, Topic, TypedHandler, switchboard},
     timer::{TimeEvent, TimeEventCallback},
 };
 use nautilus_core::{
@@ -101,6 +101,48 @@ use crate::{
     client::DataClientAdapter,
 };
 
+/// Typed subscription for bar aggregator handlers.
+///
+/// Stores the topic and handler for each data type so we can properly
+/// unsubscribe from the typed routers.
+#[derive(Clone)]
+pub enum BarAggregatorSubscription {
+    Bar {
+        topic: MStr<Topic>,
+        handler: TypedHandler<Bar>,
+    },
+    Trade {
+        topic: MStr<Topic>,
+        handler: TypedHandler<TradeTick>,
+    },
+    Quote {
+        topic: MStr<Topic>,
+        handler: TypedHandler<QuoteTick>,
+    },
+}
+
+impl Debug for BarAggregatorSubscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bar { topic, handler } => f
+                .debug_struct(stringify!(Bar))
+                .field("topic", topic)
+                .field("handler_id", &handler.id())
+                .finish(),
+            Self::Trade { topic, handler } => f
+                .debug_struct(stringify!(Trade))
+                .field("topic", topic)
+                .field("handler_id", &handler.id())
+                .finish(),
+            Self::Quote { topic, handler } => f
+                .debug_struct(stringify!(Quote))
+                .field("topic", topic)
+                .field("handler_id", &handler.id())
+                .finish(),
+        }
+    }
+}
+
 /// Provides a high-performance `DataEngine` for all environments.
 #[derive(Debug)]
 pub struct DataEngine {
@@ -114,10 +156,11 @@ pub struct DataEngine {
     routing_map: IndexMap<Venue, ClientId>,
     book_intervals: AHashMap<NonZeroUsize, AHashSet<InstrumentId>>,
     book_deltas_subs: AHashSet<InstrumentId>,
+    book_depth10_subs: AHashSet<InstrumentId>,
     book_updaters: AHashMap<InstrumentId, Rc<BookUpdater>>,
     book_snapshotters: AHashMap<InstrumentId, Rc<BookSnapshotter>>,
     bar_aggregators: AHashMap<BarType, Rc<RefCell<Box<dyn BarAggregator>>>>,
-    bar_aggregator_handlers: AHashMap<BarType, Vec<(MStr<Topic>, ShareableMessageHandler)>>,
+    bar_aggregator_handlers: AHashMap<BarType, Vec<BarAggregatorSubscription>>,
     _synthetic_quote_feeds: AHashMap<InstrumentId, Vec<SyntheticInstrument>>,
     _synthetic_trade_feeds: AHashMap<InstrumentId, Vec<SyntheticInstrument>>,
     buffered_deltas_map: AHashMap<InstrumentId, OrderBookDeltas>,
@@ -161,6 +204,7 @@ impl DataEngine {
             routing_map: IndexMap::new(),
             book_intervals: AHashMap::new(),
             book_deltas_subs: AHashSet::new(),
+            book_depth10_subs: AHashSet::new(),
             book_updaters: AHashMap::new(),
             book_snapshotters: AHashMap::new(),
             bar_aggregators: AHashMap::new(),
@@ -491,6 +535,12 @@ impl DataEngine {
         self.collect_subscriptions(|client| &client.subscriptions_book_deltas)
     }
 
+    /// Returns all instrument IDs for which book depth10 subscriptions exist.
+    #[must_use]
+    pub fn subscribed_book_depth10(&self) -> Vec<InstrumentId> {
+        self.collect_subscriptions(|client| &client.subscriptions_book_depth10)
+    }
+
     /// Returns all instrument IDs for which book snapshot subscriptions exist.
     #[must_use]
     pub fn subscribed_book_snapshots(&self) -> Vec<InstrumentId> {
@@ -765,7 +815,7 @@ impl DataEngine {
         }
 
         let topic = switchboard::get_instrument_topic(instrument.id());
-        msgbus::publish(topic, &instrument as &dyn Any);
+        msgbus::publish_instrument(topic, &instrument);
     }
 
     fn handle_delta(&mut self, delta: OrderBookDelta) {
@@ -795,7 +845,7 @@ impl DataEngine {
         };
 
         let topic = switchboard::get_book_deltas_topic(deltas.instrument_id);
-        msgbus::publish(topic, &deltas as &dyn Any);
+        msgbus::publish_deltas(topic, &deltas);
     }
 
     fn handle_deltas(&mut self, deltas: OrderBookDeltas) {
@@ -834,12 +884,12 @@ impl DataEngine {
         };
 
         let topic = switchboard::get_book_deltas_topic(deltas.instrument_id);
-        msgbus::publish(topic, &deltas as &dyn Any);
+        msgbus::publish_deltas(topic, &deltas);
     }
 
     fn handle_depth10(&mut self, depth: OrderBookDepth10) {
         let topic = switchboard::get_book_depth10_topic(depth.instrument_id);
-        msgbus::publish(topic, &depth as &dyn Any);
+        msgbus::publish_depth10(topic, &depth);
     }
 
     fn handle_quote(&mut self, quote: QuoteTick) {
@@ -850,7 +900,7 @@ impl DataEngine {
         // TODO: Handle synthetics
 
         let topic = switchboard::get_quotes_topic(quote.instrument_id);
-        msgbus::publish(topic, &quote as &dyn Any);
+        msgbus::publish_quote(topic, &quote);
     }
 
     fn handle_trade(&mut self, trade: TradeTick) {
@@ -861,7 +911,7 @@ impl DataEngine {
         // TODO: Handle synthetics
 
         let topic = switchboard::get_trades_topic(trade.instrument_id);
-        msgbus::publish(topic, &trade as &dyn Any);
+        msgbus::publish_trade(topic, &trade);
     }
 
     fn handle_bar(&mut self, bar: Bar) {
@@ -891,7 +941,7 @@ impl DataEngine {
         }
 
         let topic = switchboard::get_bars_topic(bar.bar_type);
-        msgbus::publish(topic, &bar as &dyn Any);
+        msgbus::publish_bar(topic, &bar);
     }
 
     fn handle_mark_price(&mut self, mark_price: MarkPriceUpdate) {
@@ -900,7 +950,7 @@ impl DataEngine {
         }
 
         let topic = switchboard::get_mark_price_topic(mark_price.instrument_id);
-        msgbus::publish(topic, &mark_price as &dyn Any);
+        msgbus::publish_mark_price(topic, &mark_price);
     }
 
     fn handle_index_price(&mut self, index_price: IndexPriceUpdate) {
@@ -914,7 +964,7 @@ impl DataEngine {
         }
 
         let topic = switchboard::get_index_price_topic(index_price.instrument_id);
-        msgbus::publish(topic, &index_price as &dyn Any);
+        msgbus::publish_index_price(topic, &index_price);
     }
 
     /// Handles a funding rate update by adding it to the cache and publishing to the message bus.
@@ -929,12 +979,12 @@ impl DataEngine {
         }
 
         let topic = switchboard::get_funding_rate_topic(funding_rate.instrument_id);
-        msgbus::publish(topic, &funding_rate as &dyn Any);
+        msgbus::publish_funding_rate(topic, &funding_rate);
     }
 
     fn handle_instrument_close(&mut self, close: InstrumentClose) {
         let topic = switchboard::get_instrument_close_topic(close.instrument_id);
-        msgbus::publish(topic, &close as &dyn Any);
+        msgbus::publish_instrument_close(topic, &close);
     }
 
     // -- SUBSCRIPTION HANDLERS -------------------------------------------------------------------
@@ -955,6 +1005,7 @@ impl DataEngine {
             anyhow::bail!("Cannot subscribe for synthetic instrument `OrderBookDepth10` data");
         }
 
+        self.book_depth10_subs.insert(cmd.instrument_id);
         self.setup_book_updater(&cmd.instrument_id, cmd.book_type, false, cmd.managed)?;
 
         Ok(())
@@ -1110,15 +1161,16 @@ impl DataEngine {
     }
 
     fn unsubscribe_book_depth10(&mut self, cmd: &UnsubscribeBookDepth10) -> anyhow::Result<()> {
-        if !self.subscribed_book_deltas().contains(&cmd.instrument_id) {
-            log::warn!("Cannot unsubscribe from `OrderBookDeltas` data: not subscribed");
+        if !self.book_depth10_subs.contains(&cmd.instrument_id) {
+            log::warn!("Cannot unsubscribe from `OrderBookDepth10` data: not subscribed");
             return Ok(());
         }
+
+        self.book_depth10_subs.remove(&cmd.instrument_id);
 
         let topics = vec![
             switchboard::get_book_deltas_topic(cmd.instrument_id),
             switchboard::get_book_depth10_topic(cmd.instrument_id),
-            // TODO: Unsubscribe from snapshots?
         ];
 
         self.maintain_book_updater(&cmd.instrument_id, &topics);
@@ -1201,28 +1253,32 @@ impl DataEngine {
         Ok(())
     }
 
-    fn maintain_book_updater(&mut self, instrument_id: &InstrumentId, topics: &[MStr<Topic>]) {
-        if let Some(updater) = self.book_updaters.get(instrument_id) {
-            let handler = ShareableMessageHandler(updater.clone());
+    fn maintain_book_updater(&mut self, instrument_id: &InstrumentId, _topics: &[MStr<Topic>]) {
+        let Some(updater) = self.book_updaters.get(instrument_id) else {
+            return;
+        };
 
-            // Unsubscribe handler if it is the last subscriber
-            for topic in topics {
-                if msgbus::subscriptions_count(topic.as_str()) == 1
-                    && msgbus::is_subscribed(topic.as_str(), handler.clone())
-                {
-                    log::debug!("Unsubscribing BookUpdater from {topic}");
-                    msgbus::unsubscribe_topic(*topic, handler.clone());
-                }
-            }
+        // Check which internal subscriptions still exist
+        let has_deltas = self.book_deltas_subs.contains(instrument_id);
+        let has_depth10 = self.book_depth10_subs.contains(instrument_id);
 
-            // Check remaining subscriptions, if none then remove updater
-            let still_subscribed = topics
-                .iter()
-                .any(|topic| msgbus::is_subscribed(topic.as_str(), handler.clone()));
-            if !still_subscribed {
-                self.book_updaters.remove(instrument_id);
-                log::debug!("Removed BookUpdater for instrument ID {instrument_id}");
-            }
+        let deltas_topic = switchboard::get_book_deltas_topic(*instrument_id);
+        let depth_topic = switchboard::get_book_depth10_topic(*instrument_id);
+        let deltas_handler: TypedHandler<OrderBookDeltas> = TypedHandler::new(updater.clone());
+        let depth_handler: TypedHandler<OrderBookDepth10> = TypedHandler::new(updater.clone());
+
+        // Unsubscribe from topics that no longer have subscriptions
+        if !has_deltas {
+            msgbus::unsubscribe_deltas(deltas_topic.into(), &deltas_handler);
+        }
+        if !has_depth10 {
+            msgbus::unsubscribe_depth10(depth_topic.into(), &depth_handler);
+        }
+
+        // Remove BookUpdater only when no subscriptions remain
+        if !has_deltas && !has_depth10 {
+            self.book_updaters.remove(instrument_id);
+            log::debug!("Removed BookUpdater for instrument ID {instrument_id}");
         }
     }
 
@@ -1234,7 +1290,7 @@ impl DataEngine {
             );
 
             // Check remaining snapshot subscriptions, if none then remove snapshotter
-            if msgbus::subscriptions_count(topic.as_str()) == 0 {
+            if msgbus::subscriber_count_book_snapshots(topic) == 0 {
                 let timer_name = snapshotter.timer_name;
                 self.book_snapshotters.remove(instrument_id);
                 let mut clock = self.clock.borrow_mut();
@@ -1312,20 +1368,23 @@ impl DataEngine {
             cache.add_order_book(book)?;
         }
 
-        // Set up subscriptions
-        let updater = Rc::new(BookUpdater::new(instrument_id, self.cache.clone()));
-        self.book_updaters.insert(*instrument_id, updater.clone());
+        // Reuse existing BookUpdater or create a new one
+        let updater = self
+            .book_updaters
+            .entry(*instrument_id)
+            .or_insert_with(|| Rc::new(BookUpdater::new(instrument_id, self.cache.clone())))
+            .clone();
 
-        let handler = ShareableMessageHandler(updater);
-
+        // Subscribe to deltas (typed router handles duplicates)
         let topic = switchboard::get_book_deltas_topic(*instrument_id);
-        if !msgbus::is_subscribed(topic.as_str(), handler.clone()) {
-            msgbus::subscribe(topic.into(), handler.clone(), Some(self.msgbus_priority));
-        }
+        let deltas_handler = TypedHandler::new(updater.clone());
+        msgbus::subscribe_deltas(topic.into(), deltas_handler, Some(self.msgbus_priority));
 
-        let topic = switchboard::get_book_depth10_topic(*instrument_id);
-        if !only_deltas && !msgbus::is_subscribed(topic.as_str(), handler.clone()) {
-            msgbus::subscribe(topic.into(), handler, Some(self.msgbus_priority));
+        // Subscribe to depth10 if not only_deltas
+        if !only_deltas {
+            let topic = switchboard::get_book_depth10_topic(*instrument_id);
+            let depth_handler = TypedHandler::new(updater);
+            msgbus::subscribe_depth10(topic.into(), depth_handler, Some(self.msgbus_priority));
         }
 
         Ok(())
@@ -1344,7 +1403,7 @@ impl DataEngine {
             }
 
             let topic = switchboard::get_bars_topic(bar.bar_type);
-            msgbus::publish(topic, &bar as &dyn Any);
+            msgbus::publish_bar(topic, &bar);
         };
 
         let clock = self.clock.clone();
@@ -1473,41 +1532,26 @@ impl DataEngine {
         };
 
         // Subscribe to underlying data topics
-        let mut handlers = Vec::new();
+        let mut subscriptions = Vec::new();
 
         if bar_type.is_composite() {
             let topic = switchboard::get_bars_topic(bar_type.composite());
-            let handler =
-                ShareableMessageHandler(Rc::new(BarBarHandler::new(aggregator.clone(), bar_key)));
-
-            if !msgbus::is_subscribed(topic.as_str(), handler.clone()) {
-                msgbus::subscribe(topic.into(), handler.clone(), Some(self.msgbus_priority));
-            }
-
-            handlers.push((topic, handler));
+            let handler = TypedHandler::new(BarBarHandler::new(aggregator.clone(), bar_key));
+            msgbus::subscribe_bars(topic.into(), handler.clone(), Some(self.msgbus_priority));
+            subscriptions.push(BarAggregatorSubscription::Bar { topic, handler });
         } else if bar_type.spec().price_type == PriceType::Last {
             let topic = switchboard::get_trades_topic(bar_type.instrument_id());
-            let handler =
-                ShareableMessageHandler(Rc::new(BarTradeHandler::new(aggregator.clone(), bar_key)));
-
-            if !msgbus::is_subscribed(topic.as_str(), handler.clone()) {
-                msgbus::subscribe(topic.into(), handler.clone(), Some(self.msgbus_priority));
-            }
-
-            handlers.push((topic, handler));
+            let handler = TypedHandler::new(BarTradeHandler::new(aggregator.clone(), bar_key));
+            msgbus::subscribe_trades(topic.into(), handler.clone(), Some(self.msgbus_priority));
+            subscriptions.push(BarAggregatorSubscription::Trade { topic, handler });
         } else {
             let topic = switchboard::get_quotes_topic(bar_type.instrument_id());
-            let handler =
-                ShareableMessageHandler(Rc::new(BarQuoteHandler::new(aggregator.clone(), bar_key)));
-
-            if !msgbus::is_subscribed(topic.as_str(), handler.clone()) {
-                msgbus::subscribe(topic.into(), handler.clone(), Some(self.msgbus_priority));
-            }
-
-            handlers.push((topic, handler));
+            let handler = TypedHandler::new(BarQuoteHandler::new(aggregator.clone(), bar_key));
+            msgbus::subscribe_quotes(topic.into(), handler.clone(), Some(self.msgbus_priority));
+            subscriptions.push(BarAggregatorSubscription::Quote { topic, handler });
         }
 
-        self.bar_aggregator_handlers.insert(bar_key, handlers);
+        self.bar_aggregator_handlers.insert(bar_key, subscriptions);
 
         // Setup time bar aggregator if needed (matches Cython _setup_bar_aggregator)
         self.setup_bar_aggregator(bar_type, false)?;
@@ -1544,7 +1588,7 @@ impl DataEngine {
                     log_error_on_cache_insert(&e);
                 }
                 let topic = switchboard::get_bars_topic(bar.bar_type);
-                msgbus::publish(topic, &bar as &dyn Any);
+                msgbus::publish_bar(topic, &bar);
             })
         };
 
@@ -1588,9 +1632,17 @@ impl DataEngine {
         // Unsubscribe any registered message handlers
         let bar_key = bar_type.standard();
         if let Some(subs) = self.bar_aggregator_handlers.remove(&bar_key) {
-            for (topic, handler) in subs {
-                if msgbus::is_subscribed(topic.as_str(), handler.clone()) {
-                    msgbus::unsubscribe_topic(topic, handler);
+            for sub in subs {
+                match sub {
+                    BarAggregatorSubscription::Bar { topic, handler } => {
+                        msgbus::unsubscribe_bars(topic.into(), &handler);
+                    }
+                    BarAggregatorSubscription::Trade { topic, handler } => {
+                        msgbus::unsubscribe_trades(topic.into(), &handler);
+                    }
+                    BarAggregatorSubscription::Quote { topic, handler } => {
+                        msgbus::unsubscribe_quotes(topic.into(), &handler);
+                    }
                 }
             }
         }

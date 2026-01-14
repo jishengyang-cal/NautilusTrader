@@ -23,10 +23,7 @@ use nautilus_common::{
     cache::Cache,
     clock::Clock,
     enums::LogColor,
-    msgbus::{
-        self,
-        handler::{ShareableMessageHandler, TypedMessageHandler},
-    },
+    msgbus::{self, TypedHandler},
 };
 use nautilus_core::{WeakCell, datetime::NANOSECONDS_IN_MILLISECOND};
 use nautilus_model::{
@@ -165,16 +162,15 @@ impl Portfolio {
     ) {
         let inner_weak = WeakCell::from(Rc::downgrade(&inner));
 
+        // Typed handlers for subscriptions
         let update_account_handler = {
             let cache = cache.clone();
             let inner = inner_weak.clone();
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-                move |event: &AccountState| {
-                    if let Some(inner_rc) = inner.upgrade() {
-                        update_account(cache.clone(), inner_rc.into(), event);
-                    }
-                },
-            )))
+            TypedHandler::from(move |event: &AccountState| {
+                if let Some(inner_rc) = inner.upgrade() {
+                    update_account(cache.clone(), inner_rc.into(), event);
+                }
+            })
         };
 
         let update_position_handler = {
@@ -182,19 +178,17 @@ impl Portfolio {
             let clock = clock.clone();
             let inner = inner_weak.clone();
             let config = config.clone();
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-                move |event: &PositionEvent| {
-                    if let Some(inner_rc) = inner.upgrade() {
-                        update_position(
-                            cache.clone(),
-                            clock.clone(),
-                            inner_rc.into(),
-                            config.clone(),
-                            event,
-                        );
-                    }
-                },
-            )))
+            TypedHandler::from(move |event: &PositionEvent| {
+                if let Some(inner_rc) = inner.upgrade() {
+                    update_position(
+                        cache.clone(),
+                        clock.clone(),
+                        inner_rc.into(),
+                        config.clone(),
+                        event,
+                    );
+                }
+            })
         };
 
         let update_quote_handler = {
@@ -202,19 +196,17 @@ impl Portfolio {
             let clock = clock.clone();
             let inner = inner_weak.clone();
             let config = config.clone();
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-                move |quote: &QuoteTick| {
-                    if let Some(inner_rc) = inner.upgrade() {
-                        update_quote_tick(
-                            cache.clone(),
-                            clock.clone(),
-                            inner_rc.into(),
-                            config.clone(),
-                            quote,
-                        );
-                    }
-                },
-            )))
+            TypedHandler::from(move |quote: &QuoteTick| {
+                if let Some(inner_rc) = inner.upgrade() {
+                    update_quote_tick(
+                        cache.clone(),
+                        clock.clone(),
+                        inner_rc.into(),
+                        config.clone(),
+                        quote,
+                    );
+                }
+            })
         };
 
         let update_bar_handler = {
@@ -222,7 +214,7 @@ impl Portfolio {
             let clock = clock.clone();
             let inner = inner_weak.clone();
             let config = config.clone();
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(move |bar: &Bar| {
+            TypedHandler::from(move |bar: &Bar| {
                 if let Some(inner_rc) = inner.upgrade() {
                     update_bar(
                         cache.clone(),
@@ -232,7 +224,7 @@ impl Portfolio {
                         bar,
                     );
                 }
-            })))
+            })
         };
 
         let update_mark_price_handler = {
@@ -240,19 +232,17 @@ impl Portfolio {
             let clock = clock.clone();
             let inner = inner_weak.clone();
             let config = config.clone();
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-                move |mark_price: &MarkPriceUpdate| {
-                    if let Some(inner_rc) = inner.upgrade() {
-                        update_instrument_id(
-                            cache.clone(),
-                            clock.clone(),
-                            inner_rc.into(),
-                            config.clone(),
-                            &mark_price.instrument_id,
-                        );
-                    }
-                },
-            )))
+            TypedHandler::from(move |mark_price: &MarkPriceUpdate| {
+                if let Some(inner_rc) = inner.upgrade() {
+                    update_instrument_id(
+                        cache.clone(),
+                        clock.clone(),
+                        inner_rc.into(),
+                        config.clone(),
+                        &mark_price.instrument_id,
+                    );
+                }
+            })
         };
 
         let update_order_handler = {
@@ -260,44 +250,42 @@ impl Portfolio {
             let clock = clock.clone();
             let inner = inner_weak;
             let config = config.clone();
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-                move |event: &OrderEventAny| {
-                    if let Some(inner_rc) = inner.upgrade() {
-                        update_order(
-                            cache.clone(),
-                            clock.clone(),
-                            inner_rc.into(),
-                            config.clone(),
-                            event,
-                        );
-                    }
-                },
-            )))
+            TypedHandler::from(move |event: &OrderEventAny| {
+                if let Some(inner_rc) = inner.upgrade() {
+                    update_order(
+                        cache.clone(),
+                        clock.clone(),
+                        inner_rc.into(),
+                        config.clone(),
+                        event,
+                    );
+                }
+            })
         };
 
-        msgbus::register(
-            "Portfolio.update_account".into(),
-            update_account_handler.clone(),
-        );
-
-        msgbus::subscribe("data.quotes.*".into(), update_quote_handler, Some(10));
+        // Typed subscriptions
+        msgbus::subscribe_quotes("data.quotes.*".into(), update_quote_handler, Some(10));
         if config.bar_updates {
-            msgbus::subscribe("data.bars.*EXTERNAL".into(), update_bar_handler, Some(10));
+            msgbus::subscribe_bars("data.bars.*EXTERNAL".into(), update_bar_handler, Some(10));
         }
         if config.use_mark_prices {
-            msgbus::subscribe(
+            msgbus::subscribe_mark_prices(
                 "data.mark_prices.*".into(),
                 update_mark_price_handler,
                 Some(10),
             );
         }
-        msgbus::subscribe("events.order.*".into(), update_order_handler, Some(10));
-        msgbus::subscribe(
+        msgbus::subscribe_order_events("events.order.*".into(), update_order_handler, Some(10));
+        msgbus::subscribe_position_events(
             "events.position.*".into(),
             update_position_handler,
             Some(10),
         );
-        msgbus::subscribe("events.account.*".into(), update_account_handler, Some(10));
+        msgbus::subscribe_account_state(
+            "events.account.*".into(),
+            update_account_handler,
+            Some(10),
+        );
     }
 
     pub fn reset(&mut self) {
@@ -1860,8 +1848,8 @@ fn update_order(
     let mut cache_ref = cache.borrow_mut();
     cache_ref.update_account(account.clone()).unwrap();
 
-    if let Some(account_state) = account_state {
-        msgbus::publish(
+    if let Some((_, account_state)) = account_state {
+        msgbus::publish_account_state(
             format!("events.account.{}", account.id()).into(),
             &account_state,
         );

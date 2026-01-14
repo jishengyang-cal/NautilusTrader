@@ -204,7 +204,7 @@ pub trait ExecutionAlgorithm: DataActor {
         }
 
         let topic = format!("events.order.{}", order.strategy_id());
-        msgbus::publish(topic.into(), &event);
+        msgbus::publish_order_event(topic.into(), &OrderEventAny::Canceled(event));
 
         Ok(())
     }

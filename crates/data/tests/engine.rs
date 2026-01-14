@@ -41,14 +41,14 @@ use nautilus_common::{
         SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10, SubscribeCommand,
         SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
         SubscribeMarkPrices, SubscribeQuotes, SubscribeTrades, UnsubscribeBars,
-        UnsubscribeBookDeltas, UnsubscribeCommand, UnsubscribeCustomData, UnsubscribeFundingRates,
-        UnsubscribeIndexPrices, UnsubscribeInstrument, UnsubscribeMarkPrices, UnsubscribeQuotes,
-        UnsubscribeTrades,
+        UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeCommand, UnsubscribeCustomData,
+        UnsubscribeFundingRates, UnsubscribeIndexPrices, UnsubscribeInstrument,
+        UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
     },
     msgbus::{
         self, MessageBus,
         handler::{ShareableMessageHandler, TypedMessageHandler},
-        stubs::{get_message_saving_handler, get_saved_messages},
+        stubs::get_typed_message_saving_handler,
         switchboard::{self, MessagingSwitchboard},
     },
 };
@@ -117,7 +117,7 @@ fn data_engine(
     )));
 
     let endpoint = MessagingSwitchboard::data_engine_execute();
-    msgbus::register(endpoint, handler);
+    msgbus::register_any(endpoint, handler);
 
     data_engine
 }
@@ -440,6 +440,161 @@ fn test_execute_subscribe_book_deltas(
             .contains(&audusd_sim.id)
     );
     assert_eq!(recorder.borrow().as_slice(), &[sub_cmd, unsub_cmd]);
+}
+
+#[rstest]
+fn test_unsubscribe_book_deltas_removes_book_updater(
+    audusd_sim: CurrencyPair,
+    data_engine: Rc<RefCell<DataEngine>>,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let mut data_engine = data_engine.borrow_mut();
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock,
+        cache,
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine,
+    );
+
+    let deltas_topic = switchboard::get_book_deltas_topic(audusd_sim.id);
+
+    // Initially no subscribers
+    assert_eq!(msgbus::subscriber_count_deltas(deltas_topic), 0);
+
+    // Subscribe creates BookUpdater which subscribes to deltas topic
+    let sub_cmd = DataCommand::Subscribe(SubscribeCommand::BookDeltas(SubscribeBookDeltas::new(
+        audusd_sim.id,
+        BookType::L3_MBO,
+        Some(client_id),
+        Some(venue),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        true,
+        None,
+        None,
+    )));
+    data_engine.execute(&sub_cmd);
+
+    // BookUpdater should be subscribed
+    assert_eq!(msgbus::subscriber_count_deltas(deltas_topic), 1);
+
+    // Unsubscribe should remove BookUpdater subscription
+    let unsub_cmd =
+        DataCommand::Unsubscribe(UnsubscribeCommand::BookDeltas(UnsubscribeBookDeltas::new(
+            audusd_sim.id,
+            Some(client_id),
+            Some(venue),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+            None,
+        )));
+    data_engine.execute(&unsub_cmd);
+
+    // BookUpdater should be unsubscribed and removed
+    assert_eq!(msgbus::subscriber_count_deltas(deltas_topic), 0);
+}
+
+#[rstest]
+fn test_unsubscribe_depth10_keeps_deltas_book_updater(
+    audusd_sim: CurrencyPair,
+    data_engine: Rc<RefCell<DataEngine>>,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let mut data_engine = data_engine.borrow_mut();
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock,
+        cache,
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine,
+    );
+
+    let deltas_topic = switchboard::get_book_deltas_topic(audusd_sim.id);
+    let depth_topic = switchboard::get_book_depth10_topic(audusd_sim.id);
+
+    // Subscribe to both deltas and depth10
+    let sub_deltas =
+        DataCommand::Subscribe(SubscribeCommand::BookDeltas(SubscribeBookDeltas::new(
+            audusd_sim.id,
+            BookType::L3_MBO,
+            Some(client_id),
+            Some(venue),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+            true,
+            None,
+            None,
+        )));
+    data_engine.execute(&sub_deltas);
+
+    let sub_depth =
+        DataCommand::Subscribe(SubscribeCommand::BookDepth10(SubscribeBookDepth10::new(
+            audusd_sim.id,
+            BookType::L2_MBP,
+            Some(client_id),
+            Some(venue),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+            true,
+            None,
+            None,
+        )));
+    data_engine.execute(&sub_depth);
+
+    // BookUpdater subscribed to both topics
+    assert_eq!(msgbus::subscriber_count_deltas(deltas_topic), 1);
+    assert_eq!(msgbus::subscriber_count_depth10(depth_topic), 1);
+
+    // Unsubscribe from depth10 only
+    let unsub_depth = DataCommand::Unsubscribe(UnsubscribeCommand::BookDepth10(
+        UnsubscribeBookDepth10::new(
+            audusd_sim.id,
+            Some(client_id),
+            Some(venue),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+            None,
+        ),
+    ));
+    data_engine.execute(&unsub_depth);
+
+    // BookUpdater should remain subscribed to deltas but not depth10
+    assert_eq!(msgbus::subscriber_count_deltas(deltas_topic), 1);
+    assert_eq!(msgbus::subscriber_count_depth10(depth_topic), 0);
+
+    // Now unsubscribe from deltas - BookUpdater should be fully removed
+    let unsub_deltas =
+        DataCommand::Unsubscribe(UnsubscribeCommand::BookDeltas(UnsubscribeBookDeltas::new(
+            audusd_sim.id,
+            Some(client_id),
+            Some(venue),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+            None,
+        )));
+    data_engine.execute(&unsub_deltas);
+
+    assert_eq!(msgbus::subscriber_count_deltas(deltas_topic), 0);
+    assert_eq!(msgbus::subscriber_count_depth10(depth_topic), 0);
 }
 
 #[rstest]
@@ -1184,14 +1339,14 @@ fn test_process_instrument(
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
-    let handler = get_message_saving_handler::<InstrumentAny>(None);
+    let (typed_handler, saving_handler) = get_typed_message_saving_handler::<InstrumentAny>(None);
     let topic = switchboard::get_instrument_topic(audusd_sim.id());
-    msgbus::subscribe(topic.into(), handler.clone(), None);
+    msgbus::subscribe_instruments(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process(&audusd_sim as &dyn Any);
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<InstrumentAny>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(
         cache.instrument(&audusd_sim.id()),
@@ -1229,14 +1384,14 @@ fn test_process_book_delta(
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
     let delta = stub_delta();
-    let handler = get_message_saving_handler::<OrderBookDeltas>(None);
+    let (handler, saver) = get_typed_message_saving_handler::<OrderBookDeltas>(None);
     let topic = switchboard::get_book_deltas_topic(delta.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_deltas(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::Delta(delta));
     let _cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<OrderBookDeltas>(handler);
+    let messages = saver.get_messages();
 
     assert_eq!(messages.len(), 1);
 }
@@ -1270,14 +1425,14 @@ fn test_process_book_deltas(
 
     // TODO: Using FFI API wrapper temporarily until Cython gone
     let deltas = OrderBookDeltas_API::new(stub_deltas());
-    let handler = get_message_saving_handler::<OrderBookDeltas>(None);
+    let (handler, saver) = get_typed_message_saving_handler::<OrderBookDeltas>(None);
     let topic = switchboard::get_book_deltas_topic(deltas.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_deltas(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::Deltas(deltas.clone()));
     let _cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<OrderBookDeltas>(handler);
+    let messages = saver.get_messages();
 
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&deltas));
@@ -1311,14 +1466,14 @@ fn test_process_book_depth10(
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
     let depth = stub_depth10();
-    let handler = get_message_saving_handler::<OrderBookDepth10>(None);
+    let (handler, saver) = get_typed_message_saving_handler::<OrderBookDepth10>(None);
     let topic = switchboard::get_book_depth10_topic(depth.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_depth10(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::from(depth));
     let _cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<OrderBookDepth10>(handler);
+    let messages = saver.get_messages();
 
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&depth));
@@ -1349,14 +1504,14 @@ fn test_process_quote_tick(
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
     let quote = QuoteTick::default();
-    let handler = get_message_saving_handler::<QuoteTick>(None);
+    let (handler, saver) = get_typed_message_saving_handler::<QuoteTick>(None);
     let topic = switchboard::get_quotes_topic(quote.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_quotes(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::Quote(quote));
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<QuoteTick>(handler);
+    let messages = saver.get_messages();
 
     assert_eq!(cache.quote(&quote.instrument_id), Some(quote).as_ref());
     assert_eq!(messages.len(), 1);
@@ -1388,14 +1543,14 @@ fn test_process_trade_tick(
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
     let trade = TradeTick::default();
-    let handler = get_message_saving_handler::<TradeTick>(None);
+    let (handler, saver) = get_typed_message_saving_handler::<TradeTick>(None);
     let topic = switchboard::get_trades_topic(trade.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_trades(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::Trade(trade));
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<TradeTick>(handler);
+    let messages = saver.get_messages();
 
     assert_eq!(cache.trade(&trade.instrument_id), Some(trade).as_ref());
     assert_eq!(messages.len(), 1);
@@ -1432,14 +1587,14 @@ fn test_process_mark_price(
         UnixNanos::from(1),
         UnixNanos::from(2),
     );
-    let handler = get_message_saving_handler::<MarkPriceUpdate>(None);
+    let (typed_handler, saving_handler) = get_typed_message_saving_handler::<MarkPriceUpdate>(None);
     let topic = switchboard::get_mark_price_topic(mark_price.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_mark_prices(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::MarkPriceUpdate(mark_price));
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<MarkPriceUpdate>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(
         cache.price(&mark_price.instrument_id, PriceType::Mark),
@@ -1487,14 +1642,15 @@ fn test_process_index_price(
         UnixNanos::from(1),
         UnixNanos::from(2),
     );
-    let handler = get_message_saving_handler::<IndexPriceUpdate>(None);
+    let (typed_handler, saving_handler) =
+        get_typed_message_saving_handler::<IndexPriceUpdate>(None);
     let topic = switchboard::get_index_price_topic(index_price.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_index_prices(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::IndexPriceUpdate(index_price));
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<IndexPriceUpdate>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(
         cache.index_price(&index_price.instrument_id),
@@ -1539,15 +1695,16 @@ fn test_process_funding_rate_through_any(
         UnixNanos::from(1),
         UnixNanos::from(2),
     );
-    let handler = get_message_saving_handler::<FundingRateUpdate>(None);
+    let (typed_handler, saving_handler) =
+        get_typed_message_saving_handler::<FundingRateUpdate>(None);
     let topic = switchboard::get_funding_rate_topic(funding_rate.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_funding_rates(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     // Test through the process() method with &dyn Any
     data_engine.process(&funding_rate as &dyn Any);
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<FundingRateUpdate>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(
         cache.funding_rate(&funding_rate.instrument_id),
@@ -1588,14 +1745,15 @@ fn test_process_funding_rate(
         UnixNanos::from(1),
         UnixNanos::from(2),
     );
-    let handler = get_message_saving_handler::<FundingRateUpdate>(None);
+    let (typed_handler, saving_handler) =
+        get_typed_message_saving_handler::<FundingRateUpdate>(None);
     let topic = switchboard::get_funding_rate_topic(funding_rate.instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_funding_rates(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.handle_funding_rate(funding_rate);
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<FundingRateUpdate>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(
         cache.funding_rate(&funding_rate.instrument_id),
@@ -1679,14 +1837,14 @@ fn test_process_bar(data_engine: Rc<RefCell<DataEngine>>, data_client: DataClien
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
-    let handler = get_message_saving_handler::<Bar>(None);
+    let (handler, saver) = get_typed_message_saving_handler::<Bar>(None);
     let topic = switchboard::get_bars_topic(bar.bar_type);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_bars(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::Bar(bar));
     let cache = &data_engine.get_cache();
-    let messages = get_saved_messages::<Bar>(handler);
+    let messages = saver.get_messages();
 
     assert_eq!(cache.bar(&bar.bar_type), Some(bar).as_ref());
     assert_eq!(messages.len(), 1);
@@ -1852,13 +2010,13 @@ fn test_process_block(data_engine: Rc<RefCell<DataEngine>>, data_client: DataCli
         UnixNanos::from(1),
         Some(blockchain),
     );
-    let handler = get_message_saving_handler::<Block>(None);
+    let (typed_handler, saving_handler) = get_typed_message_saving_handler::<Block>(None);
     let topic = defi::switchboard::get_defi_blocks_topic(blockchain);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_defi_blocks(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_defi_data(DefiData::Block(block.clone()));
-    let messages = get_saved_messages::<Block>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&block));
@@ -1954,13 +2112,13 @@ fn test_process_pool_swap(data_engine: Rc<RefCell<DataEngine>>, data_client: Dat
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
-    let handler = get_message_saving_handler::<PoolSwap>(None);
+    let (typed_handler, saving_handler) = get_typed_message_saving_handler::<PoolSwap>(None);
     let topic = defi::switchboard::get_defi_pool_swaps_topic(instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_defi_swaps(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_defi_data(DefiData::PoolSwap(swap.clone()));
-    let messages = get_saved_messages::<PoolSwap>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&swap));
@@ -2313,13 +2471,14 @@ fn test_process_pool_liquidity_update(
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
-    let handler = get_message_saving_handler::<PoolLiquidityUpdate>(None);
+    let (typed_handler, saving_handler) =
+        get_typed_message_saving_handler::<PoolLiquidityUpdate>(None);
     let topic = defi::switchboard::get_defi_liquidity_topic(instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_defi_liquidity(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_defi_data(DefiData::PoolLiquidityUpdate(update.clone()));
-    let messages = get_saved_messages::<PoolLiquidityUpdate>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&update));
@@ -2416,13 +2575,13 @@ fn test_process_pool_fee_collect(
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
-    let handler = get_message_saving_handler::<PoolFeeCollect>(None);
+    let (typed_handler, saving_handler) = get_typed_message_saving_handler::<PoolFeeCollect>(None);
     let topic = defi::switchboard::get_defi_collect_topic(instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_defi_collects(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_defi_data(DefiData::PoolFeeCollect(collect.clone()));
-    let messages = get_saved_messages::<PoolFeeCollect>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&collect));
@@ -2517,13 +2676,13 @@ fn test_process_pool_flash(data_engine: Rc<RefCell<DataEngine>>, data_client: Da
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
-    let handler = get_message_saving_handler::<PoolFlash>(None);
+    let (typed_handler, saving_handler) = get_typed_message_saving_handler::<PoolFlash>(None);
     let topic = defi::switchboard::get_defi_flash_topic(instrument_id);
-    msgbus::subscribe_topic(topic, handler.clone(), None);
+    msgbus::subscribe_defi_flash(topic.into(), typed_handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_defi_data(DefiData::PoolFlash(flash.clone()));
-    let messages = get_saved_messages::<PoolFlash>(handler);
+    let messages = saving_handler.get_messages();
 
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&flash));

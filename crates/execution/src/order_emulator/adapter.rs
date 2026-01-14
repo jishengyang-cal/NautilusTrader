@@ -21,7 +21,7 @@ use std::{
 use nautilus_common::{
     cache::Cache,
     clock::Clock,
-    msgbus::{handler::ShareableMessageHandler, register},
+    msgbus::{TypedHandler, handler::ShareableMessageHandler, register_any},
 };
 use nautilus_core::{UUID4, WeakCell};
 use nautilus_model::identifiers::TraderId;
@@ -104,16 +104,16 @@ impl OrderEmulatorAdapter {
             WeakCell::from(Rc::downgrade(&emulator)),
         )));
 
-        register("OrderEmulator.execute".into(), handler);
+        register_any("OrderEmulator.execute".into(), handler);
     }
 
     fn initialize_on_event_handler(emulator: Rc<RefCell<OrderEmulator>>) {
-        let handler = ShareableMessageHandler(Rc::new(OrderEmulatorOnEventHandler::new(
+        let handler = TypedHandler::new(OrderEmulatorOnEventHandler::new(
             Ustr::from(UUID4::new().as_str()),
             WeakCell::from(Rc::downgrade(&emulator)),
-        )));
+        ));
 
-        register("OrderEmulator.on_event".into(), handler);
+        emulator.borrow_mut().set_on_event_handler(handler);
     }
 
     #[must_use]

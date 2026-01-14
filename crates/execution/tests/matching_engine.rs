@@ -234,7 +234,7 @@ fn test_process_order_when_instrument_already_expired(
     // so this is not the final or standard pattern but avoids shadowing the `msgbus` module while
     // the clearer calling convention for global message bus functions is established.
     let instrument = InstrumentAny::FuturesContract(futures_contract_es(None, None));
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -279,7 +279,7 @@ fn test_process_order_when_instrument_not_active(
     );
     let instrument =
         InstrumentAny::FuturesContract(futures_contract_es(Some(activation), Some(expiration)));
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -306,7 +306,7 @@ fn test_process_order_when_invalid_quantity_precision(
     account_id: AccountId,
     instrument_eth_usdt: InstrumentAny,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -344,7 +344,7 @@ fn test_process_order_when_invalid_price_precision(
     instrument_es: InstrumentAny,
     test_clock: Rc<RefCell<TestClock>>,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -387,7 +387,7 @@ fn test_process_order_when_invalid_trigger_price_precision(
     instrument_es: InstrumentAny,
     test_clock: Rc<RefCell<TestClock>>,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -428,7 +428,7 @@ fn test_process_order_when_shorting_equity_without_margin_account(
     account_id: AccountId,
     equity_aapl: Equity,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -470,7 +470,7 @@ fn test_process_order_when_invalid_reduce_only(
     instrument_eth_usdt: InstrumentAny,
     engine_config: OrderMatchingEngineConfig,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -514,7 +514,7 @@ fn test_process_order_when_invalid_contingent_orders(
     test_clock: Rc<RefCell<TestClock>>,
 ) {
     let endpoint = MessagingSwitchboard::exec_engine_process();
-    msgbus::register(endpoint, order_event_handler.clone());
+    msgbus::register_any(endpoint, order_event_handler.clone());
 
     let cache = Rc::new(RefCell::new(Cache::default()));
     // Set current timestamp ns to be higher than es instrument activation (1.1.2024)
@@ -589,7 +589,7 @@ fn test_process_order_when_closed_linked_order(
     engine_config: OrderMatchingEngineConfig,
     test_clock: Rc<RefCell<TestClock>>,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -673,7 +673,7 @@ fn test_process_market_order_no_market_rejected(
     mut market_order_buy: OrderAny,
     mut market_order_sell: OrderAny,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -750,7 +750,7 @@ fn test_not_enough_quantity_filled_fok_order(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -801,7 +801,7 @@ fn test_valid_market_buy(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -874,7 +874,7 @@ fn test_market_order_with_acks_generates_accepted_then_filled(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -931,7 +931,7 @@ fn test_market_order_with_protection_and_acks_generates_accepted_then_filled(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -995,7 +995,7 @@ fn test_process_limit_post_only_order_that_would_be_a_taker(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1058,7 +1058,7 @@ fn test_process_limit_order_not_matched_and_canceled_fok_order(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1117,7 +1117,7 @@ fn test_process_limit_order_matched_immediate_fill(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1175,7 +1175,7 @@ fn test_process_stop_market_order_triggered_rejected(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1242,7 +1242,7 @@ fn test_process_stop_market_order_valid_trigger_filled(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1296,7 +1296,7 @@ fn test_process_stop_market_order_valid_not_triggered_accepted(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1347,7 +1347,7 @@ fn test_process_stop_limit_order_triggered_not_filled(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1406,7 +1406,7 @@ fn test_process_stop_limit_order_triggered_filled(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1473,7 +1473,7 @@ fn test_process_cancel_command_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1542,7 +1542,7 @@ fn test_process_cancel_command_order_not_found(
     instrument_eth_usdt: InstrumentAny,
     order_event_handler: ShareableMessageHandler,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1589,7 +1589,7 @@ fn test_process_cancel_all_command(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1726,7 +1726,7 @@ fn test_process_batch_cancel_command(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1841,7 +1841,7 @@ fn test_expire_order(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1931,7 +1931,7 @@ fn test_process_modify_order_rejected_not_found(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -1974,7 +1974,7 @@ fn test_update_limit_order_post_only_matched(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2055,7 +2055,7 @@ fn test_update_limit_order_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2140,7 +2140,7 @@ fn test_update_stop_market_order_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2217,7 +2217,7 @@ fn test_update_stop_limit_order_valid_update_not_triggered(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2281,7 +2281,7 @@ fn test_process_market_if_touched_order_already_triggered(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2334,7 +2334,7 @@ fn test_update_market_if_touched_order_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2397,7 +2397,7 @@ fn test_process_limit_if_touched_order_immediate_trigger_and_fill(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2466,7 +2466,7 @@ fn test_update_limit_if_touched_order_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2544,7 +2544,7 @@ fn test_process_market_to_limit_orders_not_fully_filled(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2620,7 +2620,7 @@ fn test_process_trailing_stop_orders_rejeceted_and_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2702,7 +2702,7 @@ fn test_updating_of_trailing_stop_market_order_with_no_trigger_price_set(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2779,7 +2779,7 @@ fn test_updating_of_contingent_orders(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2910,7 +2910,7 @@ fn test_reduce_only_order_exceeding_position_quantity(
     engine_config: OrderMatchingEngineConfig,
 ) {
     // Reproduces bug where reduce-only order exceeding position causes panic
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -2962,7 +2962,7 @@ fn test_process_market_orders_with_protection_rejeceted_and_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3044,7 +3044,7 @@ fn test_process_stop_orders_with_protection_rejeceted_and_valid(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3191,7 +3191,7 @@ fn test_modify_partially_filled_order_quantity_below_filled_rejected(
     account_id: AccountId,
 ) {
     // Tests that modifying a partially filled order to a quantity below filled_qty is rejected
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3280,7 +3280,7 @@ fn test_ouo_child_cancelled_when_parent_leaves_zero(
 ) {
     // Tests that when parent order quantity is reduced to filled_qty (leaves=0),
     // the OUO child order is cancelled
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3430,7 +3430,7 @@ fn test_liquidity_consumption_tracks_fills_at_price_level(
     instrument_eth_usdt: InstrumentAny,
     #[case] order_side: OrderSide,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3521,7 +3521,7 @@ fn test_liquidity_consumption_resets_on_fresh_data(
     #[case] order_side: OrderSide,
     #[case] book_side: OrderSide,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3631,7 +3631,7 @@ fn test_liquidity_consumption_off_allows_repeated_fills(
     instrument_eth_usdt: InstrumentAny,
     #[case] order_side: OrderSide,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3711,7 +3711,7 @@ fn test_stop_limit_triggered_not_filled_single_accept(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3786,7 +3786,7 @@ fn test_modify_limit_order_price_persists_to_core(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3864,7 +3864,7 @@ fn test_rejected_modify_does_not_change_book_priority(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );
@@ -3955,7 +3955,7 @@ fn test_netting_mode_fills_have_no_position_id(
     order_event_handler: ShareableMessageHandler,
     account_id: AccountId,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         order_event_handler.clone(),
     );

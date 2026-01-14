@@ -35,7 +35,8 @@ use nautilus_model::defi::{
 use nautilus_model::{
     data::{
         Bar, BarType, DataType, FundingRateUpdate, IndexPriceUpdate, InstrumentStatus,
-        MarkPriceUpdate, OrderBookDeltas, QuoteTick, TradeTick, close::InstrumentClose,
+        MarkPriceUpdate, OrderBookDeltas, OrderBookDepth10, QuoteTick, TradeTick,
+        close::InstrumentClose,
     },
     enums::BookType,
     events::order::{canceled::OrderCanceled, filled::OrderFilled},
@@ -79,7 +80,7 @@ use crate::{
         system::ShutdownSystem,
     },
     msgbus::{
-        self, MStr, Topic, get_message_bus,
+        self, MStr, Topic, TypedHandler, get_message_bus,
         handler::{ShareableMessageHandler, TypedMessageHandler},
         switchboard::{
             MessagingSwitchboard, get_bars_topic, get_book_deltas_topic, get_book_snapshots_topic,
@@ -957,15 +958,13 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_quotes_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |quote: &QuoteTick| {
-                if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {
-                    actor.handle_quote(quote);
-                } else {
-                    log::error!("Actor {actor_id} not found for quote handling");
-                }
-            },
-        )));
+        let handler = TypedHandler::from(move |quote: &QuoteTick| {
+            if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {
+                actor.handle_quote(quote);
+            } else {
+                log::error!("Actor {actor_id} not found for quote handling");
+            }
+        });
 
         DataActorCore::subscribe_quotes(self, topic, handler, instrument_id, client_id, params);
     }
@@ -1035,11 +1034,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_book_deltas_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |deltas: &OrderBookDeltas| {
-                get_actor_unchecked::<Self>(&actor_id).handle_book_deltas(deltas);
-            },
-        )));
+        let handler = TypedHandler::from(move |deltas: &OrderBookDeltas| {
+            get_actor_unchecked::<Self>(&actor_id).handle_book_deltas(deltas);
+        });
 
         DataActorCore::subscribe_book_deltas(
             self,
@@ -1100,11 +1097,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_trades_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |trade: &TradeTick| {
-                get_actor_unchecked::<Self>(&actor_id).handle_trade(trade);
-            },
-        )));
+        let handler = TypedHandler::from(move |trade: &TradeTick| {
+            get_actor_unchecked::<Self>(&actor_id).handle_trade(trade);
+        });
 
         DataActorCore::subscribe_trades(self, topic, handler, instrument_id, client_id, params);
     }
@@ -1121,10 +1116,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_bars_topic(bar_type);
 
-        let handler =
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(move |bar: &Bar| {
-                get_actor_unchecked::<Self>(&actor_id).handle_bar(bar);
-            })));
+        let handler = TypedHandler::from(move |bar: &Bar| {
+            get_actor_unchecked::<Self>(&actor_id).handle_bar(bar);
+        });
 
         DataActorCore::subscribe_bars(self, topic, handler, bar_type, client_id, params);
     }
@@ -2033,6 +2027,11 @@ pub struct DataActorCore {
     cache: Option<Rc<RefCell<Cache>>>,     // Wired up on registration
     state: ComponentState,
     topic_handlers: AHashMap<MStr<Topic>, ShareableMessageHandler>,
+    quote_handlers: AHashMap<MStr<Topic>, TypedHandler<QuoteTick>>,
+    trade_handlers: AHashMap<MStr<Topic>, TypedHandler<TradeTick>>,
+    bar_handlers: AHashMap<MStr<Topic>, TypedHandler<Bar>>,
+    deltas_handlers: AHashMap<MStr<Topic>, TypedHandler<OrderBookDeltas>>,
+    depth10_handlers: AHashMap<MStr<Topic>, TypedHandler<OrderBookDepth10>>,
     warning_events: AHashSet<String>, // TODO: TBD
     pending_requests: AHashMap<UUID4, Option<RequestCallback>>,
     signal_classes: AHashMap<String, String>,
@@ -2069,7 +2068,7 @@ impl DataActorCore {
         }
 
         self.topic_handlers.insert(topic, handler.clone());
-        msgbus::subscribe_topic(topic, handler, None);
+        msgbus::subscribe_any(topic.into(), handler, None);
     }
 
     /// Removes a subscription handler for the `topic` if present.
@@ -2077,12 +2076,124 @@ impl DataActorCore {
     /// Logs a warning if the actor is not currently subscribed to the topic.
     pub(crate) fn remove_subscription(&mut self, topic: MStr<Topic>) {
         if let Some(handler) = self.topic_handlers.remove(&topic) {
-            msgbus::unsubscribe_topic(topic, handler);
+            msgbus::unsubscribe_any(topic.into(), handler);
         } else {
             log::warn!(
                 "Actor {} attempted to unsubscribe from topic '{topic}' when not subscribed",
                 self.actor_id,
             );
+        }
+    }
+
+    pub(crate) fn add_quote_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<QuoteTick>,
+    ) {
+        if self.quote_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate quote subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.quote_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_quotes(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_quote_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.quote_handlers.remove(&topic) {
+            msgbus::unsubscribe_quotes(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_trade_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<TradeTick>,
+    ) {
+        if self.trade_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate trade subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.trade_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_trades(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_trade_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.trade_handlers.remove(&topic) {
+            msgbus::unsubscribe_trades(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_bar_subscription(&mut self, topic: MStr<Topic>, handler: TypedHandler<Bar>) {
+        if self.bar_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate bar subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.bar_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_bars(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_bar_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.bar_handlers.remove(&topic) {
+            msgbus::unsubscribe_bars(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_deltas_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<OrderBookDeltas>,
+    ) {
+        if self.deltas_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate deltas subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.deltas_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_deltas(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_deltas_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.deltas_handlers.remove(&topic) {
+            msgbus::unsubscribe_deltas(topic.into(), &handler);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn add_depth10_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<OrderBookDepth10>,
+    ) {
+        if self.depth10_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate depth10 subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.depth10_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_depth10(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_depth10_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.depth10_handlers.remove(&topic) {
+            msgbus::unsubscribe_depth10(topic.into(), &handler);
         }
     }
 
@@ -2100,6 +2211,11 @@ impl DataActorCore {
             cache: None,     // None until registered
             state: ComponentState::default(),
             topic_handlers: AHashMap::new(),
+            quote_handlers: AHashMap::new(),
+            trade_handlers: AHashMap::new(),
+            bar_handlers: AHashMap::new(),
+            deltas_handlers: AHashMap::new(),
+            depth10_handlers: AHashMap::new(),
             warning_events: AHashSet::new(),
             pending_requests: AHashMap::new(),
             signal_classes: AHashMap::new(),
@@ -2369,14 +2485,14 @@ impl DataActorCore {
     pub fn subscribe_quotes(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<QuoteTick>,
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_quote_subscription(topic, handler);
 
         let command = SubscribeCommand::Quotes(SubscribeQuotes {
             instrument_id,
@@ -2447,7 +2563,7 @@ impl DataActorCore {
     pub fn subscribe_book_deltas(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<OrderBookDeltas>,
         instrument_id: InstrumentId,
         book_type: BookType,
         depth: Option<NonZeroUsize>,
@@ -2457,7 +2573,7 @@ impl DataActorCore {
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_deltas_subscription(topic, handler);
 
         let command = SubscribeCommand::BookDeltas(SubscribeBookDeltas {
             instrument_id,
@@ -2512,14 +2628,14 @@ impl DataActorCore {
     pub fn subscribe_trades(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<TradeTick>,
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_trade_subscription(topic, handler);
 
         let command = SubscribeCommand::Trades(SubscribeTrades {
             instrument_id,
@@ -2538,14 +2654,14 @@ impl DataActorCore {
     pub fn subscribe_bars(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<Bar>,
         bar_type: BarType,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_bar_subscription(topic, handler);
 
         let command = SubscribeCommand::Bars(SubscribeBars {
             bar_type,
@@ -2794,7 +2910,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_book_deltas_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_deltas_subscription(topic);
 
         let command = UnsubscribeCommand::BookDeltas(UnsubscribeBookDeltas {
             instrument_id,
@@ -2845,7 +2961,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_quotes_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_quote_subscription(topic);
 
         let command = UnsubscribeCommand::Quotes(UnsubscribeQuotes {
             instrument_id,
@@ -2870,7 +2986,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_trades_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_trade_subscription(topic);
 
         let command = UnsubscribeCommand::Trades(UnsubscribeTrades {
             instrument_id,
@@ -2895,7 +3011,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_bars_topic(bar_type);
-        self.remove_subscription(topic);
+        self.remove_bar_subscription(topic);
 
         let command = UnsubscribeCommand::Bars(UnsubscribeBars {
             bar_type,
@@ -3329,6 +3445,49 @@ impl DataActorCore {
         self.send_data_cmd(DataCommand::Request(command));
 
         Ok(request_id)
+    }
+
+    #[cfg(test)]
+    pub fn quote_handler_count(&self) -> usize {
+        self.quote_handlers.len()
+    }
+
+    #[cfg(test)]
+    pub fn trade_handler_count(&self) -> usize {
+        self.trade_handlers.len()
+    }
+
+    #[cfg(test)]
+    pub fn bar_handler_count(&self) -> usize {
+        self.bar_handlers.len()
+    }
+
+    #[cfg(test)]
+    pub fn deltas_handler_count(&self) -> usize {
+        self.deltas_handlers.len()
+    }
+
+    #[cfg(test)]
+    pub fn has_quote_handler(&self, topic: &str) -> bool {
+        self.quote_handlers
+            .contains_key(&MStr::<Topic>::from(topic))
+    }
+
+    #[cfg(test)]
+    pub fn has_trade_handler(&self, topic: &str) -> bool {
+        self.trade_handlers
+            .contains_key(&MStr::<Topic>::from(topic))
+    }
+
+    #[cfg(test)]
+    pub fn has_bar_handler(&self, topic: &str) -> bool {
+        self.bar_handlers.contains_key(&MStr::<Topic>::from(topic))
+    }
+
+    #[cfg(test)]
+    pub fn has_deltas_handler(&self, topic: &str) -> bool {
+        self.deltas_handlers
+            .contains_key(&MStr::<Topic>::from(topic))
     }
 }
 

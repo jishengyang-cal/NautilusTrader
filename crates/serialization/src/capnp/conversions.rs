@@ -441,29 +441,15 @@ impl<'a> FromCapnp<'a> for InstrumentId {
 impl<'a> ToCapnp<'a> for Price {
     type Builder = types_capnp::price::Builder<'a>;
 
+    #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
     fn to_capnp(&self, mut builder: Self::Builder) {
-        let raw = self.raw;
+        let raw_i128: i128 = self.raw.into();
+        let lo = raw_i128 as u64;
+        let hi = (raw_i128 >> 64) as u64;
 
-        #[cfg(not(feature = "high-precision"))]
-        {
-            let raw_i128 = raw as i128;
-            let lo = raw_i128 as u64;
-            let hi = (raw_i128 >> 64) as u64;
-
-            let mut raw_builder = builder.reborrow().init_raw();
-            raw_builder.set_lo(lo);
-            raw_builder.set_hi(hi);
-        }
-
-        #[cfg(feature = "high-precision")]
-        {
-            let lo = raw as u64;
-            let hi = (raw >> 64) as u64;
-
-            let mut raw_builder = builder.reborrow().init_raw();
-            raw_builder.set_lo(lo);
-            raw_builder.set_hi(hi);
-        }
+        let mut raw_builder = builder.reborrow().init_raw();
+        raw_builder.set_lo(lo);
+        raw_builder.set_hi(hi);
 
         builder.set_precision(self.precision);
     }
@@ -484,46 +470,30 @@ impl<'a> FromCapnp<'a> for Price {
         let raw_i128 = ((hi as i64 as i128) << 64) | (lo as i128);
 
         #[cfg(not(feature = "high-precision"))]
-        {
-            let raw = i64::try_from(raw_i128).map_err(|_| -> Box<dyn Error> {
-                "Price value overflows i64 in standard precision mode".into()
-            })?;
-            Ok(Price::from_raw(raw.into(), precision))
-        }
+        let raw = i64::try_from(raw_i128).map_err(|_| -> Box<dyn Error> {
+            "Price value overflows i64 in standard precision mode".into()
+        })?;
 
         #[cfg(feature = "high-precision")]
-        {
-            Ok(Self::from_raw(raw_i128, precision))
-        }
+        let raw = raw_i128;
+
+        #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
+        Ok(Self::from_raw(raw.into(), precision))
     }
 }
 
 impl<'a> ToCapnp<'a> for Quantity {
     type Builder = types_capnp::quantity::Builder<'a>;
 
+    #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
     fn to_capnp(&self, mut builder: Self::Builder) {
-        let raw = self.raw;
+        let raw_u128: u128 = self.raw.into();
+        let lo = raw_u128 as u64;
+        let hi = (raw_u128 >> 64) as u64;
 
-        #[cfg(not(feature = "high-precision"))]
-        {
-            let raw_u128 = raw as u128;
-            let lo = raw_u128 as u64;
-            let hi = (raw_u128 >> 64) as u64;
-
-            let mut raw_builder = builder.reborrow().init_raw();
-            raw_builder.set_lo(lo);
-            raw_builder.set_hi(hi);
-        }
-
-        #[cfg(feature = "high-precision")]
-        {
-            let lo = raw as u64;
-            let hi = (raw >> 64) as u64;
-
-            let mut raw_builder = builder.reborrow().init_raw();
-            raw_builder.set_lo(lo);
-            raw_builder.set_hi(hi);
-        }
+        let mut raw_builder = builder.reborrow().init_raw();
+        raw_builder.set_lo(lo);
+        raw_builder.set_hi(hi);
 
         builder.set_precision(self.precision);
     }
@@ -542,17 +512,15 @@ impl<'a> FromCapnp<'a> for Quantity {
         let raw_u128 = ((hi as u128) << 64) | (lo as u128);
 
         #[cfg(not(feature = "high-precision"))]
-        {
-            let raw = u64::try_from(raw_u128).map_err(|_| -> Box<dyn Error> {
-                "Quantity value overflows u64 in standard precision mode".into()
-            })?;
-            Ok(Quantity::from_raw(raw.into(), precision))
-        }
+        let raw = u64::try_from(raw_u128).map_err(|_| -> Box<dyn Error> {
+            "Quantity value overflows u64 in standard precision mode".into()
+        })?;
 
         #[cfg(feature = "high-precision")]
-        {
-            Ok(Self::from_raw(raw_u128, precision))
-        }
+        let raw = raw_u128;
+
+        #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
+        Ok(Self::from_raw(raw.into(), precision))
     }
 }
 
@@ -1211,21 +1179,13 @@ impl<'a> FromCapnp<'a> for Currency {
 impl<'a> ToCapnp<'a> for Money {
     type Builder = types_capnp::money::Builder<'a>;
 
+    #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
     fn to_capnp(&self, mut builder: Self::Builder) {
         let mut raw_builder = builder.reborrow().init_raw();
 
-        #[cfg(not(feature = "high-precision"))]
-        {
-            let raw_i128 = self.raw as i128;
-            raw_builder.set_lo(raw_i128 as u64);
-            raw_builder.set_hi((raw_i128 >> 64) as u64);
-        }
-
-        #[cfg(feature = "high-precision")]
-        {
-            raw_builder.set_lo(self.raw as u64);
-            raw_builder.set_hi((self.raw >> 64) as u64);
-        }
+        let raw_i128: i128 = self.raw.into();
+        raw_builder.set_lo(raw_i128 as u64);
+        raw_builder.set_hi((raw_i128 >> 64) as u64);
 
         let currency_builder = builder.init_currency();
         self.currency.to_capnp(currency_builder);

@@ -72,7 +72,7 @@ use ustr::Ustr;
 fn register_process_handler() -> ShareableMessageHandler {
     let handler =
         get_message_saving_handler::<OrderEventAny>(Some(Ustr::from("ExecEngine.process")));
-    msgbus::register(MessagingSwitchboard::exec_engine_process(), handler.clone());
+    msgbus::register_any(MessagingSwitchboard::exec_engine_process(), handler.clone());
     handler
 }
 
@@ -660,11 +660,11 @@ fn test_submit_order_with_default_settings_then_sends_to_client(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -731,11 +731,11 @@ fn test_submit_order_when_risk_bypassed_sends_to_execution_engine(
     process_order_event_handler: ShareableMessageHandler,
     execute_order_event_handler: ShareableMessageHandler,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -793,11 +793,11 @@ fn test_submit_reduce_only_order_when_position_already_closed_then_denies(
     clock: TestClock,
     simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -948,11 +948,11 @@ fn test_submit_reduce_only_order_when_position_would_be_increased_then_denies(
     clock: TestClock,
     simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -1084,7 +1084,7 @@ fn test_submit_order_reduce_only_order_with_custom_position_id_not_open_then_den
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1160,7 +1160,7 @@ fn test_submit_order_when_instrument_not_in_cache_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1230,7 +1230,7 @@ fn test_submit_order_when_invalid_price_precision_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1308,7 +1308,7 @@ fn test_submit_order_when_invalid_negative_price_and_not_option_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1381,7 +1381,7 @@ fn test_submit_order_when_negative_price_for_futures_spread_then_allows(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -1447,7 +1447,7 @@ fn test_submit_order_when_negative_price_for_option_spread_then_allows(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -1514,7 +1514,7 @@ fn test_submit_order_when_invalid_trigger_price_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1591,7 +1591,7 @@ fn test_submit_order_when_invalid_quantity_precision_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1664,7 +1664,7 @@ fn test_submit_order_when_invalid_quantity_exceeds_maximum_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1737,7 +1737,7 @@ fn test_submit_order_when_invalid_quantity_less_than_minimum_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -1810,7 +1810,7 @@ fn test_submit_order_when_market_order_and_no_market_then_logs_warning(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -1882,11 +1882,11 @@ fn test_submit_order_when_less_than_min_notional_for_instrument_then_denies(
     bitmex_cash_account_state_multi: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler,
     );
@@ -1972,7 +1972,7 @@ fn test_submit_order_when_greater_than_max_notional_for_instrument_then_denies(
     bitmex_cash_account_state_multi: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2061,7 +2061,7 @@ fn test_submit_order_when_buy_market_order_and_over_max_notional_then_denies(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2148,7 +2148,7 @@ fn test_submit_order_when_sell_market_order_and_over_max_notional_then_denies(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2236,7 +2236,7 @@ fn test_submit_order_when_market_order_and_over_free_balance_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2313,7 +2313,7 @@ fn test_submit_order_when_market_order_over_free_balance_with_borrowing_enabled_
 ) {
     // Test that orders exceeding free balance are accepted when borrowing is enabled
     // (e.g. spot margin trading on Bybit)
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2383,7 +2383,7 @@ fn test_submit_order_list_buys_when_over_free_balance_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2467,7 +2467,7 @@ fn test_submit_order_list_sells_when_over_free_balance_then_denies(
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2549,7 +2549,7 @@ fn test_submit_order_when_trading_halted_then_denies_order(
     process_order_event_handler: ShareableMessageHandler,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2613,7 +2613,7 @@ fn test_submit_order_beyond_rate_limit_then_denies_order(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2687,7 +2687,7 @@ fn test_submit_order_list_when_trading_halted_then_denies_orders(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -2780,11 +2780,11 @@ fn test_submit_order_list_buys_when_trading_reducing_then_denies_orders(
     bitmex_cash_account_state_multi: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -2915,11 +2915,11 @@ fn test_submit_order_list_sells_when_trading_reducing_then_denies_orders(
     bitmex_cash_account_state_multi: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -3054,7 +3054,7 @@ fn test_submit_bracket_order_when_instrument_not_in_cache_then_denies(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -3148,7 +3148,7 @@ fn test_modify_order_when_no_order_found_logs_error(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -3199,7 +3199,7 @@ fn test_modify_order_beyond_rate_limit_then_rejects(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -3273,11 +3273,11 @@ fn test_modify_order_with_default_settings_then_sends_to_client(
     cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -3371,7 +3371,7 @@ fn test_submit_order_when_market_order_and_over_free_balance_then_denies_with_be
     quote_audusd: QuoteTick,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -3435,11 +3435,11 @@ fn test_submit_order_for_less_than_max_cum_transaction_value_adausdt_with_crypto
     bitmex_cash_account_state_multi: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler.clone(),
     );
@@ -3537,11 +3537,11 @@ fn test_submit_order_with_gtd_expire_time_already_passed(
     bitmex_cash_account_state_multi: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler,
     );
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_execute(),
         execute_order_event_handler,
     );
@@ -3618,7 +3618,7 @@ fn test_submit_order_with_quote_quantity_validates_correctly(
     _cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );
@@ -3744,7 +3744,7 @@ fn test_submit_order_with_quote_quantity_exceeds_max_after_conversion(
     _cash_account_state_million_usd: AccountState,
     mut simple_cache: Cache,
 ) {
-    msgbus::register(
+    msgbus::register_any(
         MessagingSwitchboard::exec_engine_process(),
         process_order_event_handler.clone(),
     );

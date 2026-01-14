@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use super::core::{MStr, Pattern, Topic};
+use super::mstr::{MStr, Pattern, Topic};
 
 /// Match a topic and a string pattern using iterative backtracking algorithm
 /// pattern can contains -
@@ -70,4 +70,104 @@ pub fn is_matching(topic: &[u8], pattern: &[u8]) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+    use regex::Regex;
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case("a", "*", true)]
+    #[case("a", "a", true)]
+    #[case("a", "b", false)]
+    #[case("data.quotes.BINANCE", "data.*", true)]
+    #[case("data.quotes.BINANCE", "data.quotes*", true)]
+    #[case("data.quotes.BINANCE", "data.*.BINANCE", true)]
+    #[case("data.trades.BINANCE.ETHUSDT", "data.*.BINANCE.*", true)]
+    #[case("data.trades.BINANCE.ETHUSDT", "data.*.BINANCE.ETH*", true)]
+    #[case("data.trades.BINANCE.ETHUSDT", "data.*.BINANCE.ETH???", false)]
+    #[case("data.trades.BINANCE.ETHUSD", "data.*.BINANCE.ETH???", true)]
+    // We don't support [seq] style pattern
+    #[case("data.trades.BINANCE.ETHUSDT", "data.*.BINANCE.ET[HC]USDT", false)]
+    // We don't support [!seq] style pattern
+    #[case("data.trades.BINANCE.ETHUSDT", "data.*.BINANCE.ET[!ABC]USDT", false)]
+    // We don't support [^seq] style pattern
+    #[case("data.trades.BINANCE.ETHUSDT", "data.*.BINANCE.ET[^ABC]USDT", false)]
+    fn test_is_matching(#[case] topic: &str, #[case] pattern: &str, #[case] expected: bool) {
+        assert_eq!(
+            is_matching_backtracking(topic.into(), pattern.into()),
+            expected
+        );
+    }
+
+    fn convert_pattern_to_regex(pattern: &str) -> String {
+        let mut regex = String::new();
+        regex.push('^');
+
+        for c in pattern.chars() {
+            match c {
+                '.' => regex.push_str("\\."),
+                '*' => regex.push_str(".*"),
+                '?' => regex.push('.'),
+                _ => regex.push(c),
+            }
+        }
+
+        regex.push('$');
+        regex
+    }
+
+    #[rstest]
+    #[case("a??.quo*es.?I?AN*ET?US*T", "^a..\\.quo.*es\\..I.AN.*ET.US.*T$")]
+    #[case("da?*.?u*?s??*NC**ETH?", "^da..*\\..u.*.s...*NC.*.*ETH.$")]
+    fn test_convert_pattern_to_regex(#[case] pat: &str, #[case] regex: &str) {
+        assert_eq!(convert_pattern_to_regex(pat), regex);
+    }
+
+    fn generate_pattern_from_topic(topic: &str, rng: &mut StdRng) -> String {
+        let mut pattern = String::new();
+
+        for c in topic.chars() {
+            let val: f64 = rng.random();
+            // 10% chance of wildcard
+            if val < 0.1 {
+                pattern.push('*');
+            }
+            // 20% chance of question mark
+            else if val < 0.3 {
+                pattern.push('?');
+            }
+            // 20% chance of skipping
+            else if val < 0.5 {
+                continue;
+            }
+            // 50% chance of keeping the character
+            else {
+                pattern.push(c);
+            };
+        }
+
+        pattern
+    }
+
+    #[rstest]
+    fn test_matching_backtracking() {
+        let topic = "data.quotes.BINANCE.ETHUSDT";
+        let mut rng = StdRng::seed_from_u64(42);
+
+        for i in 0..1000 {
+            let pattern = generate_pattern_from_topic(topic, &mut rng);
+            let regex_pattern = convert_pattern_to_regex(&pattern);
+            let regex = Regex::new(&regex_pattern).unwrap();
+            assert_eq!(
+                is_matching_backtracking(topic.into(), pattern.as_str().into()),
+                regex.is_match(topic),
+                "Failed to match on iteration: {i}, pattern: \"{pattern}\", topic: {topic}, regex: \"{regex_pattern}\""
+            );
+        }
+    }
 }

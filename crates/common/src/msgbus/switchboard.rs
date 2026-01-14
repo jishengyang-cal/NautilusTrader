@@ -21,7 +21,7 @@ use nautilus_model::{
     identifiers::{ClientOrderId, InstrumentId, PositionId, StrategyId, Venue},
 };
 
-use super::core::{Endpoint, MStr, Topic};
+use super::mstr::{Endpoint, MStr, Topic};
 use crate::msgbus::get_message_bus;
 
 pub const CLOSE_TOPIC: &str = "CLOSE";

@@ -103,3 +103,8 @@ harness = false
 name = "cache_query_sets"
 path = "benches/cache/query_sets.rs"
 harness = false
+
+[[bench]]
+name = "msgbus"
+path = "benches/msgbus.rs"
+harness = false

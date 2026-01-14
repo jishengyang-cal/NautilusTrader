@@ -15,7 +15,10 @@
 
 use std::any::Any;
 
-use nautilus_common::{messages::execution::TradingCommand, msgbus::handler::MessageHandler};
+use nautilus_common::{
+    messages::execution::TradingCommand,
+    msgbus::{Handler, handler::MessageHandler},
+};
 use nautilus_core::WeakCell;
 use nautilus_model::events::OrderEventAny;
 use ustr::Ustr;
@@ -67,6 +70,18 @@ impl OrderEmulatorOnEventHandler {
     #[must_use]
     pub const fn new(id: Ustr, emulator: WeakCell<OrderEmulator>) -> Self {
         Self { id, emulator }
+    }
+}
+
+impl Handler<OrderEventAny> for OrderEmulatorOnEventHandler {
+    fn id(&self) -> Ustr {
+        self.id
+    }
+
+    fn handle(&self, event: &OrderEventAny) {
+        if let Some(emulator) = self.emulator.upgrade() {
+            emulator.borrow_mut().on_event(event.clone());
+        }
     }
 }
 
