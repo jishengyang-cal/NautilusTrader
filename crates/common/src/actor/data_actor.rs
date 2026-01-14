@@ -39,7 +39,7 @@ use nautilus_model::{
         close::InstrumentClose,
     },
     enums::BookType,
-    events::order::{canceled::OrderCanceled, filled::OrderFilled},
+    events::order::{any::OrderEventAny, canceled::OrderCanceled, filled::OrderFilled},
     identifiers::{ActorId, ClientId, ComponentId, InstrumentId, TraderId, Venue},
     instruments::InstrumentAny,
     orderbook::OrderBook,
@@ -81,7 +81,7 @@ use crate::{
     },
     msgbus::{
         self, MStr, Topic, TypedHandler, get_message_bus,
-        handler::{ShareableMessageHandler, TypedMessageHandler},
+        handler::ShareableMessageHandler,
         switchboard::{
             MessagingSwitchboard, get_bars_topic, get_book_deltas_topic, get_book_snapshots_topic,
             get_custom_topic, get_funding_rate_topic, get_index_price_topic,
@@ -937,11 +937,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::with_any(
-            move |data: &dyn Any| {
-                get_actor_unchecked::<Self>(&actor_id).handle_data(data);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_any(move |data: &dyn Any| {
+            get_actor_unchecked::<Self>(&actor_id).handle_data(data);
+        });
 
         DataActorCore::subscribe_data(self, handler, data_type, client_id, params);
     }
@@ -981,15 +979,13 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_instruments_topic(venue);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |instrument: &InstrumentAny| {
-                if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {
-                    actor.handle_instrument(instrument);
-                } else {
-                    log::error!("Actor {actor_id} not found for instruments handling");
-                }
-            },
-        )));
+        let handler = TypedHandler::from(move |instrument: &InstrumentAny| {
+            if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {
+                actor.handle_instrument(instrument);
+            } else {
+                log::error!("Actor {actor_id} not found for instruments handling");
+            }
+        });
 
         DataActorCore::subscribe_instruments(self, topic, handler, venue, client_id, params);
     }
@@ -1006,15 +1002,13 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_instrument_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |instrument: &InstrumentAny| {
-                if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {
-                    actor.handle_instrument(instrument);
-                } else {
-                    log::error!("Actor {actor_id} not found for instrument handling");
-                }
-            },
-        )));
+        let handler = TypedHandler::from(move |instrument: &InstrumentAny| {
+            if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {
+                actor.handle_instrument(instrument);
+            } else {
+                log::error!("Actor {actor_id} not found for instrument handling");
+            }
+        });
 
         DataActorCore::subscribe_instrument(self, topic, handler, instrument_id, client_id, params);
     }
@@ -1066,11 +1060,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_book_snapshots_topic(instrument_id, interval_ms);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |book: &OrderBook| {
-                get_actor_unchecked::<Self>(&actor_id).handle_book(book);
-            },
-        )));
+        let handler = TypedHandler::from(move |book: &OrderBook| {
+            get_actor_unchecked::<Self>(&actor_id).handle_book(book);
+        });
 
         DataActorCore::subscribe_book_at_interval(
             self,
@@ -1135,11 +1127,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_mark_price_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |mark_price: &MarkPriceUpdate| {
-                get_actor_unchecked::<Self>(&actor_id).handle_mark_price(mark_price);
-            },
-        )));
+        let handler = TypedHandler::from(move |mark_price: &MarkPriceUpdate| {
+            get_actor_unchecked::<Self>(&actor_id).handle_mark_price(mark_price);
+        });
 
         DataActorCore::subscribe_mark_prices(
             self,
@@ -1163,11 +1153,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_index_price_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |index_price: &IndexPriceUpdate| {
-                get_actor_unchecked::<Self>(&actor_id).handle_index_price(index_price);
-            },
-        )));
+        let handler = TypedHandler::from(move |index_price: &IndexPriceUpdate| {
+            get_actor_unchecked::<Self>(&actor_id).handle_index_price(index_price);
+        });
 
         DataActorCore::subscribe_index_prices(
             self,
@@ -1191,11 +1179,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_funding_rate_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |funding_rate: &FundingRateUpdate| {
-                get_actor_unchecked::<Self>(&actor_id).handle_funding_rate(funding_rate);
-            },
-        )));
+        let handler = TypedHandler::from(move |funding_rate: &FundingRateUpdate| {
+            get_actor_unchecked::<Self>(&actor_id).handle_funding_rate(funding_rate);
+        });
 
         DataActorCore::subscribe_funding_rates(
             self,
@@ -1219,11 +1205,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_instrument_status_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |status: &InstrumentStatus| {
-                get_actor_unchecked::<Self>(&actor_id).handle_instrument_status(status);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |status: &InstrumentStatus| {
+            get_actor_unchecked::<Self>(&actor_id).handle_instrument_status(status);
+        });
 
         DataActorCore::subscribe_instrument_status(
             self,
@@ -1247,11 +1231,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_instrument_close_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |close: &InstrumentClose| {
-                get_actor_unchecked::<Self>(&actor_id).handle_instrument_close(close);
-            },
-        )));
+        let handler = TypedHandler::from(move |close: &InstrumentClose| {
+            get_actor_unchecked::<Self>(&actor_id).handle_instrument_close(close);
+        });
 
         DataActorCore::subscribe_instrument_close(
             self,
@@ -1271,11 +1253,11 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_order_fills_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |event: &OrderFilled| {
-                get_actor_unchecked::<Self>(&actor_id).handle_order_filled(event);
-            },
-        )));
+        let handler = TypedHandler::from(move |event: &OrderEventAny| {
+            if let OrderEventAny::Filled(filled) = event {
+                get_actor_unchecked::<Self>(&actor_id).handle_order_filled(filled);
+            }
+        });
 
         DataActorCore::subscribe_order_fills(self, topic, handler);
     }
@@ -1288,11 +1270,11 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = get_order_cancels_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |event: &OrderCanceled| {
-                get_actor_unchecked::<Self>(&actor_id).handle_order_canceled(event);
-            },
-        )));
+        let handler = TypedHandler::from(move |event: &OrderEventAny| {
+            if let OrderEventAny::Canceled(canceled) = event {
+                get_actor_unchecked::<Self>(&actor_id).handle_order_canceled(canceled);
+            }
+        });
 
         DataActorCore::subscribe_order_cancels(self, topic, handler);
     }
@@ -1310,10 +1292,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = defi::switchboard::get_defi_blocks_topic(chain);
 
-        let handler =
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(move |block: &Block| {
-                get_actor_unchecked::<Self>(&actor_id).handle_block(block);
-            })));
+        let handler = TypedHandler::from(move |block: &Block| {
+            get_actor_unchecked::<Self>(&actor_id).handle_block(block);
+        });
 
         DataActorCore::subscribe_blocks(self, topic, handler, chain, client_id, params);
     }
@@ -1331,10 +1312,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = defi::switchboard::get_defi_pool_topic(instrument_id);
 
-        let handler =
-            ShareableMessageHandler(Rc::new(TypedMessageHandler::from(move |pool: &Pool| {
-                get_actor_unchecked::<Self>(&actor_id).handle_pool(pool);
-            })));
+        let handler = TypedHandler::from(move |pool: &Pool| {
+            get_actor_unchecked::<Self>(&actor_id).handle_pool(pool);
+        });
 
         DataActorCore::subscribe_pool(self, topic, handler, instrument_id, client_id, params);
     }
@@ -1352,11 +1332,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = defi::switchboard::get_defi_pool_swaps_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |swap: &PoolSwap| {
-                get_actor_unchecked::<Self>(&actor_id).handle_pool_swap(swap);
-            },
-        )));
+        let handler = TypedHandler::from(move |swap: &PoolSwap| {
+            get_actor_unchecked::<Self>(&actor_id).handle_pool_swap(swap);
+        });
 
         DataActorCore::subscribe_pool_swaps(self, topic, handler, instrument_id, client_id, params);
     }
@@ -1374,11 +1352,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = defi::switchboard::get_defi_liquidity_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |update: &PoolLiquidityUpdate| {
-                get_actor_unchecked::<Self>(&actor_id).handle_pool_liquidity_update(update);
-            },
-        )));
+        let handler = TypedHandler::from(move |update: &PoolLiquidityUpdate| {
+            get_actor_unchecked::<Self>(&actor_id).handle_pool_liquidity_update(update);
+        });
 
         DataActorCore::subscribe_pool_liquidity_updates(
             self,
@@ -1403,11 +1379,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = defi::switchboard::get_defi_collect_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |collect: &PoolFeeCollect| {
-                get_actor_unchecked::<Self>(&actor_id).handle_pool_fee_collect(collect);
-            },
-        )));
+        let handler = TypedHandler::from(move |collect: &PoolFeeCollect| {
+            get_actor_unchecked::<Self>(&actor_id).handle_pool_fee_collect(collect);
+        });
 
         DataActorCore::subscribe_pool_fee_collects(
             self,
@@ -1432,11 +1406,9 @@ pub trait DataActor:
         let actor_id = self.actor_id().inner();
         let topic = defi::switchboard::get_defi_flash_topic(instrument_id);
 
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |flash: &PoolFlash| {
-                get_actor_unchecked::<Self>(&actor_id).handle_pool_flash(flash);
-            },
-        )));
+        let handler = TypedHandler::from(move |flash: &PoolFlash| {
+            get_actor_unchecked::<Self>(&actor_id).handle_pool_flash(flash);
+        });
 
         DataActorCore::subscribe_pool_flash_events(
             self,
@@ -1723,11 +1695,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &CustomDataResponse| {
-                get_actor_unchecked::<Self>(&actor_id).handle_data_response(resp);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &CustomDataResponse| {
+            get_actor_unchecked::<Self>(&actor_id).handle_data_response(resp);
+        });
 
         DataActorCore::request_data(
             self, data_type, client_id, start, end, limit, params, handler,
@@ -1751,11 +1721,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &InstrumentResponse| {
-                get_actor_unchecked::<Self>(&actor_id).handle_instrument_response(resp);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &InstrumentResponse| {
+            get_actor_unchecked::<Self>(&actor_id).handle_instrument_response(resp);
+        });
 
         DataActorCore::request_instrument(
             self,
@@ -1785,11 +1753,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &InstrumentsResponse| {
-                get_actor_unchecked::<Self>(&actor_id).handle_instruments_response(resp);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &InstrumentsResponse| {
+            get_actor_unchecked::<Self>(&actor_id).handle_instruments_response(resp);
+        });
 
         DataActorCore::request_instruments(self, venue, start, end, client_id, params, handler)
     }
@@ -1810,11 +1776,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &BookResponse| {
-                get_actor_unchecked::<Self>(&actor_id).handle_book_response(resp);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &BookResponse| {
+            get_actor_unchecked::<Self>(&actor_id).handle_book_response(resp);
+        });
 
         DataActorCore::request_book_snapshot(self, instrument_id, depth, client_id, params, handler)
     }
@@ -1837,11 +1801,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &QuotesResponse| {
-                get_actor_unchecked::<Self>(&actor_id).handle_quotes_response(resp);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &QuotesResponse| {
+            get_actor_unchecked::<Self>(&actor_id).handle_quotes_response(resp);
+        });
 
         DataActorCore::request_quotes(
             self,
@@ -1873,11 +1835,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &TradesResponse| {
-                get_actor_unchecked::<Self>(&actor_id).handle_trades_response(resp);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &TradesResponse| {
+            get_actor_unchecked::<Self>(&actor_id).handle_trades_response(resp);
+        });
 
         DataActorCore::request_trades(
             self,
@@ -1909,11 +1869,9 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &BarsResponse| {
-                get_actor_unchecked::<Self>(&actor_id).handle_bars_response(resp);
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &BarsResponse| {
+            get_actor_unchecked::<Self>(&actor_id).handle_bars_response(resp);
+        });
 
         DataActorCore::request_bars(
             self, bar_type, start, end, limit, client_id, params, handler,
@@ -2027,11 +1985,30 @@ pub struct DataActorCore {
     cache: Option<Rc<RefCell<Cache>>>,     // Wired up on registration
     state: ComponentState,
     topic_handlers: AHashMap<MStr<Topic>, ShareableMessageHandler>,
-    quote_handlers: AHashMap<MStr<Topic>, TypedHandler<QuoteTick>>,
-    trade_handlers: AHashMap<MStr<Topic>, TypedHandler<TradeTick>>,
-    bar_handlers: AHashMap<MStr<Topic>, TypedHandler<Bar>>,
+    instrument_handlers: AHashMap<MStr<Topic>, TypedHandler<InstrumentAny>>,
+    instrument_close_handlers: AHashMap<MStr<Topic>, TypedHandler<InstrumentClose>>,
     deltas_handlers: AHashMap<MStr<Topic>, TypedHandler<OrderBookDeltas>>,
     depth10_handlers: AHashMap<MStr<Topic>, TypedHandler<OrderBookDepth10>>,
+    book_snapshot_handlers: AHashMap<MStr<Topic>, TypedHandler<OrderBook>>,
+    quote_handlers: AHashMap<MStr<Topic>, TypedHandler<QuoteTick>>,
+    trade_handlers: AHashMap<MStr<Topic>, TypedHandler<TradeTick>>,
+    mark_price_handlers: AHashMap<MStr<Topic>, TypedHandler<MarkPriceUpdate>>,
+    index_price_handlers: AHashMap<MStr<Topic>, TypedHandler<IndexPriceUpdate>>,
+    funding_rate_handlers: AHashMap<MStr<Topic>, TypedHandler<FundingRateUpdate>>,
+    bar_handlers: AHashMap<MStr<Topic>, TypedHandler<Bar>>,
+    order_event_handlers: AHashMap<MStr<Topic>, TypedHandler<OrderEventAny>>,
+    #[cfg(feature = "defi")]
+    block_handlers: AHashMap<MStr<Topic>, TypedHandler<Block>>,
+    #[cfg(feature = "defi")]
+    pool_handlers: AHashMap<MStr<Topic>, TypedHandler<Pool>>,
+    #[cfg(feature = "defi")]
+    pool_swap_handlers: AHashMap<MStr<Topic>, TypedHandler<PoolSwap>>,
+    #[cfg(feature = "defi")]
+    pool_liquidity_handlers: AHashMap<MStr<Topic>, TypedHandler<PoolLiquidityUpdate>>,
+    #[cfg(feature = "defi")]
+    pool_collect_handlers: AHashMap<MStr<Topic>, TypedHandler<PoolFeeCollect>>,
+    #[cfg(feature = "defi")]
+    pool_flash_handlers: AHashMap<MStr<Topic>, TypedHandler<PoolFlash>>,
     warning_events: AHashSet<String>, // TODO: TBD
     pending_requests: AHashMap<UUID4, Option<RequestCallback>>,
     signal_classes: AHashMap<String, String>,
@@ -2054,7 +2031,7 @@ impl DataActorCore {
     /// Adds a subscription handler for the `topic`.
     ///
     //// Logs a warning if the actor is already subscribed to the topic.
-    pub(crate) fn add_subscription(
+    pub(crate) fn add_subscription_any(
         &mut self,
         topic: MStr<Topic>,
         handler: ShareableMessageHandler,
@@ -2074,7 +2051,7 @@ impl DataActorCore {
     /// Removes a subscription handler for the `topic` if present.
     ///
     /// Logs a warning if the actor is not currently subscribed to the topic.
-    pub(crate) fn remove_subscription(&mut self, topic: MStr<Topic>) {
+    pub(crate) fn remove_subscription_any(&mut self, topic: MStr<Topic>) {
         if let Some(handler) = self.topic_handlers.remove(&topic) {
             msgbus::unsubscribe_any(topic.into(), handler);
         } else {
@@ -2150,6 +2127,29 @@ impl DataActorCore {
         }
     }
 
+    pub(crate) fn add_order_event_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<OrderEventAny>,
+    ) {
+        if self.order_event_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate order event subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.order_event_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_order_events(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_order_event_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.order_event_handlers.remove(&topic) {
+            msgbus::unsubscribe_order_events(topic.into(), &handler);
+        }
+    }
+
     pub(crate) fn add_deltas_subscription(
         &mut self,
         topic: MStr<Topic>,
@@ -2197,6 +2197,295 @@ impl DataActorCore {
         }
     }
 
+    pub(crate) fn add_instrument_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<InstrumentAny>,
+    ) {
+        if self.instrument_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate instrument subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.instrument_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_instruments(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_instrument_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.instrument_handlers.remove(&topic) {
+            msgbus::unsubscribe_instruments(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_instrument_close_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<InstrumentClose>,
+    ) {
+        if self.instrument_close_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate instrument close subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.instrument_close_handlers
+            .insert(topic, handler.clone());
+        msgbus::subscribe_instrument_close(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_instrument_close_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.instrument_close_handlers.remove(&topic) {
+            msgbus::unsubscribe_instrument_close(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_book_snapshot_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<OrderBook>,
+    ) {
+        if self.book_snapshot_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate book snapshot subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.book_snapshot_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_book_snapshots(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_book_snapshot_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.book_snapshot_handlers.remove(&topic) {
+            msgbus::unsubscribe_book_snapshots(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_mark_price_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<MarkPriceUpdate>,
+    ) {
+        if self.mark_price_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate mark price subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.mark_price_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_mark_prices(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_mark_price_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.mark_price_handlers.remove(&topic) {
+            msgbus::unsubscribe_mark_prices(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_index_price_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<IndexPriceUpdate>,
+    ) {
+        if self.index_price_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate index price subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.index_price_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_index_prices(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_index_price_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.index_price_handlers.remove(&topic) {
+            msgbus::unsubscribe_index_prices(topic.into(), &handler);
+        }
+    }
+
+    pub(crate) fn add_funding_rate_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<FundingRateUpdate>,
+    ) {
+        if self.funding_rate_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate funding rate subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.funding_rate_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_funding_rates(topic.into(), handler, None);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_funding_rate_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.funding_rate_handlers.remove(&topic) {
+            msgbus::unsubscribe_funding_rates(topic.into(), &handler);
+        }
+    }
+
+    #[cfg(feature = "defi")]
+    pub(crate) fn add_block_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<Block>,
+    ) {
+        if self.block_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate block subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.block_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_defi_blocks(topic.into(), handler, None);
+    }
+
+    #[cfg(feature = "defi")]
+    #[allow(dead_code)]
+    pub(crate) fn remove_block_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.block_handlers.remove(&topic) {
+            msgbus::unsubscribe_defi_blocks(topic.into(), &handler);
+        }
+    }
+
+    #[cfg(feature = "defi")]
+    pub(crate) fn add_pool_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<Pool>,
+    ) {
+        if self.pool_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate pool subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.pool_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_defi_pools(topic.into(), handler, None);
+    }
+
+    #[cfg(feature = "defi")]
+    #[allow(dead_code)]
+    pub(crate) fn remove_pool_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.pool_handlers.remove(&topic) {
+            msgbus::unsubscribe_defi_pools(topic.into(), &handler);
+        }
+    }
+
+    #[cfg(feature = "defi")]
+    pub(crate) fn add_pool_swap_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<PoolSwap>,
+    ) {
+        if self.pool_swap_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate pool swap subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.pool_swap_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_defi_swaps(topic.into(), handler, None);
+    }
+
+    #[cfg(feature = "defi")]
+    #[allow(dead_code)]
+    pub(crate) fn remove_pool_swap_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.pool_swap_handlers.remove(&topic) {
+            msgbus::unsubscribe_defi_swaps(topic.into(), &handler);
+        }
+    }
+
+    #[cfg(feature = "defi")]
+    pub(crate) fn add_pool_liquidity_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<PoolLiquidityUpdate>,
+    ) {
+        if self.pool_liquidity_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate pool liquidity subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.pool_liquidity_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_defi_liquidity(topic.into(), handler, None);
+    }
+
+    #[cfg(feature = "defi")]
+    #[allow(dead_code)]
+    pub(crate) fn remove_pool_liquidity_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.pool_liquidity_handlers.remove(&topic) {
+            msgbus::unsubscribe_defi_liquidity(topic.into(), &handler);
+        }
+    }
+
+    #[cfg(feature = "defi")]
+    pub(crate) fn add_pool_collect_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<PoolFeeCollect>,
+    ) {
+        if self.pool_collect_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate pool collect subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.pool_collect_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_defi_collects(topic.into(), handler, None);
+    }
+
+    #[cfg(feature = "defi")]
+    #[allow(dead_code)]
+    pub(crate) fn remove_pool_collect_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.pool_collect_handlers.remove(&topic) {
+            msgbus::unsubscribe_defi_collects(topic.into(), &handler);
+        }
+    }
+
+    #[cfg(feature = "defi")]
+    pub(crate) fn add_pool_flash_subscription(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<PoolFlash>,
+    ) {
+        if self.pool_flash_handlers.contains_key(&topic) {
+            log::warn!(
+                "Actor {} attempted duplicate pool flash subscription to '{topic}'",
+                self.actor_id
+            );
+            return;
+        }
+        self.pool_flash_handlers.insert(topic, handler.clone());
+        msgbus::subscribe_defi_flash(topic.into(), handler, None);
+    }
+
+    #[cfg(feature = "defi")]
+    #[allow(dead_code)]
+    pub(crate) fn remove_pool_flash_subscription(&mut self, topic: MStr<Topic>) {
+        if let Some(handler) = self.pool_flash_handlers.remove(&topic) {
+            msgbus::unsubscribe_defi_flash(topic.into(), &handler);
+        }
+    }
+
     /// Creates a new [`DataActorCore`] instance.
     pub fn new(config: DataActorConfig) -> Self {
         let actor_id = config
@@ -2216,6 +2505,25 @@ impl DataActorCore {
             bar_handlers: AHashMap::new(),
             deltas_handlers: AHashMap::new(),
             depth10_handlers: AHashMap::new(),
+            instrument_handlers: AHashMap::new(),
+            instrument_close_handlers: AHashMap::new(),
+            book_snapshot_handlers: AHashMap::new(),
+            mark_price_handlers: AHashMap::new(),
+            index_price_handlers: AHashMap::new(),
+            funding_rate_handlers: AHashMap::new(),
+            order_event_handlers: AHashMap::new(),
+            #[cfg(feature = "defi")]
+            block_handlers: AHashMap::new(),
+            #[cfg(feature = "defi")]
+            pool_handlers: AHashMap::new(),
+            #[cfg(feature = "defi")]
+            pool_swap_handlers: AHashMap::new(),
+            #[cfg(feature = "defi")]
+            pool_liquidity_handlers: AHashMap::new(),
+            #[cfg(feature = "defi")]
+            pool_collect_handlers: AHashMap::new(),
+            #[cfg(feature = "defi")]
+            pool_flash_handlers: AHashMap::new(),
             warning_events: AHashSet::new(),
             pending_requests: AHashMap::new(),
             signal_classes: AHashMap::new(),
@@ -2461,7 +2769,7 @@ impl DataActorCore {
         );
 
         let topic = get_custom_topic(&data_type);
-        self.add_subscription(topic, handler);
+        self.add_subscription_any(topic, handler);
 
         // If no client ID specified, just subscribe to the topic
         if client_id.is_none() {
@@ -2511,14 +2819,14 @@ impl DataActorCore {
     pub fn subscribe_instruments(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<InstrumentAny>,
         venue: Venue,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_instrument_subscription(topic, handler);
 
         let command = SubscribeCommand::Instruments(SubscribeInstruments {
             client_id,
@@ -2536,14 +2844,14 @@ impl DataActorCore {
     pub fn subscribe_instrument(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<InstrumentAny>,
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_instrument_subscription(topic, handler);
 
         let command = SubscribeCommand::Instrument(SubscribeInstrument {
             instrument_id,
@@ -2596,7 +2904,7 @@ impl DataActorCore {
     pub fn subscribe_book_at_interval(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<OrderBook>,
         instrument_id: InstrumentId,
         book_type: BookType,
         depth: Option<NonZeroUsize>,
@@ -2606,7 +2914,7 @@ impl DataActorCore {
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_book_snapshot_subscription(topic, handler);
 
         let command = SubscribeCommand::BookSnapshots(SubscribeBookSnapshots {
             instrument_id,
@@ -2680,14 +2988,14 @@ impl DataActorCore {
     pub fn subscribe_mark_prices(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<MarkPriceUpdate>,
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_mark_price_subscription(topic, handler);
 
         let command = SubscribeCommand::MarkPrices(SubscribeMarkPrices {
             instrument_id,
@@ -2706,14 +3014,14 @@ impl DataActorCore {
     pub fn subscribe_index_prices(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<IndexPriceUpdate>,
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_index_price_subscription(topic, handler);
 
         let command = SubscribeCommand::IndexPrices(SubscribeIndexPrices {
             instrument_id,
@@ -2732,14 +3040,14 @@ impl DataActorCore {
     pub fn subscribe_funding_rates(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<FundingRateUpdate>,
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_funding_rate_subscription(topic, handler);
 
         let command = SubscribeCommand::FundingRates(SubscribeFundingRates {
             instrument_id,
@@ -2765,7 +3073,7 @@ impl DataActorCore {
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_subscription_any(topic, handler);
 
         let command = SubscribeCommand::InstrumentStatus(SubscribeInstrumentStatus {
             instrument_id,
@@ -2784,14 +3092,14 @@ impl DataActorCore {
     pub fn subscribe_instrument_close(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<InstrumentClose>,
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
         params: Option<IndexMap<String, String>>,
     ) {
         self.check_registered();
 
-        self.add_subscription(topic, handler);
+        self.add_instrument_close_subscription(topic, handler);
 
         let command = SubscribeCommand::InstrumentClose(SubscribeInstrumentClose {
             instrument_id,
@@ -2807,19 +3115,23 @@ impl DataActorCore {
     }
 
     /// Helper method for registering order fills subscriptions from the trait.
-    pub fn subscribe_order_fills(&mut self, topic: MStr<Topic>, handler: ShareableMessageHandler) {
+    pub fn subscribe_order_fills(
+        &mut self,
+        topic: MStr<Topic>,
+        handler: TypedHandler<OrderEventAny>,
+    ) {
         self.check_registered();
-        self.add_subscription(topic, handler);
+        self.add_order_event_subscription(topic, handler);
     }
 
     /// Helper method for registering order cancels subscriptions from the trait.
     pub fn subscribe_order_cancels(
         &mut self,
         topic: MStr<Topic>,
-        handler: ShareableMessageHandler,
+        handler: TypedHandler<OrderEventAny>,
     ) {
         self.check_registered();
-        self.add_subscription(topic, handler);
+        self.add_order_event_subscription(topic, handler);
     }
 
     /// Helper method for unsubscribing from data.
@@ -2832,7 +3144,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_custom_topic(&data_type);
-        self.remove_subscription(topic);
+        self.remove_subscription_any(topic);
 
         if client_id.is_none() {
             return;
@@ -2861,7 +3173,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_instruments_topic(venue);
-        self.remove_subscription(topic);
+        self.remove_instrument_subscription(topic);
 
         let command = UnsubscribeCommand::Instruments(UnsubscribeInstruments {
             client_id,
@@ -2885,7 +3197,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_instrument_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_instrument_subscription(topic);
 
         let command = UnsubscribeCommand::Instrument(UnsubscribeInstrument {
             instrument_id,
@@ -2936,7 +3248,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_book_snapshots_topic(instrument_id, interval_ms);
-        self.remove_subscription(topic);
+        self.remove_book_snapshot_subscription(topic);
 
         let command = UnsubscribeCommand::BookSnapshots(UnsubscribeBookSnapshots {
             instrument_id,
@@ -3036,7 +3348,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_mark_price_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_mark_price_subscription(topic);
 
         let command = UnsubscribeCommand::MarkPrices(UnsubscribeMarkPrices {
             instrument_id,
@@ -3061,7 +3373,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_index_price_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_index_price_subscription(topic);
 
         let command = UnsubscribeCommand::IndexPrices(UnsubscribeIndexPrices {
             instrument_id,
@@ -3086,7 +3398,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_funding_rate_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_funding_rate_subscription(topic);
 
         let command = UnsubscribeCommand::FundingRates(UnsubscribeFundingRates {
             instrument_id,
@@ -3111,7 +3423,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_instrument_status_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_subscription_any(topic);
 
         let command = UnsubscribeCommand::InstrumentStatus(UnsubscribeInstrumentStatus {
             instrument_id,
@@ -3136,7 +3448,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_instrument_close_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_instrument_close_subscription(topic);
 
         let command = UnsubscribeCommand::InstrumentClose(UnsubscribeInstrumentClose {
             instrument_id,
@@ -3156,7 +3468,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_order_fills_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_order_event_subscription(topic);
     }
 
     /// Helper method for unsubscribing from order cancels.
@@ -3164,7 +3476,7 @@ impl DataActorCore {
         self.check_registered();
 
         let topic = get_order_cancels_topic(instrument_id);
-        self.remove_subscription(topic);
+        self.remove_order_event_subscription(topic);
     }
 
     /// Helper method for requesting data.
@@ -3518,8 +3830,7 @@ fn log_not_running<T>(msg: &T)
 where
     T: Debug,
 {
-    // TODO: Potentially temporary for development? drop level at some stage
-    log::warn!("Received message when not running - skipping {msg:?}");
+    log::trace!("Received message when not running - skipping {msg:?}");
 }
 
 fn log_received<T>(msg: &T)

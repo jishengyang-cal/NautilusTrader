@@ -147,6 +147,16 @@ pub fn register_order_event_endpoint(
         .register(endpoint, handler);
 }
 
+pub fn register_account_state_endpoint(
+    endpoint: MStr<Endpoint>,
+    handler: TypedHandler<AccountState>,
+) {
+    get_message_bus()
+        .borrow_mut()
+        .endpoints_account_state
+        .register(endpoint, handler);
+}
+
 /// Deregisters the handler for an endpoint (Any-based).
 pub fn deregister_any(endpoint: MStr<Endpoint>) {
     log::debug!("Deregistering endpoint '{endpoint}'");
@@ -720,122 +730,173 @@ pub fn publish_any(topic: MStr<Topic>, message: &dyn Any) {
 }
 
 pub fn publish_quote(topic: MStr<Topic>, quote: &QuoteTick) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_quotes
-        .publish(topic, quote);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(quote);
+    }
 }
 
 pub fn publish_trade(topic: MStr<Topic>, trade: &TradeTick) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_trades
-        .publish(topic, trade);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(trade);
+    }
 }
 
 pub fn publish_bar(topic: MStr<Topic>, bar: &Bar) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_bars
-        .publish(topic, bar);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(bar);
+    }
 }
 
 pub fn publish_deltas(topic: MStr<Topic>, deltas: &OrderBookDeltas) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_deltas
-        .publish(topic, deltas);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(deltas);
+    }
 }
 
 pub fn publish_depth10(topic: MStr<Topic>, depth: &OrderBookDepth10) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_depth10
-        .publish(topic, depth);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(depth);
+    }
 }
 
 pub fn publish_order_event(topic: MStr<Topic>, event: &OrderEventAny) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_order_events
-        .publish(topic, event);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(event);
+    }
 }
 
 pub fn publish_position_event(topic: MStr<Topic>, event: &PositionEvent) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_position_events
-        .publish(topic, event);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(event);
+    }
 }
 
 pub fn publish_account_state(topic: MStr<Topic>, state: &AccountState) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_account_state
-        .publish(topic, state);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(state);
+    }
 }
 
 pub fn publish_instrument(topic: MStr<Topic>, instrument: &InstrumentAny) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_instruments
-        .publish(topic, instrument);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(instrument);
+    }
 }
 
 pub fn publish_mark_price(topic: MStr<Topic>, mark_price: &MarkPriceUpdate) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_mark_prices
-        .publish(topic, mark_price);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(mark_price);
+    }
 }
 
 pub fn publish_index_price(topic: MStr<Topic>, index_price: &IndexPriceUpdate) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_index_prices
-        .publish(topic, index_price);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(index_price);
+    }
 }
 
 pub fn publish_funding_rate(topic: MStr<Topic>, funding_rate: &FundingRateUpdate) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_funding_rates
-        .publish(topic, funding_rate);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(funding_rate);
+    }
 }
 
 pub fn publish_instrument_close(topic: MStr<Topic>, close: &InstrumentClose) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_instrument_close
-        .publish(topic, close);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(close);
+    }
 }
 
 pub fn publish_book_snapshot(topic: MStr<Topic>, book: &OrderBook) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_book_snapshots
-        .publish(topic, book);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(book);
+    }
 }
 
 pub fn publish_order(topic: MStr<Topic>, order: &OrderAny) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_orders
-        .publish(topic, order);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(order);
+    }
 }
 
 pub fn publish_position(topic: MStr<Topic>, position: &Position) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_positions
-        .publish(topic, position);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(position);
+    }
 }
 
 pub fn publish_greeks(topic: MStr<Topic>, greeks: &GreeksData) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_greeks
-        .publish(topic, greeks);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(greeks);
+    }
 }
 
 #[cfg(feature = "defi")]
@@ -843,10 +904,13 @@ pub fn publish_defi_block(
     topic: MStr<Topic>,
     block: &nautilus_model::defi::Block, // nautilus-import-ok
 ) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_defi_blocks
-        .publish(topic, block);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(block);
+    }
 }
 
 #[cfg(feature = "defi")]
@@ -854,10 +918,13 @@ pub fn publish_defi_pool(
     topic: MStr<Topic>,
     pool: &nautilus_model::defi::Pool, // nautilus-import-ok
 ) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_defi_pools
-        .publish(topic, pool);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(pool);
+    }
 }
 
 #[cfg(feature = "defi")]
@@ -865,10 +932,13 @@ pub fn publish_defi_swap(
     topic: MStr<Topic>,
     swap: &nautilus_model::defi::PoolSwap, // nautilus-import-ok
 ) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_defi_swaps
-        .publish(topic, swap);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(swap);
+    }
 }
 
 #[cfg(feature = "defi")]
@@ -876,10 +946,13 @@ pub fn publish_defi_liquidity(
     topic: MStr<Topic>,
     update: &nautilus_model::defi::PoolLiquidityUpdate, // nautilus-import-ok
 ) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_defi_liquidity
-        .publish(topic, update);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(update);
+    }
 }
 
 #[cfg(feature = "defi")]
@@ -887,10 +960,13 @@ pub fn publish_defi_collect(
     topic: MStr<Topic>,
     collect: &nautilus_model::defi::PoolFeeCollect, // nautilus-import-ok
 ) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_defi_collects
-        .publish(topic, collect);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(collect);
+    }
 }
 
 #[cfg(feature = "defi")]
@@ -898,10 +974,13 @@ pub fn publish_defi_flash(
     topic: MStr<Topic>,
     flash: &nautilus_model::defi::PoolFlash, // nautilus-import-ok
 ) {
-    get_message_bus()
+    let handlers = get_message_bus()
         .borrow_mut()
         .router_defi_flash
-        .publish(topic, flash);
+        .get_matching_handlers(topic);
+    for handler in handlers {
+        handler.handle(flash);
+    }
 }
 
 /// Sends a message to an endpoint using runtime type dispatch (Any).
@@ -947,31 +1026,68 @@ pub fn send_response(correlation_id: &UUID4, message: &DataResponse) {
 }
 
 pub fn send_quote(endpoint: MStr<Endpoint>, quote: &QuoteTick) {
-    get_message_bus()
+    let handler = get_message_bus()
         .borrow()
         .endpoints_quotes
-        .send(endpoint, quote);
+        .get(endpoint)
+        .cloned();
+    if let Some(handler) = handler {
+        handler.handle(quote);
+    } else {
+        log::error!("send_quote: no registered endpoint '{endpoint}'");
+    }
 }
 
 pub fn send_trade(endpoint: MStr<Endpoint>, trade: &TradeTick) {
-    get_message_bus()
+    let handler = get_message_bus()
         .borrow()
         .endpoints_trades
-        .send(endpoint, trade);
+        .get(endpoint)
+        .cloned();
+    if let Some(handler) = handler {
+        handler.handle(trade);
+    } else {
+        log::error!("send_trade: no registered endpoint '{endpoint}'");
+    }
 }
 
 pub fn send_bar(endpoint: MStr<Endpoint>, bar: &Bar) {
-    get_message_bus()
+    let handler = get_message_bus()
         .borrow()
         .endpoints_bars
-        .send(endpoint, bar);
+        .get(endpoint)
+        .cloned();
+    if let Some(handler) = handler {
+        handler.handle(bar);
+    } else {
+        log::error!("send_bar: no registered endpoint '{endpoint}'");
+    }
 }
 
 pub fn send_order_event(endpoint: MStr<Endpoint>, event: &OrderEventAny) {
-    get_message_bus()
+    let handler = get_message_bus()
         .borrow()
         .endpoints_order_events
-        .send(endpoint, event);
+        .get(endpoint)
+        .cloned();
+    if let Some(handler) = handler {
+        handler.handle(event);
+    } else {
+        log::error!("send_order_event: no registered endpoint '{endpoint}'");
+    }
+}
+
+pub fn send_account_state(endpoint: MStr<Endpoint>, state: &AccountState) {
+    let handler = get_message_bus()
+        .borrow()
+        .endpoints_account_state
+        .get(endpoint)
+        .cloned();
+    if let Some(handler) = handler {
+        handler.handle(state);
+    } else {
+        log::error!("send_account_state: no registered endpoint '{endpoint}'");
+    }
 }
 
 #[cfg(test)]

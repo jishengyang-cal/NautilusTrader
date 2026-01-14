@@ -263,6 +263,12 @@ impl Portfolio {
             })
         };
 
+        // Typed endpoint for direct sends
+        msgbus::register_account_state_endpoint(
+            "Portfolio.update_account".into(),
+            update_account_handler.clone(),
+        );
+
         // Typed subscriptions
         msgbus::subscribe_quotes("data.quotes.*".into(), update_quote_handler, Some(10));
         if config.bar_updates {

@@ -242,6 +242,18 @@ impl<T: 'static> TopicRouter<T> {
         }
     }
 
+    /// Returns cloned handlers matching a topic for safe out-of-borrow calling.
+    ///
+    /// Use this when handlers may need to access the message bus during execution.
+    pub fn get_matching_handlers(&mut self, topic: MStr<Topic>) -> Vec<TypedHandler<T>> {
+        // TODO: Optimize to avoid allocating a vec
+        let indices = self.get_or_compute_matching_indices(topic);
+        indices
+            .into_iter()
+            .map(|idx| self.subscriptions[idx].handler.clone())
+            .collect()
+    }
+
     /// Gets cached matching indices for a topic, if available.
     fn get_matching_indices(&self, topic: MStr<Topic>) -> Option<&Vec<usize>> {
         self.topic_cache.get(&topic)

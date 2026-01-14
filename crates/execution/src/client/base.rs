@@ -470,7 +470,7 @@ impl ExecutionClientCore {
 
     fn send_account_state(&self, account_state: AccountState) {
         let endpoint = MessagingSwitchboard::portfolio_update_account();
-        msgbus::send_any(endpoint, &account_state as &dyn Any);
+        msgbus::send_account_state(endpoint, &account_state);
     }
 
     fn send_order_event(&self, event: OrderEventAny) {

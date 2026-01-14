@@ -829,10 +829,7 @@ mod tests {
         cache::Cache,
         clock::TestClock,
         messages::execution::{SubmitOrder, TradingCommand},
-        msgbus::{
-            self,
-            stubs::{get_message_saving_handler, get_saved_messages},
-        },
+        msgbus::{self, stubs::get_typed_message_saving_handler},
     };
     use nautilus_core::{UUID4, UnixNanos};
     use nautilus_execution::models::{
@@ -1317,8 +1314,8 @@ mod tests {
     fn test_accounting() {
         let account_type = AccountType::Margin;
         let mut cache = Cache::default();
-        let handler = get_message_saving_handler::<AccountState>(None);
-        msgbus::register_any("Portfolio.update_account".into(), handler.clone());
+        let (handler, saving_handler) = get_typed_message_saving_handler::<AccountState>(None);
+        msgbus::register_account_state_endpoint("Portfolio.update_account".into(), handler);
         let margin_account = MarginAccount::new(
             AccountState::new(
                 AccountId::from("SIM-001"),
@@ -1355,7 +1352,7 @@ mod tests {
         exchange.borrow_mut().adjust_account(Money::from("500 USD"));
 
         // Check if we received two messages, one for initial account state and one for adjusted account state
-        let messages = get_saved_messages::<AccountState>(handler);
+        let messages = saving_handler.get_messages();
         assert_eq!(messages.len(), 2);
         let account_state_first = messages.first().unwrap();
         let account_state_second = messages.last().unwrap();

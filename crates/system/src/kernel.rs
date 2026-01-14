@@ -32,9 +32,7 @@ use nautilus_common::{
     },
     messages::{DataResponse, ExecutionReport, data::DataCommand, execution::TradingCommand},
     msgbus::{
-        self, MessageBus,
-        handler::{ShareableMessageHandler, TypedMessageHandler},
-        set_message_bus,
+        self, MessageBus, handler::ShareableMessageHandler, set_message_bus,
         switchboard::MessagingSwitchboard,
     },
     runner::get_data_cmd_sender,
@@ -158,98 +156,81 @@ impl NautilusKernel {
         let data_engine = Rc::new(RefCell::new(data_engine));
 
         // Register DataEngine command execution
-
         let data_engine_weak = WeakCell::from(Rc::downgrade(&data_engine));
         let data_engine_weak_clone1 = data_engine_weak.clone();
         let endpoint = MessagingSwitchboard::data_engine_execute();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |cmd: &DataCommand| {
-                if let Some(engine_rc) = data_engine_weak_clone1.upgrade() {
-                    engine_rc.borrow_mut().execute(cmd);
-                }
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |cmd: &DataCommand| {
+            if let Some(engine_rc) = data_engine_weak_clone1.upgrade() {
+                engine_rc.borrow_mut().execute(cmd);
+            }
+        });
         msgbus::register_any(endpoint, handler);
 
         // Register DataEngine command queueing
         let endpoint = MessagingSwitchboard::data_engine_queue_execute();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |cmd: &DataCommand| {
-                get_data_cmd_sender().clone().execute(cmd.clone());
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |cmd: &DataCommand| {
+            get_data_cmd_sender().clone().execute(cmd.clone());
+        });
         msgbus::register_any(endpoint, handler);
 
         // Register DataEngine process handler
         let endpoint = MessagingSwitchboard::data_engine_process();
         let data_engine_weak2 = data_engine_weak.clone();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::with_any(
-            move |data: &dyn Any| {
-                if let Some(engine_rc) = data_engine_weak2.upgrade() {
-                    engine_rc.borrow_mut().process(data);
-                }
-            },
-        )));
+        let handler = ShareableMessageHandler::from_any(move |data: &dyn Any| {
+            if let Some(engine_rc) = data_engine_weak2.upgrade() {
+                engine_rc.borrow_mut().process(data);
+            }
+        });
         msgbus::register_any(endpoint, handler);
 
         // Register DataEngine response handler
         let endpoint = MessagingSwitchboard::data_engine_response();
         let data_engine_weak3 = data_engine_weak;
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |resp: &DataResponse| {
-                if let Some(engine_rc) = data_engine_weak3.upgrade() {
-                    engine_rc.borrow_mut().response(resp.clone());
-                }
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |resp: &DataResponse| {
+            if let Some(engine_rc) = data_engine_weak3.upgrade() {
+                engine_rc.borrow_mut().response(resp.clone());
+            }
+        });
         msgbus::register_any(endpoint, handler);
 
         // Register RiskEngine execute handler
         let risk_engine_weak = WeakCell::from(Rc::downgrade(&risk_engine));
         let endpoint = MessagingSwitchboard::risk_engine_execute();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |cmd: &TradingCommand| {
-                if let Some(engine_rc) = risk_engine_weak.upgrade() {
-                    engine_rc.borrow_mut().execute(cmd.clone());
-                }
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |cmd: &TradingCommand| {
+            if let Some(engine_rc) = risk_engine_weak.upgrade() {
+                engine_rc.borrow_mut().execute(cmd.clone());
+            }
+        });
         msgbus::register_any(endpoint, handler);
 
         // Register ExecEngine execute handler
         let exec_engine_weak1 = WeakCell::from(Rc::downgrade(&exec_engine));
         let endpoint = MessagingSwitchboard::exec_engine_execute();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |cmd: &TradingCommand| {
-                if let Some(engine_rc) = exec_engine_weak1.upgrade() {
-                    engine_rc.borrow().execute(cmd);
-                }
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |cmd: &TradingCommand| {
+            if let Some(engine_rc) = exec_engine_weak1.upgrade() {
+                engine_rc.borrow().execute(cmd);
+            }
+        });
         msgbus::register_any(endpoint, handler);
 
         // Register ExecEngine process handler
         let exec_engine_weak2 = WeakCell::from(Rc::downgrade(&exec_engine));
         let endpoint = MessagingSwitchboard::exec_engine_process();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |event: &OrderEventAny| {
-                if let Some(engine_rc) = exec_engine_weak2.upgrade() {
-                    engine_rc.borrow_mut().process(event);
-                }
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |event: &OrderEventAny| {
+            if let Some(engine_rc) = exec_engine_weak2.upgrade() {
+                engine_rc.borrow_mut().process(event);
+            }
+        });
         msgbus::register_any(endpoint, handler);
 
         // Register ExecEngine report handler
         let exec_engine_weak3 = WeakCell::from(Rc::downgrade(&exec_engine));
         let endpoint = MessagingSwitchboard::exec_engine_reconcile_execution_report();
-        let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-            move |report: &ExecutionReport| {
-                if let Some(engine_rc) = exec_engine_weak3.upgrade() {
-                    engine_rc.borrow_mut().reconcile_execution_report(report);
-                }
-            },
-        )));
+        let handler = ShareableMessageHandler::from_typed(move |report: &ExecutionReport| {
+            if let Some(engine_rc) = exec_engine_weak3.upgrade() {
+                engine_rc.borrow_mut().reconcile_execution_report(report);
+            }
+        });
         msgbus::register_any(endpoint, handler);
 
         let trader = Trader::new(

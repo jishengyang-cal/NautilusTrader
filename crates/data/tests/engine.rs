@@ -47,7 +47,7 @@ use nautilus_common::{
     },
     msgbus::{
         self, MessageBus,
-        handler::{ShareableMessageHandler, TypedMessageHandler},
+        handler::ShareableMessageHandler,
         stubs::get_typed_message_saving_handler,
         switchboard::{self, MessagingSwitchboard},
     },
@@ -112,9 +112,9 @@ fn data_engine(
     let data_engine = Rc::new(RefCell::new(DataEngine::new(clock, cache, None)));
 
     let data_engine_clone = data_engine.clone();
-    let handler = ShareableMessageHandler(Rc::new(TypedMessageHandler::from(
-        move |cmd: &DataCommand| data_engine_clone.borrow_mut().execute(cmd),
-    )));
+    let handler = ShareableMessageHandler::from_typed(move |cmd: &DataCommand| {
+        data_engine_clone.borrow_mut().execute(cmd);
+    });
 
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::register_any(endpoint, handler);

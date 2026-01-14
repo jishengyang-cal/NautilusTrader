@@ -55,8 +55,13 @@ impl<T, H: Handler<T>> Handler<T> for Rc<H> {
 /// Uses `Rc` intentionally (not `Arc`) for single-threaded use within each
 /// async runtime. The MessageBus uses thread-local storage to ensure each
 /// thread gets its own handlers.
-#[derive(Clone)]
 pub struct TypedHandler<T: 'static>(pub Rc<dyn Handler<T>>);
+
+impl<T: 'static> Clone for TypedHandler<T> {
+    fn clone(&self) -> Self {
+        Self(Rc::clone(&self.0))
+    }
+}
 
 impl<T: 'static> TypedHandler<T> {
     /// Creates a new typed handler from any type implementing `Handler<T>`.

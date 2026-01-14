@@ -18,7 +18,7 @@
 pub mod canceller;
 pub mod submitter;
 
-use std::{any::Any, future::Future, sync::Mutex};
+use std::{future::Future, sync::Mutex};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -757,7 +757,7 @@ fn dispatch_ws_message(message: NautilusWsMessage) {
 }
 
 fn dispatch_account_state(state: AccountState) {
-    msgbus::send_any("Portfolio.update_account".into(), &state as &dyn Any);
+    msgbus::send_account_state("Portfolio.update_account".into(), &state);
 }
 
 fn dispatch_order_status_report(report: OrderStatusReport) {

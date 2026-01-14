@@ -306,7 +306,10 @@ impl AsyncRunner {
                 Self::handle_exec_report(report);
             }
             ExecutionEvent::Account(ref account) => {
-                msgbus::send_any(MessagingSwitchboard::portfolio_update_account(), account);
+                msgbus::send_account_state(
+                    MessagingSwitchboard::portfolio_update_account(),
+                    account,
+                );
             }
         }
     }

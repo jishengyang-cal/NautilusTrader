@@ -254,6 +254,7 @@ pub struct MessageBus {
     pub(crate) endpoints_trades: EndpointMap<TradeTick>,
     pub(crate) endpoints_bars: EndpointMap<Bar>,
     pub(crate) endpoints_order_events: EndpointMap<OrderEventAny>,
+    pub(crate) endpoints_account_state: EndpointMap<AccountState>,
     routers_typed: AHashMap<TypeId, Box<dyn Any>>,
     endpoints_typed: AHashMap<TypeId, Box<dyn Any>>,
 }
@@ -317,6 +318,7 @@ impl MessageBus {
             endpoints_trades: EndpointMap::new(),
             endpoints_bars: EndpointMap::new(),
             endpoints_order_events: EndpointMap::new(),
+            endpoints_account_state: EndpointMap::new(),
             routers_typed: AHashMap::new(),
             endpoints_typed: AHashMap::new(),
         }

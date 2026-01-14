@@ -46,7 +46,7 @@ impl PartialEq for dyn MessageHandler {
 impl Eq for dyn MessageHandler {}
 
 #[derive(Debug)]
-pub struct TypedMessageHandler<T: 'static + ?Sized, F: Fn(&T) + 'static> {
+pub(crate) struct TypedMessageHandler<T: 'static + ?Sized, F: Fn(&T) + 'static> {
     id: Ustr,
     callback: F,
     _phantom: PhantomData<T>,
@@ -110,11 +110,6 @@ impl<F: Fn(&dyn Any) + 'static> TypedMessageHandler<dyn Any, F> {
         }
     }
 
-    /// Creates a handler for Any messages with an optional ID.
-    pub fn from_any<S: AsRef<str>>(id_opt: Option<S>, callback: F) -> Self {
-        Self::new_any(id_opt, callback)
-    }
-
     /// Creates a handler for Any messages with an auto-generated ID.
     pub fn with_any(callback: F) -> Self {
         Self::new_any::<&str>(None, callback)
@@ -152,6 +147,29 @@ pub struct ShareableMessageHandler(pub Rc<dyn MessageHandler>);
 impl ShareableMessageHandler {
     pub fn id(&self) -> Ustr {
         self.0.id()
+    }
+
+    /// Creates a `ShareableMessageHandler` from a typed closure.
+    ///
+    /// This is a convenience method that wraps the common pattern of creating
+    /// a typed message handler and wrapping it in a shareable handler.
+    pub fn from_typed<T, F>(f: F) -> Self
+    where
+        T: 'static,
+        F: Fn(&T) + 'static,
+    {
+        Self(Rc::new(TypedMessageHandler::from(f)))
+    }
+
+    /// Creates a `ShareableMessageHandler` from an Any-typed closure.
+    ///
+    /// This is a convenience method for handlers that need to work with
+    /// custom data types via `dyn Any`.
+    pub fn from_any<F>(f: F) -> Self
+    where
+        F: Fn(&dyn Any) + 'static,
+    {
+        Self(Rc::new(TypedMessageHandler::with_any(f)))
     }
 }
 
@@ -308,8 +326,36 @@ mod tests {
     }
 
     #[rstest]
-    fn test_typed_message_handler_from_any() {
-        let handler = TypedMessageHandler::from_any(Some("from-any-test"), |_: &dyn Any| {});
-        assert_eq!(handler.id(), Ustr::from("from-any-test"));
+    fn test_shareable_message_handler_from_typed() {
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+
+        let handler = ShareableMessageHandler::from_typed(move |msg: &String| {
+            received_clone.borrow_mut().push(msg.clone());
+        });
+
+        handler.0.handle(&"hello".to_string() as &dyn Any);
+        handler.0.handle(&"world".to_string() as &dyn Any);
+
+        assert_eq!(*received.borrow(), vec!["hello", "world"]);
+    }
+
+    #[rstest]
+    fn test_shareable_message_handler_from_any() {
+        let received = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+
+        let handler = ShareableMessageHandler::from_any(move |msg: &dyn Any| {
+            if let Some(s) = msg.downcast_ref::<String>() {
+                received_clone.borrow_mut().push(format!("String:{s}"));
+            } else if let Some(i) = msg.downcast_ref::<i32>() {
+                received_clone.borrow_mut().push(format!("i32:{i}"));
+            }
+        });
+
+        handler.0.handle(&"test".to_string() as &dyn Any);
+        handler.0.handle(&42i32 as &dyn Any);
+
+        assert_eq!(*received.borrow(), vec!["String:test", "i32:42"]);
     }
 }
