@@ -42,6 +42,8 @@ use super::consts::{
     Serialize,
     Deserialize,
 )]
+#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(eq, eq_int, module = "nautilus_trader.core.nautilus_pyo3.architect")
@@ -405,6 +407,7 @@ impl From<AxOrderType> for OrderType {
     Serialize,
     Deserialize,
 )]
+#[strum(ascii_case_insensitive)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(eq, eq_int, module = "nautilus_trader.core.nautilus_pyo3.architect")
