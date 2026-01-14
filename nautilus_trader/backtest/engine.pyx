@@ -5314,20 +5314,19 @@ cdef class OrderMatchingEngine:
             qty = fill[1]
             price_raw = price._mem.raw
 
-            book_size_f64 = self._book.get_quantity_for_price(price, order_side)
-            book_size_raw = <QuantityRaw>(book_size_f64 * (10.0 ** FIXED_PRECISION))
+            level_size = self._book.get_quantity_at_level(price, order_side, self._size_prec)
 
             level_state = consumption.get(price_raw)
             if level_state is None:
-                original_size = book_size_raw
+                original_size = level_size._mem.raw
                 consumed = 0
             else:
                 original_size = level_state[0]
                 consumed = level_state[1]
 
             # Reset consumption when book size changes (fresh data)
-            if original_size != book_size_raw:
-                original_size = book_size_raw
+            if original_size != level_size._mem.raw:
+                original_size = level_size._mem.raw
                 consumed = 0
 
             available = original_size - consumed if original_size > consumed else 0

@@ -3125,6 +3125,11 @@ double orderbook_get_quantity_for_price(struct OrderBook_API *book,
                                         struct Price_t price,
                                         enum OrderSide order_side);
 
+struct Quantity_t orderbook_get_quantity_at_level(const struct OrderBook_API *book,
+                                                  struct Price_t price,
+                                                  enum OrderSide order_side,
+                                                  uint8_t size_precision);
+
 /**
  * Updates the order book with a quote tick.
  *

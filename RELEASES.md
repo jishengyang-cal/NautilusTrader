@@ -20,7 +20,8 @@ Released on TBD (UTC).
 - Fixed `CVec::empty()` to use dangling pointer instead of null, avoiding undefined behavior in `Vec::from_raw_parts`
 
 ### Fixes
-- Fixed trade execution fills discarded with `liquidity_consumption`
+- Fixed matching engine liquidity consumption using cumulative book quantity
+- Fixed matching engine trade execution fills discarded with `liquidity_consumption`
 - Fixed `ExecAlgorithm` spawn quantity accounting (will now restore quantity from denied/rejected spawned orders)
 - Fixed analyzer epoch timestamp from empty shell positions
 - Fixed backtest clock monotonicity with time alerts (#3384), thanks @draphi

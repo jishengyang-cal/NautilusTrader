@@ -2106,6 +2106,11 @@ cdef extern from "../includes/model.h":
                                             Price_t price,
                                             OrderSide order_side);
 
+    Quantity_t orderbook_get_quantity_at_level(const OrderBook_API *book,
+                                               Price_t price,
+                                               OrderSide order_side,
+                                               uint8_t size_precision);
+
     # Updates the order book with a quote tick.
     #
     # # Panics

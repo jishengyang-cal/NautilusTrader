@@ -234,15 +234,16 @@ impl OrderMatchingEngine {
             }
 
             let price_raw = price.raw;
-            let book_size_f64 = self.book.get_quantity_for_price(price, order_side);
-            let book_size_raw = (book_size_f64 * 10f64.powi(FIXED_PRECISION as i32)) as QuantityRaw;
+            let level_size = self
+                .book
+                .get_quantity_at_level(price, order_side, qty.precision);
 
             let (original_size, consumed) =
-                consumption.entry(price_raw).or_insert((book_size_raw, 0));
+                consumption.entry(price_raw).or_insert((level_size.raw, 0));
 
             // Reset consumption when book size changes (fresh data)
-            if *original_size != book_size_raw {
-                *original_size = book_size_raw;
+            if *original_size != level_size.raw {
+                *original_size = level_size.raw;
                 *consumed = 0;
             }
 

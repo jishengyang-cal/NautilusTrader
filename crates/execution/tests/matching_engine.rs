@@ -3702,6 +3702,172 @@ fn test_liquidity_consumption_off_allows_repeated_fills(
     assert_eq!(filled_events[1].last_qty, Quantity::from("50.000"));
 }
 
+/// Regression test for liquidity consumption not resetting when unrelated levels change.
+///
+/// Bug scenario: When multiple levels exist, consuming all liquidity at those levels,
+/// then DELETING a "better" price level should NOT reset consumption at "worse" levels.
+/// Previously, consumption tracking used cumulative quantity which caused incorrect
+/// resets when any better-priced level changed.
+///
+/// For BUY: deleting lower ask shouldn't reset higher asks
+/// For SELL: deleting higher bid shouldn't reset lower bids
+#[rstest]
+#[case(OrderSide::Buy, OrderSide::Sell)]
+#[case(OrderSide::Sell, OrderSide::Buy)]
+fn test_liquidity_consumption_unchanged_levels_stay_depleted(
+    order_event_handler: ShareableMessageHandler,
+    account_id: AccountId,
+    instrument_eth_usdt: InstrumentAny,
+    #[case] order_side: OrderSide,
+    #[case] book_side: OrderSide,
+) {
+    msgbus::register_any(
+        MessagingSwitchboard::exec_engine_process(),
+        order_event_handler.clone(),
+    );
+
+    let config = OrderMatchingEngineConfig {
+        liquidity_consumption: true,
+        ..Default::default()
+    };
+    let mut engine_l2 =
+        get_order_matching_engine_l2(instrument_eth_usdt.clone(), None, None, Some(config), None);
+
+    // Price levels depend on which side we're testing
+    // BUY order crosses asks: 1000 (best) -> 1001 -> 1002 (worst)
+    // SELL order crosses bids: 1002 (best) -> 1001 -> 1000 (worst)
+    let (prices, opposite_price, best_price) = if order_side == OrderSide::Buy {
+        (
+            [
+                Price::from("1000.00"),
+                Price::from("1001.00"),
+                Price::from("1002.00"),
+            ],
+            Price::from("900.00"),
+            Price::from("1000.00"),
+        )
+    } else {
+        (
+            [
+                Price::from("1002.00"),
+                Price::from("1001.00"),
+                Price::from("1000.00"),
+            ],
+            Price::from("1100.00"),
+            Price::from("1002.00"),
+        )
+    };
+
+    let opposite_side_delta = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            order_side,
+            opposite_price,
+            Quantity::from("1000.000"),
+            100,
+        ))
+        .build();
+    engine_l2
+        .process_order_book_delta(&opposite_side_delta)
+        .unwrap();
+
+    let delta1 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            book_side,
+            prices[0],
+            Quantity::from("200.000"),
+            1,
+        ))
+        .build();
+    engine_l2.process_order_book_delta(&delta1).unwrap();
+
+    let delta2 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            book_side,
+            prices[1],
+            Quantity::from("812.000"),
+            2,
+        ))
+        .build();
+    engine_l2.process_order_book_delta(&delta2).unwrap();
+
+    let delta3 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            book_side,
+            prices[2],
+            Quantity::from("1012.000"),
+            3,
+        ))
+        .build();
+    engine_l2.process_order_book_delta(&delta3).unwrap();
+
+    let mut order1 = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(order_side)
+        .quantity(Quantity::from("2024.000"))
+        .client_order_id(ClientOrderId::from("O-19700101-000000-001-001-1"))
+        .submit(true)
+        .build();
+    engine_l2.process_order(&mut order1, account_id);
+
+    let delete_delta = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Delete)
+        .book_order(BookOrder::new(
+            book_side,
+            best_price,
+            Quantity::from("0.000"),
+            1,
+        ))
+        .build();
+    engine_l2.process_order_book_delta(&delete_delta).unwrap();
+
+    let mut order2 = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(order_side)
+        .quantity(Quantity::from("100.000"))
+        .client_order_id(ClientOrderId::from("O-19700101-000000-001-001-2"))
+        .submit(true)
+        .build();
+    engine_l2.process_order(&mut order2, account_id);
+
+    let saved_messages = get_order_event_handler_messages(order_event_handler);
+    let filled_events: Vec<_> = saved_messages
+        .iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) => Some(fill),
+            _ => None,
+        })
+        .collect();
+
+    let order1_fills: Vec<_> = filled_events
+        .iter()
+        .filter(|f| f.client_order_id.as_str().ends_with("-1"))
+        .collect();
+    let order2_fill_count = filled_events
+        .iter()
+        .filter(|f| f.client_order_id.as_str().ends_with("-2"))
+        .count();
+
+    assert_eq!(
+        order1_fills.len(),
+        3,
+        "First order should fill at all 3 levels"
+    );
+    let total_fill_qty: f64 = order1_fills.iter().map(|f| f.last_qty.as_f64()).sum();
+    assert!(
+        (total_fill_qty - 2024.0).abs() < 0.001,
+        "First order should consume total 2024 units"
+    );
+
+    assert_eq!(
+        order2_fill_count, 0,
+        "Second order should not fill - unchanged levels should stay depleted"
+    );
+}
+
 /// Regression test for stop-limit double-accept bug.
 /// When a stop-limit order triggers but doesn't immediately fill, it should only be
 /// accepted once, not twice.
