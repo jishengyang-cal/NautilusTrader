@@ -16,6 +16,34 @@
 //! Binance symbol conversion utilities.
 
 use nautilus_model::identifiers::InstrumentId;
+use ustr::Ustr;
+
+use super::{consts::BINANCE_VENUE, enums::BinanceProductType};
+
+/// Converts a Binance symbol to a Nautilus instrument ID.
+///
+/// For USD-M futures, appends "-PERP" suffix to match Nautilus symbology.
+/// For COIN-M futures, keeps the symbol as-is (uses "_PERP" format).
+///
+/// # Examples
+///
+/// - ("BTCUSDT", UsdM) → "BTCUSDT-PERP.BINANCE"
+/// - ("ETHUSD_PERP", CoinM) → "ETHUSD_PERP.BINANCE"
+#[must_use]
+pub fn format_instrument_id(symbol: &Ustr, product_type: BinanceProductType) -> InstrumentId {
+    let nautilus_symbol = match product_type {
+        BinanceProductType::UsdM => {
+            // USD-M symbols don't have _PERP suffix from Binance, we add -PERP
+            format!("{symbol}-PERP")
+        }
+        BinanceProductType::CoinM => {
+            // COIN-M symbols already have _PERP suffix from Binance
+            symbol.to_string()
+        }
+        _ => symbol.to_string(),
+    };
+    InstrumentId::new(nautilus_symbol.into(), *BINANCE_VENUE)
+}
 
 /// Converts a Nautilus instrument ID to a Binance-compatible symbol.
 ///

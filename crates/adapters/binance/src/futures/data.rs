@@ -58,24 +58,27 @@ use crate::{
     config::BinanceDataClientConfig,
     futures::{
         http::client::BinanceFuturesHttpClient,
-        websocket::{client::BinanceFuturesWebSocketClient, messages::NautilusFuturesWsMessage},
+        websocket::{
+            client::BinanceFuturesWebSocketClient,
+            messages::{BinanceFuturesWsMessage, NautilusFuturesDataWsMessage},
+        },
     },
 };
 
 /// Binance Futures data client for USD-M and COIN-M markets.
 #[derive(Debug)]
 pub struct BinanceFuturesDataClient {
+    clock: &'static AtomicTime,
     client_id: ClientId,
     config: BinanceDataClientConfig,
     product_type: BinanceProductType,
     http_client: BinanceFuturesHttpClient,
     ws_client: BinanceFuturesWebSocketClient,
+    data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
     is_connected: AtomicBool,
     cancellation_token: CancellationToken,
     tasks: Vec<JoinHandle<()>>,
-    data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
     instruments: Arc<RwLock<AHashMap<InstrumentId, InstrumentAny>>>,
-    clock: &'static AtomicTime,
 }
 
 impl BinanceFuturesDataClient {
@@ -123,17 +126,17 @@ impl BinanceFuturesDataClient {
         )?;
 
         Ok(Self {
+            clock,
             client_id,
             config,
             product_type,
             http_client,
             ws_client,
+            data_sender,
             is_connected: AtomicBool::new(false),
             cancellation_token: CancellationToken::new(),
             tasks: Vec::new(),
-            data_sender,
             instruments: Arc::new(RwLock::new(AHashMap::new())),
-            clock,
         })
     }
 
@@ -159,48 +162,38 @@ impl BinanceFuturesDataClient {
     }
 
     fn handle_ws_message(
-        message: NautilusFuturesWsMessage,
+        message: BinanceFuturesWsMessage,
         data_sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
         instruments: &Arc<RwLock<AHashMap<InstrumentId, InstrumentAny>>>,
     ) {
         match message {
-            NautilusFuturesWsMessage::Data(payloads) => {
-                for data in payloads {
-                    Self::send_data(data_sender, data);
+            BinanceFuturesWsMessage::Data(data_msg) => match data_msg {
+                NautilusFuturesDataWsMessage::Data(payloads) => {
+                    for data in payloads {
+                        Self::send_data(data_sender, data);
+                    }
                 }
+                NautilusFuturesDataWsMessage::Deltas(deltas) => {
+                    Self::send_data(data_sender, Data::Deltas(OrderBookDeltas_API::new(deltas)));
+                }
+                NautilusFuturesDataWsMessage::Instrument(instrument) => {
+                    upsert_instrument(instruments, *instrument);
+                }
+                NautilusFuturesDataWsMessage::RawJson(value) => {
+                    log::debug!("Unhandled JSON message: {value:?}");
+                }
+            },
+            BinanceFuturesWsMessage::Exec(exec_msg) => {
+                log::debug!("Received exec message in data client (ignored): {exec_msg:?}");
             }
-            NautilusFuturesWsMessage::Deltas(deltas) => {
-                Self::send_data(data_sender, Data::Deltas(OrderBookDeltas_API::new(deltas)));
-            }
-            NautilusFuturesWsMessage::Instrument(instrument) => {
-                upsert_instrument(instruments, *instrument);
-            }
-            NautilusFuturesWsMessage::Error(e) => {
+            BinanceFuturesWsMessage::Error(e) => {
                 log::error!(
                     "Binance Futures WebSocket error: code={}, msg={}",
                     e.code,
                     e.msg
                 );
             }
-            NautilusFuturesWsMessage::AccountUpdate(_) => {
-                log::debug!("Received account update in data client (ignored)");
-            }
-            NautilusFuturesWsMessage::OrderUpdate(_) => {
-                log::debug!("Received order update in data client (ignored)");
-            }
-            NautilusFuturesWsMessage::MarginCall(_) => {
-                log::warn!("Received margin call in data client");
-            }
-            NautilusFuturesWsMessage::AccountConfigUpdate(_) => {
-                log::debug!("Received account config update in data client (ignored)");
-            }
-            NautilusFuturesWsMessage::ListenKeyExpired => {
-                log::warn!("Listen key expired - user data stream disconnected");
-            }
-            NautilusFuturesWsMessage::RawJson(value) => {
-                log::debug!("Unhandled JSON message: {value:?}");
-            }
-            NautilusFuturesWsMessage::Reconnected => {
+            BinanceFuturesWsMessage::Reconnected => {
                 log::info!("WebSocket reconnected");
             }
         }

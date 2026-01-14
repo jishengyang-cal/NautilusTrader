@@ -577,11 +577,11 @@ fn create_test_execution_client(
         api_secret: Some("test_api_secret".to_string()),
     };
 
-    let client = BinanceSpotExecutionClient::new(core, config).unwrap();
-
-    // Set up event channel
+    // Set up event channel (must be set before creating client)
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     set_exec_event_sender(tx);
+
+    let client = BinanceSpotExecutionClient::new(core, config).unwrap();
 
     (client, rx, cache)
 }

@@ -16,6 +16,12 @@
 //! Binance Futures WebSocket message types.
 //!
 //! Futures streams use standard JSON encoding (not SBE like Spot).
+//!
+//! Message types are separated into data (public market data) and execution
+//! (private user data stream) concerns:
+//! - [`NautilusFuturesDataWsMessage`] - Market data for data clients
+//! - [`NautilusFuturesExecWsMessage`] - User data for execution clients
+//! - [`BinanceFuturesWsMessage`] - Wrapper enum containing both
 
 use nautilus_model::{
     data::{Data, OrderBookDeltas},
@@ -31,30 +37,52 @@ use crate::common::enums::{
 };
 
 /// Output message from the Futures WebSocket handler.
+///
+/// Wraps data and execution message types, allowing the single handler to
+/// produce messages for both data and execution clients.
 #[derive(Debug, Clone)]
-pub enum NautilusFuturesWsMessage {
-    /// Market data (trades, quotes).
+pub enum BinanceFuturesWsMessage {
+    /// Public market data message.
+    Data(NautilusFuturesDataWsMessage),
+    /// Private user data stream message.
+    Exec(NautilusFuturesExecWsMessage),
+    /// Error from the server.
+    Error(BinanceFuturesWsErrorMsg),
+    /// WebSocket reconnected - subscriptions should be restored.
+    Reconnected,
+}
+
+/// Market data message from Binance Futures WebSocket.
+///
+/// These are public messages that don't require authentication.
+#[derive(Debug, Clone)]
+pub enum NautilusFuturesDataWsMessage {
+    /// Market data (trades, quotes, etc.).
     Data(Vec<Data>),
     /// Order book deltas.
     Deltas(OrderBookDeltas),
     /// Instrument update.
     Instrument(Box<InstrumentAny>),
-    /// Account update from user data stream.
+    /// Raw JSON message (for debugging or unhandled types).
+    RawJson(serde_json::Value),
+}
+
+/// User data stream message from Binance Futures WebSocket.
+///
+/// These are private messages from the user data stream that require
+/// a listen key for authentication.
+#[derive(Debug, Clone)]
+pub enum NautilusFuturesExecWsMessage {
+    /// Account update (balance/position changes).
     AccountUpdate(BinanceFuturesAccountUpdateMsg),
-    /// Order/trade update from user data stream.
+    /// Order/trade update.
     OrderUpdate(Box<BinanceFuturesOrderUpdateMsg>),
-    /// Margin call warning from user data stream.
+    /// Margin call warning.
     MarginCall(BinanceFuturesMarginCallMsg),
-    /// Account configuration change from user data stream.
+    /// Account configuration change (leverage, etc.).
     AccountConfigUpdate(BinanceFuturesAccountConfigMsg),
     /// Listen key expired - need to reconnect user data stream.
     ListenKeyExpired,
-    /// Error from the server.
-    Error(BinanceFuturesWsErrorMsg),
-    /// Raw JSON message (for debugging or unhandled types).
-    RawJson(serde_json::Value),
-    /// WebSocket reconnected - subscriptions should be restored.
-    Reconnected,
 }
 
 /// Error message from Binance Futures WebSocket.

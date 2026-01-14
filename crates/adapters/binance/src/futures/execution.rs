@@ -18,7 +18,7 @@
 use std::{
     future::Future,
     sync::{
-        Mutex,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -26,6 +26,7 @@ use std::{
 
 use anyhow::Context;
 use async_trait::async_trait;
+use futures_util::{StreamExt, pin_mut};
 use nautilus_common::{
     clients::ExecutionClient,
     live::{runner::get_exec_event_sender, runtime::get_runtime},
@@ -47,50 +48,74 @@ use nautilus_core::{
 use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{OmsType, OrderSide, PositionSideSpecified},
+    enums::{AccountType, LiquiditySide, OmsType, OrderSide, PositionSideSpecified},
     events::{
         AccountState, OrderAccepted, OrderCancelRejected, OrderCanceled, OrderEventAny,
-        OrderModifyRejected, OrderRejected, OrderSubmitted, OrderUpdated,
+        OrderFilled, OrderModifyRejected, OrderRejected, OrderSubmitted, OrderUpdated,
     },
-    identifiers::{AccountId, ClientId, InstrumentId, Venue, VenueOrderId},
+    identifiers::{
+        AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, Venue,
+        VenueOrderId,
+    },
     instruments::Instrument,
     orders::Order,
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
-    types::{AccountBalance, Currency, MarginBalance, Money, Quantity},
+    types::{AccountBalance, Currency, MarginBalance, Money, Price, Quantity},
 };
 use rust_decimal::Decimal;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
-use super::http::{
-    client::BinanceFuturesHttpClient,
-    models::{BatchOrderResult, BinancePositionRisk},
-    query::{
-        BatchCancelItem, BinanceAllOrdersParamsBuilder, BinanceOpenOrdersParamsBuilder,
-        BinanceOrderQueryParamsBuilder, BinancePositionRiskParamsBuilder,
-        BinanceUserTradesParamsBuilder,
+use super::{
+    http::{
+        client::BinanceFuturesHttpClient,
+        models::{BatchOrderResult, BinancePositionRisk},
+        query::{
+            BatchCancelItem, BinanceAllOrdersParamsBuilder, BinanceOpenOrdersParamsBuilder,
+            BinanceOrderQueryParamsBuilder, BinancePositionRiskParamsBuilder,
+            BinanceUserTradesParamsBuilder,
+        },
+    },
+    websocket::{
+        client::BinanceFuturesWebSocketClient,
+        messages::{
+            BinanceExecutionType, BinanceFuturesAccountUpdateMsg, BinanceFuturesOrderUpdateMsg,
+            BinanceFuturesWsMessage, NautilusFuturesExecWsMessage,
+        },
     },
 };
 use crate::{
     common::{
         consts::BINANCE_VENUE,
+        credential::resolve_credentials,
         enums::{BinancePositionSide, BinanceProductType},
+        symbol::format_instrument_id,
     },
     config::BinanceExecClientConfig,
     futures::http::models::BinanceFuturesAccountInfo,
 };
 
+/// Listen key keepalive interval (30 minutes).
+const LISTEN_KEY_KEEPALIVE_SECS: u64 = 30 * 60;
+
 /// Live execution client for Binance Futures trading.
 ///
 /// Implements the [`ExecutionClient`] trait for order management on Binance
 /// USD-M and COIN-M Futures markets. Uses HTTP API for order operations and
-/// supports position management, leverage configuration, and margin types.
+/// WebSocket for real-time order updates via user data stream.
 #[derive(Debug)]
 pub struct BinanceFuturesExecutionClient {
+    clock: &'static AtomicTime,
     core: ExecutionClientCore,
     config: BinanceExecClientConfig,
+    product_type: BinanceProductType,
     http_client: BinanceFuturesHttpClient,
-    clock: &'static AtomicTime,
-    exec_event_sender: Option<tokio::sync::mpsc::UnboundedSender<ExecutionEvent>>,
+    ws_client: Option<BinanceFuturesWebSocketClient>,
+    exec_sender: tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
+    listen_key: Arc<RwLock<Option<String>>>,
+    cancellation_token: CancellationToken,
+    ws_task: Mutex<Option<JoinHandle<()>>>,
+    keepalive_task: Mutex<Option<JoinHandle<()>>>,
     started: bool,
     connected: AtomicBool,
     instruments_initialized: AtomicBool,
@@ -105,24 +130,6 @@ impl BinanceFuturesExecutionClient {
     ///
     /// Returns an error if the HTTP client fails to initialize or credentials are missing.
     pub fn new(core: ExecutionClientCore, config: BinanceExecClientConfig) -> anyhow::Result<Self> {
-        let api_key = config
-            .api_key
-            .clone()
-            .or_else(|| std::env::var("BINANCE_FUTURES_API_KEY").ok())
-            .or_else(|| std::env::var("BINANCE_API_KEY").ok())
-            .ok_or_else(|| {
-                anyhow::anyhow!("BINANCE_FUTURES_API_KEY or BINANCE_API_KEY not found")
-            })?;
-
-        let api_secret = config
-            .api_secret
-            .clone()
-            .or_else(|| std::env::var("BINANCE_FUTURES_API_SECRET").ok())
-            .or_else(|| std::env::var("BINANCE_API_SECRET").ok())
-            .ok_or_else(|| {
-                anyhow::anyhow!("BINANCE_FUTURES_API_SECRET or BINANCE_API_SECRET not found")
-            })?;
-
         let product_type = config
             .product_types
             .iter()
@@ -130,11 +137,18 @@ impl BinanceFuturesExecutionClient {
             .copied()
             .unwrap_or(BinanceProductType::UsdM);
 
+        let (api_key, api_secret) = resolve_credentials(
+            config.api_key.clone(),
+            config.api_secret.clone(),
+            config.environment,
+            product_type,
+        )?;
+
         let http_client = BinanceFuturesHttpClient::new(
             product_type,
             config.environment,
-            Some(api_key),
-            Some(api_secret),
+            Some(api_key.clone()),
+            Some(api_secret.clone()),
             config.base_url_http.clone(),
             None, // recv_window
             None, // timeout_secs
@@ -142,12 +156,31 @@ impl BinanceFuturesExecutionClient {
         )
         .context("failed to construct Binance Futures HTTP client")?;
 
+        let ws_client = BinanceFuturesWebSocketClient::new(
+            product_type,
+            config.environment,
+            Some(api_key),
+            Some(api_secret),
+            config.base_url_ws.clone(),
+            Some(20), // Heartbeat interval
+        )
+        .context("failed to construct Binance Futures WebSocket client")?;
+
+        let clock = get_atomic_clock_realtime();
+        let exec_sender = get_exec_event_sender();
+
         Ok(Self {
+            clock,
             core,
             config,
+            product_type,
             http_client,
-            clock: get_atomic_clock_realtime(),
-            exec_event_sender: None,
+            ws_client: Some(ws_client),
+            exec_sender,
+            listen_key: Arc::new(RwLock::new(None)),
+            cancellation_token: CancellationToken::new(),
+            ws_task: Mutex::new(None),
+            keepalive_task: Mutex::new(None),
             started: false,
             connected: AtomicBool::new(false),
             instruments_initialized: AtomicBool::new(false),
@@ -198,7 +231,7 @@ impl BinanceFuturesExecutionClient {
             .assets
             .iter()
             .filter_map(|b| {
-                let wallet_balance: f64 = b.balance.parse().unwrap_or(0.0);
+                let wallet_balance: f64 = b.wallet_balance.parse().unwrap_or(0.0);
                 let available_balance: f64 = b.available_balance.parse().unwrap_or(0.0);
                 let locked = wallet_balance - available_balance;
 
@@ -261,11 +294,340 @@ impl BinanceFuturesExecutionClient {
         Ok(response.dual_side_position)
     }
 
+    /// Handles WebSocket messages from the user data stream.
+    fn handle_ws_message(
+        message: BinanceFuturesWsMessage,
+        exec_sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
+        trader_id: TraderId,
+        account_id: AccountId,
+        account_type: AccountType,
+        product_type: BinanceProductType,
+        clock: &'static AtomicTime,
+    ) {
+        match message {
+            BinanceFuturesWsMessage::Exec(exec_msg) => {
+                Self::handle_exec_message(
+                    exec_msg,
+                    exec_sender,
+                    trader_id,
+                    account_id,
+                    account_type,
+                    product_type,
+                    clock,
+                );
+            }
+            BinanceFuturesWsMessage::Data(_) => {
+                // Data messages are for the data client, ignore here
+            }
+            BinanceFuturesWsMessage::Error(e) => {
+                log::error!(
+                    "Binance Futures WebSocket error: code={}, msg={}",
+                    e.code,
+                    e.msg
+                );
+            }
+            BinanceFuturesWsMessage::Reconnected => {
+                log::info!("User data stream WebSocket reconnected");
+            }
+        }
+    }
+
+    /// Handles execution messages from the user data stream.
+    fn handle_exec_message(
+        message: NautilusFuturesExecWsMessage,
+        exec_sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
+        trader_id: TraderId,
+        account_id: AccountId,
+        account_type: AccountType,
+        product_type: BinanceProductType,
+        clock: &'static AtomicTime,
+    ) {
+        match message {
+            NautilusFuturesExecWsMessage::OrderUpdate(update) => {
+                Self::handle_order_update(
+                    &update,
+                    exec_sender,
+                    trader_id,
+                    account_id,
+                    product_type,
+                    clock,
+                );
+            }
+            NautilusFuturesExecWsMessage::AccountUpdate(update) => {
+                Self::handle_account_update(&update, exec_sender, account_id, account_type, clock);
+            }
+            NautilusFuturesExecWsMessage::MarginCall(msg) => {
+                log::warn!(
+                    "Margin call: cross_wallet_balance={}, positions_at_risk={}",
+                    msg.cross_wallet_balance,
+                    msg.positions.len()
+                );
+            }
+            NautilusFuturesExecWsMessage::AccountConfigUpdate(msg) => {
+                if let Some(ref lc) = msg.leverage_config {
+                    log::info!(
+                        "Account config update: symbol={}, leverage={}",
+                        lc.symbol,
+                        lc.leverage
+                    );
+                }
+            }
+            NautilusFuturesExecWsMessage::ListenKeyExpired => {
+                log::warn!("Listen key expired - reconnection required");
+            }
+        }
+    }
+
+    /// Handles ORDER_TRADE_UPDATE events from the user data stream.
+    fn handle_order_update(
+        msg: &BinanceFuturesOrderUpdateMsg,
+        exec_sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
+        trader_id: TraderId,
+        account_id: AccountId,
+        product_type: BinanceProductType,
+        clock: &'static AtomicTime,
+    ) {
+        let order_data = &msg.order;
+        let ts_event = UnixNanos::from((msg.event_time * 1_000_000) as u64);
+        let ts_init = clock.get_time_ns();
+
+        // Build instrument_id from symbol
+        let instrument_id = format_instrument_id(&order_data.symbol, product_type);
+
+        let client_order_id = ClientOrderId::new(&order_data.client_order_id);
+        let venue_order_id = VenueOrderId::new(order_data.order_id.to_string());
+
+        // For external orders we don't have strategy_id, use EXTERNAL
+        let strategy_id = StrategyId::new("EXTERNAL");
+
+        match order_data.execution_type {
+            BinanceExecutionType::New => {
+                let event = OrderAccepted::new(
+                    trader_id,
+                    strategy_id,
+                    instrument_id,
+                    client_order_id,
+                    venue_order_id,
+                    account_id,
+                    UUID4::new(),
+                    ts_event,
+                    ts_init,
+                    false,
+                );
+
+                if let Err(e) =
+                    exec_sender.send(ExecutionEvent::Order(OrderEventAny::Accepted(event)))
+                {
+                    log::warn!("Failed to send OrderAccepted event: {e}");
+                }
+            }
+            BinanceExecutionType::Canceled | BinanceExecutionType::Expired => {
+                let event = OrderCanceled::new(
+                    trader_id,
+                    strategy_id,
+                    instrument_id,
+                    client_order_id,
+                    UUID4::new(),
+                    ts_event,
+                    ts_init,
+                    false,
+                    Some(venue_order_id),
+                    Some(account_id),
+                );
+
+                if let Err(e) =
+                    exec_sender.send(ExecutionEvent::Order(OrderEventAny::Canceled(event)))
+                {
+                    log::warn!("Failed to send OrderCanceled event: {e}");
+                }
+            }
+            BinanceExecutionType::Trade => {
+                Self::handle_trade_update(
+                    msg,
+                    exec_sender,
+                    trader_id,
+                    account_id,
+                    instrument_id,
+                    client_order_id,
+                    venue_order_id,
+                    strategy_id,
+                    ts_event,
+                    ts_init,
+                );
+            }
+            BinanceExecutionType::Amendment => {
+                // Order modified - use default precision since we don't have cache access
+                let quantity: f64 = order_data.original_qty.parse().unwrap_or(0.0);
+                let price: f64 = order_data.original_price.parse().unwrap_or(0.0);
+                let (price_precision, size_precision) = (8_u8, 8_u8);
+
+                let event = OrderUpdated::new(
+                    trader_id,
+                    strategy_id,
+                    instrument_id,
+                    client_order_id,
+                    Quantity::new(quantity, size_precision),
+                    UUID4::new(),
+                    ts_event,
+                    ts_init,
+                    false,
+                    Some(venue_order_id),
+                    Some(account_id),
+                    Some(Price::new(price, price_precision)),
+                    None,
+                    None,
+                );
+
+                if let Err(e) =
+                    exec_sender.send(ExecutionEvent::Order(OrderEventAny::Updated(event)))
+                {
+                    log::warn!("Failed to send OrderUpdated event: {e}");
+                }
+            }
+            BinanceExecutionType::Calculated => {
+                // Liquidation/ADL - log but don't generate event
+                log::warn!(
+                    "Calculated execution (liquidation/ADL): symbol={}, client_order_id={}",
+                    order_data.symbol,
+                    order_data.client_order_id
+                );
+            }
+        }
+    }
+
+    /// Handles trade fills from ORDER_TRADE_UPDATE events.
+    #[allow(clippy::too_many_arguments)]
+    fn handle_trade_update(
+        msg: &BinanceFuturesOrderUpdateMsg,
+        exec_sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
+        trader_id: TraderId,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        client_order_id: ClientOrderId,
+        venue_order_id: VenueOrderId,
+        strategy_id: StrategyId,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) {
+        let order_data = &msg.order;
+
+        let last_qty: f64 = order_data.last_filled_qty.parse().unwrap_or(0.0);
+        let last_px: f64 = order_data.last_filled_price.parse().unwrap_or(0.0);
+        let cum_qty: f64 = order_data.cumulative_filled_qty.parse().unwrap_or(0.0);
+        let leaves_qty: f64 = order_data.original_qty.parse().unwrap_or(0.0) - cum_qty;
+        let commission: f64 = order_data
+            .commission
+            .as_deref()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0.0);
+
+        // Use default precision since we don't have cache access in spawned task
+        let (price_precision, size_precision) = (8_u8, 8_u8);
+
+        let commission_currency = order_data
+            .commission_asset
+            .as_ref()
+            .map_or_else(Currency::USDT, |a| Currency::from(a.as_str()));
+
+        let liquidity_side = if order_data.is_maker {
+            LiquiditySide::Maker
+        } else {
+            LiquiditySide::Taker
+        };
+
+        let event = OrderFilled::new(
+            trader_id,
+            strategy_id,
+            instrument_id,
+            client_order_id,
+            venue_order_id,
+            account_id,
+            TradeId::new(order_data.trade_id.to_string()),
+            order_data.side.into(),
+            order_data.order_type.into(),
+            Quantity::new(last_qty, size_precision),
+            Price::new(last_px, price_precision),
+            commission_currency,
+            liquidity_side,
+            UUID4::new(),
+            ts_event,
+            ts_init,
+            false,
+            None,
+            Some(Money::new(commission, commission_currency)),
+        );
+
+        if let Err(e) = exec_sender.send(ExecutionEvent::Order(OrderEventAny::Filled(event))) {
+            log::warn!("Failed to send OrderFilled event: {e}");
+        }
+
+        // Check if order is fully filled
+        if leaves_qty <= 0.0 {
+            log::debug!(
+                "Order fully filled: client_order_id={client_order_id}, venue_order_id={venue_order_id}"
+            );
+        }
+    }
+
+    /// Handles ACCOUNT_UPDATE events from the user data stream.
+    fn handle_account_update(
+        msg: &BinanceFuturesAccountUpdateMsg,
+        exec_sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
+        account_id: AccountId,
+        account_type: AccountType,
+        clock: &'static AtomicTime,
+    ) {
+        let ts_event = UnixNanos::from((msg.event_time * 1_000_000) as u64);
+
+        let balances: Vec<AccountBalance> = msg
+            .account
+            .balances
+            .iter()
+            .filter_map(|b| {
+                let wallet_balance: f64 = b.wallet_balance.parse().unwrap_or(0.0);
+                let cross_wallet: f64 = b.cross_wallet_balance.parse().unwrap_or(0.0);
+                let locked = wallet_balance - cross_wallet;
+
+                if wallet_balance == 0.0 {
+                    return None;
+                }
+
+                let currency = Currency::from(&b.asset);
+                Some(AccountBalance::new(
+                    Money::new(wallet_balance, currency),
+                    Money::new(locked.max(0.0), currency),
+                    Money::new(cross_wallet, currency),
+                ))
+            })
+            .collect();
+
+        if balances.is_empty() {
+            return;
+        }
+
+        let account_state = AccountState::new(
+            account_id,
+            account_type,
+            balances,
+            Vec::new(), // margins
+            true,       // reported
+            UUID4::new(),
+            ts_event,
+            clock.get_time_ns(),
+            None, // base currency
+        );
+
+        if let Err(e) = exec_sender.send(ExecutionEvent::Account(account_state)) {
+            log::warn!("Failed to send account state update: {e}");
+        }
+    }
+
     fn submit_order_internal(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
 
         let order = self.core.get_order(&cmd.client_order_id)?;
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -282,6 +644,8 @@ impl BinanceFuturesExecutionClient {
         let position_side = self.determine_position_side(order_side, reduce_only);
         let clock = self.clock;
 
+        // HTTP only generates OrderRejected on failure.
+        // OrderAccepted comes from WebSocket user data stream ORDER_TRADE_UPDATE.
         self.spawn_task("submit_order", async move {
             let result = http_client
                 .submit_order(
@@ -301,27 +665,11 @@ impl BinanceFuturesExecutionClient {
 
             match result {
                 Ok(report) => {
-                    let venue_order_id = report.venue_order_id;
-                    let accepted_event = OrderAccepted::new(
-                        trader_id,
-                        strategy_id,
-                        instrument_id,
+                    log::debug!(
+                        "Order submit accepted: client_order_id={}, venue_order_id={}",
                         client_order_id,
-                        venue_order_id,
-                        account_id,
-                        UUID4::new(),
-                        ts_init,
-                        clock.get_time_ns(),
-                        false,
+                        report.venue_order_id
                     );
-
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Accepted(
-                            accepted_event,
-                        )))
-                    {
-                        log::warn!("Failed to send OrderAccepted event: {e}");
-                    }
                 }
                 Err(e) => {
                     let rejected_event = OrderRejected::new(
@@ -338,12 +686,10 @@ impl BinanceFuturesExecutionClient {
                         false,
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
-                            OrderEventAny::Rejected(rejected_event),
-                        ))
-                    {
-                        log::warn!("Failed to send OrderRejected event: {send_err}");
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                        OrderEventAny::Rejected(rejected_event),
+                    )) {
+                        log::warn!("Failed to send OrderRejected event: {e}");
                     }
 
                     return Err(e);
@@ -359,7 +705,7 @@ impl BinanceFuturesExecutionClient {
     fn cancel_order_internal(&self, cmd: &CancelOrder) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -368,6 +714,8 @@ impl BinanceFuturesExecutionClient {
         let client_order_id = Some(command.client_order_id);
         let clock = self.clock;
 
+        // HTTP only generates OrderCancelRejected on failure.
+        // OrderCanceled comes from WebSocket user data stream ORDER_TRADE_UPDATE.
         self.spawn_task("cancel_order", async move {
             let result = http_client
                 .cancel_order(instrument_id, venue_order_id, client_order_id)
@@ -375,26 +723,11 @@ impl BinanceFuturesExecutionClient {
 
             match result {
                 Ok(venue_order_id) => {
-                    let canceled_event = OrderCanceled::new(
-                        trader_id,
-                        command.strategy_id,
-                        command.instrument_id,
+                    log::debug!(
+                        "Cancel request accepted: client_order_id={}, venue_order_id={}",
                         command.client_order_id,
-                        UUID4::new(),
-                        ts_init,
-                        clock.get_time_ns(),
-                        false,
-                        Some(venue_order_id),
-                        Some(account_id),
+                        venue_order_id
                     );
-
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Canceled(
-                            canceled_event,
-                        )))
-                    {
-                        log::warn!("Failed to send OrderCanceled event: {e}");
-                    }
                 }
                 Err(e) => {
                     let rejected_event = OrderCancelRejected::new(
@@ -411,12 +744,10 @@ impl BinanceFuturesExecutionClient {
                         Some(account_id),
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
-                            OrderEventAny::CancelRejected(rejected_event),
-                        ))
-                    {
-                        log::warn!("Failed to send OrderCancelRejected event: {send_err}");
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                        OrderEventAny::CancelRejected(rejected_event),
+                    )) {
+                        log::warn!("Failed to send OrderCancelRejected event: {e}");
                     }
 
                     return Err(e);
@@ -562,9 +893,8 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             return Ok(());
         }
 
-        if self.exec_event_sender.is_none() {
-            self.exec_event_sender = Some(get_exec_event_sender());
-        }
+        // Reinitialize cancellation token in case of reconnection
+        self.cancellation_token = CancellationToken::new();
 
         // Check hedge mode
         let is_hedge_mode = self
@@ -575,7 +905,9 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         log::info!("Hedge mode (dual side position): {is_hedge_mode}");
 
         // Load instruments if not already done
-        if !self.instruments_initialized.load(Ordering::Acquire) {
+        let instruments = if self.instruments_initialized.load(Ordering::Acquire) {
+            Vec::new()
+        } else {
             let instruments = self
                 .http_client
                 .request_instruments()
@@ -587,21 +919,124 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             } else {
                 log::info!("Loaded {} Futures instruments", instruments.len());
 
-                let mut cache = self.core.cache().borrow_mut();
+                let cache = self.core.cache();
                 for instrument in &instruments {
-                    if let Err(e) = cache.add_instrument(instrument.clone()) {
+                    if let Err(e) = cache.borrow_mut().add_instrument(instrument.clone()) {
                         log::debug!("Instrument already in cache: {e}");
                     }
                 }
             }
 
             self.instruments_initialized.store(true, Ordering::Release);
+            instruments
+        };
+
+        // Create listen key for user data stream
+        log::info!("Creating listen key for user data stream...");
+        let listen_key_response = self
+            .http_client
+            .create_listen_key()
+            .await
+            .context("failed to create listen key")?;
+        let listen_key = listen_key_response.listen_key;
+        log::info!("Listen key created successfully");
+
+        {
+            let mut key_guard = self.listen_key.write().expect(MUTEX_POISONED);
+            *key_guard = Some(listen_key.clone());
         }
 
-        let Some(sender) = self.exec_event_sender.as_ref() else {
-            log::error!("Execution event sender not initialized");
-            anyhow::bail!("Execution event sender not initialized");
-        };
+        // Connect WebSocket
+        if let Some(ref mut ws_client) = self.ws_client {
+            // Cache instruments in WebSocket client for message handling
+            if !instruments.is_empty() {
+                ws_client.cache_instruments(instruments);
+            }
+
+            log::info!("Connecting to Binance Futures user data stream WebSocket...");
+            ws_client.connect().await.map_err(|e| {
+                log::error!("Binance Futures WebSocket connection failed: {e:?}");
+                anyhow::anyhow!("failed to connect Binance Futures WebSocket: {e}")
+            })?;
+            log::info!("Binance Futures WebSocket connected");
+
+            // Subscribe to user data stream using listen key
+            log::info!("Subscribing to user data stream...");
+            ws_client
+                .subscribe(vec![listen_key.clone()])
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to subscribe to user data stream: {e}"))?;
+            log::info!("Subscribed to user data stream");
+
+            // Start WebSocket message processing loop
+            let stream = ws_client.stream();
+            let exec_sender = self.exec_sender.clone();
+            let trader_id = self.core.trader_id;
+            let account_id = self.core.account_id;
+            let account_type = self.core.account_type;
+            let product_type = self.product_type;
+            let clock = self.clock;
+            let cancel = self.cancellation_token.clone();
+
+            let ws_task = get_runtime().spawn(async move {
+                pin_mut!(stream);
+                loop {
+                    tokio::select! {
+                        Some(message) = stream.next() => {
+                            Self::handle_ws_message(
+                                message,
+                                &exec_sender,
+                                trader_id,
+                                account_id,
+                                account_type,
+                                product_type,
+                                clock,
+                            );
+                        }
+                        () = cancel.cancelled() => {
+                            log::debug!("User data stream task cancelled");
+                            break;
+                        }
+                    }
+                }
+            });
+            *self.ws_task.lock().expect(MUTEX_POISONED) = Some(ws_task);
+
+            // Start listen key keepalive task
+            let http_client = self.http_client.clone();
+            let listen_key_ref = self.listen_key.clone();
+            let cancel = self.cancellation_token.clone();
+
+            let keepalive_task = get_runtime().spawn(async move {
+                let mut interval =
+                    tokio::time::interval(Duration::from_secs(LISTEN_KEY_KEEPALIVE_SECS));
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            let key = {
+                                let guard = listen_key_ref.read().expect(MUTEX_POISONED);
+                                guard.clone()
+                            };
+                            if let Some(ref key) = key {
+                                match http_client.keepalive_listen_key(key).await {
+                                    Ok(()) => {
+                                        log::debug!("Listen key keepalive sent successfully");
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Listen key keepalive failed: {e}");
+                                    }
+                                }
+                            }
+                        }
+                        () = cancel.cancelled() => {
+                            log::debug!("Listen key keepalive task cancelled");
+                            break;
+                        }
+                    }
+                }
+            });
+            *self.keepalive_task.lock().expect(MUTEX_POISONED) = Some(keepalive_task);
+        }
 
         // Request initial account state
         let account_state = self
@@ -617,7 +1052,10 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             );
         }
 
-        if let Err(e) = sender.send(ExecutionEvent::Account(account_state)) {
+        if let Err(e) = self
+            .exec_sender
+            .send(ExecutionEvent::Account(account_state))
+        {
             log::warn!("Failed to send account state: {e}");
         }
 
@@ -632,6 +1070,35 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         if !self.connected.load(Ordering::Acquire) {
             return Ok(());
         }
+
+        // Cancel all background tasks
+        self.cancellation_token.cancel();
+
+        // Wait for WebSocket task to complete
+        let ws_task = self.ws_task.lock().expect(MUTEX_POISONED).take();
+        if let Some(task) = ws_task {
+            let _ = task.await;
+        }
+
+        // Wait for keepalive task to complete
+        let keepalive_task = self.keepalive_task.lock().expect(MUTEX_POISONED).take();
+        if let Some(task) = keepalive_task {
+            let _ = task.await;
+        }
+
+        // Close WebSocket
+        if let Some(ref mut ws_client) = self.ws_client {
+            let _ = ws_client.close().await;
+        }
+
+        // Close listen key
+        let listen_key = self.listen_key.read().expect(MUTEX_POISONED).clone();
+        if let Some(ref key) = listen_key
+            && let Err(e) = self.http_client.close_listen_key(key).await
+        {
+            log::warn!("Failed to close listen key: {e}");
+        }
+        *self.listen_key.write().expect(MUTEX_POISONED) = None;
 
         self.abort_pending_tasks();
 
@@ -649,7 +1116,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
         let http_client = self.http_client.clone();
         let command = cmd.clone();
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let account_id = self.core.account_id;
 
         let symbol = command.instrument_id.symbol.to_string();
@@ -682,11 +1149,9 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         size_precision,
                     )?;
 
-                    if let Some(sender) = &exec_event_sender {
-                        let exec_report = NautilusExecutionReport::Order(Box::new(report));
-                        if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
-                            log::warn!("Failed to send order status report: {e}");
-                        }
+                    let exec_report = NautilusExecutionReport::Order(Box::new(report));
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Report(exec_report)) {
+                        log::warn!("Failed to send order status report: {e}");
                     }
                 }
                 Err(e) => log::warn!("Failed to query order status: {e}"),
@@ -775,13 +1240,12 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             self.clock.get_time_ns(),
         );
 
-        if let Some(sender) = &self.exec_event_sender {
-            log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-            if let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Submitted(event))) {
-                log::warn!("Failed to send OrderSubmitted event: {e}");
-            }
-        } else {
-            log::warn!("Cannot send OrderSubmitted: exec_event_sender not initialized");
+        log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
+        if let Err(e) = self
+            .exec_sender
+            .send(ExecutionEvent::Order(OrderEventAny::Submitted(event)))
+        {
+            log::warn!("Failed to send OrderSubmitted event: {e}");
         }
 
         self.submit_order_internal(cmd)
@@ -820,10 +1284,11 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                 Some(self.core.account_id),
             );
 
-            if let Some(sender) = &self.exec_event_sender
-                && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::ModifyRejected(
-                    rejected_event,
-                )))
+            if let Err(e) =
+                self.exec_sender
+                    .send(ExecutionEvent::Order(OrderEventAny::ModifyRejected(
+                        rejected_event,
+                    )))
             {
                 log::warn!("Failed to send OrderModifyRejected event: {e}");
             }
@@ -832,7 +1297,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
         let http_client = self.http_client.clone();
         let command = cmd.clone();
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -862,10 +1327,11 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                 Some(self.core.account_id),
             );
 
-            if let Some(sender) = &self.exec_event_sender
-                && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::ModifyRejected(
-                    rejected_event,
-                )))
+            if let Err(e) =
+                self.exec_sender
+                    .send(ExecutionEvent::Order(OrderEventAny::ModifyRejected(
+                        rejected_event,
+                    )))
             {
                 log::warn!("Failed to send OrderModifyRejected event: {e}");
             }
@@ -905,9 +1371,8 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         None,
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(e) = sender
-                            .send(ExecutionEvent::Order(OrderEventAny::Updated(updated_event)))
+                    if let Err(e) = exec_sender
+                        .send(ExecutionEvent::Order(OrderEventAny::Updated(updated_event)))
                     {
                         log::warn!("Failed to send OrderUpdated event: {e}");
                     }
@@ -927,12 +1392,10 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         Some(account_id),
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
-                            OrderEventAny::ModifyRejected(rejected_event),
-                        ))
-                    {
-                        log::warn!("Failed to send OrderModifyRejected event: {send_err}");
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                        OrderEventAny::ModifyRejected(rejected_event),
+                    )) {
+                        log::warn!("Failed to send OrderModifyRejected event: {e}");
                     }
 
                     anyhow::bail!("Modify order failed: {e}");
@@ -953,10 +1416,12 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         let http_client = self.http_client.clone();
         let instrument_id = cmd.instrument_id;
 
+        // HTTP cancel_all_orders only confirms the request was accepted.
+        // Actual OrderCanceled events come from WebSocket user data stream.
         self.spawn_task("cancel_all_orders", async move {
             match http_client.cancel_all_orders(instrument_id).await {
                 Ok(_) => {
-                    log::info!("Cancelled all orders for {instrument_id}");
+                    log::info!("Cancel all orders request accepted for {instrument_id}");
                 }
                 Err(e) => {
                     log::error!("Failed to cancel all orders for {instrument_id}: {e}");
@@ -979,7 +1444,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let clock = self.clock;
@@ -1032,11 +1497,9 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                         Some(account_id),
                                     );
 
-                                    if let Some(sender) = &exec_event_sender
-                                        && let Err(e) = sender.send(ExecutionEvent::Order(
-                                            OrderEventAny::Canceled(canceled_event),
-                                        ))
-                                    {
+                                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                                        OrderEventAny::Canceled(canceled_event),
+                                    )) {
                                         log::warn!("Failed to send OrderCanceled event: {e}");
                                     }
                                 }
@@ -1059,11 +1522,9 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                         Some(account_id),
                                     );
 
-                                    if let Some(sender) = &exec_event_sender
-                                        && let Err(e) = sender.send(ExecutionEvent::Order(
-                                            OrderEventAny::CancelRejected(rejected_event),
-                                        ))
-                                    {
+                                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                                        OrderEventAny::CancelRejected(rejected_event),
+                                    )) {
                                         log::warn!("Failed to send OrderCancelRejected event: {e}");
                                     }
                                 }
@@ -1086,12 +1547,10 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                 Some(account_id),
                             );
 
-                            if let Some(sender) = &exec_event_sender
-                                && let Err(send_err) = sender.send(ExecutionEvent::Order(
-                                    OrderEventAny::CancelRejected(rejected_event),
-                                ))
-                            {
-                                log::warn!("Failed to send OrderCancelRejected event: {send_err}");
+                            if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                                OrderEventAny::CancelRejected(rejected_event),
+                            )) {
+                                log::warn!("Failed to send OrderCancelRejected event: {e}");
                             }
                         }
                     }

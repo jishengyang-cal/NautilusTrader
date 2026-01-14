@@ -25,7 +25,8 @@ use nautilus_model::{
 use pyo3::prelude::*;
 
 use crate::spot::websocket::streams::{
-    client::BinanceSpotWebSocketClient, messages::NautilusWsMessage,
+    client::BinanceSpotWebSocketClient,
+    messages::{BinanceSpotWsMessage, NautilusSpotDataWsMessage},
 };
 
 #[pymethods]
@@ -80,34 +81,36 @@ impl BinanceSpotWebSocketClient {
 
                 while let Some(msg) = stream.next().await {
                     match msg {
-                        NautilusWsMessage::Data(data_vec) => {
-                            Python::attach(|py| {
-                                for data in data_vec {
-                                    let py_obj = data_to_pycapsule(py, data);
+                        BinanceSpotWsMessage::Data(data_msg) => match data_msg {
+                            NautilusSpotDataWsMessage::Data(data_vec) => {
+                                Python::attach(|py| {
+                                    for data in data_vec {
+                                        let py_obj = data_to_pycapsule(py, data);
+                                        call_python(py, &callback, py_obj);
+                                    }
+                                });
+                            }
+                            NautilusSpotDataWsMessage::Deltas(deltas) => {
+                                Python::attach(|py| {
+                                    let py_obj = data_to_pycapsule(
+                                        py,
+                                        Data::Deltas(OrderBookDeltas_API::new(deltas)),
+                                    );
                                     call_python(py, &callback, py_obj);
-                                }
-                            });
-                        }
-                        NautilusWsMessage::Deltas(deltas) => {
-                            Python::attach(|py| {
-                                let py_obj = data_to_pycapsule(
-                                    py,
-                                    Data::Deltas(OrderBookDeltas_API::new(deltas)),
-                                );
-                                call_python(py, &callback, py_obj);
-                            });
-                        }
-                        NautilusWsMessage::Error(err) => {
+                                });
+                            }
+                            _ => {}
+                        },
+                        BinanceSpotWsMessage::Error(err) => {
                             log::warn!(
                                 "Binance WebSocket error: code={}, msg={}",
                                 err.code,
                                 err.msg
                             );
                         }
-                        NautilusWsMessage::Reconnected => {
+                        BinanceSpotWsMessage::Reconnected => {
                             log::info!("Binance Spot WebSocket reconnected");
                         }
-                        _ => {}
                     }
                 }
             });

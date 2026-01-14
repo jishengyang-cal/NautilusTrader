@@ -411,12 +411,16 @@ impl BinanceRawFuturesHttpClient {
     }
 
     fn build_url(&self, path: &str, query: &str) -> String {
-        let normalized = if path.starts_with('/') {
+        // Full API paths (e.g., /fapi/v2/account) bypass the default api_path
+        let url_path = if path.starts_with("/fapi/") || path.starts_with("/dapi/") {
             path.to_string()
+        } else if path.starts_with('/') {
+            format!("{}{}", self.api_path, path)
         } else {
-            format!("/{path}")
+            format!("{}/{}", self.api_path, path)
         };
-        let mut url = format!("{}{}{}", self.base_url, self.api_path, normalized);
+
+        let mut url = format!("{}{}", self.base_url, url_path);
         if !query.is_empty() {
             url.push('?');
             url.push_str(query);
@@ -714,7 +718,13 @@ impl BinanceRawFuturesHttpClient {
     ///
     /// Returns an error if the request fails.
     pub async fn query_account(&self) -> BinanceFuturesHttpResult<BinanceFuturesAccountInfo> {
-        self.get::<(), _>("account", None, true, false).await
+        // USD-M uses /fapi/v2/account, COIN-M uses /dapi/v1/account
+        let path = if self.api_path.starts_with("/fapi") {
+            "/fapi/v2/account"
+        } else {
+            "/dapi/v1/account"
+        };
+        self.get::<(), _>(path, None, true, false).await
     }
 
     /// Fetches position risk information.
@@ -726,7 +736,13 @@ impl BinanceRawFuturesHttpClient {
         &self,
         params: &BinancePositionRiskParams,
     ) -> BinanceFuturesHttpResult<Vec<BinancePositionRisk>> {
-        self.get("positionRisk", Some(params), true, false).await
+        // USD-M uses /fapi/v2/positionRisk, COIN-M uses /dapi/v1/positionRisk
+        let path = if self.api_path.starts_with("/fapi") {
+            "/fapi/v2/positionRisk"
+        } else {
+            "/dapi/v1/positionRisk"
+        };
+        self.get(path, Some(params), true, false).await
     }
 
     /// Fetches user trades for a symbol.
@@ -1125,8 +1141,14 @@ impl BinanceFuturesHttpClient {
 
                 let mut instruments = Vec::with_capacity(info.symbols.len());
 
-                for symbol in &info.symbols {
-                    match parse_usdm_instrument(symbol, ts_init, ts_init) {
+                for symbol in info.symbols {
+                    // Cache symbol for precision lookups
+                    self.instruments.insert(
+                        symbol.symbol,
+                        BinanceFuturesInstrument::UsdM(symbol.clone()),
+                    );
+
+                    match parse_usdm_instrument(&symbol, ts_init, ts_init) {
                         Ok(instrument) => instruments.push(instrument),
                         Err(e) => {
                             log::debug!(
@@ -1150,8 +1172,14 @@ impl BinanceFuturesHttpClient {
                     .await?;
 
                 let mut instruments = Vec::with_capacity(info.symbols.len());
-                for symbol in &info.symbols {
-                    match parse_coinm_instrument(symbol, ts_init, ts_init) {
+                for symbol in info.symbols {
+                    // Cache symbol for precision lookups
+                    self.instruments.insert(
+                        symbol.symbol,
+                        BinanceFuturesInstrument::CoinM(symbol.clone()),
+                    );
+
+                    match parse_coinm_instrument(&symbol, ts_init, ts_init) {
                         Ok(instrument) => instruments.push(instrument),
                         Err(e) => {
                             log::debug!(
@@ -1374,6 +1402,12 @@ impl BinanceFuturesHttpClient {
             anyhow::bail!("Order type {order_type:?} requires a trigger price");
         }
 
+        // MARKET and STOP_MARKET orders don't accept timeInForce
+        let requires_time_in_force = matches!(
+            order_type,
+            OrderType::Limit | OrderType::StopLimit | OrderType::LimitIfTouched
+        );
+
         let qty_str = quantity.to_string();
         let price_str = price.map(|p| p.to_string());
         let stop_price_str = trigger_price.map(|p| p.to_string());
@@ -1383,7 +1417,11 @@ impl BinanceFuturesHttpClient {
             symbol,
             side: binance_side,
             order_type: binance_order_type,
-            time_in_force: Some(binance_tif),
+            time_in_force: if requires_time_in_force {
+                Some(binance_tif)
+            } else {
+                None
+            },
             quantity: Some(qty_str),
             price: price_str,
             new_client_order_id: Some(client_id_str),

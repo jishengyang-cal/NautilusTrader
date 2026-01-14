@@ -60,7 +60,7 @@ use nautilus_model::{
 use tokio::task::JoinHandle;
 
 use crate::{
-    common::consts::BINANCE_VENUE,
+    common::{consts::BINANCE_VENUE, credential::resolve_credentials, enums::BinanceProductType},
     config::BinanceExecClientConfig,
     spot::http::{
         client::BinanceSpotHttpClient, models::BatchCancelResult, query::BatchCancelItem,
@@ -73,11 +73,11 @@ use crate::{
 /// and Spot Margin markets. Uses HTTP API for all order operations with SBE encoding.
 #[derive(Debug)]
 pub struct BinanceSpotExecutionClient {
+    clock: &'static AtomicTime,
     core: ExecutionClientCore,
     config: BinanceExecClientConfig,
     http_client: BinanceSpotHttpClient,
-    clock: &'static AtomicTime,
-    exec_event_sender: Option<tokio::sync::mpsc::UnboundedSender<ExecutionEvent>>,
+    exec_sender: tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
     started: bool,
     connected: AtomicBool,
     instruments_initialized: AtomicBool,
@@ -91,20 +91,18 @@ impl BinanceSpotExecutionClient {
     ///
     /// Returns an error if the HTTP client fails to initialize or credentials are missing.
     pub fn new(core: ExecutionClientCore, config: BinanceExecClientConfig) -> anyhow::Result<Self> {
-        // Get credentials from config or environment variables
-        let api_key = config
-            .api_key
-            .clone()
-            .or_else(|| std::env::var("BINANCE_API_KEY").ok())
-            .ok_or_else(|| anyhow::anyhow!("BINANCE_API_KEY not found in config or environment"))?;
+        let product_type = config
+            .product_types
+            .first()
+            .copied()
+            .unwrap_or(BinanceProductType::Spot);
 
-        let api_secret = config
-            .api_secret
-            .clone()
-            .or_else(|| std::env::var("BINANCE_API_SECRET").ok())
-            .ok_or_else(|| {
-                anyhow::anyhow!("BINANCE_API_SECRET not found in config or environment")
-            })?;
+        let (api_key, api_secret) = resolve_credentials(
+            config.api_key.clone(),
+            config.api_secret.clone(),
+            config.environment,
+            product_type,
+        )?;
 
         let http_client = BinanceSpotHttpClient::new(
             config.environment,
@@ -117,12 +115,15 @@ impl BinanceSpotExecutionClient {
         )
         .context("failed to construct Binance Spot HTTP client")?;
 
+        let clock = get_atomic_clock_realtime();
+        let exec_sender = get_exec_event_sender();
+
         Ok(Self {
+            clock,
             core,
             config,
             http_client,
-            clock: get_atomic_clock_realtime(),
-            exec_event_sender: None,
+            exec_sender,
             started: false,
             connected: AtomicBool::new(false),
             instruments_initialized: AtomicBool::new(false),
@@ -152,7 +153,7 @@ impl BinanceSpotExecutionClient {
         let order = self.core.get_order(&cmd.client_order_id)?;
         let http_client = self.http_client.clone();
 
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -200,9 +201,8 @@ impl BinanceSpotExecutionClient {
                         false,
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(e) =
-                            sender.send(ExecutionEvent::Order(OrderEventAny::Accepted(accepted)))
+                    if let Err(e) =
+                        exec_sender.send(ExecutionEvent::Order(OrderEventAny::Accepted(accepted)))
                     {
                         log::warn!("Failed to send OrderAccepted event: {e}");
                     }
@@ -222,9 +222,8 @@ impl BinanceSpotExecutionClient {
                         false,
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(send_err) =
-                            sender.send(ExecutionEvent::Order(OrderEventAny::Rejected(rejected)))
+                    if let Err(send_err) =
+                        exec_sender.send(ExecutionEvent::Order(OrderEventAny::Rejected(rejected)))
                     {
                         log::warn!("Failed to send OrderRejected event: {send_err}");
                     }
@@ -243,7 +242,7 @@ impl BinanceSpotExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -275,11 +274,9 @@ impl BinanceSpotExecutionClient {
                         Some(account_id),
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Canceled(
-                            canceled_event,
-                        )))
-                    {
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                        OrderEventAny::Canceled(canceled_event),
+                    )) {
                         log::warn!("Failed to send OrderCanceled event: {e}");
                     }
                 }
@@ -298,12 +295,10 @@ impl BinanceSpotExecutionClient {
                         Some(account_id),
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
-                            OrderEventAny::CancelRejected(rejected_event),
-                        ))
-                    {
-                        log::warn!("Failed to send OrderCancelRejected event: {send_err}");
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                        OrderEventAny::CancelRejected(rejected_event),
+                    )) {
+                        log::warn!("Failed to send OrderCancelRejected event: {e}");
                     }
 
                     return Err(e);
@@ -400,11 +395,6 @@ impl ExecutionClient for BinanceSpotExecutionClient {
             return Ok(());
         }
 
-        // Initialize exec event sender (must be done in async context after runner is set up)
-        if self.exec_event_sender.is_none() {
-            self.exec_event_sender = Some(get_exec_event_sender());
-        }
-
         // Load instruments if not already done
         if !self.instruments_initialized.load(Ordering::Acquire) {
             let instruments = self
@@ -433,11 +423,6 @@ impl ExecutionClient for BinanceSpotExecutionClient {
             self.instruments_initialized.store(true, Ordering::Release);
         }
 
-        let Some(sender) = self.exec_event_sender.as_ref() else {
-            log::error!("Execution event sender not initialized");
-            anyhow::bail!("Execution event sender not initialized");
-        };
-
         // Request initial account state
         let account_state = self
             .refresh_account_state()
@@ -451,7 +436,10 @@ impl ExecutionClient for BinanceSpotExecutionClient {
             );
         }
 
-        if let Err(e) = sender.send(ExecutionEvent::Account(account_state)) {
+        if let Err(e) = self
+            .exec_sender
+            .send(ExecutionEvent::Account(account_state))
+        {
             log::warn!("Failed to send account state: {e}");
         }
 
@@ -484,7 +472,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
 
         let http_client = self.http_client.clone();
         let command = cmd.clone();
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let account_id = self.core.account_id;
 
         self.spawn_task("query_order", async move {
@@ -499,11 +487,9 @@ impl ExecutionClient for BinanceSpotExecutionClient {
 
             match result {
                 Ok(report) => {
-                    if let Some(sender) = &exec_event_sender {
-                        let exec_report = NautilusExecutionReport::Order(Box::new(report));
-                        if let Err(e) = sender.send(ExecutionEvent::Report(exec_report)) {
-                            log::warn!("Failed to send order status report: {e}");
-                        }
+                    let exec_report = NautilusExecutionReport::Order(Box::new(report));
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Report(exec_report)) {
+                        log::warn!("Failed to send order status report: {e}");
                     }
                 }
                 Err(e) => log::warn!("Failed to query order status: {e}"),
@@ -594,13 +580,12 @@ impl ExecutionClient for BinanceSpotExecutionClient {
             cmd.ts_init,
             self.clock.get_time_ns(),
         );
-        if let Some(sender) = &self.exec_event_sender {
-            log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-            if let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Submitted(event))) {
-                log::warn!("Failed to send OrderSubmitted event: {e}");
-            }
-        } else {
-            log::warn!("Cannot send OrderSubmitted: exec_event_sender not initialized");
+        log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
+        if let Err(e) = self
+            .exec_sender
+            .send(ExecutionEvent::Order(OrderEventAny::Submitted(event)))
+        {
+            log::warn!("Failed to send OrderSubmitted event: {e}");
         }
 
         self.submit_order_internal(cmd)
@@ -642,10 +627,11 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                 Some(self.core.account_id),
             );
 
-            if let Some(sender) = &self.exec_event_sender
-                && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::ModifyRejected(
-                    rejected_event,
-                )))
+            if let Err(e) =
+                self.exec_sender
+                    .send(ExecutionEvent::Order(OrderEventAny::ModifyRejected(
+                        rejected_event,
+                    )))
             {
                 log::warn!("Failed to send OrderModifyRejected event: {e}");
             }
@@ -655,7 +641,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -706,9 +692,8 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                         None, // protection_price
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(e) = sender
-                            .send(ExecutionEvent::Order(OrderEventAny::Updated(updated_event)))
+                    if let Err(e) = exec_sender
+                        .send(ExecutionEvent::Order(OrderEventAny::Updated(updated_event)))
                     {
                         log::warn!("Failed to send OrderUpdated event: {e}");
                     }
@@ -728,12 +713,10 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                         Some(account_id),
                     );
 
-                    if let Some(sender) = &exec_event_sender
-                        && let Err(send_err) = sender.send(ExecutionEvent::Order(
-                            OrderEventAny::ModifyRejected(rejected_event),
-                        ))
-                    {
-                        log::warn!("Failed to send OrderModifyRejected event: {send_err}");
+                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                        OrderEventAny::ModifyRejected(rejected_event),
+                    )) {
+                        log::warn!("Failed to send OrderModifyRejected event: {e}");
                     }
 
                     return Err(e);
@@ -754,7 +737,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let clock = self.clock;
@@ -777,11 +760,9 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                     Some(account_id),
                 );
 
-                if let Some(sender) = &exec_event_sender
-                    && let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Canceled(
-                        canceled_event,
-                    )))
-                {
+                if let Err(e) = exec_sender.send(ExecutionEvent::Order(OrderEventAny::Canceled(
+                    canceled_event,
+                ))) {
                     log::warn!("Failed to send OrderCanceled event: {e}");
                 }
             }
@@ -802,7 +783,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let exec_event_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let clock = self.clock;
@@ -855,11 +836,9 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                                         Some(account_id),
                                     );
 
-                                    if let Some(sender) = &exec_event_sender
-                                        && let Err(e) = sender.send(ExecutionEvent::Order(
-                                            OrderEventAny::Canceled(canceled_event),
-                                        ))
-                                    {
+                                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                                        OrderEventAny::Canceled(canceled_event),
+                                    )) {
                                         log::warn!("Failed to send OrderCanceled event: {e}");
                                     }
                                 }
@@ -882,11 +861,9 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                                         Some(account_id),
                                     );
 
-                                    if let Some(sender) = &exec_event_sender
-                                        && let Err(e) = sender.send(ExecutionEvent::Order(
-                                            OrderEventAny::CancelRejected(rejected_event),
-                                        ))
-                                    {
+                                    if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                                        OrderEventAny::CancelRejected(rejected_event),
+                                    )) {
                                         log::warn!("Failed to send OrderCancelRejected event: {e}");
                                     }
                                 }
@@ -909,12 +886,10 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                                 Some(account_id),
                             );
 
-                            if let Some(sender) = &exec_event_sender
-                                && let Err(send_err) = sender.send(ExecutionEvent::Order(
-                                    OrderEventAny::CancelRejected(rejected_event),
-                                ))
-                            {
-                                log::warn!("Failed to send OrderCancelRejected event: {send_err}");
+                            if let Err(e) = exec_sender.send(ExecutionEvent::Order(
+                                OrderEventAny::CancelRejected(rejected_event),
+                            )) {
+                                log::warn!("Failed to send OrderCancelRejected event: {e}");
                             }
                         }
                     }

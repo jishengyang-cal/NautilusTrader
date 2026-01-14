@@ -13,13 +13,11 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Example demonstrating live data testing with the Binance Spot SBE adapter.
+//! Example demonstrating live data testing with the Binance Futures USD-M adapter.
 //!
-//! Run with: `cargo run --example binance-spot-data-tester --package nautilus-binance`
+//! Run with: `cargo run --example binance-futures-data-tester --package nautilus-binance`
 //!
-//! Requires environment variables (for SBE data streams):
-//! - BINANCE_ED25519_API_KEY
-//! - BINANCE_ED25519_API_SECRET
+//! Uses testnet by default for safety.
 
 use std::num::NonZeroUsize;
 
@@ -42,15 +40,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let environment = Environment::Live;
     let trader_id = TraderId::test_default();
-    let node_name = "BINANCE-TESTER-001".to_string();
+    let node_name = "BINANCE-FUTURES-TESTER-001".to_string();
     let instrument_ids = vec![
-        InstrumentId::from("BTCUSDT.BINANCE"),
-        // InstrumentId::from("ETHUSDT.BINANCE"),
+        InstrumentId::from("BTCUSDT-PERP.BINANCE"),
+        // InstrumentId::from("ETHUSDT-PERP.BINANCE"),
     ];
 
     let binance_config = BinanceDataClientConfig {
-        product_types: vec![BinanceProductType::Spot],
-        environment: BinanceEnvironment::Mainnet,
+        product_types: vec![BinanceProductType::UsdM],
+        environment: BinanceEnvironment::Testnet,
         api_key: None,
         api_secret: None,
         ed25519_api_key: None,

@@ -17,7 +17,7 @@
 
 use std::fmt::Display;
 
-use nautilus_model::enums::{OrderSide, TimeInForce};
+use nautilus_model::enums::{OrderSide, OrderType, TimeInForce};
 use serde::{Deserialize, Serialize};
 
 /// Binance product type identifier.
@@ -150,6 +150,15 @@ impl TryFrom<OrderSide> for BinanceSide {
     }
 }
 
+impl From<BinanceSide> for OrderSide {
+    fn from(value: BinanceSide) -> Self {
+        match value {
+            BinanceSide::Buy => Self::Buy,
+            BinanceSide::Sell => Self::Sell,
+        }
+    }
+}
+
 /// Position side for dual-side position mode.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -245,6 +254,23 @@ pub enum BinanceFuturesOrderType {
     /// Unknown or undocumented value.
     #[serde(other)]
     Unknown,
+}
+
+impl From<BinanceFuturesOrderType> for OrderType {
+    fn from(value: BinanceFuturesOrderType) -> Self {
+        match value {
+            BinanceFuturesOrderType::Limit => Self::Limit,
+            BinanceFuturesOrderType::Market => Self::Market,
+            BinanceFuturesOrderType::Stop => Self::StopLimit,
+            BinanceFuturesOrderType::StopMarket => Self::StopMarket,
+            BinanceFuturesOrderType::TakeProfit => Self::LimitIfTouched,
+            BinanceFuturesOrderType::TakeProfitMarket => Self::MarketIfTouched,
+            BinanceFuturesOrderType::TrailingStopMarket => Self::TrailingStopMarket,
+            BinanceFuturesOrderType::Liquidation
+            | BinanceFuturesOrderType::Adl
+            | BinanceFuturesOrderType::Unknown => Self::Market, // Exchange-generated orders
+        }
+    }
 }
 
 /// Time in force options.

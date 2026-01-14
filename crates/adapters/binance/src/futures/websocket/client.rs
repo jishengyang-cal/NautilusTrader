@@ -49,7 +49,7 @@ use ustr::Ustr;
 use super::{
     error::{BinanceWsError, BinanceWsResult},
     handler::BinanceFuturesWsFeedHandler,
-    messages::{BinanceFuturesHandlerCommand, NautilusFuturesWsMessage},
+    messages::{BinanceFuturesHandlerCommand, BinanceFuturesWsMessage},
 };
 use crate::common::{
     credential::Credential,
@@ -76,7 +76,7 @@ pub struct BinanceFuturesWebSocketClient {
     cmd_tx:
         Arc<tokio::sync::RwLock<tokio::sync::mpsc::UnboundedSender<BinanceFuturesHandlerCommand>>>,
     out_rx: Arc<
-        std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<NautilusFuturesWsMessage>>>,
+        std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<BinanceFuturesWsMessage>>>,
     >,
     task_handle: Option<Arc<tokio::task::JoinHandle<()>>>,
     subscriptions_state: SubscriptionState,
@@ -296,7 +296,7 @@ impl BinanceFuturesWebSocketClient {
                     }
                     result = handler.next() => {
                         match result {
-                            Some(NautilusFuturesWsMessage::Reconnected) => {
+                            Some(BinanceFuturesWsMessage::Reconnected) => {
                                 log::info!("WebSocket reconnected, restoring subscriptions");
                                 // Mark all confirmed subscriptions as pending
                                 let all_topics = subscriptions_state.all_topics();
@@ -311,7 +311,7 @@ impl BinanceFuturesWebSocketClient {
                                         log::error!("Failed to resubscribe after reconnect: {e}");
                                     }
 
-                                if out_tx.send(NautilusFuturesWsMessage::Reconnected).is_err() {
+                                if out_tx.send(BinanceFuturesWsMessage::Reconnected).is_err() {
                                     log::debug!("Output channel closed");
                                     break;
                                 }
@@ -427,7 +427,7 @@ impl BinanceFuturesWebSocketClient {
     /// # Panics
     ///
     /// Panics if the internal output receiver mutex is poisoned.
-    pub fn stream(&self) -> impl Stream<Item = NautilusFuturesWsMessage> + 'static {
+    pub fn stream(&self) -> impl Stream<Item = BinanceFuturesWsMessage> + 'static {
         let out_rx = self.out_rx.lock().expect("out_rx lock poisoned").take();
         async_stream::stream! {
             if let Some(mut rx) = out_rx {
