@@ -17,34 +17,37 @@
 
 use std::{fmt::Display, ops::Deref};
 
-use nautilus_core::correctness::{FAILED, check_predicate_true, check_valid_string_utf8};
+use nautilus_core::correctness::{FAILED, check_valid_string_utf8};
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
+/// Check that a string contains no wildcard characters.
 #[inline(always)]
-fn check_fully_qualified_string(value: &Ustr, key: &str) -> anyhow::Result<()> {
-    check_predicate_true(
-        !value.chars().any(|c| c == '*' || c == '?'),
-        &format!("{key} `value` contained invalid characters, was {value}"),
-    )
+fn check_no_wildcards(value: &Ustr, key: &str) -> anyhow::Result<()> {
+    // Check bytes directly - faster than chars() for ASCII wildcards
+    if value.as_bytes().iter().any(|&b| b == b'*' || b == b'?') {
+        anyhow::bail!("{key} `value` contained invalid characters, was {value}");
+    }
+    Ok(())
 }
 
-/// Pattern is a string pattern for a subscription with special characters for pattern matching.
+/// Marker for subscription patterns. Allows wildcards (`*`, `?`).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Pattern;
 
-/// Topic is a fully qualified string for publishing data.
+/// Marker for publish topics. No wildcards allowed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Topic;
 
-/// Endpoint is a fully qualified string for sending data.
+/// Marker for direct message endpoints. No wildcards allowed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Endpoint;
 
 /// A message bus string type parameterized by marker type.
 ///
-/// `MStr<Pattern>` allows wildcards (`*`, `?`) for subscription matching.
-/// `MStr<Topic>` and `MStr<Endpoint>` require fully qualified strings.
+/// - `MStr<Pattern>` - for subscriptions, allows wildcards (`*`, `?`)
+/// - `MStr<Topic>` - for publishing, no wildcards
+/// - `MStr<Endpoint>` - for direct messages, no wildcards
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct MStr<T> {
@@ -121,10 +124,25 @@ impl MStr<Topic> {
     pub fn topic<T: AsRef<str>>(value: T) -> anyhow::Result<Self> {
         let topic = Ustr::from(value.as_ref());
         check_valid_string_utf8(value, stringify!(value))?;
-        check_fully_qualified_string(&topic, stringify!(Topic))?;
+        check_no_wildcards(&topic, stringify!(Topic))?;
 
         Ok(Self {
             value: topic,
+            _marker: std::marker::PhantomData,
+        })
+    }
+
+    /// Create a topic from an already-interned Ustr.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the topic is empty, all whitespace, or contains wildcard characters.
+    pub fn topic_from_ustr(value: Ustr) -> anyhow::Result<Self> {
+        check_valid_string_utf8(value.as_str(), stringify!(value))?;
+        check_no_wildcards(&value, stringify!(Topic))?;
+
+        Ok(Self {
+            value,
             _marker: std::marker::PhantomData,
         })
     }
@@ -150,7 +168,7 @@ impl From<&String> for MStr<Topic> {
 
 impl From<Ustr> for MStr<Topic> {
     fn from(value: Ustr) -> Self {
-        value.as_str().into()
+        Self::topic_from_ustr(value).expect(FAILED)
     }
 }
 
@@ -169,10 +187,25 @@ impl MStr<Endpoint> {
     pub fn endpoint<T: AsRef<str>>(value: T) -> anyhow::Result<Self> {
         let endpoint = Ustr::from(value.as_ref());
         check_valid_string_utf8(value, stringify!(value))?;
-        check_fully_qualified_string(&endpoint, stringify!(Endpoint))?;
+        check_no_wildcards(&endpoint, stringify!(Endpoint))?;
 
         Ok(Self {
             value: endpoint,
+            _marker: std::marker::PhantomData,
+        })
+    }
+
+    /// Create an endpoint from an already-interned Ustr.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the endpoint is empty, all whitespace, or contains wildcard characters.
+    pub fn endpoint_from_ustr(value: Ustr) -> anyhow::Result<Self> {
+        check_valid_string_utf8(value.as_str(), stringify!(value))?;
+        check_no_wildcards(&value, stringify!(Endpoint))?;
+
+        Ok(Self {
+            value,
             _marker: std::marker::PhantomData,
         })
     }
@@ -198,7 +231,7 @@ impl From<&String> for MStr<Endpoint> {
 
 impl From<Ustr> for MStr<Endpoint> {
     fn from(value: Ustr) -> Self {
-        value.as_str().into()
+        Self::endpoint_from_ustr(value).expect(FAILED)
     }
 }
 
@@ -261,6 +294,53 @@ mod tests {
         let topic: MStr<Topic> = "data.quotes.BINANCE.BTCUSDT".into();
         let pattern: MStr<Pattern> = topic.into();
         assert_eq!(pattern.as_ref(), "data.quotes.BINANCE.BTCUSDT");
+    }
+
+    #[rstest]
+    fn test_topic_from_ustr_valid() {
+        let ustr = Ustr::from("data.quotes.BINANCE");
+        let topic = MStr::<Topic>::topic_from_ustr(ustr).unwrap();
+        assert_eq!(topic.as_ref(), "data.quotes.BINANCE");
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("   ")]
+    #[case("\t\n")]
+    fn test_topic_from_ustr_rejects_empty_whitespace(#[case] input: &str) {
+        let ustr = Ustr::from(input);
+        assert!(MStr::<Topic>::topic_from_ustr(ustr).is_err());
+    }
+
+    #[rstest]
+    #[case("data.*")]
+    #[case("a?b")]
+    fn test_topic_from_ustr_rejects_wildcards(#[case] input: &str) {
+        let ustr = Ustr::from(input);
+        assert!(MStr::<Topic>::topic_from_ustr(ustr).is_err());
+    }
+
+    #[rstest]
+    fn test_endpoint_from_ustr_valid() {
+        let ustr = Ustr::from("DataEngine.execute");
+        let endpoint = MStr::<Endpoint>::endpoint_from_ustr(ustr).unwrap();
+        assert_eq!(endpoint.as_ref(), "DataEngine.execute");
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("   ")]
+    fn test_endpoint_from_ustr_rejects_empty_whitespace(#[case] input: &str) {
+        let ustr = Ustr::from(input);
+        assert!(MStr::<Endpoint>::endpoint_from_ustr(ustr).is_err());
+    }
+
+    #[rstest]
+    #[case("Engine.*")]
+    #[case("a?b")]
+    fn test_endpoint_from_ustr_rejects_wildcards(#[case] input: &str) {
+        let ustr = Ustr::from(input);
+        assert!(MStr::<Endpoint>::endpoint_from_ustr(ustr).is_err());
     }
 
     #[rstest]

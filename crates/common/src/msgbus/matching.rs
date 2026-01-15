@@ -13,67 +13,67 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use smallvec::SmallVec;
+//! Pattern matching for message bus topic subscriptions.
 
 use super::mstr::{MStr, Pattern, Topic};
 
-/// Match a topic and a string pattern using iterative backtracking algorithm
-/// pattern can contains -
-/// '*' - match 0 or more characters after this
-/// '?' - match any character once
-/// 'a-z' - match the specific character
+/// Match a topic against a pattern with wildcard support.
+///
+/// Wildcards:
+/// - `*` matches zero or more characters
+/// - `?` matches exactly one character
+///
+/// Uses a greedy two-pointer algorithm. Chosen over DP (O(n*m) space),
+/// recursive backtracking (stack overflow risk), and regex (compilation overhead).
 pub fn is_matching_backtracking(topic: MStr<Topic>, pattern: MStr<Pattern>) -> bool {
-    let topic_bytes = topic.as_bytes();
-    let pattern_bytes = pattern.as_bytes();
-
-    is_matching(topic_bytes, pattern_bytes)
+    is_matching(topic.as_bytes(), pattern.as_bytes())
 }
 
+/// Match topic bytes against pattern bytes.
 #[must_use]
+#[inline]
 pub fn is_matching(topic: &[u8], pattern: &[u8]) -> bool {
-    // Stack to store states for backtracking (topic_idx, pattern_idx)
-    // SmallVec avoids heap allocation for patterns with ≤16 wildcards
-    let mut stack: SmallVec<[(usize, usize); 16]> = SmallVec::new();
-    stack.push((0, 0));
+    // Fast path for exact matches (no wildcards)
+    if topic.len() == pattern.len() && !pattern.contains(&b'*') && !pattern.contains(&b'?') {
+        return topic == pattern;
+    }
 
-    while let Some((mut i, mut j)) = stack.pop() {
-        loop {
-            // Found a match if we've consumed both strings
-            if i == topic.len() && j == pattern.len() {
-                return true;
-            }
+    is_matching_greedy(topic, pattern)
+}
 
-            // If we've reached the end of the pattern, break to try other paths
-            if j == pattern.len() {
-                break;
-            }
+/// Greedy wildcard matching. Tracks the last `*` position and backtracks
+/// when needed. O(n+m) for typical patterns, O(n*m) worst case.
+#[inline]
+fn is_matching_greedy(topic: &[u8], pattern: &[u8]) -> bool {
+    let mut i = 0;
+    let mut j = 0;
+    let mut star_idx: Option<usize> = None;
+    let mut match_idx = 0;
 
-            // Handle '*' wildcard
-            if pattern[j] == b'*' {
-                // Try skipping '*' entirely first
-                stack.push((i, j + 1));
-
-                // Continue with matching current character and keeping '*'
-                if i < topic.len() {
-                    i += 1;
-                    continue;
-                }
-                break;
-            }
-            // Handle '?' or exact character match
-            else if i < topic.len() && (pattern[j] == b'?' || topic[i] == pattern[j]) {
-                // Continue matching linearly without stack operations
-                i += 1;
-                j += 1;
-                continue;
-            }
-
-            // No match found in current path
-            break;
+    while i < topic.len() {
+        if j < pattern.len() && (pattern[j] == b'?' || pattern[j] == topic[i]) {
+            i += 1;
+            j += 1;
+        } else if j < pattern.len() && pattern[j] == b'*' {
+            star_idx = Some(j);
+            match_idx = i;
+            j += 1;
+        } else if let Some(si) = star_idx {
+            // Backtrack: try matching one more char with the last '*'
+            j = si + 1;
+            match_idx += 1;
+            i = match_idx;
+        } else {
+            return false;
         }
     }
 
-    false
+    // Skip trailing '*' in pattern
+    while j < pattern.len() && pattern[j] == b'*' {
+        j += 1;
+    }
+
+    j == pattern.len()
 }
 
 #[cfg(test)]
@@ -106,6 +106,39 @@ mod tests {
             is_matching_backtracking(topic.into(), pattern.into()),
             expected
         );
+    }
+
+    #[rstest]
+    // Empty and edge cases
+    #[case(b"", b"", true)]
+    #[case(b"", b"*", true)]
+    #[case(b"", b"?", false)]
+    #[case(b"", b"a", false)]
+    #[case(b"a", b"", false)]
+    // Wildcard-only patterns
+    #[case(b"abc", b"*", true)]
+    #[case(b"abc", b"***", true)]
+    #[case(b"abc", b"???", true)]
+    #[case(b"abc", b"????", false)]
+    #[case(b"abc", b"??", false)]
+    // Consecutive stars
+    #[case(b"abc", b"a**c", true)]
+    #[case(b"abc", b"**c", true)]
+    #[case(b"abc", b"a**", true)]
+    // Mixed consecutive
+    #[case(b"abc", b"*?*", true)]
+    #[case(b"ab", b"*?*", true)]
+    #[case(b"a", b"*?*", true)]
+    #[case(b"", b"*?*", false)]
+    // Pattern longer than topic
+    #[case(b"ab", b"abc", false)]
+    #[case(b"ab", b"ab?", false)]
+    fn test_is_matching_bytes(
+        #[case] topic: &[u8],
+        #[case] pattern: &[u8],
+        #[case] expected: bool,
+    ) {
+        assert_eq!(is_matching(topic, pattern), expected);
     }
 
     fn convert_pattern_to_regex(pattern: &str) -> String {

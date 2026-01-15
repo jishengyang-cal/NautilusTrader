@@ -5065,6 +5065,7 @@ dependencies = [
  "criterion",
  "derive_builder",
  "futures",
+ "iai",
  "indexmap 2.13.0",
  "log",
  "nautilus-core",

@@ -82,6 +82,7 @@ tokio = { workspace = true, optional = true }
 capnp = { workspace = true }
 criterion = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
+iai = { workspace = true }
 proptest = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
@@ -96,16 +97,26 @@ path = "benches/cache/orders.rs"
 harness = false
 
 [[bench]]
-name = "matching"
-path = "benches/matching.rs"
-harness = false
-
-[[bench]]
 name = "cache_query_sets"
 path = "benches/cache/query_sets.rs"
 harness = false
 
 [[bench]]
+name = "matching"
+path = "benches/matching.rs"
+harness = false
+
+[[bench]]
+name = "matching_iai"
+path = "benches/matching_iai.rs"
+harness = false
+
+[[bench]]
 name = "msgbus"
 path = "benches/msgbus.rs"
+harness = false
+
+[[bench]]
+name = "mstr"
+path = "benches/mstr.rs"
 harness = false
