@@ -48,6 +48,7 @@ Released on TBD (UTC).
 - Added Binance `listenKeyExpired` event handling (#3387), thanks @Johnkhk
 - Added Deribit data client (#3368), thanks @filipmacek
 - Added Deribit order submission (#3408), thanks @filipmacek
+- Added Deribit live reconciliation support (#3421), thanks @filipmacek
 - Added Polymarket data loader rate limiting
 - Refactored computation of greeks (#3393), thanks @faysou
 - Refactored `TearsheetConfig.charts` to chart objects (removed `chart_args`) (#3398), thanks @KaulSe
