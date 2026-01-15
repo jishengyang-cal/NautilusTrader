@@ -57,7 +57,7 @@ use crate::{
     common::consts::AX_VENUE,
     config::AxExecClientConfig,
     http::client::AxHttpClient,
-    websocket::{AxOrdersWsMessage, orders::AxOrdersWebSocketClient},
+    websocket::{AxOrdersWsMessage, NautilusExecWsMessage, orders::AxOrdersWebSocketClient},
 };
 
 /// Live execution client for the AX Exchange.
@@ -803,45 +803,47 @@ fn dispatch_ws_message(
     sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
 ) {
     match message {
-        AxOrdersWsMessage::OrderAcceptedEvent(event) => {
-            log::debug!(
-                "Order accepted: {} {}",
-                event.client_order_id,
-                event.venue_order_id
-            );
-            send_order_event(sender, OrderEventAny::Accepted(event));
-        }
-        AxOrdersWsMessage::OrderFilledEvent(event) => {
-            log::debug!(
-                "Order filled: {} {} @ {}",
-                event.client_order_id,
-                event.last_qty,
-                event.last_px
-            );
-            send_order_event(sender, OrderEventAny::Filled(*event));
-        }
-        AxOrdersWsMessage::OrderCanceledEvent(event) => {
-            log::debug!("Order canceled: {}", event.client_order_id);
-            send_order_event(sender, OrderEventAny::Canceled(event));
-        }
-        AxOrdersWsMessage::OrderExpiredEvent(event) => {
-            log::debug!("Order expired: {}", event.client_order_id);
-            send_order_event(sender, OrderEventAny::Expired(event));
-        }
-        AxOrdersWsMessage::OrderRejected(event) => {
-            log::warn!("Order rejected: {}", event.client_order_id);
-            send_order_event(sender, OrderEventAny::Rejected(event));
-        }
-        AxOrdersWsMessage::OrderCancelRejected(event) => {
-            log::warn!("Cancel rejected: {}", event.client_order_id);
-            send_order_event(sender, OrderEventAny::CancelRejected(event));
-        }
-        AxOrdersWsMessage::OrderStatusReports(reports) => {
-            log::debug!("Order status reports: {}", reports.len());
-        }
-        AxOrdersWsMessage::FillReports(reports) => {
-            log::debug!("Fill reports: {}", reports.len());
-        }
+        AxOrdersWsMessage::Nautilus(message) => match message {
+            NautilusExecWsMessage::OrderAccepted(event) => {
+                log::debug!(
+                    "Order accepted: {} {}",
+                    event.client_order_id,
+                    event.venue_order_id
+                );
+                send_order_event(sender, OrderEventAny::Accepted(event));
+            }
+            NautilusExecWsMessage::OrderFilled(event) => {
+                log::debug!(
+                    "Order filled: {} {} @ {}",
+                    event.client_order_id,
+                    event.last_qty,
+                    event.last_px
+                );
+                send_order_event(sender, OrderEventAny::Filled(*event));
+            }
+            NautilusExecWsMessage::OrderCanceled(event) => {
+                log::debug!("Order canceled: {}", event.client_order_id);
+                send_order_event(sender, OrderEventAny::Canceled(event));
+            }
+            NautilusExecWsMessage::OrderExpired(event) => {
+                log::debug!("Order expired: {}", event.client_order_id);
+                send_order_event(sender, OrderEventAny::Expired(event));
+            }
+            NautilusExecWsMessage::OrderRejected(event) => {
+                log::warn!("Order rejected: {}", event.client_order_id);
+                send_order_event(sender, OrderEventAny::Rejected(event));
+            }
+            NautilusExecWsMessage::OrderCancelRejected(event) => {
+                log::warn!("Cancel rejected: {}", event.client_order_id);
+                send_order_event(sender, OrderEventAny::CancelRejected(event));
+            }
+            NautilusExecWsMessage::OrderStatusReports(reports) => {
+                log::debug!("Order status reports: {}", reports.len());
+            }
+            NautilusExecWsMessage::FillReports(reports) => {
+                log::debug!("Fill reports: {}", reports.len());
+            }
+        },
         AxOrdersWsMessage::PlaceOrderResponse(resp) => {
             log::debug!(
                 "Place order response: rid={} oid={}",

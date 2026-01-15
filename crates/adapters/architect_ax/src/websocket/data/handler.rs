@@ -42,7 +42,7 @@ use crate::{
     websocket::messages::{
         AxMdBookL1, AxMdBookL2, AxMdBookL3, AxMdCandle, AxMdHeartbeat, AxMdSubscribe,
         AxMdSubscribeCandles, AxMdTrade, AxMdUnsubscribe, AxMdUnsubscribeCandles, AxWsError,
-        NautilusWsMessage,
+        NautilusDataWsMessage,
     },
 };
 
@@ -102,11 +102,11 @@ pub(crate) struct FeedHandler {
     cmd_rx: tokio::sync::mpsc::UnboundedReceiver<HandlerCommand>,
     raw_rx: tokio::sync::mpsc::UnboundedReceiver<Message>,
     #[allow(dead_code)] // TODO: Use for sending parsed messages
-    out_tx: tokio::sync::mpsc::UnboundedSender<NautilusWsMessage>,
+    out_tx: tokio::sync::mpsc::UnboundedSender<NautilusDataWsMessage>,
     #[allow(dead_code)] // TODO: Use for tracking subscriptions
     subscriptions: SubscriptionState,
     instruments: AHashMap<Ustr, InstrumentAny>,
-    message_queue: VecDeque<NautilusWsMessage>,
+    message_queue: VecDeque<NautilusDataWsMessage>,
 }
 
 impl FeedHandler {
@@ -116,7 +116,7 @@ impl FeedHandler {
         signal: Arc<AtomicBool>,
         cmd_rx: tokio::sync::mpsc::UnboundedReceiver<HandlerCommand>,
         raw_rx: tokio::sync::mpsc::UnboundedReceiver<Message>,
-        out_tx: tokio::sync::mpsc::UnboundedSender<NautilusWsMessage>,
+        out_tx: tokio::sync::mpsc::UnboundedSender<NautilusDataWsMessage>,
         subscriptions: SubscriptionState,
     ) -> Self {
         Self {
@@ -139,7 +139,7 @@ impl FeedHandler {
     /// Returns the next message from the handler.
     ///
     /// This method blocks until a message is available or the handler is stopped.
-    pub async fn next(&mut self) -> Option<NautilusWsMessage> {
+    pub async fn next(&mut self) -> Option<NautilusDataWsMessage> {
         loop {
             if let Some(msg) = self.message_queue.pop_front() {
                 return Some(msg);
@@ -316,12 +316,12 @@ impl FeedHandler {
             .map_err(|e| e.to_string())
     }
 
-    fn parse_raw_message(&mut self, msg: Message) -> Option<Vec<NautilusWsMessage>> {
+    fn parse_raw_message(&mut self, msg: Message) -> Option<Vec<NautilusDataWsMessage>> {
         match msg {
             Message::Text(text) => {
                 if text == nautilus_network::RECONNECTED {
                     log::info!("Received WebSocket reconnected signal");
-                    return Some(vec![NautilusWsMessage::Reconnected]);
+                    return Some(vec![NautilusDataWsMessage::Reconnected]);
                 }
 
                 log::trace!("Raw websocket message: {text}");
@@ -351,7 +351,7 @@ impl FeedHandler {
     fn classify_and_parse_message(
         &self,
         value: serde_json::Value,
-    ) -> Option<Vec<NautilusWsMessage>> {
+    ) -> Option<Vec<NautilusDataWsMessage>> {
         let obj = value.as_object()?;
 
         // Check message type field "t"
@@ -361,7 +361,7 @@ impl FeedHandler {
             "h" => match serde_json::from_value::<AxMdHeartbeat>(value) {
                 Ok(heartbeat) => {
                     log::trace!("Received heartbeat ts={}", heartbeat.ts);
-                    Some(vec![NautilusWsMessage::Heartbeat])
+                    Some(vec![NautilusDataWsMessage::Heartbeat])
                 }
                 Err(e) => {
                     log::error!("Failed to parse heartbeat: {e}");
@@ -385,7 +385,7 @@ impl FeedHandler {
                         let ts_init = self.generate_ts_init();
                         match parse_trade_tick(&trade, instrument, ts_init) {
                             Ok(tick) => {
-                                Some(vec![NautilusWsMessage::Data(vec![Data::Trade(tick)])])
+                                Some(vec![NautilusDataWsMessage::Data(vec![Data::Trade(tick)])])
                             }
                             Err(e) => {
                                 log::error!("Failed to parse trade to TradeTick: {e}");
@@ -419,7 +419,7 @@ impl FeedHandler {
 
                     let ts_init = self.generate_ts_init();
                     match parse_candle_bar(&candle, instrument, ts_init) {
-                        Ok(bar) => Some(vec![NautilusWsMessage::Bar(bar)]),
+                        Ok(bar) => Some(vec![NautilusDataWsMessage::Bar(bar)]),
                         Err(e) => {
                             log::error!("Failed to parse candle to Bar: {e}");
                             None
@@ -445,7 +445,9 @@ impl FeedHandler {
 
                     let ts_init = self.generate_ts_init();
                     match parse_book_l1_quote(&book, instrument, ts_init) {
-                        Ok(quote) => Some(vec![NautilusWsMessage::Data(vec![Data::Quote(quote)])]),
+                        Ok(quote) => {
+                            Some(vec![NautilusDataWsMessage::Data(vec![Data::Quote(quote)])])
+                        }
                         Err(e) => {
                             log::error!("Failed to parse L1 to QuoteTick: {e}");
                             None
@@ -476,7 +478,7 @@ impl FeedHandler {
 
                     let ts_init = self.generate_ts_init();
                     match parse_book_l2_deltas(&book, instrument, ts_init) {
-                        Ok(deltas) => Some(vec![NautilusWsMessage::Deltas(deltas)]),
+                        Ok(deltas) => Some(vec![NautilusDataWsMessage::Deltas(deltas)]),
                         Err(e) => {
                             log::error!("Failed to parse L2 to OrderBookDeltas: {e}");
                             None
@@ -507,7 +509,7 @@ impl FeedHandler {
 
                     let ts_init = self.generate_ts_init();
                     match parse_book_l3_deltas(&book, instrument, ts_init) {
-                        Ok(deltas) => Some(vec![NautilusWsMessage::Deltas(deltas)]),
+                        Ok(deltas) => Some(vec![NautilusDataWsMessage::Deltas(deltas)]),
                         Err(e) => {
                             log::error!("Failed to parse L3 to OrderBookDeltas: {e}");
                             None
@@ -521,7 +523,7 @@ impl FeedHandler {
             },
             _ => {
                 log::warn!("Unknown message type: {msg_type}");
-                Some(vec![NautilusWsMessage::Error(AxWsError::new(format!(
+                Some(vec![NautilusDataWsMessage::Error(AxWsError::new(format!(
                     "Unknown message type: {msg_type}"
                 )))])
             }

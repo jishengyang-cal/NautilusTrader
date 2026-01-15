@@ -45,6 +45,50 @@ use crate::common::{
     parse::deserialize_decimal_or_zero,
 };
 
+/// Nautilus domain message emitted after parsing Ax WebSocket events.
+///
+/// This enum contains fully-parsed Nautilus domain objects ready for consumption
+/// by the DataClient without additional processing.
+#[derive(Debug, Clone)]
+pub enum NautilusDataWsMessage {
+    /// Market data (trades, quotes).
+    Data(Vec<Data>),
+    /// Order book deltas.
+    Deltas(OrderBookDeltas),
+    /// Bar/candle data.
+    Bar(Bar),
+    /// Heartbeat message.
+    Heartbeat,
+    /// Error from venue or client.
+    Error(AxWsError),
+    /// WebSocket reconnected notification.
+    Reconnected,
+}
+
+/// Nautilus domain messages for the Ax orders WebSocket.
+///
+/// This enum contains parsed messages from the WebSocket stream.
+/// Variants contain fully-parsed Nautilus domain objects.
+#[derive(Debug, Clone)]
+pub enum NautilusExecWsMessage {
+    /// Order accepted by the venue.
+    OrderAccepted(OrderAccepted),
+    /// Order filled (partial or complete).
+    OrderFilled(Box<OrderFilled>),
+    /// Order canceled.
+    OrderCanceled(OrderCanceled),
+    /// Order expired.
+    OrderExpired(OrderExpired),
+    /// Order rejected by venue.
+    OrderRejected(OrderRejected),
+    /// Order cancel rejected by venue.
+    OrderCancelRejected(OrderCancelRejected),
+    /// Order status reports from order updates.
+    OrderStatusReports(Vec<OrderStatusReport>),
+    /// Fill reports from executions.
+    FillReports(Vec<FillReport>),
+}
+
 /// Subscribe request for market data.
 ///
 /// # References
@@ -473,8 +517,6 @@ pub struct AxWsHeartbeat {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderAcknowledged {
-    /// Message type (always "n").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -509,8 +551,6 @@ pub struct AxWsTradeExecution {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderPartiallyFilled {
-    /// Message type (always "p").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -529,8 +569,6 @@ pub struct AxWsOrderPartiallyFilled {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderFilled {
-    /// Message type (always "f").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -549,8 +587,6 @@ pub struct AxWsOrderFilled {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderCanceled {
-    /// Message type (always "c").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -572,8 +608,6 @@ pub struct AxWsOrderCanceled {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderRejected {
-    /// Message type (always "j").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -595,8 +629,6 @@ pub struct AxWsOrderRejected {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderExpired {
-    /// Message type (always "x").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -613,8 +645,6 @@ pub struct AxWsOrderExpired {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderReplaced {
-    /// Message type (always "r").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -631,8 +661,6 @@ pub struct AxWsOrderReplaced {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrderDoneForDay {
-    /// Message type (always "d").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -649,8 +677,6 @@ pub struct AxWsOrderDoneForDay {
 /// - <https://docs.sandbox.x.architect.co/api-reference/order-management/orders-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsCancelRejected {
-    /// Message type (always "e").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -664,49 +690,76 @@ pub struct AxWsCancelRejected {
     pub txt: Option<String>,
 }
 
-/// Nautilus domain message emitted after parsing Ax WebSocket events.
+/// Internal raw message from the Ax orders WebSocket.
 ///
-/// This enum contains fully-parsed Nautilus domain objects ready for consumption
-/// by the DataClient without additional processing.
-#[derive(Debug, Clone)]
-pub enum NautilusWsMessage {
-    /// Market data (trades, quotes).
-    Data(Vec<Data>),
-    /// Order book deltas.
-    Deltas(OrderBookDeltas),
-    /// Bar/candle data.
-    Bar(Bar),
+/// This enum uses serde's tagged deserialization to automatically
+/// discriminate between different event types based on the "t" field.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "t")]
+pub(crate) enum AxWsOrderEvent {
     /// Heartbeat message.
+    #[serde(rename = "h")]
     Heartbeat,
-    /// Error from venue or client.
-    Error(AxWsError),
-    /// WebSocket reconnected notification.
-    Reconnected,
+    /// Order acknowledged.
+    #[serde(rename = "n")]
+    Acknowledged(AxWsOrderAcknowledged),
+    /// Order partially filled.
+    #[serde(rename = "p")]
+    PartiallyFilled(AxWsOrderPartiallyFilled),
+    /// Order filled.
+    #[serde(rename = "f")]
+    Filled(AxWsOrderFilled),
+    /// Order canceled.
+    #[serde(rename = "c")]
+    Canceled(AxWsOrderCanceled),
+    /// Order rejected.
+    #[serde(rename = "j")]
+    Rejected(AxWsOrderRejected),
+    /// Order expired.
+    #[serde(rename = "x")]
+    Expired(AxWsOrderExpired),
+    /// Order replaced.
+    #[serde(rename = "r")]
+    Replaced(AxWsOrderReplaced),
+    /// Order done for day.
+    #[serde(rename = "d")]
+    DoneForDay(AxWsOrderDoneForDay),
+    /// Cancel rejected.
+    #[serde(rename = "e")]
+    CancelRejected(AxWsCancelRejected),
 }
 
-/// Nautilus domain message for Ax orders WebSocket.
+/// Internal raw response from the Ax orders WebSocket.
 ///
-/// This enum contains parsed messages from the WebSocket stream.
-/// Domain event variants contain fully-parsed Nautilus domain objects.
-/// Raw variants are used for response messages and internal tracking.
+/// Response messages have "rid" and "res" fields.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum AxWsOrderResponse {
+    /// Place order response (res has "oid").
+    PlaceOrder(AxWsPlaceOrderResponse),
+    /// Cancel order response (res has "cxl_rx").
+    CancelOrder(AxWsCancelOrderResponse),
+    /// Open orders response (res is array).
+    OpenOrders(AxWsOpenOrdersResponse),
+}
+
+/// Internal raw message from the Ax orders WebSocket.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum AxWsRawMessage {
+    /// Response message (has "rid" and "res").
+    Response(AxWsOrderResponse),
+    /// Event message (has "t" field).
+    Event(Box<AxWsOrderEvent>),
+}
+
+/// Ax-specific messages for the orders WebSocket.
+///
+/// This enum contains response and control messages from the WebSocket stream.
 #[derive(Debug, Clone)]
 pub enum AxOrdersWsMessage {
-    /// Order accepted by the venue.
-    OrderAcceptedEvent(OrderAccepted),
-    /// Order filled (partial or complete).
-    OrderFilledEvent(Box<OrderFilled>),
-    /// Order canceled.
-    OrderCanceledEvent(OrderCanceled),
-    /// Order expired.
-    OrderExpiredEvent(OrderExpired),
-    /// Order rejected by venue.
-    OrderRejected(OrderRejected),
-    /// Order cancel rejected by venue.
-    OrderCancelRejected(OrderCancelRejected),
-    /// Order status reports from order updates.
-    OrderStatusReports(Vec<OrderStatusReport>),
-    /// Fill reports from executions.
-    FillReports(Vec<FillReport>),
+    /// Nautilus domain messages parsed from order events.
+    Nautilus(NautilusExecWsMessage),
     /// Place order response.
     PlaceOrderResponse(AxWsPlaceOrderResponse),
     /// Cancel order response.
@@ -1023,14 +1076,14 @@ mod tests {
     fn test_load_order_heartbeat_from_file() {
         let json = include_str!("../../test_data/ws_order_heartbeat.json");
         let msg: AxWsHeartbeat = serde_json::from_str(json).unwrap();
-        assert_eq!(msg.t, "h");
+        assert_eq!(msg.ts, 1609459200);
     }
 
     #[rstest]
     fn test_load_order_acknowledged_from_file() {
         let json = include_str!("../../test_data/ws_order_acknowledged.json");
         let msg: AxWsOrderAcknowledged = serde_json::from_str(json).unwrap();
-        assert_eq!(msg.t, "n");
+        assert_eq!(msg.o.oid, "O-01ARZ3NDEKTSV4RRFFQ69G5FAV");
     }
 
     #[rstest]
@@ -1072,7 +1125,6 @@ mod tests {
     fn test_load_order_replaced_from_file() {
         let json = include_str!("../../test_data/ws_order_replaced.json");
         let msg: AxWsOrderReplaced = serde_json::from_str(json).unwrap();
-        assert_eq!(msg.t, "r");
         assert_eq!(msg.o.p, dec!(50500.00));
     }
 
@@ -1080,7 +1132,6 @@ mod tests {
     fn test_load_order_done_for_day_from_file() {
         let json = include_str!("../../test_data/ws_order_done_for_day.json");
         let msg: AxWsOrderDoneForDay = serde_json::from_str(json).unwrap();
-        assert_eq!(msg.t, "d");
         assert_eq!(msg.o.xq, 50);
     }
 

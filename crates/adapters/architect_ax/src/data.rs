@@ -57,7 +57,7 @@ use crate::{
     common::{consts::AX_VENUE, enums::AxMarketDataLevel, parse::map_bar_spec_to_candle_width},
     config::AxDataClientConfig,
     http::client::AxHttpClient,
-    websocket::{data::client::AxMdWebSocketClient, messages::NautilusWsMessage},
+    websocket::{data::client::AxMdWebSocketClient, messages::NautilusDataWsMessage},
 };
 
 /// AX Exchange data client for live market data streaming and historical data requests.
@@ -170,35 +170,35 @@ impl AxDataClient {
 
     /// Handles a WebSocket message and forwards data to the DataEngine.
     fn handle_ws_message(
-        msg: NautilusWsMessage,
+        msg: NautilusDataWsMessage,
         sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
     ) {
         match msg {
-            NautilusWsMessage::Data(data_vec) => {
+            NautilusDataWsMessage::Data(data_vec) => {
                 for data in data_vec {
                     if let Err(e) = sender.send(DataEvent::Data(data)) {
                         log::error!("Failed to send data event: {e}");
                     }
                 }
             }
-            NautilusWsMessage::Deltas(deltas) => {
+            NautilusDataWsMessage::Deltas(deltas) => {
                 let api_deltas = OrderBookDeltas_API::new(deltas);
                 if let Err(e) = sender.send(DataEvent::Data(Data::Deltas(api_deltas))) {
                     log::error!("Failed to send deltas event: {e}");
                 }
             }
-            NautilusWsMessage::Bar(bar) => {
+            NautilusDataWsMessage::Bar(bar) => {
                 if let Err(e) = sender.send(DataEvent::Data(Data::Bar(bar))) {
                     log::error!("Failed to send bar event: {e}");
                 }
             }
-            NautilusWsMessage::Heartbeat => {
+            NautilusDataWsMessage::Heartbeat => {
                 log::trace!("Received heartbeat");
             }
-            NautilusWsMessage::Reconnected => {
+            NautilusDataWsMessage::Reconnected => {
                 log::info!("WebSocket reconnected");
             }
-            NautilusWsMessage::Error(err) => {
+            NautilusDataWsMessage::Error(err) => {
                 log::error!("WebSocket error: {err:?}");
             }
         }

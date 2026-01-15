@@ -39,7 +39,7 @@ use futures_util::StreamExt;
 use nautilus_architect_ax::{
     common::enums::AxEnvironment,
     http::{client::AxRawHttpClient, error::AxHttpError},
-    websocket::{AxOrdersWsMessage, orders::AxOrdersWebSocketClient},
+    websocket::{AxOrdersWsMessage, NautilusExecWsMessage, orders::AxOrdersWebSocketClient},
 };
 use nautilus_model::identifiers::{AccountId, TraderId};
 use totp_rs::{Algorithm, Secret, TOTP};
@@ -161,33 +161,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 AxOrdersWsMessage::Authenticated => {
                     log::info!("WebSocket authenticated");
                 }
-                AxOrdersWsMessage::OrderAcceptedEvent(event) => {
-                    log::info!(
-                        "Order accepted: {} {}",
-                        event.client_order_id,
-                        event.venue_order_id
-                    );
-                }
-                AxOrdersWsMessage::OrderFilledEvent(event) => {
-                    log::info!(
-                        "Order filled: {} {} @ {}",
-                        event.client_order_id,
-                        event.last_qty,
-                        event.last_px
-                    );
-                }
-                AxOrdersWsMessage::OrderCanceledEvent(event) => {
-                    log::info!("Order canceled: {}", event.client_order_id);
-                }
-                AxOrdersWsMessage::OrderExpiredEvent(event) => {
-                    log::info!("Order expired: {}", event.client_order_id);
-                }
-                AxOrdersWsMessage::OrderRejected(reject) => {
-                    log::warn!("Order rejected: {}", reject.client_order_id);
-                }
-                AxOrdersWsMessage::OrderCancelRejected(reject) => {
-                    log::warn!("Cancel rejected: {}", reject.client_order_id);
-                }
+                AxOrdersWsMessage::Nautilus(event) => match event {
+                    NautilusExecWsMessage::OrderAccepted(event) => {
+                        log::info!(
+                            "Order accepted: {} {}",
+                            event.client_order_id,
+                            event.venue_order_id
+                        );
+                    }
+                    NautilusExecWsMessage::OrderFilled(event) => {
+                        log::info!(
+                            "Order filled: {} {} @ {}",
+                            event.client_order_id,
+                            event.last_qty,
+                            event.last_px
+                        );
+                    }
+                    NautilusExecWsMessage::OrderCanceled(event) => {
+                        log::info!("Order canceled: {}", event.client_order_id);
+                    }
+                    NautilusExecWsMessage::OrderExpired(event) => {
+                        log::info!("Order expired: {}", event.client_order_id);
+                    }
+                    NautilusExecWsMessage::OrderRejected(reject) => {
+                        log::warn!("Order rejected: {}", reject.client_order_id);
+                    }
+                    NautilusExecWsMessage::OrderCancelRejected(reject) => {
+                        log::warn!("Cancel rejected: {}", reject.client_order_id);
+                    }
+                    NautilusExecWsMessage::OrderStatusReports(reports) => {
+                        log::info!("Order status reports: {} items", reports.len());
+                    }
+                    NautilusExecWsMessage::FillReports(reports) => {
+                        log::info!("Fill reports: {} items", reports.len());
+                    }
+                },
                 AxOrdersWsMessage::PlaceOrderResponse(resp) => {
                     log::info!(
                         "Place order response: rid={} oid={}",
@@ -215,12 +223,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             order.o
                         );
                     }
-                }
-                AxOrdersWsMessage::OrderStatusReports(reports) => {
-                    log::info!("Order status reports: {} items", reports.len());
-                }
-                AxOrdersWsMessage::FillReports(reports) => {
-                    log::info!("Fill reports: {} items", reports.len());
                 }
                 AxOrdersWsMessage::Error(err) => {
                     log::error!("Error: {}", err.message);

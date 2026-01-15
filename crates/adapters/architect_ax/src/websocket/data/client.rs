@@ -41,7 +41,7 @@ use ustr::Ustr;
 use super::handler::{FeedHandler, HandlerCommand};
 use crate::{
     common::enums::{AxCandleWidth, AxMarketDataLevel},
-    websocket::messages::NautilusWsMessage,
+    websocket::messages::NautilusDataWsMessage,
 };
 
 /// Default heartbeat interval in seconds.
@@ -87,7 +87,7 @@ pub struct AxMdWebSocketClient {
     auth_token: Option<String>,
     connection_mode: Arc<ArcSwap<AtomicU8>>,
     cmd_tx: Arc<tokio::sync::RwLock<tokio::sync::mpsc::UnboundedSender<HandlerCommand>>>,
-    out_rx: Option<Arc<tokio::sync::mpsc::UnboundedReceiver<NautilusWsMessage>>>,
+    out_rx: Option<Arc<tokio::sync::mpsc::UnboundedReceiver<NautilusDataWsMessage>>>,
     signal: Arc<AtomicBool>,
     task_handle: Option<Arc<tokio::task::JoinHandle<()>>>,
     subscriptions: SubscriptionState,
@@ -342,7 +342,7 @@ impl AxMdWebSocketClient {
 
         self.connection_mode.store(client.connection_mode_atomic());
 
-        let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel::<NautilusWsMessage>();
+        let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel::<NautilusDataWsMessage>();
         self.out_rx = Some(Arc::new(out_rx));
 
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel::<HandlerCommand>();
@@ -373,7 +373,7 @@ impl AxMdWebSocketClient {
             );
 
             while let Some(msg) = handler.next().await {
-                if matches!(msg, NautilusWsMessage::Reconnected) {
+                if matches!(msg, NautilusDataWsMessage::Reconnected) {
                     log::info!("WebSocket reconnected, resubscribing...");
                     // TODO: Replay subscriptions on reconnect
                 }
@@ -478,7 +478,7 @@ impl AxMdWebSocketClient {
     /// # Panics
     ///
     /// Panics if called more than once or before connecting.
-    pub fn stream(&mut self) -> impl futures_util::Stream<Item = NautilusWsMessage> + 'static {
+    pub fn stream(&mut self) -> impl futures_util::Stream<Item = NautilusDataWsMessage> + 'static {
         let rx = self
             .out_rx
             .take()
