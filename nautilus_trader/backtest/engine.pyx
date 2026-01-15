@@ -5283,6 +5283,7 @@ cdef class OrderMatchingEngine:
             return fills
 
         cdef dict[PriceRaw, tuple[QuantityRaw, QuantityRaw]] consumption
+
         if order_side == OrderSide.BUY:
             consumption = self._ask_consumption
         elif order_side == OrderSide.SELL:
@@ -5296,15 +5297,22 @@ cdef class OrderMatchingEngine:
         cdef:
             Price price
             Quantity qty
-            PriceRaw price_raw
-            double book_size_f64
-            QuantityRaw book_size_raw
+            Quantity level_size
             tuple level_state
+            PriceRaw price_raw
+            PriceRaw p_raw
+            QuantityRaw qty_raw
+            QuantityRaw q_raw
+            QuantityRaw level_size_raw
             QuantityRaw original_size
             QuantityRaw consumed
             QuantityRaw available
             QuantityRaw adjusted_qty_raw
+            QuantityRaw fill_total
             Quantity adjusted_qty
+
+        # Aggregated fill quantities per price (computed on-demand for missing levels)
+        cdef dict[PriceRaw, QuantityRaw] fill_totals = None
 
         for fill in fills:
             if max_qty_raw > 0 and remaining_qty == 0:
@@ -5315,22 +5323,60 @@ cdef class OrderMatchingEngine:
             price_raw = price._mem.raw
 
             level_size = self._book.get_quantity_at_level(price, order_side, self._size_prec)
+            level_size_raw = level_size._mem.raw
 
             level_state = consumption.get(price_raw)
+
+            # Handle race condition where level no longer exists in book (returns 0)
+            if level_size_raw == 0:
+                # Level was deleted/modified between fill determination and consumption.
+                # Use aggregated fill total for this price (handles L3 books with multiple
+                # fills at same price). If prior state exists, use max of prior original_size
+                # and fill total to ensure all fills can be processed.
+
+                if fill_totals is None:
+                    fill_totals = {}
+                    for f in fills:
+                        p_raw = (<Price>f[0])._mem.raw
+                        q_raw = (<Quantity>f[1])._mem.raw
+                        if p_raw in fill_totals:
+                            fill_totals[p_raw] += q_raw
+                        else:
+                            fill_totals[p_raw] = q_raw
+
+                fill_total = fill_totals.get(price_raw, qty._mem.raw)
+
+                if level_state is not None:
+                    level_size_raw = max(level_state[0], fill_total)
+                    self._log.debug(
+                        f"Liquidity consumption: level {price} not found in book, "
+                        f"using max of prior size {level_state[0]} and fill total {fill_total}",
+                    )
+                else:
+                    level_size_raw = fill_total
+                    self._log.debug(
+                        f"Liquidity consumption: level {price} not found in book, "
+                        f"using aggregated fill total {fill_total} as fallback",
+                    )
+
             if level_state is None:
-                original_size = level_size._mem.raw
+                original_size = level_size_raw
                 consumed = 0
             else:
                 original_size = level_state[0]
                 consumed = level_state[1]
 
             # Reset consumption when book size changes (fresh data)
-            if original_size != level_size._mem.raw:
-                original_size = level_size._mem.raw
+            if original_size != level_size_raw:
+                original_size = level_size_raw
                 consumed = 0
 
             available = original_size - consumed if original_size > consumed else 0
             if available == 0:
+                self._log.debug(
+                    f"Liquidity consumed: skipping level {price} "
+                    f"(original_size={original_size}, consumed={consumed}, level_size_raw={level_size_raw})",
+                )
                 continue
 
             adjusted_qty_raw = min(qty._mem.raw, available)
