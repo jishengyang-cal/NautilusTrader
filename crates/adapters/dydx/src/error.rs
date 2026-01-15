@@ -20,6 +20,8 @@
 
 use thiserror::Error;
 
+use crate::{http::error::DydxHttpError, websocket::error::DydxWsError};
+
 /// Result type for dYdX operations.
 pub type DydxResult<T> = Result<T, DydxError>;
 
@@ -28,11 +30,11 @@ pub type DydxResult<T> = Result<T, DydxError>;
 pub enum DydxError {
     /// HTTP client errors.
     #[error("HTTP error: {0}")]
-    Http(String),
+    Http(#[from] DydxHttpError),
 
     /// WebSocket connection errors.
     #[error("WebSocket error: {0}")]
-    WebSocket(String),
+    WebSocket(#[from] DydxWsError),
 
     /// gRPC errors from Cosmos SDK node.
     #[error("gRPC error: {0}")]

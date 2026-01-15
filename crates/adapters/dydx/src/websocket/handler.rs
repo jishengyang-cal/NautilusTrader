@@ -58,11 +58,12 @@ use super::{
     error::DydxWebSocketError,
     messages::{
         DydxBlockHeightChannelContents, DydxCandle, DydxMarketsContents, DydxOrderbookContents,
-        DydxOrderbookSnapshotContents, DydxTradeContents, DydxWsBlockHeightMessage,
-        DydxWsCandlesMessage, DydxWsChannelBatchDataMsg, DydxWsChannelDataMsg, DydxWsConnectedMsg,
-        DydxWsFeedMessage, DydxWsGenericMsg, DydxWsMarketsMessage, DydxWsOrderbookMessage,
-        DydxWsSubaccountsChannelContents, DydxWsSubaccountsChannelData, DydxWsSubaccountsMessage,
-        DydxWsSubaccountsSubscribed, DydxWsSubscriptionMsg, DydxWsTradesMessage,
+        DydxOrderbookSnapshotContents, DydxSubscription, DydxTradeContents,
+        DydxWsBlockHeightMessage, DydxWsCandlesMessage, DydxWsChannelBatchDataMsg,
+        DydxWsChannelDataMsg, DydxWsConnectedMsg, DydxWsFeedMessage, DydxWsGenericMsg,
+        DydxWsMarketsMessage, DydxWsOrderbookMessage, DydxWsSubaccountsChannelContents,
+        DydxWsSubaccountsChannelData, DydxWsSubaccountsMessage, DydxWsSubaccountsSubscribed,
+        DydxWsSubscriptionMsg, DydxWsTradesMessage,
     },
 };
 use crate::common::parse::parse_instrument_id;
@@ -78,6 +79,13 @@ pub enum HandlerCommand {
     RegisterBarType { topic: String, bar_type: BarType },
     /// Unregister a bar type for candle subscriptions.
     UnregisterBarType { topic: String },
+    /// Register a subscription message for replay.
+    RegisterSubscription {
+        topic: String,
+        subscription: DydxSubscription,
+    },
+    /// Unregister a subscription message.
+    UnregisterSubscription { topic: String },
     /// Send a text message via WebSocket.
     SendText(String),
 }
@@ -107,6 +115,8 @@ pub struct FeedHandler {
     bar_types: AHashMap<String, BarType>,
     /// Subscription state shared with the outer client for replay/acks.
     subscriptions: SubscriptionState,
+    /// Original subscription messages by topic (for replay without reconstruction).
+    subscription_messages: AHashMap<String, DydxSubscription>,
 }
 
 impl Debug for FeedHandler {
@@ -142,6 +152,7 @@ impl FeedHandler {
             instruments: AHashMap::new(),
             bar_types: AHashMap::new(),
             subscriptions,
+            subscription_messages: AHashMap::new(),
         }
     }
 
@@ -469,6 +480,15 @@ impl FeedHandler {
             HandlerCommand::UnregisterBarType { topic } => {
                 self.bar_types.remove(&topic);
             }
+            HandlerCommand::RegisterSubscription {
+                topic,
+                subscription,
+            } => {
+                self.subscription_messages.insert(topic, subscription);
+            }
+            HandlerCommand::UnregisterSubscription { topic } => {
+                self.subscription_messages.remove(&topic);
+            }
             HandlerCommand::SendText(text) => {
                 if let Err(e) = self
                     .send_with_retry(
@@ -493,7 +513,7 @@ impl FeedHandler {
         self.bar_types.remove(topic);
     }
 
-    fn topic_from_msg(&self, channel: &super::enums::DydxWsChannel, id: &Option<String>) -> String {
+    fn topic_from_msg(&self, channel: &DydxWsChannel, id: &Option<String>) -> String {
         match id {
             Some(id) => format!(
                 "{}{}{}",
@@ -505,28 +525,11 @@ impl FeedHandler {
         }
     }
 
-    fn subscription_from_topic(
-        &self,
-        topic: &str,
-        op: super::enums::DydxWsOperation,
-    ) -> Option<super::messages::DydxSubscription> {
-        let (channel, symbol) = nautilus_network::websocket::subscription::split_topic(
-            topic,
-            self.subscriptions.delimiter(),
-        );
-        let channel = super::enums::DydxWsChannel::from_str(channel).ok()?;
-        let id = symbol.map(std::string::ToString::to_string);
-
-        Some(super::messages::DydxSubscription { op, channel, id })
-    }
-
     async fn replay_subscriptions(&self) -> DydxWsResult<()> {
         let topics = self.subscriptions.all_topics();
         for topic in topics {
-            let Some(subscription) =
-                self.subscription_from_topic(&topic, super::enums::DydxWsOperation::Subscribe)
-            else {
-                log::warn!("Failed to reconstruct subscription from topic: {topic}");
+            let Some(subscription) = self.subscription_messages.get(&topic).cloned() else {
+                log::warn!("No preserved subscription message for topic: {topic}");
                 continue;
             };
 

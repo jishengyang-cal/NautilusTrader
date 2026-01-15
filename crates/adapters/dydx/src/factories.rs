@@ -31,11 +31,14 @@ use nautilus_network::retry::RetryConfig;
 use nautilus_system::factories::{ClientConfig, DataClientFactory, ExecutionClientFactory};
 
 use crate::{
-    common::{consts::DYDX_VENUE, urls},
+    common::{
+        consts::DYDX_VENUE,
+        credential::{DydxCredential, resolve_wallet_address},
+        urls,
+    },
     config::{DYDXExecClientConfig, DydxAdapterConfig, DydxDataClientConfig},
     data::DydxDataClient,
     execution::DydxExecutionClient,
-    grpc::wallet::Wallet,
     http::client::DydxHttpClient,
     websocket::client::DydxWebSocketClient,
 };
@@ -212,19 +215,21 @@ impl ExecutionClientFactory for DydxExecutionClientFactory {
             retry_delay_max_ms: dydx_config.retry_delay_max_ms.unwrap_or(10000),
         };
 
-        // Derive wallet address from mnemonic if not explicitly provided
-        let wallet_address = match dydx_config.wallet_address.clone() {
-            Some(addr) => addr,
-            None => {
-                let mnemonic = dydx_config.mnemonic.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Either wallet_address or mnemonic must be provided for dYdX execution client"
-                    )
-                })?;
-                let wallet = Wallet::from_mnemonic(mnemonic)?;
-                let account = wallet.account_offline(0)?;
-                account.address
-            }
+        let wallet_address = if let Some(addr) =
+            resolve_wallet_address(dydx_config.wallet_address.clone(), dydx_config.is_testnet())
+        {
+            addr
+        } else if let Some(credential) = DydxCredential::resolve(
+            dydx_config.mnemonic.clone(),
+            dydx_config.is_testnet(),
+            0,
+            dydx_config.authenticator_ids.clone(),
+        )? {
+            credential.address
+        } else {
+            anyhow::bail!(
+                "No wallet credentials found: set wallet_address/mnemonic in config or use environment variables (DYDX_WALLET_ADDRESS/DYDX_MNEMONIC for mainnet, DYDX_TESTNET_* for testnet)"
+            )
         };
 
         let client = DydxExecutionClient::new(

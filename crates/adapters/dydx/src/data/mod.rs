@@ -90,6 +90,8 @@ struct WsMessageContext {
 /// - Connection lifecycle management
 #[derive(Debug)]
 pub struct DydxDataClient {
+    /// High-resolution clock for timestamps.
+    clock: &'static AtomicTime,
     /// The client ID for this data client.
     client_id: ClientId,
     /// Configuration for the data client.
@@ -108,8 +110,6 @@ pub struct DydxDataClient {
     data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
     /// Cached instruments by symbol (shared with HTTP client via `Arc<DashMap<Ustr, InstrumentAny>>`).
     instruments: Arc<DashMap<Ustr, InstrumentAny>>,
-    /// High-resolution clock for timestamps.
-    clock: &'static AtomicTime,
     /// Local order books maintained for generating quotes and resolving crosses.
     order_books: Arc<DashMap<InstrumentId, OrderBook>>,
     /// Last quote tick per instrument (used for quote generation from book deltas).
@@ -168,11 +168,10 @@ impl DydxDataClient {
     ) -> anyhow::Result<Self> {
         let clock = get_atomic_clock_realtime();
         let data_sender = get_data_event_sender();
-
-        // Clone the instruments cache before moving http_client
         let instruments_cache = http_client.instruments().clone();
 
         Ok(Self {
+            clock,
             client_id,
             config,
             http_client,
@@ -182,7 +181,6 @@ impl DydxDataClient {
             tasks: Vec::new(),
             data_sender,
             instruments: instruments_cache,
-            clock,
             order_books: Arc::new(DashMap::new()),
             last_quotes: Arc::new(DashMap::new()),
             incomplete_bars: Arc::new(DashMap::new()),
@@ -1562,6 +1560,22 @@ impl DydxDataClient {
     #[must_use]
     pub fn get_instruments(&self) -> Vec<InstrumentAny> {
         self.instruments.iter().map(|i| i.clone()).collect()
+    }
+
+    /// Cache a single instrument.
+    pub fn cache_instrument(&self, instrument: InstrumentAny) {
+        let symbol_key = Ustr::from(instrument.id().symbol.as_str());
+        self.instruments.insert(symbol_key, instrument);
+    }
+
+    /// Cache multiple instruments.
+    ///
+    /// Clears the existing cache first, then adds all provided instruments.
+    pub fn cache_instruments(&self, instruments: Vec<InstrumentAny>) {
+        self.instruments.clear();
+        for instrument in instruments {
+            self.cache_instrument(instrument);
+        }
     }
 
     fn ensure_order_book(&self, instrument_id: InstrumentId, book_type: BookType) {

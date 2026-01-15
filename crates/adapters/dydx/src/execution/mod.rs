@@ -22,12 +22,12 @@
 //!
 //! dYdX supports the following order types:
 //!
-//! - **Market**: Execute immediately at best available price
-//! - **Limit**: Execute at specified price or better
-//! - **Stop Market**: Triggered when price crosses stop price, then executes as market order
-//! - **Stop Limit**: Triggered when price crosses stop price, then places limit order
-//! - **Take Profit Market**: Close position at profit target, executes as market order
-//! - **Take Profit Limit**: Close position at profit target, places limit order
+//! - **Market**: Execute immediately at best available price.
+//! - **Limit**: Execute at specified price or better.
+//! - **Stop Market**: Triggered when price crosses stop price, then executes as market order.
+//! - **Stop Limit**: Triggered when price crosses stop price, then places limit order.
+//! - **Take Profit Market**: Close position at profit target, executes as market order.
+//! - **Take Profit Limit**: Close position at profit target, places limit order.
 //!
 //! See <https://docs.dydx.xyz/concepts/trading/orders#types> for details.
 //!
@@ -60,6 +60,7 @@ use nautilus_common::{
 };
 use nautilus_core::{
     MUTEX_POISONED, UUID4, UnixNanos,
+    env::get_or_env_var_opt,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
 use nautilus_live::ExecutionClientCore;
@@ -116,8 +117,8 @@ enum ExecutionReport {
 /// # Architecture
 ///
 /// The client follows a two-layer execution model:
-/// 1. **Synchronous validation** - Immediate checks and event generation
-/// 2. **Async submission** - Non-blocking gRPC calls via `OrderSubmitter`
+/// 1. **Synchronous validation** - Immediate checks and event generation.
+/// 2. **Async submission** - Non-blocking gRPC calls via `OrderSubmitter`.
 ///
 /// This matches the pattern used in OKX and other exchange adapters, ensuring
 /// consistent behavior across the Nautilus ecosystem.
@@ -129,6 +130,7 @@ pub struct DydxExecutionClient {
     http_client: DydxHttpClient,
     ws_client: DydxWebSocketClient,
     grpc_client: Arc<tokio::sync::RwLock<Option<DydxGrpcClient>>>,
+    exec_sender: tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
     wallet: Arc<tokio::sync::RwLock<Option<Wallet>>>,
     instruments: DashMap<InstrumentId, InstrumentAny>,
     market_to_instrument: DashMap<String, InstrumentId>,
@@ -145,7 +147,6 @@ pub struct DydxExecutionClient {
     instruments_initialized: bool,
     ws_stream_handle: Option<JoinHandle<()>>,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
-    exec_event_sender: Option<tokio::sync::mpsc::UnboundedSender<ExecutionEvent>>,
 }
 
 impl DydxExecutionClient {
@@ -160,7 +161,6 @@ impl DydxExecutionClient {
         wallet_address: String,
         subaccount_number: u32,
     ) -> anyhow::Result<Self> {
-        // Build HTTP client from config (respects testnet URLs, timeouts, retries)
         let retry_config = RetryConfig {
             max_retries: config.max_retries,
             initial_delay_ms: config.retry_delay_initial_ms,
@@ -176,12 +176,12 @@ impl DydxExecutionClient {
         )?;
 
         // Use private WebSocket client for authenticated subaccount subscriptions
-        let ws_client = if let Some(ref mnemonic) = config.mnemonic {
-            let credential = DydxCredential::from_mnemonic(
-                mnemonic,
-                subaccount_number,
-                config.authenticator_ids.clone(),
-            )?;
+        let ws_client = if let Some(credential) = DydxCredential::resolve(
+            config.mnemonic.clone(),
+            config.is_testnet,
+            subaccount_number,
+            config.authenticator_ids.clone(),
+        )? {
             DydxWebSocketClient::new_private(
                 config.ws_url.clone(),
                 credential,
@@ -192,8 +192,8 @@ impl DydxExecutionClient {
             DydxWebSocketClient::new_public(config.ws_url.clone(), Some(20))
         };
 
-        // gRPC client is initialized lazily in connect() to avoid blocking
         let grpc_client = Arc::new(tokio::sync::RwLock::new(None));
+        let exec_sender = get_exec_event_sender();
 
         Ok(Self {
             clock: get_atomic_clock_realtime(),
@@ -202,6 +202,7 @@ impl DydxExecutionClient {
             http_client,
             ws_client,
             grpc_client,
+            exec_sender,
             wallet: Arc::new(tokio::sync::RwLock::new(None)),
             instruments: DashMap::new(),
             market_to_instrument: DashMap::new(),
@@ -218,7 +219,6 @@ impl DydxExecutionClient {
             instruments_initialized: false,
             ws_stream_handle: None,
             pending_tasks: Mutex::new(Vec::new()),
-            exec_event_sender: None,
         })
     }
 
@@ -226,21 +226,21 @@ impl DydxExecutionClient {
     ///
     /// # Invariants
     ///
-    /// - Same `client_order_id` string → same `u32` for the lifetime of this process
-    /// - Different `client_order_id` strings → different `u32` values (except on u32 wrap)
-    /// - Thread-safe for concurrent calls
+    /// - Same `client_order_id` string → same `u32` for the lifetime of this process.
+    /// - Different `client_order_id` strings → different `u32` values (except on u32 wrap).
+    /// - Thread-safe for concurrent calls.
     ///
     /// # Behavior
     ///
-    /// - Parses numeric `client_order_id` directly to `u32` for stability across restarts
-    /// - For non-numeric IDs, allocates a new sequential value from an atomic counter
-    /// - Mapping is kept in-memory only; non-numeric IDs will not be recoverable after restart
-    /// - Counter starts at 1 and increments without bound checking (will wrap at u32::MAX)
+    /// - Parses numeric `client_order_id` directly to `u32` for stability across restarts.
+    /// - For non-numeric IDs, allocates a new sequential value from an atomic counter.
+    /// - Mapping is kept in-memory only; non-numeric IDs will not be recoverable after restart.
+    /// - Counter starts at 1 and increments without bound checking (will wrap at u32::MAX).
     ///
     /// # Notes
     ///
-    /// - Atomic counter uses `Relaxed` ordering — uniqueness is required, not cross-thread sequencing
-    /// - If dYdX enforces a maximum client ID below u32::MAX, additional range validation is needed
+    /// - Atomic counter uses `Relaxed` ordering — uniqueness is required, not cross-thread sequencing.
+    /// - If dYdX enforces a maximum client ID below u32::MAX, additional range validation is needed.
     fn generate_client_order_id_int(&self, client_order_id: &str) -> u32 {
         use dashmap::mapref::entry::Entry;
 
@@ -402,12 +402,11 @@ impl DydxExecutionClient {
             false,
             false,
         );
-        if let Some(sender) = &self.exec_event_sender {
-            if let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Rejected(event))) {
-                log::warn!("Failed to send OrderRejected event: {e}");
-            }
-        } else {
-            log::warn!("Cannot send OrderRejected: exec_event_sender not initialized");
+        if let Err(e) = self
+            .exec_sender
+            .send(ExecutionEvent::Order(OrderEventAny::Rejected(event)))
+        {
+            log::warn!("Failed to send OrderRejected event: {e}");
         }
     }
 
@@ -553,12 +552,12 @@ impl ExecutionClient for DydxExecutionClient {
     /// dYdX requires u32 client IDs - Nautilus ClientOrderId strings are hashed to fit.
     ///
     /// Supported order types:
-    /// - Market orders (short-term, IOC)
-    /// - Limit orders (short-term or long-term based on TIF)
-    /// - Stop Market orders (conditional, triggered at stop price)
-    /// - Stop Limit orders (conditional, triggered at stop price, executed at limit)
-    /// - Take Profit Market (MarketIfTouched - triggered at take profit price)
-    /// - Take Profit Limit (LimitIfTouched - triggered at take profit price, executed at limit)
+    /// - Market orders (short-term, IOC).
+    /// - Limit orders (short-term or long-term based on TIF).
+    /// - Stop Market orders (conditional, triggered at stop price).
+    /// - Stop Limit orders (conditional, triggered at stop price, executed at limit).
+    /// - Take Profit Market (MarketIfTouched - triggered at take profit price).
+    /// - Take Profit Limit (LimitIfTouched - triggered at take profit price, executed at limit).
     ///
     /// Trailing stop orders are NOT supported by dYdX v4 protocol.
     ///
@@ -673,13 +672,12 @@ impl ExecutionClient for DydxExecutionClient {
             cmd.ts_init,
             self.clock.get_time_ns(),
         );
-        if let Some(sender) = &self.exec_event_sender {
-            log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-            if let Err(e) = sender.send(ExecutionEvent::Order(OrderEventAny::Submitted(event))) {
-                log::warn!("Failed to send OrderSubmitted event: {e}");
-            }
-        } else {
-            log::warn!("Cannot send OrderSubmitted: exec_event_sender not initialized");
+        log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
+        if let Err(e) = self
+            .exec_sender
+            .send(ExecutionEvent::Order(OrderEventAny::Submitted(event)))
+        {
+            log::warn!("Failed to send OrderSubmitted event: {e}");
         }
 
         let grpc_client = self.grpc_client.clone();
@@ -875,16 +873,18 @@ impl ExecutionClient for DydxExecutionClient {
     /// spawning an async task to cancel via gRPC.
     ///
     /// # Validation
-    /// - Checks order exists in cache
-    /// - Validates order is not already closed
-    /// - Retrieves instrument from cache for order builder
+    ///
+    /// - Checks order exists in cache.
+    /// - Validates order is not already closed.
+    /// - Retrieves instrument from cache for order builder.
     ///
     /// The `cmd` contains client/venue order IDs. Returns `Ok(())` if cancel request is
     /// spawned successfully or validation fails gracefully. Returns `Err` if not connected.
     ///
     /// # Events
-    /// - `OrderCanceled` - Generated when WebSocket confirms cancellation
-    /// - `OrderCancelRejected` - Generated if exchange rejects cancellation
+    ///
+    /// - `OrderCanceled` - Generated when WebSocket confirms cancellation.
+    /// - `OrderCancelRejected` - Generated if exchange rejects cancellation.
     fn cancel_order(&self, cmd: &CancelOrder) -> anyhow::Result<()> {
         if !self.is_connected() {
             anyhow::bail!("Cannot cancel order: not connected");
@@ -954,7 +954,7 @@ impl ExecutionClient for DydxExecutionClient {
         };
 
         // Clone sender before spawning for use in async block
-        let exec_sender = self.exec_event_sender.clone();
+        let exec_sender = self.exec_sender.clone();
 
         self.spawn_task("cancel_order", async move {
             let wallet_guard = wallet.read().await;
@@ -986,30 +986,24 @@ impl ExecutionClient for DydxExecutionClient {
                 Err(e) => {
                     log::error!("Failed to cancel order {client_order_id}: {e:?}");
 
-                    if let Some(sender) = &exec_sender {
-                        let ts_now = UnixNanos::default();
-                        let event = OrderCancelRejected::new(
-                            trader_id,
-                            strategy_id,
-                            instrument_id,
-                            client_order_id,
-                            format!("Cancel order failed: {e:?}").into(),
-                            UUID4::new(),
-                            ts_now,
-                            ts_now,
-                            false,
-                            venue_order_id,
-                            None, // account_id not available in async context
-                        );
-                        if let Err(send_err) =
-                            sender.send(ExecutionEvent::Order(OrderEventAny::CancelRejected(event)))
-                        {
-                            log::warn!("Failed to send OrderCancelRejected event: {send_err}");
-                        }
-                    } else {
-                        log::warn!(
-                            "Cannot send OrderCancelRejected: exec_event_sender not initialized"
-                        );
+                    let ts_now = UnixNanos::default();
+                    let event = OrderCancelRejected::new(
+                        trader_id,
+                        strategy_id,
+                        instrument_id,
+                        client_order_id,
+                        format!("Cancel order failed: {e:?}").into(),
+                        UUID4::new(),
+                        ts_now,
+                        ts_now,
+                        false,
+                        venue_order_id,
+                        None, // account_id not available in async context
+                    );
+                    if let Err(send_err) = exec_sender
+                        .send(ExecutionEvent::Order(OrderEventAny::CancelRejected(event)))
+                    {
+                        log::warn!("Failed to send OrderCancelRejected event: {send_err}");
                     }
                 }
             }
@@ -1229,10 +1223,6 @@ impl ExecutionClient for DydxExecutionClient {
 
         log::info!("Connecting to dYdX");
 
-        if self.exec_event_sender.is_none() {
-            self.exec_event_sender = Some(get_exec_event_sender());
-        }
-
         // Load instruments BEFORE WebSocket connection
         // Per Python implementation: "instruments are used in the first account channel message"
         log::debug!("Loading instruments from HTTP API");
@@ -1261,8 +1251,16 @@ impl ExecutionClient for DydxExecutionClient {
         *self.grpc_client.write().await = Some(grpc_client);
         log::debug!("gRPC client initialized");
 
-        // Initialize wallet from config if mnemonic is provided
-        if let Some(mnemonic) = &self.config.mnemonic {
+        let mnemonic_resolved = get_or_env_var_opt(
+            self.config.mnemonic.clone(),
+            if self.config.is_testnet {
+                "DYDX_TESTNET_MNEMONIC"
+            } else {
+                "DYDX_MNEMONIC"
+            },
+        );
+
+        if let Some(ref mnemonic) = mnemonic_resolved {
             let wallet = Wallet::from_mnemonic(mnemonic)?;
             *self.wallet.write().await = Some(wallet);
             log::debug!("Wallet initialized");
@@ -1281,7 +1279,7 @@ impl ExecutionClient for DydxExecutionClient {
         log::debug!("Subscribed to markets");
 
         // Subscribe to subaccount updates if authenticated
-        if self.config.mnemonic.is_some() {
+        if mnemonic_resolved.is_some() {
             self.ws_client
                 .subscribe_subaccount(&self.wallet_address, self.subaccount_number)
                 .await?;
@@ -1339,20 +1337,16 @@ impl ExecutionClient for DydxExecutionClient {
 
             // Spawn WebSocket message processing task following standard adapter pattern
             // Per docs/developer_guide/adapters.md: Parse -> Dispatch -> Engine handles events
-            let Some(exec_sender) = self.exec_event_sender.as_ref() else {
-                log::error!("Execution event sender not initialized");
-                anyhow::bail!("Execution event sender not initialized");
-            };
-
             if let Some(mut rx) = self.ws_client.take_receiver() {
                 log::info!("Starting execution WebSocket message processing task");
+
                 // Clone data needed for account state parsing in spawned task
                 let account_id = self.core.account_id;
                 let instruments = self.instruments.clone();
                 let oracle_prices = self.oracle_prices.clone();
                 let clob_pair_id_to_instrument = self.clob_pair_id_to_instrument.clone();
                 let block_height = self.block_height.clone();
-                let exec_sender = exec_sender.clone();
+                let exec_sender = self.exec_sender.clone();
                 let clock = self.clock;
 
                 let handle = get_runtime().spawn(async move {
@@ -1625,8 +1619,16 @@ impl ExecutionClient for DydxExecutionClient {
 
         log::info!("Disconnecting from dYdX");
 
-        // Unsubscribe from subaccount updates if authenticated
-        if self.config.mnemonic.is_some() {
+        let mnemonic_resolved = get_or_env_var_opt(
+            self.config.mnemonic.clone(),
+            if self.config.is_testnet {
+                "DYDX_TESTNET_MNEMONIC"
+            } else {
+                "DYDX_MNEMONIC"
+            },
+        );
+
+        if mnemonic_resolved.is_some() {
             let _ = self
                 .ws_client
                 .unsubscribe_subaccount(&self.wallet_address, self.subaccount_number)
@@ -2051,9 +2053,9 @@ fn dispatch_account_state(_state: AccountState) {
 /// # Architecture
 ///
 /// Per `docs/developer_guide/adapters.md`, adapters should:
-/// 1. Parse WebSocket messages into ExecutionReports in the handler
-/// 2. Dispatch reports via the execution event sender
-/// 3. Let the execution engine handle event generation (has cache access)
+/// 1. Parse WebSocket messages into ExecutionReports in the handler.
+/// 2. Dispatch reports via the execution event sender.
+/// 3. Let the execution engine handle event generation (has cache access).
 ///
 /// This pattern is used by Hyperliquid, OKX, BitMEX, and other reference adapters.
 fn dispatch_execution_report(

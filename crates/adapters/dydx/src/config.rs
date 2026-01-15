@@ -53,7 +53,14 @@ pub struct DydxAdapterConfig {
     pub chain_id: String,
     /// Request timeout in seconds.
     pub timeout_secs: u64,
-    /// Wallet address for the account (optional, can be derived from mnemonic).
+    /// Wallet address for the account.
+    ///
+    /// If not provided, falls back to environment variable:
+    /// - Mainnet: `DYDX_WALLET_ADDRESS`
+    /// - Testnet: `DYDX_TESTNET_WALLET_ADDRESS`
+    ///
+    /// If neither config nor env var is set, can be derived from mnemonic.
+    /// Use `resolve_wallet_address()` to resolve from config or environment.
     #[serde(default)]
     pub wallet_address: Option<String>,
     /// Subaccount number (default: 0).
@@ -67,7 +74,13 @@ pub struct DydxAdapterConfig {
     /// `network` in future versions.
     #[serde(default)]
     pub is_testnet: bool,
-    /// Mnemonic phrase for wallet (optional, loaded from environment if not provided).
+    /// Mnemonic phrase for wallet.
+    ///
+    /// If not provided, falls back to environment variable:
+    /// - Mainnet: `DYDX_MNEMONIC`
+    /// - Testnet: `DYDX_TESTNET_MNEMONIC`
+    ///
+    /// Use `DydxCredential::resolve()` to resolve from config or environment.
     #[serde(default)]
     pub mnemonic: Option<String>,
     /// Authenticator IDs for permissioned key trading.
@@ -232,8 +245,18 @@ pub struct DYDXExecClientConfig {
     /// HTTP endpoint URL (optional, uses default for network if not provided).
     pub http_endpoint: Option<String>,
     /// Wallet mnemonic for signing transactions.
+    ///
+    /// If not provided, falls back to environment variable:
+    /// - Mainnet: `DYDX_MNEMONIC`
+    /// - Testnet: `DYDX_TESTNET_MNEMONIC`
     pub mnemonic: Option<String>,
-    /// Wallet address (optional, derived from mnemonic if not provided).
+    /// Wallet address.
+    ///
+    /// If not provided, falls back to environment variable:
+    /// - Mainnet: `DYDX_WALLET_ADDRESS`
+    /// - Testnet: `DYDX_TESTNET_WALLET_ADDRESS`
+    ///
+    /// If neither config nor env var is set, derived from mnemonic.
     pub wallet_address: Option<String>,
     /// Subaccount number (default: 0).
     #[serde(default)]
