@@ -1269,10 +1269,10 @@ impl DataEngine {
 
         // Unsubscribe from topics that no longer have subscriptions
         if !has_deltas {
-            msgbus::unsubscribe_deltas(deltas_topic.into(), &deltas_handler);
+            msgbus::unsubscribe_book_deltas(deltas_topic.into(), &deltas_handler);
         }
         if !has_depth10 {
-            msgbus::unsubscribe_depth10(depth_topic.into(), &depth_handler);
+            msgbus::unsubscribe_book_depth10(depth_topic.into(), &depth_handler);
         }
 
         // Remove BookUpdater only when no subscriptions remain
@@ -1378,13 +1378,13 @@ impl DataEngine {
         // Subscribe to deltas (typed router handles duplicates)
         let topic = switchboard::get_book_deltas_topic(*instrument_id);
         let deltas_handler = TypedHandler::new(updater.clone());
-        msgbus::subscribe_deltas(topic.into(), deltas_handler, Some(self.msgbus_priority));
+        msgbus::subscribe_book_deltas(topic.into(), deltas_handler, Some(self.msgbus_priority));
 
         // Subscribe to depth10 if not only_deltas
         if !only_deltas {
             let topic = switchboard::get_book_depth10_topic(*instrument_id);
             let depth_handler = TypedHandler::new(updater);
-            msgbus::subscribe_depth10(topic.into(), depth_handler, Some(self.msgbus_priority));
+            msgbus::subscribe_book_depth10(topic.into(), depth_handler, Some(self.msgbus_priority));
         }
 
         Ok(())

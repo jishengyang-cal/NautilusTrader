@@ -2161,13 +2161,13 @@ impl DataActorCore {
             return;
         }
         self.deltas_handlers.insert(topic, handler.clone());
-        msgbus::subscribe_deltas(topic.into(), handler, None);
+        msgbus::subscribe_book_deltas(topic.into(), handler, None);
     }
 
     #[allow(dead_code)]
     pub(crate) fn remove_deltas_subscription(&mut self, topic: MStr<Topic>) {
         if let Some(handler) = self.deltas_handlers.remove(&topic) {
-            msgbus::unsubscribe_deltas(topic.into(), &handler);
+            msgbus::unsubscribe_book_deltas(topic.into(), &handler);
         }
     }
 
@@ -2185,13 +2185,13 @@ impl DataActorCore {
             return;
         }
         self.depth10_handlers.insert(topic, handler.clone());
-        msgbus::subscribe_depth10(topic.into(), handler, None);
+        msgbus::subscribe_book_depth10(topic.into(), handler, None);
     }
 
     #[allow(dead_code)]
     pub(crate) fn remove_depth10_subscription(&mut self, topic: MStr<Topic>) {
         if let Some(handler) = self.depth10_handlers.remove(&topic) {
-            msgbus::unsubscribe_depth10(topic.into(), &handler);
+            msgbus::unsubscribe_book_depth10(topic.into(), &handler);
         }
     }
 

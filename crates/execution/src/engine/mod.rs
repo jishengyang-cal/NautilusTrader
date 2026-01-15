@@ -1079,12 +1079,6 @@ impl ExecutionEngine {
             && let Err(e) = self.cache.borrow().snapshot_order_state(order)
         {
             log::error!("Failed to snapshot order state: {e}");
-            return;
-        }
-
-        if get_message_bus().borrow().has_backing {
-            let topic = switchboard::get_order_snapshots_topic(order.client_order_id());
-            msgbus::publish_order(topic, order);
         }
     }
 
@@ -1097,9 +1091,6 @@ impl ExecutionEngine {
         // if let Some(pnl) = self.cache.borrow().calculate_unrealized_pnl(&position) {
         //     position.unrealized_pnl(last)
         // }
-
-        let topic = switchboard::get_positions_snapshots_topic(position.id);
-        msgbus::publish_position(topic, position);
     }
 
     fn handle_event(&mut self, event: &OrderEventAny) {

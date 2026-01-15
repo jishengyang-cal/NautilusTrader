@@ -1388,7 +1388,7 @@ fn test_process_book_delta(
     let delta = stub_delta();
     let (handler, saver) = get_typed_message_saving_handler::<OrderBookDeltas>(None);
     let topic = switchboard::get_book_deltas_topic(delta.instrument_id);
-    msgbus::subscribe_deltas(topic.into(), handler, None);
+    msgbus::subscribe_book_deltas(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::Delta(delta));
@@ -1429,7 +1429,7 @@ fn test_process_book_deltas(
     let deltas = OrderBookDeltas_API::new(stub_deltas());
     let (handler, saver) = get_typed_message_saving_handler::<OrderBookDeltas>(None);
     let topic = switchboard::get_book_deltas_topic(deltas.instrument_id);
-    msgbus::subscribe_deltas(topic.into(), handler, None);
+    msgbus::subscribe_book_deltas(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::Deltas(deltas.clone()));
@@ -1470,7 +1470,7 @@ fn test_process_book_depth10(
     let depth = stub_depth10();
     let (handler, saver) = get_typed_message_saving_handler::<OrderBookDepth10>(None);
     let topic = switchboard::get_book_depth10_topic(depth.instrument_id);
-    msgbus::subscribe_depth10(topic.into(), handler, None);
+    msgbus::subscribe_book_depth10(topic.into(), handler, None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process_data(Data::from(depth));
