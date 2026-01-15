@@ -64,6 +64,7 @@ Released on TBD (UTC).
 - Refined greeks safeguards and docs (#3407), thanks @faysou
 - Refined processing of gaps in aggregated historical bars (#3412), thanks @faysou
 - Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
+- Optimized message bus publish with thread-local `SmallVec` buffers in Rust
 - Upgraded Cap'n Proto to v1.3.0
 - Upgraded Cython to v3.2.4
 - Upgraded `capnp` and `capnpc` crates to v0.25.0

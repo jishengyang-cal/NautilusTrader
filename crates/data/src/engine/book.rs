@@ -167,6 +167,6 @@ impl BookSnapshotter {
             book.update_count
         );
 
-        msgbus::publish_book_snapshot(topic, book);
+        msgbus::publish_book(topic, book);
     }
 }

@@ -561,7 +561,7 @@ fn test_subscribe_and_receive_book_at_interval(
     let topic = get_book_snapshots_topic(audusd_sim.id, interval_ms);
     let book = OrderBook::new(audusd_sim.id, book_type);
 
-    msgbus::publish_book_snapshot(topic, &book);
+    msgbus::publish_book(topic, &book);
 
     assert_eq!(actor.received_books.len(), 1);
 }
@@ -585,15 +585,15 @@ fn test_unsubscribe_book_at_interval(
     let topic = get_book_snapshots_topic(audusd_sim.id, interval_ms);
     let book = OrderBook::new(audusd_sim.id, book_type);
 
-    msgbus::publish_book_snapshot(topic, &book);
+    msgbus::publish_book(topic, &book);
 
     assert_eq!(actor.received_books.len(), 1);
 
     actor.unsubscribe_book_at_interval(audusd_sim.id, interval_ms, None, None);
 
     // Publish more book refs
-    msgbus::publish_book_snapshot(topic, &book);
-    msgbus::publish_book_snapshot(topic, &book);
+    msgbus::publish_book(topic, &book);
+    msgbus::publish_book(topic, &book);
 
     // Should still only have one book
     assert_eq!(actor.received_books.len(), 1);
@@ -955,9 +955,9 @@ fn test_subscribe_and_receive_instruments(
 
     let topic = get_instruments_topic(venue);
     let inst1 = InstrumentAny::CurrencyPair(audusd_sim);
-    msgbus::publish_instrument(topic, &inst1);
+    msgbus::publish_any(topic, &inst1);
     let inst2 = InstrumentAny::CurrencyPair(gbpusd_sim);
-    msgbus::publish_instrument(topic, &inst2);
+    msgbus::publish_any(topic, &inst2);
 
     assert_eq!(actor.received_instruments.len(), 2);
     assert_eq!(actor.received_instruments[0], inst1);
@@ -981,8 +981,8 @@ fn test_subscribe_and_receive_instrument(
     let topic = get_instrument_topic(audusd_sim.id);
     let inst1 = InstrumentAny::CurrencyPair(audusd_sim);
     let inst2 = InstrumentAny::CurrencyPair(gbpusd_sim);
-    msgbus::publish_instrument(topic, &inst1);
-    msgbus::publish_instrument(topic, &inst2);
+    msgbus::publish_any(topic, &inst1);
+    msgbus::publish_any(topic, &inst2);
 
     assert_eq!(actor.received_instruments.len(), 2);
     assert_eq!(actor.received_instruments[0], inst1);
@@ -1121,7 +1121,7 @@ fn test_subscribe_and_receive_instrument_close(
     actor.subscribe_instrument_close(instrument_id, None, None);
 
     let topic = get_instrument_close_topic(instrument_id);
-    msgbus::publish_instrument_close(topic, &stub_instrument_close);
+    msgbus::publish_any(topic, &stub_instrument_close);
 
     assert_eq!(actor.received_closes.len(), 1);
     assert_eq!(actor.received_closes[0], stub_instrument_close);
@@ -1144,18 +1144,18 @@ fn test_unsubscribe_instruments(
 
     let topic = get_instruments_topic(venue);
     let inst1 = InstrumentAny::CurrencyPair(audusd_sim);
-    msgbus::publish_instrument(topic, &inst1);
+    msgbus::publish_any(topic, &inst1);
     let inst2 = InstrumentAny::CurrencyPair(gbpusd_sim);
-    msgbus::publish_instrument(topic, &inst2);
+    msgbus::publish_any(topic, &inst2);
 
     assert_eq!(actor.received_instruments.len(), 2);
 
     actor.unsubscribe_instruments(venue, None, None);
 
     let inst3 = InstrumentAny::CurrencyPair(audusd_sim);
-    msgbus::publish_instrument(topic, &inst3);
+    msgbus::publish_any(topic, &inst3);
     let inst4 = InstrumentAny::CurrencyPair(gbpusd_sim);
-    msgbus::publish_instrument(topic, &inst4);
+    msgbus::publish_any(topic, &inst4);
 
     assert_eq!(actor.received_instruments.len(), 2);
 }
@@ -1176,18 +1176,18 @@ fn test_unsubscribe_instrument(
 
     let topic = get_instrument_topic(audusd_sim.id);
     let inst1 = InstrumentAny::CurrencyPair(audusd_sim);
-    msgbus::publish_instrument(topic, &inst1);
+    msgbus::publish_any(topic, &inst1);
     let inst2 = InstrumentAny::CurrencyPair(gbpusd_sim);
-    msgbus::publish_instrument(topic, &inst2);
+    msgbus::publish_any(topic, &inst2);
 
     assert_eq!(actor.received_instruments.len(), 2);
 
     actor.unsubscribe_instrument(audusd_sim.id, None, None);
 
     let inst3 = InstrumentAny::CurrencyPair(audusd_sim);
-    msgbus::publish_instrument(topic, &inst3);
+    msgbus::publish_any(topic, &inst3);
     let inst4 = InstrumentAny::CurrencyPair(gbpusd_sim);
-    msgbus::publish_instrument(topic, &inst4);
+    msgbus::publish_any(topic, &inst4);
 
     assert_eq!(actor.received_instruments.len(), 2);
 }
@@ -1361,14 +1361,14 @@ fn test_unsubscribe_instrument_close(
     actor.subscribe_instrument_close(instrument_id, None, None);
 
     let topic = get_instrument_close_topic(instrument_id);
-    msgbus::publish_instrument_close(topic, &stub_instrument_close);
+    msgbus::publish_any(topic, &stub_instrument_close);
 
     assert_eq!(actor.received_closes.len(), 1);
 
     actor.unsubscribe_instrument_close(instrument_id, None, None);
 
     let stub2 = stub_instrument_close;
-    msgbus::publish_instrument_close(topic, &stub2);
+    msgbus::publish_any(topic, &stub2);
 
     assert_eq!(actor.received_closes.len(), 1);
 }

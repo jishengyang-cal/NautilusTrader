@@ -25,6 +25,7 @@ use std::{
 };
 
 use indexmap::IndexMap;
+use smallvec::SmallVec;
 use ustr::Ustr;
 
 use super::{
@@ -111,9 +112,9 @@ impl<T: 'static> Hash for TypedSubscription<T> {
 #[derive(Debug)]
 pub struct TopicRouter<T: 'static> {
     /// All active subscriptions.
-    subscriptions: Vec<TypedSubscription<T>>,
-    /// Cache mapping topics to matching subscription indices.
-    topic_cache: IndexMap<MStr<Topic>, Vec<usize>>,
+    pub(crate) subscriptions: Vec<TypedSubscription<T>>,
+    /// Cache mapping topics to matching subscription indices (inline for ≤64 handlers).
+    topic_cache: IndexMap<MStr<Topic>, SmallVec<[usize; 64]>>,
 }
 
 impl<T: 'static> Default for TopicRouter<T> {
@@ -236,18 +237,42 @@ impl<T: 'static> TopicRouter<T> {
 
     /// Publishes a message to all handlers subscribed to matching patterns.
     pub fn publish(&mut self, topic: MStr<Topic>, message: &T) {
-        let indices = self.get_or_compute_matching_indices(topic);
-        for idx in indices {
-            self.subscriptions[idx].handler.handle(message);
+        // Split borrow to avoid copying indices
+        let Self {
+            subscriptions,
+            topic_cache,
+        } = self;
+
+        let indices = topic_cache.entry(topic).or_insert_with(|| {
+            subscriptions
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, sub)| {
+                    if is_matching_backtracking(topic, sub.pattern) {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        });
+
+        for &idx in indices.iter() {
+            subscriptions[idx].handler.handle(message);
         }
     }
 
     /// Returns cloned handlers matching a topic for safe out-of-borrow calling.
     ///
     /// Use this when handlers may need to access the message bus during execution.
+    /// Note: Allocates a Vec on each call. For hot paths, prefer the thread-local
+    /// buffer pattern used by `publish_*` functions.
     pub fn get_matching_handlers(&mut self, topic: MStr<Topic>) -> Vec<TypedHandler<T>> {
-        // TODO: Optimize to avoid allocating a vec
-        let indices = self.get_or_compute_matching_indices(topic);
+        let indices: SmallVec<[usize; 64]> = self
+            .get_or_compute_matching_indices(topic)
+            .iter()
+            .copied()
+            .collect();
         indices
             .into_iter()
             .map(|idx| self.subscriptions[idx].handler.clone())
@@ -255,23 +280,51 @@ impl<T: 'static> TopicRouter<T> {
     }
 
     /// Gets cached matching indices for a topic, if available.
-    fn get_matching_indices(&self, topic: MStr<Topic>) -> Option<&Vec<usize>> {
-        self.topic_cache.get(&topic)
+    fn get_matching_indices(&self, topic: MStr<Topic>) -> Option<&[usize]> {
+        self.topic_cache.get(&topic).map(|v| v.as_slice())
     }
 
     /// Gets or computes matching subscription indices for a topic.
-    fn get_or_compute_matching_indices(&mut self, topic: MStr<Topic>) -> Vec<usize> {
-        if let Some(indices) = self.topic_cache.get(&topic) {
-            return indices.clone();
+    pub(crate) fn get_or_compute_matching_indices(&mut self, topic: MStr<Topic>) -> &[usize] {
+        if !self.topic_cache.contains_key(&topic) {
+            let indices = self.find_matches(topic);
+            self.topic_cache.insert(topic, indices);
         }
+        self.topic_cache.get(&topic).unwrap()
+    }
 
-        let indices = self.find_matches(topic);
-        self.topic_cache.insert(topic, indices.clone());
-        indices
+    /// Fills a buffer with handlers matching a topic.
+    pub(crate) fn fill_matching_handlers(
+        &mut self,
+        topic: MStr<Topic>,
+        buf: &mut SmallVec<[TypedHandler<T>; 64]>,
+    ) {
+        let Self {
+            subscriptions,
+            topic_cache,
+        } = self;
+
+        let indices = topic_cache.entry(topic).or_insert_with(|| {
+            subscriptions
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, sub)| {
+                    if is_matching_backtracking(topic, sub.pattern) {
+                        Some(idx)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        });
+
+        for &idx in indices.iter() {
+            buf.push(subscriptions[idx].handler.clone());
+        }
     }
 
     /// Finds subscription indices matching a topic (without caching).
-    fn find_matches(&self, topic: MStr<Topic>) -> Vec<usize> {
+    fn find_matches(&self, topic: MStr<Topic>) -> SmallVec<[usize; 64]> {
         self.subscriptions
             .iter()
             .enumerate()

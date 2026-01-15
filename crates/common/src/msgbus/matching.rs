@@ -13,6 +13,8 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+use smallvec::SmallVec;
+
 use super::mstr::{MStr, Pattern, Topic};
 
 /// Match a topic and a string pattern using iterative backtracking algorithm
@@ -30,7 +32,9 @@ pub fn is_matching_backtracking(topic: MStr<Topic>, pattern: MStr<Pattern>) -> b
 #[must_use]
 pub fn is_matching(topic: &[u8], pattern: &[u8]) -> bool {
     // Stack to store states for backtracking (topic_idx, pattern_idx)
-    let mut stack = vec![(0, 0)];
+    // SmallVec avoids heap allocation for patterns with ≤16 wildcards
+    let mut stack: SmallVec<[(usize, usize); 16]> = SmallVec::new();
+    stack.push((0, 0));
 
     while let Some((mut i, mut j)) = stack.pop() {
         loop {

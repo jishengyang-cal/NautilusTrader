@@ -351,6 +351,57 @@ fn bench_router_wildcards(c: &mut Criterion) {
 }
 
 // --
+// Benchmark: Cold-path publish (first time topic seen, cache miss + pattern scan)
+// --
+
+fn bench_cold_path_publish(c: &mut Criterion) {
+    let quote = QuoteTick::default();
+
+    let mut group = c.benchmark_group("Cold-path publish (cache miss)");
+    group.throughput(Throughput::Elements(1));
+
+    // Any-based: first publish to new topic triggers pattern matching
+    group.bench_function("Any-based", |b| {
+        b.iter_with_setup(
+            || {
+                let mut router = AnyTopicRouter::new();
+                let handler = ShareableMessageHandler(Rc::new(CountingAnyHandler {
+                    id: Ustr::from("handler"),
+                }));
+                let pattern: MStr<Pattern> = MStr::from("data.quotes.*.*");
+                router.subscribe(pattern, handler);
+                router
+            },
+            |mut router| {
+                let topic: MStr<Topic> = MStr::from("data.quotes.BINANCE.BTCUSDT");
+                router.publish(black_box(topic), black_box(&quote as &dyn Any));
+            },
+        );
+    });
+
+    // Typed: first publish to new topic triggers pattern matching
+    group.bench_function("Typed", |b| {
+        b.iter_with_setup(
+            || {
+                let mut router = TopicRouter::<QuoteTick>::new();
+                let handler = TypedHandler::new(CountingTypedHandler {
+                    id: Ustr::from("handler"),
+                });
+                let pattern: MStr<Pattern> = MStr::from("data.quotes.*.*");
+                router.subscribe(pattern, handler, 0);
+                router
+            },
+            |mut router| {
+                let topic: MStr<Topic> = MStr::from("data.quotes.BINANCE.BTCUSDT");
+                router.publish(black_box(topic), black_box(&quote));
+            },
+        );
+    });
+
+    group.finish();
+}
+
+// --
 // Benchmark: High volume (1M messages)
 // --
 
@@ -553,6 +604,7 @@ criterion_group!(
     benches,
     bench_noop_dispatch,
     bench_router_publish,
+    bench_cold_path_publish,
     bench_router_multiple_subscribers,
     bench_router_wildcards,
     bench_high_volume,

@@ -815,7 +815,7 @@ impl DataEngine {
         }
 
         let topic = switchboard::get_instrument_topic(instrument.id());
-        msgbus::publish_instrument(topic, &instrument);
+        msgbus::publish_any(topic, &instrument);
     }
 
     fn handle_delta(&mut self, delta: OrderBookDelta) {
@@ -984,7 +984,7 @@ impl DataEngine {
 
     fn handle_instrument_close(&mut self, close: InstrumentClose) {
         let topic = switchboard::get_instrument_close_topic(close.instrument_id);
-        msgbus::publish_instrument_close(topic, &close);
+        msgbus::publish_any(topic, &close);
     }
 
     // -- SUBSCRIPTION HANDLERS -------------------------------------------------------------------

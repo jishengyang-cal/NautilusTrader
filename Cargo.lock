@@ -5080,6 +5080,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "smallvec",
  "strum",
  "sysinfo",
  "tempfile",

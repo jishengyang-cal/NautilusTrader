@@ -15,7 +15,7 @@
 
 mod common;
 
-use std::{any::Any, cell::RefCell, num::NonZeroUsize, rc::Rc};
+use std::{any::Any, cell::RefCell, num::NonZeroUsize, rc::Rc, time::Duration};
 #[cfg(feature = "defi")]
 use std::{str::FromStr, sync::Arc};
 
@@ -38,12 +38,12 @@ use nautilus_common::{
     messages::data::{
         DataCommand, RequestBars, RequestBookDepth, RequestBookSnapshot, RequestCommand,
         RequestCustomData, RequestInstrument, RequestInstruments, RequestQuotes, RequestTrades,
-        SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10, SubscribeCommand,
-        SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
-        SubscribeMarkPrices, SubscribeQuotes, SubscribeTrades, UnsubscribeBars,
-        UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeCommand, UnsubscribeCustomData,
-        UnsubscribeFundingRates, UnsubscribeIndexPrices, UnsubscribeInstrument,
-        UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
+        SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10, SubscribeBookSnapshots,
+        SubscribeCommand, SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices,
+        SubscribeInstrument, SubscribeMarkPrices, SubscribeQuotes, SubscribeTrades,
+        UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeCommand,
+        UnsubscribeCustomData, UnsubscribeFundingRates, UnsubscribeIndexPrices,
+        UnsubscribeInstrument, UnsubscribeMarkPrices, UnsubscribeQuotes, UnsubscribeTrades,
     },
     msgbus::{
         self, MessageBus,
@@ -51,6 +51,7 @@ use nautilus_common::{
         stubs::get_typed_message_saving_handler,
         switchboard::{self, MessagingSwitchboard},
     },
+    testing::wait_until,
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_data::{client::DataClientAdapter, engine::DataEngine};
@@ -69,11 +70,12 @@ use nautilus_model::{
     data::{
         Bar, BarType, Data, DataType, FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate,
         OrderBookDeltas, OrderBookDeltas_API, OrderBookDepth10, QuoteTick, TradeTick,
-        stubs::{stub_delta, stub_deltas, stub_depth10},
+        stubs::{OrderBookDeltaTestBuilder, stub_delta, stub_deltas, stub_depth10},
     },
     enums::{BookType, PriceType},
     identifiers::{ClientId, TraderId, Venue},
     instruments::{CurrencyPair, Instrument, InstrumentAny, stubs::audusd_sim},
+    orderbook::OrderBook,
     stubs::TestDefault,
     types::Price,
 };
@@ -1339,14 +1341,14 @@ fn test_process_instrument(
     let endpoint = MessagingSwitchboard::data_engine_execute();
     msgbus::send_any(endpoint, &cmd as &dyn Any);
 
-    let (typed_handler, saving_handler) = get_typed_message_saving_handler::<InstrumentAny>(None);
+    let handler = msgbus::stubs::get_message_saving_handler::<InstrumentAny>(None);
     let topic = switchboard::get_instrument_topic(audusd_sim.id());
-    msgbus::subscribe_instruments(topic.into(), typed_handler, None);
+    msgbus::subscribe_any(topic.into(), handler.clone(), None);
 
     let mut data_engine = data_engine.borrow_mut();
     data_engine.process(&audusd_sim as &dyn Any);
     let cache = &data_engine.get_cache();
-    let messages = saving_handler.get_messages();
+    let messages = msgbus::stubs::get_saved_messages::<InstrumentAny>(handler);
 
     assert_eq!(
         cache.instrument(&audusd_sim.id()),
@@ -3639,4 +3641,94 @@ async fn test_data_engine_connect_succeeds_with_working_client(
     data_engine.register_client(adapter, None);
 
     data_engine.connect().await;
+}
+
+#[rstest]
+fn test_process_book_snapshot_publish(
+    audusd_sim: CurrencyPair,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    // Ensure message bus is initialized
+    let _ = msgbus::get_message_bus();
+
+    // Create data engine
+    let data_engine = Rc::new(RefCell::new(DataEngine::new(
+        clock.clone(),
+        cache.clone(),
+        None,
+    )));
+
+    let data_engine_clone = data_engine.clone();
+    let handler = ShareableMessageHandler::from_typed(move |cmd: &DataCommand| {
+        data_engine_clone.borrow_mut().execute(cmd);
+    });
+    let endpoint = MessagingSwitchboard::data_engine_execute();
+    msgbus::register_any(endpoint, handler);
+
+    // Register mock client
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    // Add instrument to cache
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(audusd_sim));
+
+    // Set up book snapshot handler to capture published snapshots
+    let interval_ms = NonZeroUsize::new(100).unwrap();
+    let topic = switchboard::get_book_snapshots_topic(audusd_sim.id, interval_ms);
+    let (handler, saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    msgbus::subscribe_book_snapshots(topic.into(), handler, None);
+
+    // Subscribe to book snapshots (sets up timer and book updater)
+    let sub = SubscribeBookSnapshots::new(
+        audusd_sim.id,
+        BookType::L2_MBP,
+        Some(client_id),
+        Some(venue),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        interval_ms,
+        None,
+        None,
+    );
+    let cmd = DataCommand::Subscribe(SubscribeCommand::BookSnapshots(sub));
+    data_engine.borrow_mut().execute(&cmd);
+
+    // Process deltas to populate the order book
+    let delta = OrderBookDeltaTestBuilder::new(audusd_sim.id).build();
+    let deltas = OrderBookDeltas_API::new(OrderBookDeltas::new(audusd_sim.id, vec![delta]));
+    data_engine.borrow_mut().process_data(Data::Deltas(deltas));
+
+    // Advance clock past the interval to trigger snapshot timer
+    let advance_ns = 200_000_000u64; // 200ms in nanoseconds
+    let events = clock.borrow_mut().advance_time(advance_ns.into(), true);
+
+    // Process timer events (fire callbacks)
+    let handlers = clock.borrow().match_handlers(events);
+    for handler in handlers {
+        handler.callback.call(handler.event);
+    }
+
+    // Verify snapshot was published and received
+    wait_until(
+        || !saver.get_messages().is_empty(),
+        Duration::from_millis(100),
+    );
+
+    let messages = saver.get_messages();
+    assert!(!messages.is_empty(), "Expected at least one book snapshot");
+    assert_eq!(messages[0].instrument_id, audusd_sim.id);
 }
