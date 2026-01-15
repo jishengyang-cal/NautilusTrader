@@ -335,6 +335,16 @@ impl ExecutionManager {
                 {
                     log::debug!("Skipping order {client_order_id}: already in sync with venue");
                     orders_skipped_duplicate += 1;
+
+                    // Still ensure venue_order_id is indexed even when skipping
+                    if let Err(e) = self.cache.borrow_mut().add_venue_order_id(
+                        client_order_id,
+                        &report.venue_order_id,
+                        false,
+                    ) {
+                        log::warn!("Failed to add venue order ID index: {e}");
+                    }
+
                     continue;
                 }
 
@@ -355,6 +365,15 @@ impl ExecutionManager {
                         orders_reconciled += 1;
                         events.push(event);
                     }
+
+                    // Always ensure venue_order_id is indexed after reconciliation
+                    if let Err(e) = self.cache.borrow_mut().add_venue_order_id(
+                        client_order_id,
+                        &report.venue_order_id,
+                        false,
+                    ) {
+                        log::warn!("Failed to add venue order ID index: {e}");
+                    }
                 } else if let Some(order) = self.get_order_by_venue_order_id(&report.venue_order_id)
                 {
                     // Fallback: match by venue_order_id
@@ -373,6 +392,14 @@ impl ExecutionManager {
                     {
                         orders_reconciled += 1;
                         events.push(event);
+                    }
+
+                    if let Err(e) = self.cache.borrow_mut().add_venue_order_id(
+                        &order.client_order_id(),
+                        &report.venue_order_id,
+                        false,
+                    ) {
+                        log::warn!("Failed to add venue order ID index: {e}");
                     }
                 } else if !self.config.filter_unclaimed_external {
                     if let Some(instrument) = self.get_instrument(&report.instrument_id) {
@@ -409,6 +436,14 @@ impl ExecutionManager {
                 {
                     orders_reconciled += 1;
                     events.push(event);
+                }
+
+                if let Err(e) = self.cache.borrow_mut().add_venue_order_id(
+                    &order.client_order_id(),
+                    &report.venue_order_id,
+                    false,
+                ) {
+                    log::warn!("Failed to add venue order ID index: {e}");
                 }
             } else if !self.config.filter_unclaimed_external {
                 if let Some(instrument) = self.get_instrument(&report.instrument_id) {

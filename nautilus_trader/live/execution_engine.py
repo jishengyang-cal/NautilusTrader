@@ -1886,7 +1886,16 @@ class LiveExecutionEngine(ExecutionEngine):
             results.append(result)
 
             if order_report.client_order_id is not None:
-                reconciled_orders.add(order_report.client_order_id)
+                # Only track orders where instrument was loaded (others are filtered)
+                instrument = self._cache.instrument(order_report.instrument_id)
+                if instrument is not None:
+                    reconciled_orders.add(order_report.client_order_id)
+
+                    if result and order_report.venue_order_id is not None:
+                        self._ensure_venue_order_id_indexed(
+                            client_order_id=order_report.client_order_id,
+                            venue_order_id=order_report.venue_order_id,
+                        )
 
         if not self.filter_position_reports:
             position_reports: list[PositionStatusReport]
@@ -1908,7 +1917,7 @@ class LiveExecutionEngine(ExecutionEngine):
         )
 
         # Validate reconciliation state for consistency
-        self._validate_reconciliation_state(mass_status)
+        self._validate_reconciliation_state(mass_status, reconciled_orders)
 
         return all(results)
 
@@ -2083,14 +2092,21 @@ class LiveExecutionEngine(ExecutionEngine):
     def _validate_reconciliation_state(
         self,
         mass_status: ExecutionMassStatus,
+        reconciled_orders: set[ClientOrderId],
     ) -> None:
-        # Check for duplicate venue_order_ids and indexing consistency in mass status
         venue_order_ids_seen: set[VenueOrderId] = set()
         issues: list[str] = []
 
-        # Check all orders in mass status
         for order_report in mass_status._order_reports.values():
             if order_report.venue_order_id is None:
+                continue
+
+            # Skip orders that were filtered (e.g., instrument not loaded)
+            if order_report.client_order_id not in reconciled_orders:
+                self._log.debug(
+                    f"Skipping validation for {order_report.client_order_id} "
+                    f"(venue_order_id={order_report.venue_order_id}) - not in reconciled_orders",
+                )
                 continue
 
             if order_report.venue_order_id in venue_order_ids_seen:

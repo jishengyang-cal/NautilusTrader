@@ -1728,3 +1728,238 @@ async fn test_mass_status_matches_order_by_venue_order_id_with_mismatched_client
         assert_eq!(canceled.client_order_id, client_order_id);
     }
 }
+
+#[tokio::test]
+async fn test_reconcile_mass_status_indexes_venue_order_id_for_accepted_orders() {
+    // Test that venue_order_id is properly indexed during reconciliation for orders
+    // that are already in ACCEPTED state and don't generate new OrderAccepted events.
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    let instrument = test_instrument();
+    ctx.add_instrument(instrument.clone());
+
+    let client_order_id = ClientOrderId::from("O-TEST");
+    let venue_order_id = VenueOrderId::from("V-123");
+
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.0"))
+        .client_order_id(client_order_id)
+        .build();
+
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+    ctx.add_order(order.clone());
+
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        instrument_id,
+        OrderStatus::Accepted,
+        Quantity::from("1.0"),
+        Quantity::from("0.0"),
+    );
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        Venue::from("SIM"),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+    mass_status.add_order_reports(vec![report]);
+
+    let _events = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status)
+        .await;
+
+    assert_eq!(
+        ctx.cache.borrow().client_order_id(&venue_order_id),
+        Some(&client_order_id),
+        "venue_order_id should be indexed after reconciliation"
+    );
+}
+
+#[tokio::test]
+async fn test_reconcile_mass_status_indexes_venue_order_id_for_external_orders() {
+    // Test that venue_order_id is properly indexed for external orders discovered
+    // during reconciliation.
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    let instrument = test_instrument();
+    ctx.add_instrument(instrument.clone());
+
+    let venue_order_id = VenueOrderId::from("V-EXT-001");
+
+    let report = create_order_status_report(
+        None,
+        venue_order_id,
+        instrument_id,
+        OrderStatus::Accepted,
+        Quantity::from("1.0"),
+        Quantity::from("0.0"),
+    );
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        Venue::from("SIM"),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+    mass_status.add_order_reports(vec![report]);
+
+    let events = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status)
+        .await;
+
+    assert!(
+        !events.is_empty(),
+        "Should generate events for external order"
+    );
+
+    let cache_borrow = ctx.cache.borrow();
+    let indexed_client_id = cache_borrow.client_order_id(&venue_order_id);
+    assert!(
+        indexed_client_id.is_some(),
+        "venue_order_id should be indexed for external order"
+    );
+}
+
+#[tokio::test]
+async fn test_reconcile_mass_status_indexes_venue_order_id_for_filled_orders() {
+    // Test that venue_order_id is properly indexed for orders that are already
+    // FILLED and don't generate new OrderAccepted events.
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    let instrument = test_instrument();
+    ctx.add_instrument(instrument.clone());
+
+    let client_order_id = ClientOrderId::from("O-FILLED");
+    let venue_order_id = VenueOrderId::from("V-456");
+
+    // Create order and process to FILLED state
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.0"))
+        .client_order_id(client_order_id)
+        .build();
+
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+
+    let filled = TestOrderEventStubs::filled(
+        &order,
+        &instrument,
+        Some(TradeId::from("T-1")),
+        None,                          // position_id
+        Some(Price::from("1.0")),      // last_px
+        Some(Quantity::from("1.0")),   // last_qty
+        Some(LiquiditySide::Taker),    // liquidity_side
+        Some(Money::from("0.01 USD")), // commission
+        None,                          // ts_filled_ns
+        Some(test_account_id()),
+    );
+    order.apply(filled).unwrap();
+    ctx.add_order(order.clone());
+
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        instrument_id,
+        OrderStatus::Filled,
+        Quantity::from("1.0"),
+        Quantity::from("1.0"),
+    );
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        Venue::from("SIM"),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+    mass_status.add_order_reports(vec![report]);
+
+    let _events = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status)
+        .await;
+
+    let cache_borrow = ctx.cache.borrow();
+    assert_eq!(
+        cache_borrow.client_order_id(&venue_order_id),
+        Some(&client_order_id),
+        "venue_order_id should be indexed for filled order"
+    );
+}
+
+#[tokio::test]
+async fn test_reconcile_mass_status_skips_orders_without_loaded_instruments() {
+    // Test that reconciliation properly skips orders for instruments that aren't loaded,
+    // and these skipped orders don't cause validation warnings.
+    let mut ctx = TestContext::new();
+    let loaded_instrument_id = test_instrument_id();
+    let loaded_instrument = test_instrument();
+    ctx.add_instrument(loaded_instrument.clone());
+
+    let unloaded_instrument_id = InstrumentId::from("BTCUSDT.SIM");
+
+    let loaded_venue_order_id = VenueOrderId::from("V-LOADED");
+    let unloaded_venue_order_id = VenueOrderId::from("V-UNLOADED");
+
+    let loaded_report = create_order_status_report(
+        Some(ClientOrderId::from("O-LOADED")),
+        loaded_venue_order_id,
+        loaded_instrument_id,
+        OrderStatus::Filled,
+        Quantity::from("1.0"),
+        Quantity::from("1.0"),
+    );
+
+    let unloaded_report = create_order_status_report(
+        Some(ClientOrderId::from("O-UNLOADED")),
+        unloaded_venue_order_id,
+        unloaded_instrument_id,
+        OrderStatus::Filled,
+        Quantity::from("1.0"),
+        Quantity::from("1.0"),
+    );
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        Venue::from("SIM"),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+    mass_status.add_order_reports(vec![loaded_report, unloaded_report]);
+
+    let _events = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status)
+        .await;
+
+    let cache_borrow = ctx.cache.borrow();
+    let loaded_client_id = cache_borrow.client_order_id(&loaded_venue_order_id);
+    assert!(
+        loaded_client_id.is_some(),
+        "Loaded instrument order should be indexed"
+    );
+
+    let unloaded_client_id = cache_borrow.client_order_id(&unloaded_venue_order_id);
+    assert!(
+        unloaded_client_id.is_none(),
+        "Unloaded instrument order should not be indexed (skipped during reconciliation)"
+    );
+}
