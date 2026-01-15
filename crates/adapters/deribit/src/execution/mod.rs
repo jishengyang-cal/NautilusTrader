@@ -680,7 +680,9 @@ impl ExecutionClient for DeribitExecutionClient {
         log::info!("Generating ExecutionMassStatus (lookback_mins={lookback_mins:?})");
         let ts_now = get_atomic_clock_realtime().get_time_ns();
         let start = lookback_mins.map(|mins| {
-            let lookback_ns = mins * 60 * NANOSECONDS_IN_SECOND;
+            let lookback_ns = mins
+                .saturating_mul(60)
+                .saturating_mul(NANOSECONDS_IN_SECOND);
             UnixNanos::from(ts_now.as_u64().saturating_sub(lookback_ns))
         });
 
@@ -689,19 +691,19 @@ impl ExecutionClient for DeribitExecutionClient {
             .open_only(false) // get all orders for mass status
             .start(start)
             .build()
-            .expect("Failed to build GenerateOrderStatusReports");
+            .context("Failed to build GenerateOrderStatusReports")?;
 
         let fill_cmd = GenerateFillReportsBuilder::default()
             .ts_init(ts_now)
             .start(start)
             .build()
-            .expect("Failed to build GenerateFillReports");
+            .context("Failed to build GenerateFillReports")?;
 
         let position_cmd = GeneratePositionStatusReportsBuilder::default()
             .ts_init(ts_now)
             .start(start)
             .build()
-            .expect("Failed to build GeneratePositionStatusReports");
+            .context("Failed to build GeneratePositionStatusReports")?;
 
         let (order_reports, fill_reports, position_reports) = tokio::try_join!(
             self.generate_order_status_reports(&order_cmd),
