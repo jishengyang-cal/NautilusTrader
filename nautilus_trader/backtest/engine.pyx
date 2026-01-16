@@ -3876,6 +3876,11 @@ cdef class OrderMatchingEngine:
                     f"did not match instrument.size_precision={self._size_prec}",
                 )
 
+        # Reset consumption tracking on snapshot (F_SNAPSHOT = 32)
+        if self._liquidity_consumption and (delta._mem.flags & 32):
+            self._bid_consumption.clear()
+            self._ask_consumption.clear()
+
         self._book.apply_delta(delta)
 
         self.iterate(delta.ts_init)
@@ -3903,6 +3908,7 @@ cdef class OrderMatchingEngine:
             self._log.debug(f"Processing {deltas!r}")
 
         # Validate precisions for ADD and UPDATE actions
+        cdef bint has_snapshot = False
         cdef OrderBookDelta delta
         for delta in deltas.deltas:
             if delta._mem.action == BookAction.ADD or delta._mem.action == BookAction.UPDATE:
@@ -3916,6 +3922,13 @@ cdef class OrderMatchingEngine:
                         f"invalid delta size precision={delta._mem.order.size.precision} "
                         f"did not match instrument.size_precision={self._size_prec}",
                     )
+            if delta._mem.flags & 32:
+                has_snapshot = True
+
+        # Reset consumption tracking on snapshot (F_SNAPSHOT = 32)
+        if self._liquidity_consumption and has_snapshot:
+            self._bid_consumption.clear()
+            self._ask_consumption.clear()
 
         self._book.apply_deltas(deltas)
 
@@ -3972,6 +3985,11 @@ cdef class OrderMatchingEngine:
                     f"invalid depth ask size precision={order._mem.size.precision} "
                     f"did not match instrument.size_precision={self._size_prec}",
                 )
+
+        # Reset consumption tracking on snapshot (F_SNAPSHOT = 32)
+        if self._liquidity_consumption and (depth._mem.flags & 32):
+            self._bid_consumption.clear()
+            self._ask_consumption.clear()
 
         self._book.apply_depth(depth)
 
