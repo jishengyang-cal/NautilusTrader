@@ -26,6 +26,7 @@ from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.engine import ExecutionEngine
 from nautilus_trader.model.currencies import BTC
 from nautilus_trader.model.currencies import ETH
+from nautilus_trader.model.currencies import EUR
 from nautilus_trader.model.currencies import GBP
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.currencies import USDT
@@ -1533,6 +1534,107 @@ class TestPortfolio:
 
         # Assert
         assert result == {BTC: Money(0.00200000, BTC)}
+
+    def test_net_exposures_with_multiple_accounts_different_base_currencies_returns_none(self):
+        # Arrange
+        AccountFactory.register_calculated_account("SIM")
+
+        account_id_usd = AccountId("SIM-001")
+        state_usd = AccountState(
+            account_id=account_id_usd,
+            account_type=AccountType.MARGIN,
+            base_currency=USD,
+            reported=True,
+            balances=[
+                AccountBalance(
+                    Money(1_000_000, USD),
+                    Money(0, USD),
+                    Money(1_000_000, USD),
+                ),
+            ],
+            margins=[],
+            info={},
+            event_id=UUID4(),
+            ts_event=0,
+            ts_init=0,
+        )
+
+        account_id_eur = AccountId("SIM-002")
+        state_eur = AccountState(
+            account_id=account_id_eur,
+            account_type=AccountType.MARGIN,
+            base_currency=EUR,
+            reported=True,
+            balances=[
+                AccountBalance(
+                    Money(1_000_000, EUR),
+                    Money(0, EUR),
+                    Money(1_000_000, EUR),
+                ),
+            ],
+            margins=[],
+            info={},
+            event_id=UUID4(),
+            ts_event=0,
+            ts_init=0,
+        )
+
+        self.portfolio.update_account(state_usd)
+        self.portfolio.update_account(state_eur)
+
+        # Create position on USD account
+        order1 = self.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        fill1 = TestEventStubs.order_filled(
+            order1,
+            instrument=AUDUSD_SIM,
+            strategy_id=StrategyId("S-1"),
+            account_id=account_id_usd,
+            position_id=PositionId("P-1"),
+            last_px=Price.from_str("0.80000"),
+        )
+        position1 = Position(instrument=AUDUSD_SIM, fill=fill1)
+        self.portfolio.update_position(TestEventStubs.position_opened(position1))
+        self.cache.add_position(position1, OmsType.HEDGING)
+
+        # Create position on EUR account
+        order2 = self.order_factory.market(
+            AUDUSD_SIM.id,
+            OrderSide.BUY,
+            Quantity.from_int(100_000),
+        )
+        fill2 = TestEventStubs.order_filled(
+            order2,
+            instrument=AUDUSD_SIM,
+            strategy_id=StrategyId("S-2"),
+            account_id=account_id_eur,
+            position_id=PositionId("P-2"),
+            last_px=Price.from_str("0.80000"),
+        )
+        position2 = Position(instrument=AUDUSD_SIM, fill=fill2)
+        self.portfolio.update_position(TestEventStubs.position_opened(position2))
+        self.cache.add_position(position2, OmsType.HEDGING)
+
+        # Add quote tick
+        tick = QuoteTick(
+            instrument_id=AUDUSD_SIM.id,
+            bid_price=Price.from_str("0.80000"),
+            ask_price=Price.from_str("0.80010"),
+            bid_size=Quantity.from_int(100_000),
+            ask_size=Quantity.from_int(100_000),
+            ts_event=0,
+            ts_init=0,
+        )
+        self.cache.add_quote_tick(tick)
+
+        # Act - query without target_currency across multiple accounts with different base currencies
+        result = self.portfolio.net_exposures(SIM)
+
+        # Assert - should return None due to currency mismatch
+        assert result is None
 
     def test_opening_several_positions_updates_portfolio(self):
         # Arrange

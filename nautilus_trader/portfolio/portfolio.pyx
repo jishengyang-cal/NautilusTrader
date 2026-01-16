@@ -503,6 +503,7 @@ cdef class Portfolio(PortfolioFacade):
         cdef:
             Account account
             Instrument instrument
+            PositionId position_id
 
         account, instrument = self._validate_event_account_and_instrument(event, "order")
         if account is None or instrument is None:
@@ -659,7 +660,6 @@ cdef class Portfolio(PortfolioFacade):
         cdef:
             Account account
             Instrument instrument
-
         account, instrument = self._validate_event_account_and_instrument(event, "position")
         if account is None or instrument is None:
             return
@@ -676,6 +676,7 @@ cdef class Portfolio(PortfolioFacade):
             account_id=event.account_id,  # Filter by account_id
         )
 
+        cdef AccountState account_state
         cdef bint result = self._accounts.update_positions(
             account=account,
             instrument=instrument,
@@ -1034,6 +1035,39 @@ cdef class Portfolio(PortfolioFacade):
                 # No account can be determined, return None
                 return None
 
+        cdef set[AccountId] involved_accounts = set()
+        cdef Position pos
+        for pos in positions_open:
+            if not pos.is_closed_c():
+                involved_accounts.add(pos.account_id)
+
+        # Prevent silent currency mixing across accounts with different base currencies
+        cdef:
+            set[Currency] base_currencies = set()
+            AccountId involved_account_id
+            Account involved_account
+            list[str] currency_strs
+            Currency currency
+            str currencies_str
+        if target_currency is None and account_id is None and len(involved_accounts) > 1:
+            for involved_account_id in involved_accounts:
+                involved_account = self._cache.account(involved_account_id)
+                if involved_account is not None and involved_account.base_currency is not None:
+                    base_currencies.add(involved_account.base_currency)
+
+            if len(base_currencies) > 1:
+                currency_strs = []
+                for currency in base_currencies:
+                    currency_strs.append(str(currency))
+
+                currencies_str = ", ".join(currency_strs)
+                self._log.error(
+                    f"Cannot calculate net exposures: multiple accounts with different base currencies "
+                    f"({currencies_str}). "
+                    f"Provide an explicit target_currency to aggregate across accounts."
+                )
+                return None
+
         cdef:
             dict[Currency, double] net_exposures = {}
             Position position
@@ -1049,7 +1083,6 @@ cdef class Portfolio(PortfolioFacade):
 
             processed_instruments.add(position.instrument_id)
 
-            # Determine target currency for this account
             account = self._cache.account(position.account_id)
             current_target = target_currency or (account.base_currency if account else None)
 
@@ -1310,6 +1343,10 @@ cdef class Portfolio(PortfolioFacade):
 
         cdef Money exposure = Money(total_notional, settlement_currency)
 
+        # Early return for zero exposure (always convertible)
+        if target_currency is not None and total_notional == 0.0:
+            return Money(0.0, target_currency)
+
         return self._convert_money_if_needed(
             exposure,
             target_currency,
@@ -1367,6 +1404,8 @@ cdef class Portfolio(PortfolioFacade):
             return (None, price_type, False)
 
         cdef bint is_currency_pair = isinstance(instrument_obj, CurrencyPair)
+        cdef bint has_long = False
+        cdef bint has_short = False
 
         for position in positions:
             val, used_cross = self._calculate_position_exposure_value(
@@ -1385,19 +1424,21 @@ cdef class Portfolio(PortfolioFacade):
                 used_cross_notional = True
 
             if position.side == PositionSide.LONG:
+                has_long = True
                 total_notional += val
 
                 if not price:  # Only override if we used _get_price
                     price_type = PriceType.BID
             elif position.side == PositionSide.SHORT:
+                has_short = True
                 total_notional -= val
 
                 if not price:  # Only override if we used _get_price
                     price_type = PriceType.ASK
 
-        # If mixed positions, MARK is probably better for conversion but we'll stick to what we have
-        if len(positions) > 1 and not price:
-            price_type = PriceType.MARK if self._use_mark_prices else price_type
+        # Use neutral pricing when positions are mixed (both long and short)
+        if has_long and has_short and not price:
+            price_type = PriceType.MARK if self._use_mark_xrates else PriceType.MID
 
         return (total_notional, price_type, used_cross_notional)
 
@@ -1505,19 +1546,19 @@ cdef class Portfolio(PortfolioFacade):
         # If we have the required rate, use cross_notional_value
         if not position.is_inverse:
             # Non-inverse: need quote_price
-            if quote_xrate is not None:
+            if quote_xrate is not None and quote_xrate > 0.0:
                 can_use_cross = True
 
                 # Use dummy base_price since it won't be used
-                if base_xrate is None:
+                if base_xrate is None or base_xrate <= 0.0:
                     base_xrate = 1.0
         else:
             # Inverse: need base_price
-            if base_xrate is not None:
+            if base_xrate is not None and base_xrate > 0.0:
                 can_use_cross = True
 
                 # Use dummy quote_price since it won't be used
-                if quote_xrate is None:
+                if quote_xrate is None or quote_xrate <= 0.0:
                     quote_xrate = 1.0
 
         if can_use_cross:
@@ -1956,6 +1997,7 @@ cdef class Portfolio(PortfolioFacade):
         # Calculate for each account and sum
         # Always calculate in native currency first for caching, then convert if needed
         cdef bint attempted_calculation = False
+        cdef bint any_conversion_failed = False
         cdef Money native_pnl
         for account_id in account_ids:
             # Calculate in native currency for caching
@@ -1974,11 +2016,21 @@ cdef class Portfolio(PortfolioFacade):
                 # Convert to target_currency if needed for aggregation
                 if target_currency is not None:
                     account_pnl = self._convert_money_if_needed(native_pnl, target_currency, venue=instrument_id.venue)
+                    if account_pnl is None:
+                        any_conversion_failed = True
+                        self._log.error(
+                            f"Cannot aggregate PnL: conversion failed for account {account_id} "
+                            f"from {native_pnl.currency} to {target_currency}"
+                        )
                 else:
                     account_pnl = native_pnl
 
                 if account_pnl is not None:
                     total_pnl = self._add_pnl_to_total(total_pnl, account_pnl, "unrealized" if not is_realized else "realized", venue=instrument_id.venue, target_currency=target_currency)
+
+        # Return None if any conversion failed (prevents partial totals)
+        if any_conversion_failed:
+            return None
 
         if total_pnl is None:
             # If we attempted calculations and all returned None (e.g., conversion failed),
@@ -2252,6 +2304,8 @@ cdef class Portfolio(PortfolioFacade):
             AccountId snapshot_account_id
             Position position
             double xrate
+            PriceType conv_price_type
+            Instrument instrument
 
         for position_id in snapshot_ids:
             # Only process snapshots for the requested account
@@ -2279,13 +2333,26 @@ cdef class Portfolio(PortfolioFacade):
             if sum_pnl.currency == currency:
                 total_pnl += contribution
             else:
+                # Respect use_mark_xrates config for snapshot conversions
+                instrument = self._cache.instrument(instrument_id)
+                conv_price_type = PriceType.MARK if self._use_mark_xrates else PriceType.MID
                 xrate = self._cache.get_xrate(
-                    venue=Venue(account.id.get_issuer()),
+                    venue=instrument.id.venue,
                     from_currency=sum_pnl.currency,
                     to_currency=currency,
-                    price_type=PriceType.MID,
+                    price_type=conv_price_type,
                 )
-                if xrate == 0:
+
+                # Fallback to MID if MARK not available
+                if xrate is None and conv_price_type == PriceType.MARK:
+                    xrate = self._cache.get_xrate(
+                        venue=instrument.id.venue,
+                        from_currency=sum_pnl.currency,
+                        to_currency=currency,
+                        price_type=PriceType.MID,
+                    )
+
+                if xrate is None or xrate <= 0.0:
                     return None  # Cannot convert currency
 
                 total_pnl += contribution * xrate
@@ -2609,7 +2676,8 @@ cdef class Portfolio(PortfolioFacade):
             return None
 
         cdef PriceType price_type = PriceType.MARK if self._use_mark_xrates else PriceType.MID
-        cdef Venue venue = Venue(account.id.get_issuer())
+        # Use the instrument's venue for xrate lookup, not the account venue
+        cdef Venue venue = instrument_id.venue
 
         cdef object xrate = self._cache.get_xrate(
             venue=venue,
@@ -2698,8 +2766,8 @@ cdef class Portfolio(PortfolioFacade):
                 price_type=PriceType.MID,
             )
 
-        if xrate is None:
-            self._log.error(f"Cannot convert {money} to {target_currency}: no exchange rate for {money.currency} using {price_type_to_str(effective_price_type)}")
+        if xrate is None or xrate <= 0.0:
+            self._log.error(f"Cannot convert {money} to {target_currency}: {'no' if xrate is None else 'invalid'} exchange rate for {money.currency} using {price_type_to_str(effective_price_type)}")
             return None
 
         return Money(round(money.as_f64_c() * (<double>xrate), target_currency.get_precision()), target_currency)

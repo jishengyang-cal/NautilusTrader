@@ -768,12 +768,10 @@ def test_portfolio_net_exposure_multiple_positions():
     # Update current price
     cache.add_trade_tick(TestDataStubs.trade_tick(instrument=btcusdt, price=60000.0))
 
-    # Net exposure: 1.0 BTC at 50k + 0.5 BTC at 51k = 1.5 BTC total
-    # Current price 60k, so exposure = 1.5 * 60k = 90k USDT
-    # But the portfolio calculates net exposure per position and aggregates
-    # With current price 60k: 1.0 * 60k = 60k, 0.5 * 60k = 30k, total = 90k USDT
-    # Converted to EUR = 90k * 0.9 = 81k EUR, but actual calculation gives 27k EUR
-    # This suggests it's only counting one position or using a different method
+    # In NETTING mode, adding a second position with the same instrument updates the existing position
+    # Final position: 0.5 BTC (from second add_position call)
+    # Current price 60k, so exposure = 0.5 * 60k = 30k USDT
+    # Converted to EUR = 30k * 0.9 = 27k EUR
     exposure = portfolio.net_exposure(btcusdt.id, account_id=account_id, target_currency=EUR)
     assert exposure is not None
     assert exposure.currency == EUR
