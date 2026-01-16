@@ -121,7 +121,7 @@ impl<T: 'static> std::hash::Hash for TypedHandler<T> {
 
 /// A callback-based handler implementation.
 ///
-/// This is the typed equivalent of [`TypedMessageHandler`](super::handler::TypedMessageHandler),
+/// This is the typed equivalent of `TypedMessageHandler`,
 /// but without runtime downcasting overhead.
 pub struct CallbackHandler<T, F: Fn(&T)> {
     id: Ustr,

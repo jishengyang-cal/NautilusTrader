@@ -17,7 +17,7 @@ plus order management capabilities.
 We recommend reviewing the [Actors](actors.md) guide before diving into strategy development.
 :::
 
-Strategies can be added to Nautilus systems in any [environment contexts](/concepts/architecture.md#environment-contexts) and will start sending commands and receiving
+Strategies can be added to Nautilus systems in any [environment contexts](architecture.md#environment-contexts) and will start sending commands and receiving
 events based on their logic as soon as the system starts.
 
 Using the basic building blocks of data ingest, event handling, and order management (which we will discuss

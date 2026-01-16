@@ -15,7 +15,7 @@
 
 //! Order management handler traits and implementations.
 //!
-//! These handlers enable the [`OrderManager`] to dispatch order commands to
+//! These handlers enable the [`OrderManager`](super::manager::OrderManager) to dispatch order commands to
 //! components like the [`OrderEmulator`] for processing emulated orders.
 
 use nautilus_common::messages::execution::SubmitOrder;

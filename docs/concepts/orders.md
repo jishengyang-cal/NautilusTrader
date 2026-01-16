@@ -745,7 +745,7 @@ Here are all the available values you can set into `emulation_trigger` parameter
 
 The platform makes it possible to emulate most order types locally, regardless
 of whether the type is supported on a trading venue. The logic and code paths for
-order emulation are exactly the same for all [environment contexts](/concepts/architecture.md#environment-contexts)
+order emulation are exactly the same for all [environment contexts](architecture.md#environment-contexts)
 and utilize a common `OrderEmulator` component.
 
 :::note
