@@ -87,9 +87,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         client_id,
         Quantity::from("0.001"), // Small quantity for testing
     )
-    .with_log_data(false)
-    .with_subscribe_trades(false)
-    .with_subscribe_quotes(false);
+    .with_subscribe_trades(true)
+    .with_subscribe_quotes(true)
+    .with_use_post_only(true)
+    .with_log_data(false);
 
     // Use UUIDs for unique client order IDs across restarts
     tester_config.base.use_uuid_client_order_ids = true;

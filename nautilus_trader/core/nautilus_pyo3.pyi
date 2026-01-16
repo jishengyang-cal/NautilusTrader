@@ -6949,6 +6949,8 @@ class DeribitWebSocketClient:
     def cancel_all_requests(self) -> None: ...
     def cache_instruments(self, instruments: list[Instrument]) -> None: ...
     def cache_instrument(self, instrument: Instrument) -> None: ...
+    def set_account_id(self, account_id: AccountId) -> None: ...
+    def set_bars_timestamp_on_close(self, value: bool) -> None: ...
     async def connect(
         self,
         instruments: list[Instrument],
@@ -7007,6 +7009,10 @@ class DeribitWebSocketClient:
     ) -> None: ...
     async def subscribe_quotes(self, instrument_id: InstrumentId) -> None: ...
     async def unsubscribe_quotes(self, instrument_id: InstrumentId) -> None: ...
+    async def subscribe_user_orders(self) -> None: ...
+    async def unsubscribe_user_orders(self) -> None: ...
+    async def subscribe_user_trades(self) -> None: ...
+    async def unsubscribe_user_trades(self) -> None: ...
     async def subscribe(self, channels: list[str]) -> None: ...
     async def unsubscribe(self, channels: list[str]) -> None: ...
     async def subscribe_instrument_state(self, kind: str, currency: str) -> None: ...
@@ -7041,7 +7047,7 @@ class DeribitWebSocketClient:
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
         price: Price | None = None,
-        time_in_force: str | None = None,
+        time_in_force: TimeInForce | None = None,
         post_only: bool = False,
         reduce_only: bool = False,
         trigger_price: Price | None = None,
@@ -7097,10 +7103,6 @@ class DeribitInstrumentKind(Enum):
     FUTURE_COMBO = "FUTURE_COMBO"
     OPTION_COMBO = "OPTION_COMBO"
 
-class DeribitOptionType(Enum):
-    CALL = "CALL"
-    PUT = "PUT"
-
 class DeribitUpdateInterval(Enum):
     RAW = "RAW"
     MS100 = "MS100"
@@ -7108,17 +7110,6 @@ class DeribitUpdateInterval(Enum):
 
     @classmethod
     def from_str(cls, value: str) -> DeribitUpdateInterval: ...
-
-class DeribitWsChannel(Enum):
-    TRADES = "TRADES"
-    BOOK = "BOOK"
-    TICKER = "TICKER"
-    QUOTE = "QUOTE"
-    PRICE_INDEX = "PRICE_INDEX"
-    PRICE_RANKING = "PRICE_RANKING"
-    VOLATILITY_INDEX = "VOLATILITY_INDEX"
-    ESTIMATED_EXPIRATION_PRICE = "ESTIMATED_EXPIRATION_PRICE"
-    PERPETUAL = "PERPETUAL"
 
 # Tardis
 

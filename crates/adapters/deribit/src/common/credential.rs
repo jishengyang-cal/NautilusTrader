@@ -258,6 +258,8 @@ impl Credential {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use rstest::rstest;
 
     use super::*;
@@ -460,7 +462,7 @@ mod tests {
 
         let headers1 = credential.sign_auth_headers(method, uri, body).unwrap();
         // Sleep briefly to ensure different timestamp
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(10));
         let headers2 = credential.sign_auth_headers(method, uri, body).unwrap();
 
         let auth1 = headers1.get("Authorization").unwrap();

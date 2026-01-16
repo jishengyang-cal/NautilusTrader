@@ -16,6 +16,7 @@
 //! Parsing functions for converting Deribit WebSocket messages to Nautilus domain types.
 
 use ahash::AHashMap;
+use anyhow::Context;
 use nautilus_core::{UUID4, UnixNanos, datetime::NANOSECONDS_IN_MILLISECOND};
 use nautilus_model::{
     data::{
@@ -489,10 +490,9 @@ pub fn parse_chart_msg(
     bar_type: BarType,
     price_precision: u8,
     size_precision: u8,
+    timestamp_on_close: bool,
     ts_init: UnixNanos,
 ) -> anyhow::Result<Bar> {
-    use anyhow::Context;
-
     let open = Price::new_checked(chart_msg.open, price_precision).context("Invalid open price")?;
     let high = Price::new_checked(chart_msg.high, price_precision).context("Invalid high price")?;
     let low = Price::new_checked(chart_msg.low, price_precision).context("Invalid low price")?;
@@ -502,7 +502,23 @@ pub fn parse_chart_msg(
         Quantity::new_checked(chart_msg.volume, size_precision).context("Invalid volume")?;
 
     // Convert timestamp from milliseconds to nanoseconds
-    let ts_event = UnixNanos::from(chart_msg.tick * NANOSECONDS_IN_MILLISECOND);
+    let mut ts_event = UnixNanos::from(chart_msg.tick * NANOSECONDS_IN_MILLISECOND);
+
+    // Adjust timestamp to close time if configured
+    if timestamp_on_close {
+        let interval_ns = bar_type
+            .spec()
+            .timedelta()
+            .num_nanoseconds()
+            .context("bar specification produced non-integer interval")?;
+        let interval_ns = u64::try_from(interval_ns)
+            .context("bar interval overflowed the u64 range for nanoseconds")?;
+        let updated = ts_event
+            .as_u64()
+            .checked_add(interval_ns)
+            .context("bar timestamp overflowed when adjusting to close time")?;
+        ts_event = UnixNanos::from(updated);
+    }
 
     Bar::new_checked(bar_type, open, high, low, close, volume, ts_event, ts_init)
         .context("Invalid OHLC bar")
@@ -745,10 +761,6 @@ pub fn parse_position_status_report(
         avg_px_open,
     )
 }
-
-// ------------------------------------------------------------------------------------------------
-//  Order Event Parsing Functions
-// ------------------------------------------------------------------------------------------------
 
 /// Parsed order event result from a Deribit order message.
 ///
@@ -1433,11 +1445,14 @@ mod tests {
         assert_eq!(chart_msg.cost, 83970.0);
 
         let bar_type = resolution_to_bar_type(instrument.id(), "1").unwrap();
+
+        // Test with timestamp_on_close=true (default)
         let bar = parse_chart_msg(
             &chart_msg,
             bar_type,
             instrument.price_precision(),
             instrument.size_precision(),
+            true,
             UnixNanos::default(),
         )
         .unwrap();
@@ -1448,7 +1463,9 @@ mod tests {
         assert_eq!(bar.low, instrument.make_price(87465.0));
         assert_eq!(bar.close, instrument.make_price(87474.0));
         assert_eq!(bar.volume, instrument.make_qty(1.0, None)); // Rounded to 1.0 with size_precision=0
-        assert_eq!(bar.ts_event, UnixNanos::new(1_767_200_040_000_000_000));
+
+        // ts_event should be close time (open + 1 minute)
+        assert_eq!(bar.ts_event, UnixNanos::new(1_767_200_100_000_000_000));
     }
 
     #[rstest]

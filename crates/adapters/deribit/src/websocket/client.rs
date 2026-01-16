@@ -99,6 +99,7 @@ pub struct DeribitWebSocketClient {
     instruments_cache: Arc<DashMap<Ustr, InstrumentAny>>,
     cancellation_token: CancellationToken,
     account_id: Option<AccountId>,
+    bars_timestamp_on_close: bool,
 }
 
 impl Debug for DeribitWebSocketClient {
@@ -200,6 +201,7 @@ impl DeribitWebSocketClient {
             instruments_cache: Arc::new(DashMap::new()),
             cancellation_token: CancellationToken::new(),
             account_id: None,
+            bars_timestamp_on_close: true,
         })
     }
 
@@ -424,6 +426,7 @@ impl DeribitWebSocketClient {
             self.auth_tracker.clone(),
             self.subscriptions_state.clone(),
             self.account_id,
+            self.bars_timestamp_on_close,
         );
 
         // Send client to handler
@@ -626,11 +629,7 @@ impl DeribitWebSocketClient {
         // Determine scope
         let scope = session_name.map(|name| format!("session:{name}"));
 
-        log::info!(
-            "Authenticating WebSocket with API key: {}, scope: {}",
-            credential.api_key_masked(),
-            scope.as_deref().unwrap_or("connection (default)")
-        );
+        log::info!("Authenticating WebSocket...");
 
         let rx = self.auth_tracker.begin();
 
@@ -690,9 +689,12 @@ impl DeribitWebSocketClient {
         self.account_id = Some(account_id);
     }
 
-    // ------------------------------------------------------------------------------------------------
-    // Subscription Methods
-    // ------------------------------------------------------------------------------------------------
+    /// Sets whether bar timestamps should use the close time.
+    ///
+    /// When `true` (default), bar `ts_event` is set to the bar's close time.
+    pub fn set_bars_timestamp_on_close(&mut self, value: bool) {
+        self.bars_timestamp_on_close = value;
+    }
 
     async fn send_subscribe(&self, channels: Vec<String>) -> DeribitWsResult<()> {
         let mut channels_to_subscribe = Vec::new();
@@ -1090,6 +1092,60 @@ impl DeribitWebSocketClient {
             ));
         }
         Ok(())
+    }
+
+    /// Subscribes to user order updates for all instruments.
+    ///
+    /// Requires authentication. Subscribes to `user.orders.any.any.raw` channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if client is not authenticated or subscription fails.
+    pub async fn subscribe_user_orders(&self) -> DeribitWsResult<()> {
+        if !self.is_authenticated() {
+            return Err(DeribitWsError::Authentication(
+                "User orders subscription requires authentication".to_string(),
+            ));
+        }
+        self.send_subscribe(vec!["user.orders.any.any.raw".to_string()])
+            .await
+    }
+
+    /// Unsubscribes from user order updates for all instruments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unsubscription fails.
+    pub async fn unsubscribe_user_orders(&self) -> DeribitWsResult<()> {
+        self.send_unsubscribe(vec!["user.orders.any.any.raw".to_string()])
+            .await
+    }
+
+    /// Subscribes to user trade/fill updates for all instruments.
+    ///
+    /// Requires authentication. Subscribes to `user.trades.any.any.raw` channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if client is not authenticated or subscription fails.
+    pub async fn subscribe_user_trades(&self) -> DeribitWsResult<()> {
+        if !self.is_authenticated() {
+            return Err(DeribitWsError::Authentication(
+                "User trades subscription requires authentication".to_string(),
+            ));
+        }
+        self.send_subscribe(vec!["user.trades.any.any.raw".to_string()])
+            .await
+    }
+
+    /// Unsubscribes from user trade/fill updates for all instruments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unsubscription fails.
+    pub async fn unsubscribe_user_trades(&self) -> DeribitWsResult<()> {
+        self.send_unsubscribe(vec!["user.trades.any.any.raw".to_string()])
+            .await
     }
 
     /// Subscribes to multiple channels at once.

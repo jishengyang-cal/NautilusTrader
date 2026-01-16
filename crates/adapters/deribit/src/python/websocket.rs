@@ -40,7 +40,7 @@ use nautilus_common::live::get_runtime;
 use nautilus_core::python::{call_python, to_pyruntime_err, to_pyvalue_err};
 use nautilus_model::{
     data::{Data, OrderBookDeltas_API},
-    enums::{OrderSide, OrderType},
+    enums::{OrderSide, OrderType, TimeInForce},
     identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId},
     python::{
         data::data_to_pycapsule,
@@ -50,10 +50,13 @@ use nautilus_model::{
 };
 use pyo3::{IntoPyObjectExt, exceptions::PyRuntimeError, prelude::*};
 
-use crate::websocket::{
-    client::DeribitWebSocketClient,
-    enums::DeribitUpdateInterval,
-    messages::{DeribitOrderParams, NautilusWsMessage},
+use crate::{
+    common::enums::DeribitTimeInForce,
+    websocket::{
+        client::DeribitWebSocketClient,
+        enums::DeribitUpdateInterval,
+        messages::{DeribitOrderParams, NautilusWsMessage},
+    },
 };
 
 /// Helper function to call Python callback with data conversion.
@@ -184,6 +187,14 @@ impl DeribitWebSocketClient {
         self.set_account_id(account_id);
     }
 
+    /// Sets whether bar timestamps should use the close time.
+    ///
+    /// When `true` (default), bar `ts_event` is set to the bar's close time.
+    #[pyo3(name = "set_bars_timestamp_on_close")]
+    pub fn py_set_bars_timestamp_on_close(&mut self, value: bool) {
+        self.set_bars_timestamp_on_close(value);
+    }
+
     /// Connects to the Deribit WebSocket and starts processing messages.
     ///
     /// This is a non-blocking call that spawns a background task for message processing.
@@ -250,27 +261,31 @@ impl DeribitWebSocketClient {
                         }
                         NautilusWsMessage::FundingRates(funding_rates) => Python::attach(|py| {
                             for funding_rate in funding_rates {
-                                let py_obj = Py::new(py, funding_rate)
-                                    .expect("Failed to create FundingRateUpdate PyObject")
-                                    .into_any();
-                                call_python(py, &callback, py_obj);
+                                match Py::new(py, funding_rate) {
+                                    Ok(py_obj) => call_python(py, &callback, py_obj.into_any()),
+                                    Err(e) => {
+                                        log::error!("Failed to create FundingRateUpdate: {e}");
+                                    }
+                                }
                             }
                         }),
                         // Execution events - route to Python callback
                         NautilusWsMessage::OrderStatusReports(reports) => Python::attach(|py| {
                             for report in reports {
-                                let py_obj = Py::new(py, report)
-                                    .expect("Failed to create OrderStatusReport PyObject")
-                                    .into_any();
-                                call_python(py, &callback, py_obj);
+                                match Py::new(py, report) {
+                                    Ok(py_obj) => call_python(py, &callback, py_obj.into_any()),
+                                    Err(e) => {
+                                        log::error!("Failed to create OrderStatusReport: {e}");
+                                    }
+                                }
                             }
                         }),
                         NautilusWsMessage::FillReports(reports) => Python::attach(|py| {
                             for report in reports {
-                                let py_obj = Py::new(py, report)
-                                    .expect("Failed to create FillReport PyObject")
-                                    .into_any();
-                                call_python(py, &callback, py_obj);
+                                match Py::new(py, report) {
+                                    Ok(py_obj) => call_python(py, &callback, py_obj.into_any()),
+                                    Err(e) => log::error!("Failed to create FillReport: {e}"),
+                                }
                             }
                         }),
                         NautilusWsMessage::OrderRejected(msg) => {
@@ -380,10 +395,6 @@ impl DeribitWebSocketClient {
             Ok(())
         })
     }
-
-    // ------------------------------------------------------------------------------------------------
-    // Subscription Methods
-    // ------------------------------------------------------------------------------------------------
 
     /// Subscribes to trade updates for an instrument.
     ///
@@ -658,6 +669,56 @@ impl DeribitWebSocketClient {
         })
     }
 
+    /// Subscribes to user order updates for all instruments.
+    ///
+    /// Requires authentication. Subscribes to `user.orders.any.any.raw` channel.
+    #[pyo3(name = "subscribe_user_orders")]
+    fn py_subscribe_user_orders<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client.subscribe_user_orders().await.map_err(to_pyvalue_err)
+        })
+    }
+
+    /// Unsubscribes from user order updates for all instruments.
+    #[pyo3(name = "unsubscribe_user_orders")]
+    fn py_unsubscribe_user_orders<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .unsubscribe_user_orders()
+                .await
+                .map_err(to_pyvalue_err)
+        })
+    }
+
+    /// Subscribes to user trade/fill updates for all instruments.
+    ///
+    /// Requires authentication. Subscribes to `user.trades.any.any.raw` channel.
+    #[pyo3(name = "subscribe_user_trades")]
+    fn py_subscribe_user_trades<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client.subscribe_user_trades().await.map_err(to_pyvalue_err)
+        })
+    }
+
+    /// Unsubscribes from user trade/fill updates for all instruments.
+    #[pyo3(name = "unsubscribe_user_trades")]
+    fn py_unsubscribe_user_trades<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .unsubscribe_user_trades()
+                .await
+                .map_err(to_pyvalue_err)
+        })
+    }
+
     /// Subscribes to multiple channels at once.
     #[pyo3(name = "subscribe")]
     fn py_subscribe<'py>(
@@ -857,7 +918,7 @@ impl DeribitWebSocketClient {
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
         price: Option<Price>,
-        time_in_force: Option<String>,
+        time_in_force: Option<TimeInForce>,
         post_only: bool,
         reduce_only: bool,
         trigger_price: Option<Price>,
@@ -866,13 +927,22 @@ impl DeribitWebSocketClient {
         let client = self.clone();
         let instrument_name = instrument_id.symbol.to_string();
 
+        // Convert Nautilus TimeInForce to Deribit format
+        let deribit_tif = time_in_force
+            .map(|tif| {
+                DeribitTimeInForce::try_from(tif)
+                    .map(|deribit_tif| deribit_tif.as_str().to_string())
+            })
+            .transpose()
+            .map_err(to_pyvalue_err)?;
+
         let params = DeribitOrderParams {
             instrument_name,
             amount: quantity.as_decimal(),
             order_type: order_type.to_string().to_lowercase(),
             label: Some(client_order_id.to_string()),
             price: price.map(|p| p.as_decimal()),
-            time_in_force,
+            time_in_force: deribit_tif,
             post_only: if post_only { Some(true) } else { None },
             reduce_only: if reduce_only { Some(true) } else { None },
             trigger_price: trigger_price.map(|p| p.as_decimal()),

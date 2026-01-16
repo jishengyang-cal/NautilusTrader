@@ -15,13 +15,14 @@
 
 //! Deribit HTTP API models and types.
 
-use std::fmt::Display;
-
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
-pub use crate::common::rpc::{DeribitJsonRpcError, DeribitJsonRpcRequest, DeribitJsonRpcResponse};
+pub use crate::common::{
+    enums::{DeribitCurrency, DeribitInstrumentKind, DeribitOptionType},
+    rpc::{DeribitJsonRpcError, DeribitJsonRpcRequest, DeribitJsonRpcResponse},
+};
 
 /// JSON-RPC 2.0 response payload (either success or error).
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,127 +102,6 @@ pub struct DeribitTickSizeStep {
     pub above_price: f64,
     /// Tick size to be used above the price
     pub tick_size: f64,
-}
-
-/// Deribit instrument kind.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    strum::AsRefStr,
-    strum::Display,
-    strum::EnumIter,
-    strum::EnumString,
-    Serialize,
-    Deserialize,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-#[cfg_attr(
-    feature = "python",
-    pyo3::pyclass(eq, eq_int, module = "nautilus_trader.core.nautilus_pyo3.deribit")
-)]
-pub enum DeribitInstrumentKind {
-    /// Future contract
-    Future,
-    /// Option contract
-    Option,
-    /// Spot market
-    Spot,
-    /// Future combo
-    #[serde(rename = "future_combo")]
-    FutureCombo,
-    /// Option combo
-    #[serde(rename = "option_combo")]
-    OptionCombo,
-}
-
-/// Deribit currency.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    strum::AsRefStr,
-    strum::EnumIter,
-    strum::EnumString,
-    Serialize,
-    Deserialize,
-)]
-#[serde(rename_all = "UPPERCASE")]
-#[strum(serialize_all = "UPPERCASE")]
-#[cfg_attr(
-    feature = "python",
-    pyo3::pyclass(eq, eq_int, module = "nautilus_trader.core.nautilus_pyo3.deribit")
-)]
-pub enum DeribitCurrency {
-    /// Bitcoin
-    BTC,
-    /// Ethereum
-    ETH,
-    /// USD Coin
-    USDC,
-    /// Tether
-    USDT,
-    /// Euro stablecoin
-    EURR,
-    /// All currencies
-    #[serde(rename = "any")]
-    ANY,
-}
-
-/// Deribit option type.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    strum::AsRefStr,
-    strum::Display,
-    strum::EnumIter,
-    strum::EnumString,
-    Serialize,
-    Deserialize,
-)]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
-#[cfg_attr(
-    feature = "python",
-    pyo3::pyclass(eq, eq_int, module = "nautilus_trader.core.nautilus_pyo3.deribit")
-)]
-pub enum DeribitOptionType {
-    /// Call option
-    Call,
-    /// Put option
-    Put,
-}
-
-impl DeribitCurrency {
-    /// Returns the currency as a string.
-    #[must_use]
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::BTC => "BTC",
-            Self::ETH => "ETH",
-            Self::USDC => "USDC",
-            Self::USDT => "USDT",
-            Self::EURR => "EURR",
-            Self::ANY => "any",
-        }
-    }
-}
-
-impl Display for DeribitCurrency {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
 }
 
 /// Wrapper for the account summaries response.

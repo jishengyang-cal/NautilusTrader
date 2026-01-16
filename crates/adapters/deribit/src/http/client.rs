@@ -15,9 +15,12 @@
 
 //! Deribit HTTP client implementation.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
 };
 
 use chrono::{DateTime, Utc};
@@ -37,6 +40,7 @@ use nautilus_network::{
     retry::{RetryConfig, RetryManager},
 };
 use serde::{Serialize, de::DeserializeOwned};
+use strum::IntoEnumIterator;
 use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
 
@@ -124,10 +128,10 @@ impl DeribitRawHttpClient {
         Ok(Self {
             base_url,
             client: HttpClient::new(
-                std::collections::HashMap::new(), // headers
-                Vec::new(),                       // header_keys
-                Vec::new(),                       // keyed_quotas
-                None,                             // default_quota
+                HashMap::new(), // headers
+                Vec::new(),     // header_keys
+                Vec::new(),     // keyed_quotas
+                None,           // default_quota
                 timeout_secs,
                 proxy_url,
             )
@@ -186,7 +190,7 @@ impl DeribitRawHttpClient {
         Ok(Self {
             base_url,
             client: HttpClient::new(
-                std::collections::HashMap::new(),
+                HashMap::new(),
                 Vec::new(),
                 Vec::new(),
                 None,
@@ -291,7 +295,7 @@ impl DeribitRawHttpClient {
                 let body = serde_json::to_vec(&request)?;
 
                 // Build headers
-                let mut headers = std::collections::HashMap::new();
+                let mut headers = HashMap::new();
                 headers.insert("Content-Type".to_string(), "application/json".to_string());
 
                 // Add authentication headers if required
@@ -1277,7 +1281,6 @@ impl DeribitHttpClient {
 
             // For historical orders, iterate currencies (ANY may not be supported)
             if !open_only {
-                use strum::IntoEnumIterator;
                 for currency in DeribitCurrency::iter().filter(|c| *c != DeribitCurrency::ANY) {
                     let history_params = GetOrderHistoryByCurrencyParams {
                         currency,
@@ -1374,7 +1377,6 @@ impl DeribitHttpClient {
             }
         } else {
             // Iterate currencies (ANY not supported for user trades endpoint)
-            use strum::IntoEnumIterator;
             for currency in DeribitCurrency::iter().filter(|c| *c != DeribitCurrency::ANY) {
                 let params = GetUserTradesByCurrencyAndTimeParams {
                     currency,

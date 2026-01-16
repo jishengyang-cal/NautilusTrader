@@ -27,7 +27,7 @@ use std::sync::{
 use ahash::AHashMap;
 use nautilus_core::{AtomicTime, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_model::{
-    data::Data,
+    data::{Bar, Data},
     events::{OrderCancelRejected, OrderModifyRejected, OrderRejected},
     identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId},
     instruments::{Instrument, InstrumentAny},
@@ -209,18 +209,16 @@ pub struct DeribitWsFeedHandler {
     retry_manager: RetryManager<DeribitWsError>,
     instruments_cache: AHashMap<Ustr, InstrumentAny>,
     request_id_counter: AtomicU64,
-    /// Pending requests awaiting response, keyed by request ID.
     pending_requests: AHashMap<u64, PendingRequestType>,
-    /// Account ID for order/fill reports.
     account_id: Option<AccountId>,
-    /// Order contexts keyed by venue_order_id.
-    /// Stores the original trader/strategy/client IDs from buy/sell commands
-    /// so they can be used when processing user.orders subscription updates.
     order_contexts: AHashMap<String, OrderContext>,
+    pending_bars: AHashMap<String, Bar>,
+    bars_timestamp_on_close: bool,
 }
 
 impl DeribitWsFeedHandler {
     /// Creates a new feed handler.
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn new(
         signal: Arc<AtomicBool>,
@@ -230,6 +228,7 @@ impl DeribitWsFeedHandler {
         auth_tracker: AuthTracker,
         subscriptions_state: SubscriptionState,
         account_id: Option<AccountId>,
+        bars_timestamp_on_close: bool,
     ) -> Self {
         Self {
             clock: get_atomic_clock_realtime(),
@@ -246,6 +245,8 @@ impl DeribitWsFeedHandler {
             pending_requests: AHashMap::new(),
             account_id,
             order_contexts: AHashMap::new(),
+            pending_bars: AHashMap::new(),
+            bars_timestamp_on_close,
         }
     }
 
@@ -839,43 +840,16 @@ impl DeribitWsFeedHandler {
                             if let Some(result) = &response.result {
                                 match serde_json::from_value::<DeribitOrderMsg>(result.clone()) {
                                     Ok(order_msg) => {
-                                        let venue_order_id = order_msg.order_id.clone();
-                                        log::info!(
-                                            "Order canceled: venue_order_id={}, client_order_id={}, state={}",
-                                            venue_order_id,
+                                        // Cancel confirmed - don't emit or remove context here.
+                                        // Let user.orders stream handle the cancel event to avoid
+                                        // duplicates. The stream will use the context for correct
+                                        // trader/strategy IDs and then remove it.
+                                        log::debug!(
+                                            "Cancel confirmed: venue_order_id={}, client_order_id={}, state={} (waiting for user.orders)",
+                                            order_msg.order_id,
                                             client_order_id,
                                             order_msg.order_state
                                         );
-
-                                        self.order_contexts.remove(&venue_order_id);
-
-                                        let instrument_name_ustr =
-                                            Ustr::from(order_msg.instrument_name.as_str());
-                                        if let Some(instrument) =
-                                            self.instruments_cache.get(&instrument_name_ustr)
-                                        {
-                                            if let Some(account_id) = self.account_id {
-                                                let event = parse_order_canceled(
-                                                    &order_msg,
-                                                    instrument,
-                                                    account_id,
-                                                    trader_id,
-                                                    strategy_id,
-                                                    ts_init,
-                                                );
-                                                return Some(NautilusWsMessage::OrderCanceled(
-                                                    event,
-                                                ));
-                                            } else {
-                                                log::warn!(
-                                                    "Cannot create OrderCanceled: account_id not set"
-                                                );
-                                            }
-                                        } else {
-                                            log::warn!(
-                                                "Instrument {instrument_name_ustr} not found in cache for cancel response"
-                                            );
-                                        }
                                     }
                                     Err(e) => {
                                         log::error!(
@@ -1367,7 +1341,10 @@ impl DeribitWsFeedHandler {
                             }
                         }
                         DeribitWsChannel::ChartTrades => {
-                            // Parse chart.trades messages into Bar objects
+                            // Parse chart.trades messages into Bar objects using emit-on-next pattern.
+                            // Deribit sends updates for the current bar as it builds. We only emit
+                            // a bar when we receive a bar with a different timestamp, confirming
+                            // the previous bar is closed.
                             if let Ok(chart_msg) =
                                 serde_json::from_value::<DeribitChartMsg>(data.clone())
                             {
@@ -1383,7 +1360,6 @@ impl DeribitWsFeedHandler {
                                     {
                                         let instrument_id = instrument.id();
 
-                                        // Create BarType from resolution and instrument
                                         match resolution_to_bar_type(instrument_id, resolution) {
                                             Ok(bar_type) => {
                                                 let price_precision = instrument.price_precision();
@@ -1394,13 +1370,39 @@ impl DeribitWsFeedHandler {
                                                     bar_type,
                                                     price_precision,
                                                     size_precision,
+                                                    self.bars_timestamp_on_close,
                                                     ts_init,
                                                 ) {
-                                                    Ok(bar) => {
-                                                        log::debug!("Parsed bar: {bar:?}");
-                                                        return Some(NautilusWsMessage::Data(
-                                                            vec![Data::Bar(bar)],
-                                                        ));
+                                                    Ok(new_bar) => {
+                                                        // Check if we have a pending bar for this channel
+                                                        let channel_key = channel.clone();
+                                                        if let Some(pending_bar) =
+                                                            self.pending_bars.get(&channel_key)
+                                                        {
+                                                            // If new bar has different timestamp, the pending bar is closed
+                                                            if new_bar.ts_event
+                                                                != pending_bar.ts_event
+                                                            {
+                                                                let closed_bar = *pending_bar;
+                                                                self.pending_bars
+                                                                    .insert(channel_key, new_bar);
+                                                                log::debug!(
+                                                                    "Emitting closed bar: {closed_bar:?}"
+                                                                );
+                                                                return Some(
+                                                                    NautilusWsMessage::Data(vec![
+                                                                        Data::Bar(closed_bar),
+                                                                    ]),
+                                                                );
+                                                            }
+                                                            // Same timestamp - update pending bar with latest values
+                                                            self.pending_bars
+                                                                .insert(channel_key, new_bar);
+                                                        } else {
+                                                            // First bar for this channel - store as pending
+                                                            self.pending_bars
+                                                                .insert(channel_key, new_bar);
+                                                        }
                                                     }
                                                     Err(e) => {
                                                         log::warn!(
@@ -1424,7 +1426,15 @@ impl DeribitWsFeedHandler {
                             }
                         }
                         DeribitWsChannel::UserOrders => {
-                            match serde_json::from_value::<Vec<DeribitOrderMsg>>(data.clone()) {
+                            // Handle both array and single object responses
+                            let orders_result =
+                                serde_json::from_value::<Vec<DeribitOrderMsg>>(data.clone())
+                                    .or_else(|_| {
+                                        serde_json::from_value::<DeribitOrderMsg>(data.clone())
+                                            .map(|order| vec![order])
+                                    });
+
+                            match orders_result {
                                 Ok(orders) => {
                                     log::debug!("Received {} user order updates", orders.len());
 
@@ -1472,7 +1482,7 @@ impl DeribitWsFeedHandler {
                                                 // External order - use default values
                                                 // Note: These won't match any strategy, which is correct
                                                 (
-                                                    TraderId::new("EXTERNAL"),
+                                                    TraderId::new("EXTERNAL-000"),
                                                     StrategyId::new("EXTERNAL"),
                                                     ClientOrderId::new(venue_order_id),
                                                 )
@@ -1480,22 +1490,20 @@ impl DeribitWsFeedHandler {
 
                                         match event_type {
                                             OrderEventType::Accepted => {
-                                                if !is_known_order {
-                                                    let event = parse_order_accepted(
-                                                        order,
-                                                        instrument,
-                                                        account_id,
-                                                        trader_id,
-                                                        strategy_id,
-                                                        ts_init,
-                                                    );
-                                                    log::debug!(
-                                                        "Emitting OrderAccepted (external): venue_order_id={venue_order_id}"
-                                                    );
-                                                    return Some(NautilusWsMessage::OrderAccepted(
-                                                        event,
-                                                    ));
-                                                }
+                                                let event = parse_order_accepted(
+                                                    order,
+                                                    instrument,
+                                                    account_id,
+                                                    trader_id,
+                                                    strategy_id,
+                                                    ts_init,
+                                                );
+                                                log::debug!(
+                                                    "Emitting OrderAccepted: venue_order_id={venue_order_id}, is_known={is_known_order}"
+                                                );
+                                                return Some(NautilusWsMessage::OrderAccepted(
+                                                    event,
+                                                ));
                                             }
                                             OrderEventType::Canceled => {
                                                 let event = parse_order_canceled(
@@ -1532,10 +1540,27 @@ impl DeribitWsFeedHandler {
                                                 ));
                                             }
                                             OrderEventType::Updated => {
-                                                // Skip - already emitted from edit response
-                                                log::trace!(
-                                                    "Skipping OrderUpdated from user.orders (already emitted from edit response): venue_order_id={venue_order_id}"
-                                                );
+                                                // Emit OrderStatusReport for updates
+                                                // This includes quantity/price changes from modify
+                                                match parse_user_order_msg(
+                                                    order, instrument, account_id, ts_init,
+                                                ) {
+                                                    Ok(report) => {
+                                                        log::debug!(
+                                                            "Emitting OrderStatusReport (updated): venue_order_id={venue_order_id}"
+                                                        );
+                                                        return Some(
+                                                            NautilusWsMessage::OrderStatusReports(
+                                                                vec![report],
+                                                            ),
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        log::warn!(
+                                                            "Failed to parse order update: {e}"
+                                                        );
+                                                    }
+                                                }
                                             }
                                             OrderEventType::None => {
                                                 // No event to emit (e.g., partial fills handled via trades)
@@ -1554,7 +1579,15 @@ impl DeribitWsFeedHandler {
                             }
                         }
                         DeribitWsChannel::UserTrades => {
-                            match serde_json::from_value::<Vec<DeribitUserTradeMsg>>(data.clone()) {
+                            // Handle both array and single object responses
+                            let trades_result =
+                                serde_json::from_value::<Vec<DeribitUserTradeMsg>>(data.clone())
+                                    .or_else(|_| {
+                                        serde_json::from_value::<DeribitUserTradeMsg>(data.clone())
+                                            .map(|trade| vec![trade])
+                                    });
+
+                            match trades_result {
                                 Ok(trades) => {
                                     log::debug!("Received {} user trade updates", trades.len());
 

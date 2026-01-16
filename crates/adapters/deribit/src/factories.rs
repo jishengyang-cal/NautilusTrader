@@ -92,8 +92,6 @@ impl DataClientFactory for DeribitDataClientFactory {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
-
 impl ClientConfig for DeribitExecClientConfig {
     fn as_any(&self) -> &dyn Any {
         self

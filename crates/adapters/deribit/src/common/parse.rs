@@ -39,10 +39,13 @@ use nautilus_model::{
 use rust_decimal::Decimal;
 
 use crate::{
-    common::consts::DERIBIT_VENUE,
+    common::{
+        consts::DERIBIT_VENUE,
+        enums::{DeribitInstrumentKind, DeribitOptionType},
+    },
     http::models::{
-        DeribitAccountSummary, DeribitInstrument, DeribitInstrumentKind, DeribitOptionType,
-        DeribitOrderBook, DeribitPublicTrade, DeribitTradingViewChartData,
+        DeribitAccountSummary, DeribitInstrument, DeribitOrderBook, DeribitPublicTrade,
+        DeribitTradingViewChartData,
     },
 };
 
