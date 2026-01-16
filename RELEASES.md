@@ -51,10 +51,12 @@ Released on TBD (UTC).
 - Added Deribit order submission (#3408), thanks @filipmacek
 - Added Deribit live reconciliation support (#3421), thanks @filipmacek
 - Added Polymarket data loader rate limiting
+- Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
 - Refactored computation of greeks (#3393), thanks @faysou
 - Refactored `TearsheetConfig.charts` to chart objects (removed `chart_args`) (#3398), thanks @KaulSe
 - Refactored Deribit WS client to use standard Nautilus method names (#3418), thanks @filipmacek
 - Refactored Polymarket WebSocket to multi-client pool pattern
+- Improved pnl FX conversions in portfolio (#3335), thanks @faysou
 - Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou
 - Improved checks before writing data in catalog._write_chunk (#3411), thanks @faysou
 - Improved `OptionExerciseModule` logging and fix cache reference (#3388), thanks @davidsblom
@@ -63,7 +65,7 @@ Released on TBD (UTC).
 - Refined handling of `skip_first_non_full_bar` in `TimeBarAggregator` (#3395), thanks @faysou
 - Refined greeks safeguards and docs (#3407), thanks @faysou
 - Refined processing of gaps in aggregated historical bars (#3412), thanks @faysou
-- Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
+- Refine Interactive Brokers adapter (#3195), thanks @faysou
 - Optimized message bus publish with thread-local `SmallVec` buffers in Rust
 - Optimized message bus pattern matching with greedy algorithm
 - Upgraded Cap'n Proto to v1.3.0
