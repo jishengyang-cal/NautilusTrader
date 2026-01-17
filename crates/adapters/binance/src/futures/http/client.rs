@@ -942,6 +942,26 @@ pub enum BinanceFuturesInstrument {
     CoinM(BinanceFuturesCoinSymbol),
 }
 
+impl BinanceFuturesInstrument {
+    /// Returns the price precision for the instrument.
+    #[must_use]
+    pub const fn price_precision(&self) -> i32 {
+        match self {
+            Self::UsdM(s) => s.price_precision,
+            Self::CoinM(s) => s.price_precision,
+        }
+    }
+
+    /// Returns the quantity precision for the instrument.
+    #[must_use]
+    pub const fn quantity_precision(&self) -> i32 {
+        match self {
+            Self::UsdM(s) => s.quantity_precision,
+            Self::CoinM(s) => s.quantity_precision,
+        }
+    }
+}
+
 /// Binance Futures HTTP client for USD-M and COIN-M perpetuals.
 #[derive(Debug, Clone)]
 #[cfg_attr(
@@ -1010,10 +1030,10 @@ impl BinanceFuturesHttpClient {
         &self.raw
     }
 
-    /// Returns a reference to the instruments cache.
+    /// Returns a clone of the instruments cache Arc.
     #[must_use]
-    pub fn instruments_cache(&self) -> &DashMap<Ustr, BinanceFuturesInstrument> {
-        &self.instruments
+    pub fn instruments_cache(&self) -> Arc<DashMap<Ustr, BinanceFuturesInstrument>> {
+        Arc::clone(&self.instruments)
     }
 
     /// Returns server time.

@@ -49,7 +49,10 @@ use super::{
         parse_kline, parse_mark_price, parse_trade,
     },
 };
-use crate::common::enums::{BinanceWsEventType, BinanceWsMethod};
+use crate::common::{
+    consts::BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION,
+    enums::{BinanceWsEventType, BinanceWsMethod},
+};
 
 /// Handler for Binance Futures WebSocket JSON streams.
 pub struct BinanceFuturesWsFeedHandler {
@@ -182,7 +185,8 @@ impl BinanceFuturesWsFeedHandler {
             }
         };
 
-        if let Err(e) = client.send_text(json, None).await {
+        let rate_limit_keys = Some(vec![BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION.to_string()]);
+        if let Err(e) = client.send_text(json, rate_limit_keys).await {
             log::error!("Failed to send subscribe request: {e}");
         }
     }
@@ -209,7 +213,8 @@ impl BinanceFuturesWsFeedHandler {
             }
         };
 
-        if let Err(e) = client.send_text(json, None).await {
+        let rate_limit_keys = Some(vec![BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION.to_string()]);
+        if let Err(e) = client.send_text(json, rate_limit_keys).await {
             log::error!("Failed to send unsubscribe request: {e}");
         }
 

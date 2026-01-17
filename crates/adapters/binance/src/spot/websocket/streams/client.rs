@@ -51,7 +51,13 @@ use super::{
     messages::{BinanceSpotWsMessage, HandlerCommand},
     subscription::MAX_STREAMS_PER_CONNECTION,
 };
-use crate::common::{consts::BINANCE_SPOT_SBE_WS_URL, credential::Ed25519Credential};
+use crate::common::{
+    consts::{
+        BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION, BINANCE_SPOT_SBE_WS_URL, BINANCE_WS_CONNECTION_QUOTA,
+        BINANCE_WS_SUBSCRIPTION_QUOTA,
+    },
+    credential::Ed25519Credential,
+};
 
 /// Binance Spot WebSocket client for SBE market data streams.
 #[derive(Clone)]
@@ -195,13 +201,19 @@ impl BinanceSpotWebSocketClient {
             reconnect_max_attempts: None,
         };
 
+        // Configure rate limits for subscription operations
+        let keyed_quotas = vec![(
+            BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION.to_string(),
+            *BINANCE_WS_SUBSCRIPTION_QUOTA,
+        )];
+
         let client = WebSocketClient::connect(
             config,
             Some(raw_handler),
             Some(ping_handler),
             None,
-            vec![],
-            None,
+            keyed_quotas,
+            Some(*BINANCE_WS_CONNECTION_QUOTA),
         )
         .await
         .map_err(|e| {

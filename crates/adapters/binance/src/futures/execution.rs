@@ -26,6 +26,7 @@ use std::{
 
 use anyhow::Context;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use futures_util::{StreamExt, pin_mut};
 use nautilus_common::{
     clients::ExecutionClient,
@@ -65,10 +66,11 @@ use nautilus_model::{
 use rust_decimal::Decimal;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use ustr::Ustr;
 
 use super::{
     http::{
-        client::BinanceFuturesHttpClient,
+        client::{BinanceFuturesHttpClient, BinanceFuturesInstrument},
         models::{BatchOrderResult, BinancePositionRisk},
         query::{
             BatchCancelItem, BinanceAllOrdersParamsBuilder, BinanceOpenOrdersParamsBuilder,
@@ -295,6 +297,7 @@ impl BinanceFuturesExecutionClient {
     }
 
     /// Handles WebSocket messages from the user data stream.
+    #[allow(clippy::too_many_arguments)]
     fn handle_ws_message(
         message: BinanceFuturesWsMessage,
         exec_sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
@@ -303,6 +306,7 @@ impl BinanceFuturesExecutionClient {
         account_type: AccountType,
         product_type: BinanceProductType,
         clock: &'static AtomicTime,
+        instruments: &DashMap<Ustr, BinanceFuturesInstrument>,
     ) {
         match message {
             BinanceFuturesWsMessage::Exec(exec_msg) => {
@@ -314,6 +318,7 @@ impl BinanceFuturesExecutionClient {
                     account_type,
                     product_type,
                     clock,
+                    instruments,
                 );
             }
             BinanceFuturesWsMessage::Data(_) => {
@@ -333,6 +338,7 @@ impl BinanceFuturesExecutionClient {
     }
 
     /// Handles execution messages from the user data stream.
+    #[allow(clippy::too_many_arguments)]
     fn handle_exec_message(
         message: NautilusFuturesExecWsMessage,
         exec_sender: &tokio::sync::mpsc::UnboundedSender<ExecutionEvent>,
@@ -341,6 +347,7 @@ impl BinanceFuturesExecutionClient {
         account_type: AccountType,
         product_type: BinanceProductType,
         clock: &'static AtomicTime,
+        instruments: &DashMap<Ustr, BinanceFuturesInstrument>,
     ) {
         match message {
             NautilusFuturesExecWsMessage::OrderUpdate(update) => {
@@ -351,6 +358,7 @@ impl BinanceFuturesExecutionClient {
                     account_id,
                     product_type,
                     clock,
+                    instruments,
                 );
             }
             NautilusFuturesExecWsMessage::AccountUpdate(update) => {
@@ -386,6 +394,7 @@ impl BinanceFuturesExecutionClient {
         account_id: AccountId,
         product_type: BinanceProductType,
         clock: &'static AtomicTime,
+        instruments: &DashMap<Ustr, BinanceFuturesInstrument>,
     ) {
         let order_data = &msg.order;
         let ts_event = UnixNanos::from((msg.event_time * 1_000_000) as u64);
@@ -453,13 +462,29 @@ impl BinanceFuturesExecutionClient {
                     strategy_id,
                     ts_event,
                     ts_init,
+                    instruments,
                 );
             }
             BinanceExecutionType::Amendment => {
-                // Order modified - use default precision since we don't have cache access
+                // Look up precision from instrument cache
+                let symbol_key = Ustr::from(&order_data.symbol);
+                let (price_precision, size_precision) = if let Some(inst) =
+                    instruments.get(&symbol_key)
+                {
+                    (
+                        inst.price_precision() as u8,
+                        inst.quantity_precision() as u8,
+                    )
+                } else {
+                    log::warn!(
+                        "Instrument not found in cache for amendment: symbol={}, using default precision",
+                        order_data.symbol
+                    );
+                    (8_u8, 8_u8)
+                };
+
                 let quantity: f64 = order_data.original_qty.parse().unwrap_or(0.0);
                 let price: f64 = order_data.original_price.parse().unwrap_or(0.0);
-                let (price_precision, size_precision) = (8_u8, 8_u8);
 
                 let event = OrderUpdated::new(
                     trader_id,
@@ -508,8 +533,22 @@ impl BinanceFuturesExecutionClient {
         strategy_id: StrategyId,
         ts_event: UnixNanos,
         ts_init: UnixNanos,
+        instruments: &DashMap<Ustr, BinanceFuturesInstrument>,
     ) {
         let order_data = &msg.order;
+
+        // Look up precision from instrument cache
+        let symbol_key = Ustr::from(&order_data.symbol);
+        let Some(inst) = instruments.get(&symbol_key) else {
+            log::error!(
+                "Instrument not found in cache for fill: symbol={}, skipping fill event to avoid precision mismatch",
+                order_data.symbol
+            );
+            return;
+        };
+        let price_precision = inst.price_precision() as u8;
+        let size_precision = inst.quantity_precision() as u8;
+        drop(inst); // Release the DashMap lock
 
         let last_qty: f64 = order_data.last_filled_qty.parse().unwrap_or(0.0);
         let last_px: f64 = order_data.last_filled_price.parse().unwrap_or(0.0);
@@ -521,9 +560,6 @@ impl BinanceFuturesExecutionClient {
             .unwrap_or("0")
             .parse()
             .unwrap_or(0.0);
-
-        // Use default precision since we don't have cache access in spawned task
-        let (price_precision, size_precision) = (8_u8, 8_u8);
 
         let commission_currency = order_data
             .commission_asset
@@ -977,6 +1013,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             let product_type = self.product_type;
             let clock = self.clock;
             let cancel = self.cancellation_token.clone();
+            let instruments = self.http_client.instruments_cache();
 
             let ws_task = get_runtime().spawn(async move {
                 pin_mut!(stream);
@@ -991,6 +1028,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                 account_type,
                                 product_type,
                                 clock,
+                                &instruments,
                             );
                         }
                         () = cancel.cancelled() => {

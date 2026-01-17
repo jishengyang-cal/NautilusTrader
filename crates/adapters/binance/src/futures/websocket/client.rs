@@ -52,6 +52,10 @@ use super::{
     messages::{BinanceFuturesHandlerCommand, BinanceFuturesWsMessage},
 };
 use crate::common::{
+    consts::{
+        BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION, BINANCE_WS_CONNECTION_QUOTA,
+        BINANCE_WS_SUBSCRIPTION_QUOTA,
+    },
     credential::Credential,
     enums::{BinanceEnvironment, BinanceProductType},
     urls::get_ws_base_url,
@@ -214,13 +218,19 @@ impl BinanceFuturesWebSocketClient {
             reconnect_max_attempts: None,
         };
 
+        // Configure rate limits for subscription operations
+        let keyed_quotas = vec![(
+            BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION.to_string(),
+            *BINANCE_WS_SUBSCRIPTION_QUOTA,
+        )];
+
         let client = WebSocketClient::connect(
             config,
             Some(raw_handler),
             Some(ping_handler),
             None,
-            vec![],
-            None,
+            keyed_quotas,
+            Some(*BINANCE_WS_CONNECTION_QUOTA),
         )
         .await
         .map_err(|e| BinanceWsError::NetworkError(e.to_string()))?;

@@ -57,6 +57,7 @@ use super::{
         parse_trades_event,
     },
 };
+use crate::common::consts::BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION;
 
 /// Binance Spot WebSocket feed handler.
 ///
@@ -358,7 +359,11 @@ impl BinanceSpotWsFeedHandler {
             self.subscriptions.mark_subscribe(stream);
         }
 
-        self.send_text(payload).await?;
+        self.send_text(
+            payload,
+            Some(vec![BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION.to_string()]),
+        )
+        .await?;
         Ok(())
     }
 
@@ -368,7 +373,11 @@ impl BinanceSpotWsFeedHandler {
         let request = BinanceWsSubscription::unsubscribe(streams.clone(), request_id);
         let payload = serde_json::to_string(&request)?;
 
-        self.send_text(payload).await?;
+        self.send_text(
+            payload,
+            Some(vec![BINANCE_RATE_LIMIT_KEY_SUBSCRIPTION.to_string()]),
+        )
+        .await?;
 
         // Immediately confirm unsubscribe (don't wait for response)
         // We don't track unsubscribe failures - the stream will simply stop
@@ -381,12 +390,16 @@ impl BinanceSpotWsFeedHandler {
     }
 
     /// Send text message via WebSocket.
-    async fn send_text(&self, payload: String) -> anyhow::Result<()> {
+    async fn send_text(
+        &self,
+        payload: String,
+        rate_limit_keys: Option<Vec<String>>,
+    ) -> anyhow::Result<()> {
         let Some(client) = &self.inner else {
             anyhow::bail!("No active WebSocket client");
         };
         client
-            .send_text(payload, None)
+            .send_text(payload, rate_limit_keys)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to send message: {e}"))?;
         Ok(())
