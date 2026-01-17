@@ -340,6 +340,15 @@ impl FeedHandler {
 
     fn handle_raw_message(&mut self, raw_msg: AxWsRawMessage) -> Option<Vec<AxOrdersWsMessage>> {
         match raw_msg {
+            AxWsRawMessage::Error(err) => {
+                log::warn!(
+                    "Order error response: rid={} code={} msg={}",
+                    err.rid,
+                    err.err.code,
+                    err.err.msg
+                );
+                Some(vec![AxOrdersWsMessage::Error(err.into())])
+            }
             AxWsRawMessage::Response(resp) => self.handle_response(resp),
             AxWsRawMessage::Event(event) => self.handle_event(*event),
         }
@@ -362,6 +371,16 @@ impl FeedHandler {
             AxWsOrderResponse::OpenOrders(msg) => {
                 log::debug!("Open orders response: {} orders", msg.res.len());
                 Some(vec![AxOrdersWsMessage::OpenOrdersResponse(msg)])
+            }
+            AxWsOrderResponse::List(msg) => {
+                let order_count = msg.res.o.as_ref().map_or(0, |o| o.len());
+                log::debug!(
+                    "List subscription response: rid={} li={} orders={}",
+                    msg.rid,
+                    msg.res.li,
+                    order_count
+                );
+                None
             }
         }
     }

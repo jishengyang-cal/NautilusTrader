@@ -1262,7 +1262,7 @@ impl AxHttpClient {
             match parse_fill_report(fill, account_id, &instrument, ts_init) {
                 Ok(report) => reports.push(report),
                 Err(e) => {
-                    log::warn!("Failed to parse fill {}: {e}", fill.execution_id);
+                    log::warn!("Failed to parse fill {}: {e}", fill.trade_id);
                 }
             }
         }

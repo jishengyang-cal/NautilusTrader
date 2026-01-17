@@ -389,6 +389,19 @@ impl From<AxOrderType> for OrderType {
     }
 }
 
+impl TryFrom<OrderType> for AxOrderType {
+    type Error = &'static str;
+
+    fn try_from(order_type: OrderType) -> Result<Self, Self::Error> {
+        match order_type {
+            OrderType::Limit => Ok(Self::Limit),
+            OrderType::StopLimit => Ok(Self::StopLossLimit),
+            OrderType::LimitIfTouched => Ok(Self::TakeProfitLimit),
+            _ => Err("Unsupported order type for AX"),
+        }
+    }
+}
+
 /// Market data subscription level.
 ///
 /// # References

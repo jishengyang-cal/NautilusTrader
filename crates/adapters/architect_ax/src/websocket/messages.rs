@@ -464,6 +464,47 @@ pub struct AxWsOpenOrdersResponse {
     pub res: Vec<AxWsOrder>,
 }
 
+/// Error response from the Ax orders WebSocket.
+///
+/// Returned when a request fails (e.g., insufficient margin, invalid order).
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxWsOrderErrorResponse {
+    /// Request ID matching the original request.
+    pub rid: i64,
+    /// Error details.
+    pub err: AxWsOrderError,
+}
+
+/// Error details in an error response.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxWsOrderError {
+    /// Error code (e.g., 400).
+    pub code: i64,
+    /// Error message.
+    pub msg: String,
+}
+
+/// List subscription response from the Ax orders WebSocket.
+///
+/// Returned when subscribing to order updates, contains a list ID for the subscription.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxWsListResponse {
+    /// Request ID matching the original request.
+    pub rid: i64,
+    /// Response result.
+    pub res: AxWsListResult,
+}
+
+/// List subscription result payload.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxWsListResult {
+    /// List subscription ID.
+    pub li: String,
+    /// Order data (null on initial subscription, array of orders otherwise).
+    #[serde(default)]
+    pub o: Option<Vec<AxWsOrder>>,
+}
+
 /// Order details in WebSocket messages.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxWsOrder {
@@ -741,12 +782,16 @@ pub(crate) enum AxWsOrderResponse {
     CancelOrder(AxWsCancelOrderResponse),
     /// Open orders response (res is array).
     OpenOrders(AxWsOpenOrdersResponse),
+    /// List subscription response (res has "li").
+    List(AxWsListResponse),
 }
 
 /// Internal raw message from the Ax orders WebSocket.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum AxWsRawMessage {
+    /// Error response message (has "rid" and "err").
+    Error(AxWsOrderErrorResponse),
     /// Response message (has "rid" and "res").
     Response(AxWsOrderResponse),
     /// Event message (has "t" field).
@@ -803,6 +848,16 @@ impl AxWsError {
             code: Some(code.into()),
             message: message.into(),
             request_id: None,
+        }
+    }
+}
+
+impl From<AxWsOrderErrorResponse> for AxWsError {
+    fn from(resp: AxWsOrderErrorResponse) -> Self {
+        Self {
+            code: Some(resp.err.code.to_string()),
+            message: resp.err.msg,
+            request_id: Some(resp.rid),
         }
     }
 }
@@ -1140,5 +1195,52 @@ mod tests {
         let json = include_str!("../../test_data/ws_cancel_rejected.json");
         let msg: AxWsCancelRejected = serde_json::from_str(json).unwrap();
         assert_eq!(msg.r, "ORDER_NOT_FOUND");
+    }
+
+    #[rstest]
+    fn test_load_order_error_response_from_file() {
+        let json = include_str!("../../test_data/ws_order_error_response.json");
+        let msg: AxWsOrderErrorResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.rid, 1);
+        assert_eq!(msg.err.code, 400);
+        assert!(msg.err.msg.contains("initial margin"));
+    }
+
+    #[rstest]
+    fn test_load_order_list_response_from_file() {
+        let json = include_str!("../../test_data/ws_order_list_response.json");
+        let msg: AxWsListResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.rid, 0);
+        assert_eq!(msg.res.li, "01KCQM-4WP1-0000");
+        assert!(msg.res.o.is_none());
+    }
+
+    #[rstest]
+    fn test_load_order_list_response_with_orders_from_file() {
+        let json = include_str!("../../test_data/ws_order_list_response_with_orders.json");
+        let msg: AxWsListResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.rid, 0);
+        assert_eq!(msg.res.li, "01KCQM-4WP1-0000");
+        let orders = msg.res.o.unwrap();
+        assert_eq!(orders.len(), 2);
+        assert_eq!(orders[0].oid, "O-01KF4QM3VVJEDH98ZVNS1PCSBB");
+        assert_eq!(orders[1].oid, "O-01KF4QM3K9FJZWYA02JF9Y1FJA");
+    }
+
+    #[rstest]
+    fn test_raw_message_error_variant() {
+        let json = include_str!("../../test_data/ws_order_error_response.json");
+        let msg: AxWsRawMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, AxWsRawMessage::Error(_)));
+    }
+
+    #[rstest]
+    fn test_raw_message_list_response_variant() {
+        let json = include_str!("../../test_data/ws_order_list_response.json");
+        let msg: AxWsRawMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(
+            msg,
+            AxWsRawMessage::Response(AxWsOrderResponse::List(_))
+        ));
     }
 }

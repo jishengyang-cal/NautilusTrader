@@ -341,8 +341,10 @@ pub struct AxOpenOrdersResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AxFill {
-    /// Execution ID.
-    pub execution_id: String,
+    /// Trade ID (execution identifier).
+    pub trade_id: String,
+    /// Order ID.
+    pub order_id: String,
     /// Fee amount.
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub fee: Decimal,

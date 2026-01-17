@@ -333,10 +333,8 @@ pub fn parse_fill_report(
 ) -> anyhow::Result<FillReport> {
     let instrument_id = instrument.id();
 
-    // Ax fills use execution_id as the unique identifier
-    let venue_order_id = VenueOrderId::new(&fill.execution_id);
-    let trade_id =
-        TradeId::new_checked(&fill.execution_id).context("Invalid execution_id in Ax fill")?;
+    let venue_order_id = VenueOrderId::new(&fill.order_id);
+    let trade_id = TradeId::new_checked(&fill.trade_id).context("Invalid trade_id in Ax fill")?;
 
     // Ax doesn't provide order side in fills, infer from quantity sign
     let order_side = if fill.quantity >= 0 {

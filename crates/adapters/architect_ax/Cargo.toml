@@ -122,7 +122,7 @@ path = "examples/node_data_tester.rs"
 required-features = []
 doc = false
 
-# cargo run --example ax-node-exec-tester -p nautilus-architect-ax
+# cargo run --example ax-exec-tester -p nautilus-architect-ax
 [[example]]
 name = "ax-exec-tester"
 path = "examples/node_exec_tester.rs"

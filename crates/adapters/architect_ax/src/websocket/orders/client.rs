@@ -227,6 +227,57 @@ impl AxOrdersWebSocketClient {
         &self.orders_metadata
     }
 
+    /// Registers an external order with the WebSocket handler for event tracking.
+    ///
+    /// This allows the handler to create proper events (e.g., OrderCanceled, OrderFilled)
+    /// for orders that were reconciled externally and not submitted through this client.
+    ///
+    /// Returns `false` if the instrument is not cached (registration skipped).
+    pub fn register_external_order(
+        &self,
+        client_order_id: ClientOrderId,
+        venue_order_id: VenueOrderId,
+        instrument_id: InstrumentId,
+        strategy_id: StrategyId,
+        ts_init: UnixNanos,
+    ) -> bool {
+        if self.orders_metadata.contains_key(&client_order_id) {
+            return true;
+        }
+
+        // Required for correct precision on fills
+        let symbol = Ustr::from(instrument_id.symbol.as_str());
+        let Some(instrument) = self.get_cached_instrument(&symbol) else {
+            log::warn!(
+                "Cannot register external order {client_order_id}: \
+                 instrument {instrument_id} not in cache"
+            );
+            return false;
+        };
+
+        let metadata = OrderMetadata {
+            trader_id: self.trader_id,
+            strategy_id,
+            instrument_id,
+            client_order_id,
+            venue_order_id: Some(venue_order_id),
+            ts_init,
+            size_precision: instrument.size_precision(),
+            price_precision: instrument.price_precision(),
+            quote_currency: instrument.quote_currency(),
+        };
+
+        self.orders_metadata.insert(client_order_id, metadata);
+        self.venue_to_client_id
+            .insert(venue_order_id, client_order_id);
+
+        log::debug!(
+            "Registered external order {client_order_id} ({venue_order_id}) for {instrument_id} [{strategy_id}]"
+        );
+
+        true
+    }
+
     /// Establishes the WebSocket connection with authentication.
     ///
     /// # Arguments
@@ -529,24 +580,34 @@ impl AxOrdersWebSocketClient {
         ts_init: UnixNanos,
     ) -> AxOrdersWsResult<i64> {
         // Validate order type
-        if !matches!(order_type, OrderType::Limit | OrderType::StopLimit) {
+        if !matches!(
+            order_type,
+            OrderType::Market | OrderType::Limit | OrderType::StopLimit
+        ) {
             return Err(AxOrdersWsClientError::ClientError(format!(
-                "Unsupported order type: {order_type:?}. AX only supports LIMIT and STOP_LOSS_LIMIT."
+                "Unsupported order type: {order_type:?}. AX supports MARKET (simulated as IOC), LIMIT and STOP_LIMIT."
             )));
         }
-
-        // Convert time-in-force
-        let ax_tif = AxTimeInForce::try_from(time_in_force).map_err(|_| {
-            AxOrdersWsClientError::ClientError(format!(
-                "Unsupported time-in-force: {time_in_force:?}"
-            ))
-        })?;
 
         // Get instrument from cache for precision
         let symbol = Ustr::from(instrument_id.symbol.as_str());
         let instrument = self.get_cached_instrument(&symbol).ok_or_else(|| {
             AxOrdersWsClientError::ClientError(format!(
                 "Instrument {instrument_id} not found in cache"
+            ))
+        })?;
+
+        // For market orders, simulate as IOC limit order with aggressive price
+        let (effective_order_type, effective_tif) = if order_type == OrderType::Market {
+            (OrderType::Limit, TimeInForce::Ioc)
+        } else {
+            (order_type, time_in_force)
+        };
+
+        // Convert time-in-force
+        let ax_tif = AxTimeInForce::try_from(effective_tif).map_err(|_| {
+            AxOrdersWsClientError::ClientError(format!(
+                "Unsupported time-in-force: {effective_tif:?}"
             ))
         })?;
 
@@ -573,8 +634,9 @@ impl AxOrdersWebSocketClient {
         self.orders_metadata.insert(client_order_id, metadata);
 
         // Submit based on order type
-        let result = match order_type {
+        let result = match effective_order_type {
             OrderType::Limit => {
+                // For market orders, price is pre-calculated by execution client
                 let limit_price = price.ok_or_else(|| {
                     AxOrdersWsClientError::ClientError("Limit order requires price".to_string())
                 })?;
@@ -586,7 +648,7 @@ impl AxOrdersWebSocketClient {
                     qty_contracts,
                     limit_price.as_decimal(),
                     ax_tif,
-                    post_only,
+                    post_only && order_type != OrderType::Market, // Never post_only for market sim
                     Some(client_order_id.to_string()),
                 )
                 .await
