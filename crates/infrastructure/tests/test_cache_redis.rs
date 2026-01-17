@@ -19,6 +19,7 @@
 mod serial_tests {
     use std::time::Duration;
 
+    use bytes::Bytes;
     use nautilus_common::{
         cache::{CacheConfig, database::CacheDatabaseAdapter},
         enums::SerializationEncoding,
@@ -542,5 +543,185 @@ mod serial_tests {
         // Final cleanup
         let mut adapter = adapter;
         adapter.flush().unwrap();
+    }
+
+    /// Tests that the buffer flushes on a timer even when no new messages arrive.
+    /// This verifies the fix for issue #3426 where blocking on channel receive
+    /// prevented time-based buffer flushing during idle periods.
+    #[tokio::test]
+    async fn test_buffer_flushes_on_interval_when_idle() {
+        let trader_id = TraderId::from("test-trader");
+        let instance_id = UUID4::new();
+
+        let config = CacheConfig {
+            database: Some(DatabaseConfig {
+                database_type: "redis".to_string(),
+                host: Some("localhost".to_string()),
+                port: Some(6379),
+                username: None,
+                password: None,
+                ssl: false,
+                connection_timeout: 20,
+                response_timeout: 20,
+                number_of_retries: 100,
+                exponent_base: 2,
+                max_delay: 1000,
+                factor: 2,
+            }),
+            buffer_interval_ms: Some(50),
+            ..Default::default()
+        };
+
+        let mut database = RedisCacheDatabase::new(trader_id, instance_id, config)
+            .await
+            .expect("Failed to create database");
+        database.flushdb().await;
+
+        let trader_key = database.trader_key.clone();
+        let test_key = "general:test_key";
+
+        let expected_key = format!("{trader_key}:{test_key}");
+
+        database
+            .insert(test_key.to_string(), Some(vec![Bytes::from("test_data")]))
+            .unwrap();
+
+        // Buffer should flush on timer even with no further messages
+        let conn = database.con.clone();
+        let expected_key_clone = expected_key.clone();
+        wait_until_async(
+            move || {
+                let mut conn = conn.clone();
+                let expected_key = expected_key_clone.clone();
+                async move { conn.exists(&expected_key).await.unwrap_or(false) }
+            },
+            Duration::from_secs(2),
+        )
+        .await;
+
+        let mut conn = database.con.clone();
+        let exists: bool = conn.exists(&expected_key).await.unwrap();
+
+        assert!(
+            exists,
+            "Data should be flushed to Redis after buffer interval even when idle"
+        );
+    }
+
+    /// Tests that with `buffer_interval_ms = 0`, data is flushed immediately
+    /// without waiting for a timer.
+    #[tokio::test]
+    async fn test_buffer_flushes_immediately_with_zero_interval() {
+        let trader_id = TraderId::from("test-trader");
+        let instance_id = UUID4::new();
+
+        let config = CacheConfig {
+            database: Some(DatabaseConfig {
+                database_type: "redis".to_string(),
+                host: Some("localhost".to_string()),
+                port: Some(6379),
+                username: None,
+                password: None,
+                ssl: false,
+                connection_timeout: 20,
+                response_timeout: 20,
+                number_of_retries: 100,
+                exponent_base: 2,
+                max_delay: 1000,
+                factor: 2,
+            }),
+            buffer_interval_ms: Some(0),
+            ..Default::default()
+        };
+
+        let mut database = RedisCacheDatabase::new(trader_id, instance_id, config)
+            .await
+            .expect("Failed to create database");
+        database.flushdb().await;
+
+        let trader_key = database.trader_key.clone();
+        let test_key = "general:immediate_test";
+
+        let expected_key = format!("{trader_key}:{test_key}");
+
+        database
+            .insert(test_key.to_string(), Some(vec![Bytes::from("test_data")]))
+            .unwrap();
+
+        // Brief delay for async task processing
+        let conn = database.con.clone();
+        let expected_key_clone = expected_key.clone();
+        wait_until_async(
+            move || {
+                let mut conn = conn.clone();
+                let expected_key = expected_key_clone.clone();
+                async move { conn.exists(&expected_key).await.unwrap_or(false) }
+            },
+            Duration::from_secs(2),
+        )
+        .await;
+
+        let mut conn = database.con.clone();
+        let exists: bool = conn.exists(&expected_key).await.unwrap();
+
+        assert!(
+            exists,
+            "Data should be flushed immediately with zero buffer interval"
+        );
+    }
+
+    /// Tests that pending buffered data is drained when close is called.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_buffer_drains_on_close() {
+        let trader_id = TraderId::from("test-trader");
+        let instance_id = UUID4::new();
+
+        let config = CacheConfig {
+            database: Some(DatabaseConfig {
+                database_type: "redis".to_string(),
+                host: Some("localhost".to_string()),
+                port: Some(6379),
+                username: None,
+                password: None,
+                ssl: false,
+                connection_timeout: 20,
+                response_timeout: 20,
+                number_of_retries: 100,
+                exponent_base: 2,
+                max_delay: 1000,
+                factor: 2,
+            }),
+            buffer_interval_ms: Some(10000),
+            ..Default::default()
+        };
+
+        let mut database = RedisCacheDatabase::new(trader_id, instance_id, config)
+            .await
+            .expect("Failed to create database");
+        database.flushdb().await;
+
+        let trader_key = database.trader_key.clone();
+        let test_key = "general:close_test";
+        let expected_key = format!("{trader_key}:{test_key}");
+
+        database
+            .insert(test_key.to_string(), Some(vec![Bytes::from("test_data")]))
+            .unwrap();
+
+        // Data should NOT be in Redis yet (buffer interval is 10 seconds)
+        let mut conn = database.con.clone();
+        let exists_before: bool = conn.exists(&expected_key).await.unwrap();
+        assert!(
+            !exists_before,
+            "Data should be buffered, not yet flushed to Redis"
+        );
+
+        database.close();
+
+        let exists_after: bool = conn.exists(&expected_key).await.unwrap();
+        assert!(
+            exists_after,
+            "Data should be flushed to Redis when close is called"
+        );
     }
 }

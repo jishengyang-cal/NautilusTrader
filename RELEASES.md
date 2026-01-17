@@ -36,6 +36,7 @@ Released on TBD (UTC).
 - Fixed quickstart MACD strategy logic (#3377), thanks for reporting @SisyphusCoin
 - Fixed reconciliation timing (for v2 Rust) - process instruments before reconciliation (#3415), thanks @filipmacek
 - Fixed `request_order_book_snapshot` and add Bybit support (#3416), thanks @dxwil
+- Fixed Redis cache buffer flushing during idle periods (#3426), thanks for reporting @santivazq
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 - Fixed Binance Futures instrument parsing for margin requirements (#3420), thanks @linimin
 - Fixed Bybit demo trading by using HTTP REST API for order operations (Bybit demo does not support WebSocket Trade API)
