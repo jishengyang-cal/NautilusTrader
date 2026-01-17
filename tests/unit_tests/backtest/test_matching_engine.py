@@ -2555,16 +2555,17 @@ class TestOrderMatchingEngine:
             (OrderSide.SELL, OrderSide.BUY),
         ],
     )
-    def test_liquidity_consumption_reuses_prior_level_size_on_deletion(
+    def test_liquidity_consumption_clears_on_delete_and_readd(
         self,
         order_side: OrderSide,
         liquidity_side: OrderSide,
     ):
         """
-        Test that when a level is deleted but we have prior consumption state, we reuse
-        the prior original_size rather than falling back to qty.
+        Test that DELETE clears consumption tracking, so re-ADD provides fresh
+        liquidity.
 
-        This ensures partial fills don't incorrectly shrink the tracked level size.
+        When a level is deleted and then re-added, consumption should reset to allow
+        fills from the new liquidity.
 
         """
         matching_engine = OrderMatchingEngine(
@@ -2621,7 +2622,7 @@ class TestOrderMatchingEngine:
         )
         matching_engine.process_order_book_delta(liquidity_delta)
 
-        # First order: consume 30 units (establishes consumption state with level_size=100)
+        # First order: consume 30 units
         order1 = TestExecStubs.market_order(
             instrument=self.instrument,
             order_side=order_side,
@@ -2631,7 +2632,7 @@ class TestOrderMatchingEngine:
         matching_engine.process_order(order1, self.account_id)
         matching_engine.iterate(timestamp_ns=1)
 
-        # Delete the level from book (simulates race condition)
+        # Delete the level (clears consumption tracking for this price)
         delete_delta = OrderBookDelta(
             instrument_id=self.instrument.id,
             action=BookAction.DELETE,
@@ -2648,7 +2649,7 @@ class TestOrderMatchingEngine:
         )
         matching_engine.process_order_book_delta(delete_delta)
 
-        # Re-add the level (simulates book update arriving)
+        # Re-add the level with same size (fresh liquidity)
         liquidity_delta2 = OrderBookDelta(
             instrument_id=self.instrument.id,
             action=BookAction.ADD,
@@ -2665,8 +2666,7 @@ class TestOrderMatchingEngine:
         )
         matching_engine.process_order_book_delta(liquidity_delta2)
 
-        # Second order: orders 80, gets only 70 remaining (100 - 30 = 70)
-        # This proves consumption tracking persists across level deletion and re-add
+        # Second order: orders 80, gets full 80 (DELETE cleared consumption)
         order2 = TestExecStubs.market_order(
             instrument=self.instrument,
             order_side=order_side,
@@ -2678,8 +2678,8 @@ class TestOrderMatchingEngine:
 
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 2
-        assert filled_events[0].last_qty == Quantity.from_str("30.000")  # First order full fill
-        assert filled_events[1].last_qty == Quantity.from_str("70.000")  # Only 70 remaining
+        assert filled_events[0].last_qty == Quantity.from_str("30.000")  # First order fill
+        assert filled_events[1].last_qty == Quantity.from_str("80.000")  # Full fill after DELETE
 
     @pytest.mark.parametrize(
         ("order_side", "liquidity_side"),
@@ -4032,9 +4032,10 @@ class TestOrderMatchingEngineLiquidityConsumption:
         """
         Tests key liquidity consumption scenarios:
         1. Sequential fills with consumption tracking
-        2. Size increase resets consumption
-        3. Size decrease resets consumption
-        4. Level deletion and reappearance
+        2. UPDATE resets consumption (correct for L3/MBO)
+        3. Size increase resets consumption
+        4. Size decrease resets consumption
+        5. Level deletion and reappearance
         """
         matching_engine = OrderMatchingEngine(
             instrument=self.instrument,
@@ -4101,7 +4102,8 @@ class TestOrderMatchingEngineLiquidityConsumption:
         assert filled_events[0].last_qty == Quantity.from_str("500.000")
         messages.clear()
 
-        # Scenario 2: UPDATE without size change preserves consumption (300 remaining)
+        # Scenario 2: UPDATE resets consumption (correct for L3 where same aggregate size
+        # could be backed by different orders)
         ask_delta_2 = OrderBookDelta(
             instrument_id=self.instrument.id,
             action=BookAction.UPDATE,
@@ -4129,7 +4131,7 @@ class TestOrderMatchingEngineLiquidityConsumption:
 
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1
-        assert filled_events[0].last_qty == Quantity.from_str("300.000")
+        assert filled_events[0].last_qty == Quantity.from_str("400.000")
         messages.clear()
 
         # Scenario 3: Size INCREASE resets consumption
@@ -4848,3 +4850,230 @@ class TestOrderMatchingEngineLiquidityConsumption:
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1
         assert filled_events[0].last_qty == Quantity.from_str("400.000")
+
+    def test_liquidity_consumption_clears_on_delete(self):
+        """
+        Tests that consumption tracking is cleared when a level is deleted, allowing
+        fills when the level reappears with the same size.
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L2_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+            liquidity_consumption=True,
+        )
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Arrange: set up book with bid and ask
+        bid_delta = OrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.ADD,
+            order=BookOrder(
+                side=OrderSide.BUY,
+                price=Price.from_str("90.00"),
+                size=Quantity.from_str("1000.000"),
+                order_id=1,
+            ),
+            flags=0,
+            sequence=0,
+            ts_event=0,
+            ts_init=0,
+        )
+        matching_engine.process_order_book_delta(bid_delta)
+
+        ask_delta = OrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.ADD,
+            order=BookOrder(
+                side=OrderSide.SELL,
+                price=Price.from_str("100.00"),
+                size=Quantity.from_str("500.000"),
+                order_id=100,
+            ),
+            flags=0,
+            sequence=1,
+            ts_event=0,
+            ts_init=0,
+        )
+        matching_engine.process_order_book_delta(ask_delta)
+
+        # Act: consume ALL 500 from the level
+        order1 = TestExecStubs.market_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            quantity=self.instrument.make_qty(500.0),
+            client_order_id=TestIdStubs.client_order_id(1),
+        )
+        matching_engine.process_order(order1, self.account_id)
+        matching_engine.iterate(timestamp_ns=1)
+
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 1
+        assert filled_events[0].last_qty == Quantity.from_str("500.000")
+        messages.clear()
+
+        # Act: DELETE the level (removes it from book)
+        delete_delta = OrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.DELETE,
+            order=BookOrder(
+                side=OrderSide.SELL,
+                price=Price.from_str("100.00"),
+                size=Quantity.from_str("0.000"),
+                order_id=100,
+            ),
+            flags=0,
+            sequence=2,
+            ts_event=1,
+            ts_init=1,
+        )
+        matching_engine.process_order_book_delta(delete_delta)
+
+        # Act: re-ADD the level with SAME size (500)
+        readd_delta = OrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.ADD,
+            order=BookOrder(
+                side=OrderSide.SELL,
+                price=Price.from_str("100.00"),
+                size=Quantity.from_str("500.000"),
+                order_id=101,
+            ),
+            flags=0,
+            sequence=3,
+            ts_event=2,
+            ts_init=2,
+        )
+        matching_engine.process_order_book_delta(readd_delta)
+
+        # Act: try to fill 300 - should succeed since DELETE cleared consumption
+        order2 = TestExecStubs.market_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            quantity=self.instrument.make_qty(300.0),
+            client_order_id=TestIdStubs.client_order_id(2),
+        )
+        matching_engine.process_order(order2, self.account_id)
+        matching_engine.iterate(timestamp_ns=3)
+
+        # Assert: full 300 filled (consumption was cleared by DELETE)
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 1
+        assert filled_events[0].last_qty == Quantity.from_str("300.000")
+
+    def test_liquidity_consumption_clears_on_update(self):
+        """
+        Tests that consumption tracking is cleared when a level is updated, even with
+        the same size.
+
+        This is correct for L3/MBO data where the same aggregate size could be backed by
+        different orders.
+
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L2_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+            liquidity_consumption=True,
+        )
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        # Arrange: set up book with bid and ask
+        bid_delta = OrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.ADD,
+            order=BookOrder(
+                side=OrderSide.BUY,
+                price=Price.from_str("90.00"),
+                size=Quantity.from_str("1000.000"),
+                order_id=1,
+            ),
+            flags=0,
+            sequence=0,
+            ts_event=0,
+            ts_init=0,
+        )
+        matching_engine.process_order_book_delta(bid_delta)
+
+        ask_delta = OrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.ADD,
+            order=BookOrder(
+                side=OrderSide.SELL,
+                price=Price.from_str("100.00"),
+                size=Quantity.from_str("500.000"),
+                order_id=100,
+            ),
+            flags=0,
+            sequence=1,
+            ts_event=0,
+            ts_init=0,
+        )
+        matching_engine.process_order_book_delta(ask_delta)
+
+        # Act: consume ALL 500 from the level
+        order1 = TestExecStubs.market_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            quantity=self.instrument.make_qty(500.0),
+            client_order_id=TestIdStubs.client_order_id(1),
+        )
+        matching_engine.process_order(order1, self.account_id)
+        matching_engine.iterate(timestamp_ns=1)
+
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 1
+        assert filled_events[0].last_qty == Quantity.from_str("500.000")
+        messages.clear()
+
+        # Act: UPDATE the level with SAME size (500) - should clear consumption
+        update_delta = OrderBookDelta(
+            instrument_id=self.instrument.id,
+            action=BookAction.UPDATE,
+            order=BookOrder(
+                side=OrderSide.SELL,
+                price=Price.from_str("100.00"),
+                size=Quantity.from_str("500.000"),
+                order_id=100,
+            ),
+            flags=0,
+            sequence=2,
+            ts_event=1,
+            ts_init=1,
+        )
+        matching_engine.process_order_book_delta(update_delta)
+
+        # Act: try to fill 300 - should succeed since UPDATE cleared consumption
+        order2 = TestExecStubs.market_order(
+            instrument=self.instrument,
+            order_side=OrderSide.BUY,
+            quantity=self.instrument.make_qty(300.0),
+            client_order_id=TestIdStubs.client_order_id(2),
+        )
+        matching_engine.process_order(order2, self.account_id)
+        matching_engine.iterate(timestamp_ns=2)
+
+        # Assert: full 300 filled (consumption was cleared by UPDATE)
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        assert len(filled_events) == 1
+        assert filled_events[0].last_qty == Quantity.from_str("300.000")

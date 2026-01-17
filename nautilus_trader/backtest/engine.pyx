@@ -3876,10 +3876,21 @@ cdef class OrderMatchingEngine:
                     f"did not match instrument.size_precision={self._size_prec}",
                 )
 
-        # Reset consumption tracking on snapshot (F_SNAPSHOT = 32)
-        if self._liquidity_consumption and (delta._mem.flags & 32):
+        # Reset consumption tracking on snapshot (F_SNAPSHOT = 32) or CLEAR action
+        if self._liquidity_consumption and (
+            (delta._mem.flags & 32) or delta._mem.action == BookAction.CLEAR
+        ):
             self._bid_consumption.clear()
             self._ask_consumption.clear()
+
+        # Clear consumption tracking on UPDATE or DELETE (level changed or removed)
+        if self._liquidity_consumption and (
+            delta._mem.action == BookAction.UPDATE or delta._mem.action == BookAction.DELETE
+        ):
+            if delta._mem.order.side == OrderSide.SELL:
+                self._ask_consumption.pop(delta._mem.order.price.raw, None)
+            elif delta._mem.order.side == OrderSide.BUY:
+                self._bid_consumption.pop(delta._mem.order.price.raw, None)
 
         self._book.apply_delta(delta)
 
@@ -3908,7 +3919,7 @@ cdef class OrderMatchingEngine:
             self._log.debug(f"Processing {deltas!r}")
 
         # Validate precisions for ADD and UPDATE actions
-        cdef bint has_snapshot = False
+        cdef bint has_snapshot_or_clear = False
         cdef OrderBookDelta delta
         for delta in deltas.deltas:
             if delta._mem.action == BookAction.ADD or delta._mem.action == BookAction.UPDATE:
@@ -3922,11 +3933,20 @@ cdef class OrderMatchingEngine:
                         f"invalid delta size precision={delta._mem.order.size.precision} "
                         f"did not match instrument.size_precision={self._size_prec}",
                     )
-            if delta._mem.flags & 32:
-                has_snapshot = True
+            if (delta._mem.flags & 32) or delta._mem.action == BookAction.CLEAR:
+                has_snapshot_or_clear = True
 
-        # Reset consumption tracking on snapshot (F_SNAPSHOT = 32)
-        if self._liquidity_consumption and has_snapshot:
+            # Clear consumption tracking on UPDATE or DELETE (level changed or removed)
+            if self._liquidity_consumption and (
+                delta._mem.action == BookAction.UPDATE or delta._mem.action == BookAction.DELETE
+            ):
+                if delta._mem.order.side == OrderSide.SELL:
+                    self._ask_consumption.pop(delta._mem.order.price.raw, None)
+                elif delta._mem.order.side == OrderSide.BUY:
+                    self._bid_consumption.pop(delta._mem.order.price.raw, None)
+
+        # Reset consumption tracking on snapshot (F_SNAPSHOT = 32) or CLEAR action
+        if self._liquidity_consumption and has_snapshot_or_clear:
             self._bid_consumption.clear()
             self._ask_consumption.clear()
 
