@@ -767,7 +767,6 @@ class InteractiveBrokersClient(
         """
         useRawIntMsgId = self._eclient.serverVersion() >= MIN_SERVER_VER_PROTOBUF
         full_msg = comm.make_msg(msgId, useRawIntMsgId, msg)
-        self._log.debug(f"Sending msg: {full_msg}")
         self._log.debug(f"TWS API request sent: function={current_fn_name(1)} msg={full_msg}")
         self._eclient.conn.sendMsg(full_msg)
 

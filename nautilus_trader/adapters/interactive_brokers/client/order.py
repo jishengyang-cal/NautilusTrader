@@ -246,9 +246,12 @@ class InteractiveBrokersClientOrderMixin(BaseMixin):
             f"Next valid order id set: {self._next_valid_order_id}, accounts: {self.accounts()}",
         )
 
-        # Set connection flag once we have next valid order id
-        # Accounts may arrive later or be empty, but nextValidId is the key indicator
-        if self._next_valid_order_id >= 0 and not self._is_ib_connected.is_set():
+        # Set connection flag once we have next valid order id AND accounts
+        if (
+            self._next_valid_order_id >= 0
+            and self.accounts()
+            and not self._is_ib_connected.is_set()
+        ):
             self._log.debug("`_is_ib_connected` set by `nextValidId`", LogColor.BLUE)
             self._is_ib_connected.set()
 

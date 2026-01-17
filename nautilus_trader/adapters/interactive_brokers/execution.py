@@ -637,7 +637,7 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
 
         # Create commission
         commission = Money(
-            commission_report.commission,
+            commission_report.commissionAndFees,
             Currency.from_str(commission_report.currency),
         )
 
