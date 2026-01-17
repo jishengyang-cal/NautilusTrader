@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use nautilus_model::enums::{OrderSide, PositionSide};
+use nautilus_model::enums::OrderSide;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ustr::Ustr;
@@ -26,7 +26,7 @@ use ustr::Ustr;
 use super::enums::{DydxWsChannel, DydxWsMessageType, DydxWsOperation};
 use crate::common::enums::{
     DydxCandleResolution, DydxFillType, DydxLiquidity, DydxOrderStatus, DydxOrderType,
-    DydxPositionStatus, DydxTickerType, DydxTimeInForce, DydxTradeType,
+    DydxPositionSide, DydxPositionStatus, DydxTickerType, DydxTimeInForce, DydxTradeType,
 };
 
 /// dYdX WebSocket subscription message.
@@ -530,7 +530,7 @@ pub struct DydxOrderbookSnapshotContents {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DydxAssetBalance {
     pub symbol: Ustr,
-    pub side: OrderSide,
+    pub side: DydxPositionSide,
     pub size: String,
     #[serde(rename = "assetId")]
     pub asset_id: String,
@@ -541,7 +541,7 @@ pub struct DydxAssetBalance {
 pub struct DydxPerpetualPosition {
     pub market: Ustr,
     pub status: DydxPositionStatus,
-    pub side: PositionSide,
+    pub side: DydxPositionSide,
     pub size: String,
     #[serde(rename = "maxSize")]
     pub max_size: String,
