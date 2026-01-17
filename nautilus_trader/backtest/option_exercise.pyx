@@ -44,7 +44,6 @@ from nautilus_trader.backtest.modules cimport SimulationModule
 from nautilus_trader.common.component cimport Logger
 from nautilus_trader.core.data cimport Data
 from nautilus_trader.core.rust.model cimport LiquiditySide
-from nautilus_trader.core.rust.model cimport OmsType
 from nautilus_trader.core.rust.model cimport OptionKind
 from nautilus_trader.core.rust.model cimport OrderSide
 from nautilus_trader.core.rust.model cimport OrderType

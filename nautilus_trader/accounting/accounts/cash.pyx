@@ -400,6 +400,9 @@ cdef class CashAccount(Account):
 
         cdef Money quote_pnl
         if instrument.instrument_class == InstrumentClass.SPORTS_BETTING:
+            # Back/lay accounting: only realize PnL on closing portion of position flips
+            if position is not None and position.quantity._mem.raw != 0 and position.entry != fill.order_side:
+                fill_qty = min(fill_qty, position.quantity.as_decimal())
             quote_pnl = Money(fill_px * fill_qty, quote_currency)
         else:
             quote_pnl = instrument.notional_value(fill.last_qty, fill.last_px)

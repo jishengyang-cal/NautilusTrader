@@ -1217,6 +1217,11 @@ cdef class ExecutionEngine(Component):
         cdef ClientOrderId client_order_id = event.client_order_id
         cdef Order order = self._cache.order(event.client_order_id)
         if order is None:
+            if not (isinstance(event, OrderFilled) and self._is_leg_fill(event)):
+                self._log.warning(
+                    f"Order with {event.client_order_id!r} "
+                    f"not found in the cache to apply {event}"
+                )
             if event.venue_order_id is None:
                 self._log.error(
                     f"Cannot apply event to any order: "

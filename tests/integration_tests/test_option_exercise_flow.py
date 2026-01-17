@@ -69,9 +69,6 @@ def test_option_exercise_integration_flow():
     OptionExerciseModule at exact expiration.
 
     """
-    # Add OptionExerciseModule as a module to the venue
-    exercise_module = OptionExerciseModule(OptionExerciseConfig())
-
     venue = Venue("NASDAQ")
     engine = BacktestEngine(config=BacktestEngineConfig())
 

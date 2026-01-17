@@ -1038,7 +1038,9 @@ class TestOptionExerciseModuleIntegration:
         underlying_positions = self.cache.positions_open(instrument_id=self.underlying.id)
         assert len(underlying_positions) == 1, "Underlying position should be created"
         underlying_pos = underlying_positions[0]
-        assert underlying_pos.side == PositionSide.SHORT, "Long put should create short underlying"
+        assert underlying_pos.side == PositionSide.SHORT, (
+            "Short call assignment should create short underlying"
+        )
         assert underlying_pos.quantity == Quantity.from_int(100), (
             "Should have 100 shares (1 option * 100 multiplier)"
         )
@@ -1096,7 +1098,7 @@ class TestOptionExerciseModuleIntegration:
         self.module._on_expiry_timer(time_event)
 
         # Verify option position is closed
-        option_positions_after = self.cache.positions_open(instrument_id=self.call_option.id)
+        option_positions_after = self.cache.positions_open(instrument_id=put_option.id)
         assert len(option_positions_after) == 0, "Long put position should be closed"
 
         # Verify underlying position is created (physical settlement)
