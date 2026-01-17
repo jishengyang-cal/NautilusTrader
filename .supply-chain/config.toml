@@ -571,7 +571,7 @@ version = "0.29.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
-version = "1.2.52"
+version = "1.2.53"
 criteria = "safe-to-deploy"
 
 [[exemptions.cesu8]]
@@ -1071,7 +1071,7 @@ version = "0.13.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.find-msvc-tools]]
-version = "0.1.7"
+version = "0.1.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.fixed-hash]]
@@ -1622,10 +1622,6 @@ criteria = "safe-to-deploy"
 version = "0.4.7"
 criteria = "safe-to-deploy"
 
-[[exemptions.objc2-core-foundation]]
-version = "0.3.2"
-criteria = "safe-to-deploy"
-
 [[exemptions.objc2-io-kit]]
 version = "0.3.2"
 criteria = "safe-to-deploy"
@@ -2031,7 +2027,7 @@ version = "2.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-pki-types]]
-version = "1.13.2"
+version = "1.14.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-platform-verifier]]
@@ -2043,7 +2039,7 @@ version = "0.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-webpki]]
-version = "0.103.8"
+version = "0.103.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustpython-ast]]
@@ -2172,10 +2168,6 @@ criteria = "safe-to-run"
 
 [[exemptions.serde_repr]]
 version = "0.1.20"
-criteria = "safe-to-deploy"
-
-[[exemptions.serde_spanned]]
-version = "1.0.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.serde_urlencoded]]
@@ -2418,19 +2410,11 @@ criteria = "safe-to-deploy"
 version = "0.9.11+spec-1.1.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.toml_datetime]]
-version = "0.7.5+spec-1.1.0"
-criteria = "safe-to-deploy"
-
 [[exemptions.toml_edit]]
 version = "0.23.10+spec-1.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.toml_parser]]
-version = "1.0.6+spec-1.1.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.toml_writer]]
 version = "1.0.6+spec-1.1.0"
 criteria = "safe-to-deploy"
 

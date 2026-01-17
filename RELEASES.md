@@ -40,7 +40,8 @@ Released on TBD (UTC).
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 - Fixed Binance Futures instrument parsing for margin requirements (#3420), thanks @linimin
 - Fixed Bybit demo trading by using HTTP REST API for order operations (Bybit demo does not support WebSocket Trade API)
-- Fixed `databento_data` to fetch definitions for full date range (#3414)
+- Fixed Databento `databento_data` to fetch definitions for full date range (#3414), thanks @Johnkhk
+- Fixed Databento zero-length interval at dataset boundary (#3429), thanks @shzhng
 - Fixed Deribit auth token refresh race condition (#3402), thanks @filipmacek
 - Fixed Polymarket order state race condition where PLACEMENT events could arrive late
 - Fixed Polymarket duplicate WebSocket subscriptions (#3403), thanks for reporting @santivazq
@@ -51,6 +52,7 @@ Released on TBD (UTC).
 - Added Deribit data client (#3368), thanks @filipmacek
 - Added Deribit order submission (#3408), thanks @filipmacek
 - Added Deribit live reconciliation support (#3421), thanks @filipmacek
+- Added Deribit rate limiting for HTTP and WebSocket clients (#3424), thanks @filipmacek
 - Added Polymarket data loader rate limiting
 - Removed `tracing` crate from Rust codebase, migrated to `log` crate for simpler logging
 - Refactored computation of greeks (#3393), thanks @faysou
@@ -66,9 +68,11 @@ Released on TBD (UTC).
 - Refined handling of `skip_first_non_full_bar` in `TimeBarAggregator` (#3395), thanks @faysou
 - Refined greeks safeguards and docs (#3407), thanks @faysou
 - Refined processing of gaps in aggregated historical bars (#3412), thanks @faysou
-- Refine Interactive Brokers adapter (#3195), thanks @faysou
+- Refined Interactive Brokers adapter (#3195), thanks @faysou
+- Refined OptionExerciseModule (#3423), thanks @faysou
 - Optimized message bus publish with thread-local `SmallVec` buffers in Rust
 - Optimized message bus pattern matching with greedy algorithm
+- Upgraded Interactive Brokers adapter to `ibapi` 10.37.2 (#3427), thanks @faysou
 - Upgraded Cap'n Proto to v1.3.0
 - Upgraded Cython to v3.2.4
 - Upgraded `capnp` and `capnpc` crates to v0.25.0
