@@ -322,6 +322,8 @@ class OrderStatusReport(ExecutionReport):
             and self.ts_accepted == other.ts_accepted
         )
 
+    __hash__: None = None  # type: ignore[assignment]  # Explicitly unhashable
+
     def __repr__(self) -> str:
         linked_ids = [o.value for o in self.linked_order_ids] if self.linked_order_ids else None
         return (
@@ -708,6 +710,8 @@ class FillReport(ExecutionReport):
             and self.trade_id == other.trade_id
             and self.ts_event == other.ts_event
         )
+
+    __hash__: None = None  # type: ignore[assignment]  # Explicitly unhashable
 
     def __repr__(self) -> str:
         return (

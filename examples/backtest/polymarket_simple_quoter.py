@@ -28,7 +28,6 @@ Data sources:
 """
 
 import asyncio
-import time
 from decimal import Decimal
 
 import pandas as pd
@@ -137,7 +136,7 @@ async def run_backtest(
     engine.add_strategy(strategy=strategy)
 
     print("\nStarting backtest...")
-    time.sleep(0.1)
+    await asyncio.sleep(0.1)
 
     # Run backtest
     engine.run()

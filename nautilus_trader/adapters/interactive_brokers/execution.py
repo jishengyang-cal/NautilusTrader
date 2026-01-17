@@ -1812,7 +1812,7 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
 
             quantity = Quantity(execution.shares, precision=leg_instrument.size_precision)
 
-            order_side = order_side = OrderSide[ORDER_SIDE_TO_ORDER_ACTION[execution.side]]
+            order_side = OrderSide[ORDER_SIDE_TO_ORDER_ACTION[execution.side]]
 
             commission = Money(
                 commission_report.commissionAndFees,

@@ -162,24 +162,24 @@ exclude = [
 
 [tool.ruff.lint]
 select = [
-  "C4",
-  "E",
-  "F",
-  "W",
-  "C90",
-  "D",
-  "DTZ",
-  "UP",
-  "S",
-  "T10",
-  "ICN",
-  "PIE",
-  "PT",
-  "PYI",
-  "Q",
+  "C4", # flake8-comprehensions
+  "E", # pycodestyle errors
+  "F", # pyflakes
+  "W", # pycodestyle warnings
+  "C90", # mccabe complexity
+  "D", # pydocstyle
+  "DTZ", # flake8-datetimez
+  "UP", # pyupgrade
+  "S", # flake8-bandit (security)
+  "T10", # flake8-debugger
+  "ICN", # flake8-import-conventions
+  "PIE", # flake8-pie
+  "PT", # flake8-pytest-style
+  "PYI", # flake8-pyi (stubs)
+  "Q", # flake8-quotes
   "I", # isort
-  "RSE",
-  "TID",
+  "RSE", # flake8-raise
+  "TID", # flake8-tidy-imports
   "SIM", # flake8-simplify
   "B", # flake8-bugbear
   "PERF", # Perflint
@@ -187,14 +187,15 @@ select = [
   "ISC", # flake8-implicit-str-concat
   "FLY", # flynt
   "LOG", # flake8-logging
-  # "ARG",  # unused-arguments - 301 violations
-  # "ERA",  # eradicate - 165 violations
-  # "ASYNC",  # flake8-async - 15 violations (5 ASYNC110 busy-wait, 10 ASYNC109 timeout params)
-  "PD",
-  "PGH",
-  # "PLW",
-  "NPY",
-  "RUF",
+  "ASYNC", # flake8-async
+  # "ARG", # flake8-unused-arguments - 843 violations
+  # "ERA", # eradicate (commented code) - 1441 violations
+  "PD", # pandas-vet
+  "PGH", # pygrep-hooks
+  "PLE", # pylint errors
+  "PLW", # pylint warnings
+  "NPY", # NumPy-specific rules
+  "RUF", # Ruff-specific rules
 ]
 
 ignore = [
@@ -225,6 +226,7 @@ ignore = [
   "PT028", # pytest-parameter-with-default-argument (4 violations - fix later)
   "PYI021", # Docstrings should not be included in stubs (OK as this is the natural place for them)
   "PGH003", # Blanket type-ignore (TODO: make these specific incrementally)
+  "PLE1205", # logging-too-many-args (false positive for custom Logger class)
   "RUF012", # Mutable class attributes should be annotated with `typing.ClassVar`
   "RUF059", # Unpacked variable is never used (can still be clearer than a discard in some cases)
   "S101", # Use of assert detected (OK in test suite, production violations to fix incrementally)
@@ -234,6 +236,11 @@ ignore = [
   "B008", # Function call in default argument (OK for immutable objects like pd.Timedelta, Money)
   "B024", # Abstract class without abstract methods (intentional for base class pattern)
   "B904", # raise without from clause (fix later for better exception chaining)
+  "ASYNC109", # async-function-with-timeout (timeout params are a valid API pattern)
+  "ASYNC110", # async-busy-wait (refactoring to Event is non-trivial, current patterns work)
+  "PLW0602", # global-variable-not-assigned (intentional module-level caching pattern)
+  "PLW0603", # global-statement (intentional module-level caching pattern)
+  "PLW2901", # redefined-loop-name (intentional loop variable transformation pattern)
 ]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided
@@ -276,6 +283,9 @@ max-complexity = 10
 "nautilus_trader/adapters/betfair/**/*.py" = [
   "S101",
 ] # Betfair adapter uses asserts for validation (for now)
+"python/nautilus_trader/adapters/hyperliquid/__init__.py" = [
+  "PLE0604",
+] # Dynamic __all__ extension from star import
 "test_perf_logger.py" = ["S311"]
 "tests/**/*.py" = [
   "S101",
