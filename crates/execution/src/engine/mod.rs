@@ -52,14 +52,16 @@ use nautilus_common::{
         switchboard::{self},
     },
 };
-use nautilus_core::UUID4;
+use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     enums::{ContingencyType, OmsType, OrderSide, PositionSide},
     events::{
         OrderDenied, OrderEvent, OrderEventAny, OrderFilled, PositionChanged, PositionClosed,
         PositionEvent, PositionOpened,
     },
-    identifiers::{ClientId, ClientOrderId, InstrumentId, PositionId, StrategyId, Venue},
+    identifiers::{
+        ClientId, ClientOrderId, InstrumentId, PositionId, StrategyId, Venue, VenueOrderId,
+    },
     instruments::{Instrument, InstrumentAny},
     orderbook::own::{OwnOrderBook, should_handle_own_book_order},
     orders::{Order, OrderAny, OrderError},
@@ -282,6 +284,40 @@ impl ExecutionEngine {
             client.generate_mass_status(lookback_mins).await
         } else {
             anyhow::bail!("Client {client_id} not found")
+        }
+    }
+
+    /// Registers an external order with the execution client for tracking.
+    ///
+    /// This is called after reconciliation creates an external order, allowing the
+    /// execution client to track it for subsequent events (e.g., cancellations).
+    pub fn register_external_order(
+        &self,
+        client_order_id: ClientOrderId,
+        venue_order_id: VenueOrderId,
+        instrument_id: InstrumentId,
+        strategy_id: StrategyId,
+        ts_init: UnixNanos,
+    ) {
+        let venue = instrument_id.venue;
+        if let Some(client_id) = self.routing_map.get(&venue) {
+            if let Some(client) = self.clients.get(client_id) {
+                client.register_external_order(
+                    client_order_id,
+                    venue_order_id,
+                    instrument_id,
+                    strategy_id,
+                    ts_init,
+                );
+            }
+        } else if let Some(default) = &self.default_client {
+            default.register_external_order(
+                client_order_id,
+                venue_order_id,
+                instrument_id,
+                strategy_id,
+                ts_init,
+            );
         }
     }
 

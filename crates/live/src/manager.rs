@@ -52,6 +52,25 @@ use ustr::Ustr;
 
 use crate::config::LiveExecEngineConfig;
 
+/// Metadata for an external order that needs to be registered with the execution client.
+#[derive(Debug, Clone)]
+pub struct ExternalOrderMetadata {
+    pub client_order_id: ClientOrderId,
+    pub venue_order_id: VenueOrderId,
+    pub instrument_id: InstrumentId,
+    pub strategy_id: StrategyId,
+    pub ts_init: UnixNanos,
+}
+
+/// Result of reconciliation containing events and external order metadata.
+#[derive(Debug, Default)]
+pub struct ReconciliationResult {
+    /// Order events generated during reconciliation.
+    pub events: Vec<OrderEventAny>,
+    /// External orders that need to be registered with execution clients.
+    pub external_orders: Vec<ExternalOrderMetadata>,
+}
+
 /// Configuration for execution manager.
 #[derive(Debug, Clone)]
 pub struct ExecutionManagerConfig {
@@ -297,7 +316,7 @@ impl ExecutionManager {
     pub async fn reconcile_execution_mass_status(
         &mut self,
         mass_status: ExecutionMassStatus,
-    ) -> Vec<OrderEventAny> {
+    ) -> ReconciliationResult {
         let venue = mass_status.venue;
         let order_count = mass_status.order_reports().len();
         let fill_count: usize = mass_status.fill_reports().values().map(|v| v.len()).sum();
@@ -317,6 +336,7 @@ impl ExecutionManager {
         );
 
         let mut events = Vec::new();
+        let mut external_orders = Vec::new();
         let mut orders_reconciled = 0usize;
         let mut external_orders_created = 0usize;
         let mut open_orders_initialized = 0usize;
@@ -403,7 +423,7 @@ impl ExecutionManager {
                     }
                 } else if !self.config.filter_unclaimed_external {
                     if let Some(instrument) = self.get_instrument(&report.instrument_id) {
-                        let external_events = self.handle_external_order(
+                        let (external_events, metadata) = self.handle_external_order(
                             report,
                             &mass_status.account_id,
                             &instrument,
@@ -414,6 +434,9 @@ impl ExecutionManager {
                                 open_orders_initialized += 1;
                             }
                             events.extend(external_events);
+                            if let Some(m) = metadata {
+                                external_orders.push(m);
+                            }
                         }
                     } else {
                         orders_skipped_no_instrument += 1;
@@ -447,7 +470,7 @@ impl ExecutionManager {
                 }
             } else if !self.config.filter_unclaimed_external {
                 if let Some(instrument) = self.get_instrument(&report.instrument_id) {
-                    let external_events =
+                    let (external_events, metadata) =
                         self.handle_external_order(report, &mass_status.account_id, &instrument);
                     if !external_events.is_empty() {
                         external_orders_created += 1;
@@ -455,6 +478,9 @@ impl ExecutionManager {
                             open_orders_initialized += 1;
                         }
                         events.extend(external_events);
+                        if let Some(m) = metadata {
+                            external_orders.push(m);
+                        }
                     }
                 } else {
                     orders_skipped_no_instrument += 1;
@@ -468,10 +494,14 @@ impl ExecutionManager {
         all_fills.sort_by_key(|f| f.ts_event);
 
         for fill in all_fills {
-            if let Some(client_order_id) = &fill.client_order_id
-                && let Some(order) = self.get_order(client_order_id)
-            {
-                let mut order = order;
+            // Try to find the order by client_order_id first, then by venue_order_id
+            let order = fill
+                .client_order_id
+                .as_ref()
+                .and_then(|id| self.get_order(id))
+                .or_else(|| self.get_order_by_venue_order_id(&fill.venue_order_id));
+
+            if let Some(mut order) = order {
                 let instrument_id = order.instrument_id();
 
                 if let Some(instrument) = self.get_instrument(&instrument_id)
@@ -479,6 +509,74 @@ impl ExecutionManager {
                 {
                     fills_applied += 1;
                     events.push(event);
+                }
+            }
+        }
+
+        // Process position reports to create positions when no fills/orders created them
+        let mut positions_created = 0usize;
+        if !self.config.filter_position_reports {
+            // Collect instruments that already have fills being processed in this batch
+            // to avoid duplicate position creation
+            let instruments_with_fills: AHashSet<InstrumentId> = mass_status
+                .fill_reports()
+                .values()
+                .flatten()
+                .map(|f| f.instrument_id)
+                .chain(
+                    mass_status
+                        .order_reports()
+                        .values()
+                        .filter(|r| !r.filled_qty.is_zero())
+                        .map(|r| r.instrument_id),
+                )
+                .collect();
+
+            for (instrument_id, reports) in mass_status.position_reports() {
+                // For netting, take the first (and usually only) position report
+                let Some(report) = reports.first() else {
+                    continue;
+                };
+
+                if report.signed_decimal_qty == Decimal::ZERO {
+                    continue;
+                }
+
+                // Skip if fills already processed for this instrument (position will be
+                // created from those fills, not from the position report)
+                if instruments_with_fills.contains(&instrument_id) {
+                    log::debug!(
+                        "Fills already processed for {instrument_id}, skipping position report"
+                    );
+                    continue;
+                }
+
+                let has_position = {
+                    let cache = self.cache.borrow();
+                    !cache
+                        .positions_open(None, Some(&instrument_id), None, None, None)
+                        .is_empty()
+                };
+
+                if has_position {
+                    log::debug!("Position already exists for {instrument_id}, skipping");
+                    continue;
+                }
+
+                // Create synthetic order/fill to establish position from venue report
+                if let Some(instrument) = self.get_instrument(&instrument_id) {
+                    if let Some(position_events) = self.create_position_from_report(
+                        report,
+                        &mass_status.account_id,
+                        &instrument,
+                    ) {
+                        positions_created += 1;
+                        events.extend(position_events);
+                    }
+                } else {
+                    log::warn!(
+                        "Cannot create position for {instrument_id}: instrument not in cache"
+                    );
                 }
             }
         }
@@ -493,13 +591,16 @@ impl ExecutionManager {
 
         log::info!(
             color = LogColor::Blue as u8;
-            "Reconciliation complete for {venue}: reconciled={orders_reconciled}, external={external_orders_created}, open={open_orders_initialized}, fills={fills_applied}, skipped={orders_skipped_duplicate}",
+            "Reconciliation complete for {venue}: reconciled={orders_reconciled}, external={external_orders_created}, open={open_orders_initialized}, fills={fills_applied}, positions={positions_created}, skipped={orders_skipped_duplicate}",
         );
 
         // Sort events chronologically to ensure proper position updates
         events.sort_by_key(|e| e.ts_event());
 
-        events
+        ReconciliationResult {
+            events,
+            external_orders,
+        }
     }
 
     /// Reconciles a single execution report during runtime.
@@ -1102,7 +1203,7 @@ impl ExecutionManager {
             "Generating synthetic fill for position reconciliation {instrument_id}: side={order_side:?}, qty={fill_qty}, px={fill_px}",
         );
 
-        let events = self.handle_external_order(&order_report, &account_id, &instrument);
+        let (events, _) = self.handle_external_order(&order_report, &account_id, &instrument);
         Some(events)
     }
 
@@ -1164,7 +1265,8 @@ impl ExecutionManager {
                 "Generating close fill for cross-zero {instrument_id}: side={close_side:?}, qty={close_qty}, px={close_px}",
             );
 
-            let close_events = self.handle_external_order(&close_report, &account_id, instrument);
+            let (close_events, _) =
+                self.handle_external_order(&close_report, &account_id, instrument);
             all_events.extend(close_events);
         } else {
             log::warn!("Cannot close position for {instrument_id}: no cached average price");
@@ -1208,7 +1310,8 @@ impl ExecutionManager {
                 "Generating open fill for cross-zero {instrument_id}: side={open_side:?}, qty={open_qty}, px={open_px}",
             );
 
-            let open_events = self.handle_external_order(&open_report, &account_id, instrument);
+            let (open_events, _) =
+                self.handle_external_order(&open_report, &account_id, instrument);
             all_events.extend(open_events);
         } else {
             log::warn!("Cannot open new position for {instrument_id}: no venue average price");
@@ -1216,6 +1319,69 @@ impl ExecutionManager {
         }
 
         Some(all_events)
+    }
+
+    /// Creates a position from a venue position report when no orders/fills exist.
+    ///
+    /// This handles the case where the venue reports an open position but there are
+    /// no order or fill reports to create it from (e.g., orders are already closed).
+    fn create_position_from_report(
+        &mut self,
+        report: &PositionStatusReport,
+        account_id: &AccountId,
+        instrument: &InstrumentAny,
+    ) -> Option<Vec<OrderEventAny>> {
+        let instrument_id = report.instrument_id;
+        let venue_signed_qty = report.signed_decimal_qty;
+
+        if venue_signed_qty == Decimal::ZERO {
+            return None;
+        }
+
+        let order_side = if venue_signed_qty > Decimal::ZERO {
+            OrderSide::Buy
+        } else {
+            OrderSide::Sell
+        };
+
+        let qty_abs = venue_signed_qty.abs();
+        let venue_avg_px = report.avg_px_open?;
+
+        let ts_now = self.clock.borrow().timestamp_ns();
+        let venue_order_id = create_synthetic_venue_order_id(ts_now.as_u64());
+        let order_qty = Quantity::from_decimal_dp(qty_abs, instrument.size_precision()).ok()?;
+
+        let mut order_report = OrderStatusReport::new(
+            *account_id,
+            instrument_id,
+            None,
+            venue_order_id,
+            order_side,
+            OrderType::Market,
+            TimeInForce::Gtc,
+            OrderStatus::Filled,
+            order_qty,
+            order_qty,
+            ts_now,
+            ts_now,
+            ts_now,
+            None,
+        )
+        .with_avg_px(venue_avg_px.to_f64().unwrap_or(0.0))
+        .ok()?;
+
+        // Preserve venue_position_id for hedging mode
+        if let Some(venue_position_id) = report.venue_position_id {
+            order_report = order_report.with_venue_position_id(venue_position_id);
+        }
+
+        log::info!(
+            color = LogColor::Blue as u8;
+            "Creating position from venue report for {instrument_id}: side={order_side:?}, qty={qty_abs}, avg_px={venue_avg_px}",
+        );
+
+        let (events, _) = self.handle_external_order(&order_report, account_id, instrument);
+        Some(events)
     }
 
     fn reconcile_order_report(
@@ -1233,7 +1399,7 @@ impl ExecutionManager {
         report: &OrderStatusReport,
         account_id: &AccountId,
         instrument: &InstrumentAny,
-    ) -> Vec<OrderEventAny> {
+    ) -> (Vec<OrderEventAny>, Option<ExternalOrderMetadata>) {
         let (strategy_id, tags) =
             if let Some(claimed_strategy) = self.external_order_claims.get(&report.instrument_id) {
                 let order_id = report
@@ -1302,7 +1468,7 @@ impl ExecutionManager {
             Ok(order) => order,
             Err(e) => {
                 log::error!("Failed to create order from report: {e}");
-                return Vec::new();
+                return (Vec::new(), None);
             }
         };
 
@@ -1310,7 +1476,7 @@ impl ExecutionManager {
             let mut cache = self.cache.borrow_mut();
             if let Err(e) = cache.add_order(order.clone(), None, None, false) {
                 log::error!("Failed to add external order to cache: {e}");
-                return Vec::new();
+                return (Vec::new(), None);
             }
 
             if let Err(e) =
@@ -1330,7 +1496,18 @@ impl ExecutionManager {
         );
 
         let ts_now = self.clock.borrow().timestamp_ns();
-        generate_external_order_status_events(&order, report, account_id, instrument, ts_now)
+        let order_events =
+            generate_external_order_status_events(&order, report, account_id, instrument, ts_now);
+
+        let metadata = ExternalOrderMetadata {
+            client_order_id,
+            venue_order_id: report.venue_order_id,
+            instrument_id: report.instrument_id,
+            strategy_id,
+            ts_init: ts_now,
+        };
+
+        (order_events, Some(metadata))
     }
 
     /// Deduplicates order reports, keeping the most advanced state per venue_order_id.

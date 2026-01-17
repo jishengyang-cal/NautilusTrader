@@ -472,12 +472,12 @@ impl LiveNode {
                         client_id,
                         color = LogColor::Blue
                     );
-                    let events = self
+                    let result = self
                         .exec_manager
                         .reconcile_execution_mass_status(mass_status)
                         .await;
 
-                    if events.is_empty() {
+                    if result.events.is_empty() {
                         log_info!(
                             "Reconciliation for {} succeeded",
                             client_id,
@@ -488,12 +488,26 @@ impl LiveNode {
                             color = LogColor::Blue as u8;
                             "Reconciliation for {} generated {} events",
                             client_id,
-                            events.len()
+                            result.events.len()
                         );
 
                         let mut exec_engine = self.kernel.exec_engine.borrow_mut();
-                        for event in events {
+                        for event in result.events {
                             exec_engine.process(&event);
+                        }
+                    }
+
+                    // Register external orders with execution clients for tracking
+                    if !result.external_orders.is_empty() {
+                        let exec_engine = self.kernel.exec_engine.borrow();
+                        for external in result.external_orders {
+                            exec_engine.register_external_order(
+                                external.client_order_id,
+                                external.venue_order_id,
+                                external.instrument_id,
+                                external.strategy_id,
+                                external.ts_init,
+                            );
                         }
                     }
                 }
