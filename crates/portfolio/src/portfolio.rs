@@ -37,7 +37,7 @@ use nautilus_model::{
     position::Position,
     types::{Currency, Money, Price},
 };
-use rust_decimal::{Decimal, prelude::FromPrimitive};
+use rust_decimal::Decimal;
 
 use crate::{config::PortfolioConfig, manager::AccountsManager};
 
@@ -1017,7 +1017,7 @@ impl Portfolio {
 
         for open_position in positions_open {
             log::debug!("open_position: {open_position}");
-            net_position += Decimal::from_f64(open_position.signed_qty).unwrap_or(Decimal::ZERO);
+            net_position += open_position.signed_decimal_qty();
         }
 
         let existing_position = self.net_position(instrument_id);
