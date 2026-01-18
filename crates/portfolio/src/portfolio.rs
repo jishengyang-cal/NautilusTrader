@@ -1976,7 +1976,10 @@ fn update_account(
 
     if let Some(existing) = cache_ref.account(&event.account_id) {
         let mut account = existing.clone();
-        account.apply(event.clone());
+        if let Err(e) = account.apply(event.clone()) {
+            log::error!("Failed to apply account state: {e}");
+            return;
+        }
 
         if let Err(e) = cache_ref.update_account(account.clone()) {
             log::error!("Failed to update account: {e}");

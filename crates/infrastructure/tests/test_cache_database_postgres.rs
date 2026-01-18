@@ -529,7 +529,7 @@ mod serial_tests {
         // Update account
         let new_account_state_event =
             cash_account_state_million_usd("1000000 USD", "100000 USD", "900000 USD");
-        account.apply(new_account_state_event);
+        account.apply(new_account_state_event).unwrap();
         pg_cache.update_account(&account).unwrap();
         wait_until_async(
             || async {
