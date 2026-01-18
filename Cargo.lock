@@ -5450,6 +5450,7 @@ dependencies = [
  "ahash 0.8.12",
  "anyhow",
  "criterion",
+ "indexmap 2.13.0",
  "log",
  "nautilus-common",
  "nautilus-core",
