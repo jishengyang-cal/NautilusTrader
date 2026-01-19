@@ -1234,34 +1234,6 @@ criteria = "safe-to-deploy"
 version = "0.1.1"
 criteria = "safe-to-run"
 
-[[exemptions.icu_collections]]
-version = "2.1.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.icu_locale_core]]
-version = "2.1.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.icu_normalizer]]
-version = "2.1.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.icu_normalizer_data]]
-version = "2.1.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.icu_properties]]
-version = "2.1.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.icu_properties_data]]
-version = "2.1.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.icu_provider]]
-version = "2.1.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.impl-codec]]
 version = "0.6.0"
 criteria = "safe-to-deploy"
@@ -1627,7 +1599,7 @@ version = "0.3.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.object_store]]
-version = "0.12.4"
+version = "0.12.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.once_cell]]
@@ -2848,10 +2820,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.winnow]]
 version = "0.7.14"
-criteria = "safe-to-deploy"
-
-[[exemptions.writeable]]
-version = "0.6.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.wyz]]
