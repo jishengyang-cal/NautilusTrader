@@ -245,16 +245,13 @@ impl DeribitWebSocketClient {
                             call_python(py, &callback, py_obj);
                         }),
                         NautilusWsMessage::Error(err) => {
-                            log::error!("Deribit WebSocket error: {err}");
+                            log::error!("WebSocket error: {err}");
                         }
                         NautilusWsMessage::Reconnected => {
-                            log::info!("Deribit WebSocket reconnected");
+                            log::info!("WebSocket reconnected");
                         }
                         NautilusWsMessage::Authenticated(auth_result) => {
-                            log::info!(
-                                "Deribit WebSocket authenticated (scope: {})",
-                                auth_result.scope
-                            );
+                            log::info!("WebSocket authenticated (scope: {})", auth_result.scope);
                         }
                         NautilusWsMessage::Raw(msg) => {
                             log::debug!("Received raw message, skipping: {msg}");

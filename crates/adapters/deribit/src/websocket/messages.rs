@@ -220,9 +220,11 @@ pub struct DeribitTickerMsg {
     /// Open interest.
     pub open_interest: f64,
     /// Current funding rate (perpetuals).
-    pub current_funding: Option<f64>,
+    #[serde(default, with = "rust_decimal::serde::float_option")]
+    pub current_funding: Option<Decimal>,
     /// Funding 8h rate (perpetuals).
-    pub funding_8h: Option<f64>,
+    #[serde(default, with = "rust_decimal::serde::float_option")]
+    pub funding_8h: Option<Decimal>,
     /// Settlement price (expired instruments).
     pub settlement_price: Option<f64>,
     /// 24h volume.
@@ -297,7 +299,8 @@ pub struct DeribitPerpetualMsg {
     /// Current index price.
     pub index_price: f64,
     /// Current interest rate (funding rate).
-    pub interest: f64,
+    #[serde(with = "rust_decimal::serde::float")]
+    pub interest: Decimal,
     /// Timestamp in milliseconds since Unix epoch.
     pub timestamp: u64,
 }

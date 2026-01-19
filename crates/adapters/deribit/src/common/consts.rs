@@ -113,6 +113,12 @@ pub fn should_retry_error_code(error_code: i64) -> bool {
     DERIBIT_RETRY_ERROR_CODES.contains(&error_code)
 }
 
+/// Deribit error code for post-only order rejection.
+///
+/// Error code `11054` is returned when a post-only order would have
+/// immediately matched against an existing order (taking liquidity).
+pub const DERIBIT_POST_ONLY_ERROR_CODE: i64 = 11054;
+
 /// Default Deribit REST API rate limit: 20 requests per second sustained.
 ///
 /// Deribit uses a credit-based system for non-matching engine requests:
