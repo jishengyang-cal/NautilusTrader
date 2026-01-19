@@ -23,7 +23,7 @@ use nautilus_common::{
     cache::Cache,
     clock::Clock,
     enums::LogColor,
-    msgbus::{self, TypedHandler},
+    msgbus::{self, MessagingSwitchboard, TypedHandler},
 };
 use nautilus_core::{WeakCell, datetime::NANOSECONDS_IN_MILLISECOND};
 use nautilus_model::{
@@ -263,13 +263,9 @@ impl Portfolio {
             })
         };
 
-        // Typed endpoint for direct sends
-        msgbus::register_account_state_endpoint(
-            "Portfolio.update_account".into(),
-            update_account_handler.clone(),
-        );
+        let endpoint = MessagingSwitchboard::portfolio_update_account();
+        msgbus::register_account_state_endpoint(endpoint, update_account_handler.clone());
 
-        // Typed subscriptions
         msgbus::subscribe_quotes("data.quotes.*".into(), update_quote_handler, Some(10));
         if config.bar_updates {
             msgbus::subscribe_bars("data.bars.*EXTERNAL".into(), update_bar_handler, Some(10));

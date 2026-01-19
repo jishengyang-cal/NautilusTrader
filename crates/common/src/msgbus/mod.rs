@@ -39,16 +39,18 @@ use std::{
     thread::LocalKey,
 };
 
-use handler::ShareableMessageHandler;
+pub use handler::ShareableMessageHandler;
 use matching::is_matching_backtracking;
 pub use mstr::{Endpoint, MStr, Pattern, Topic};
 use nautilus_core::UUID4;
 #[cfg(feature = "defi")]
-use nautilus_model::defi::{Block, Pool, PoolFeeCollect, PoolFlash, PoolLiquidityUpdate, PoolSwap};
+use nautilus_model::defi::{
+    Block, DefiData, Pool, PoolFeeCollect, PoolFlash, PoolLiquidityUpdate, PoolSwap,
+};
 use nautilus_model::{
     data::{
-        Bar, FundingRateUpdate, GreeksData, IndexPriceUpdate, MarkPriceUpdate, OrderBookDeltas,
-        OrderBookDepth10, QuoteTick, TradeTick,
+        Bar, Data, FundingRateUpdate, GreeksData, IndexPriceUpdate, MarkPriceUpdate,
+        OrderBookDeltas, OrderBookDepth10, QuoteTick, TradeTick,
     },
     events::{AccountState, OrderEventAny, PositionEvent},
     orderbook::OrderBook,
@@ -56,11 +58,15 @@ use nautilus_model::{
     position::Position,
 };
 use smallvec::SmallVec;
-pub use typed_endpoints::EndpointMap;
-pub use typed_handler::{CallbackHandler, Handler, TypedHandler};
+pub use switchboard::MessagingSwitchboard;
+pub use typed_endpoints::{EndpointMap, IntoEndpointMap};
+pub use typed_handler::{CallbackHandler, Handler, IntoHandler, TypedHandler, TypedIntoHandler};
 pub use typed_router::{TopicRouter, TypedSubscription};
 
-use crate::messages::data::DataResponse;
+use crate::messages::{
+    data::{DataCommand, DataResponse},
+    execution::{ExecutionReport, TradingCommand},
+};
 pub use crate::msgbus::message::BusMessage;
 
 /// Inline capacity for handler buffers before heap allocation.
@@ -200,10 +206,10 @@ pub fn register_bar_endpoint(endpoint: MStr<Endpoint>, handler: TypedHandler<Bar
         .register(endpoint, handler);
 }
 
-/// Registers an order event handler at an endpoint.
+/// Registers an order event handler at an endpoint (ownership-based).
 pub fn register_order_event_endpoint(
     endpoint: MStr<Endpoint>,
-    handler: TypedHandler<OrderEventAny>,
+    handler: TypedIntoHandler<OrderEventAny>,
 ) {
     get_message_bus()
         .borrow_mut()
@@ -219,6 +225,67 @@ pub fn register_account_state_endpoint(
     get_message_bus()
         .borrow_mut()
         .endpoints_account_state
+        .register(endpoint, handler);
+}
+
+/// Registers a trading command handler at an endpoint (ownership-based).
+pub fn register_trading_command_endpoint(
+    endpoint: MStr<Endpoint>,
+    handler: TypedIntoHandler<TradingCommand>,
+) {
+    get_message_bus()
+        .borrow_mut()
+        .endpoints_trading_commands
+        .register(endpoint, handler);
+}
+
+/// Registers a data command handler at an endpoint (ownership-based).
+pub fn register_data_command_endpoint(
+    endpoint: MStr<Endpoint>,
+    handler: TypedIntoHandler<DataCommand>,
+) {
+    get_message_bus()
+        .borrow_mut()
+        .endpoints_data_commands
+        .register(endpoint, handler);
+}
+
+/// Registers a data response handler at an endpoint (ownership-based).
+pub fn register_data_response_endpoint(
+    endpoint: MStr<Endpoint>,
+    handler: TypedIntoHandler<DataResponse>,
+) {
+    get_message_bus()
+        .borrow_mut()
+        .endpoints_data_responses
+        .register(endpoint, handler);
+}
+
+/// Registers an execution report handler at an endpoint (ownership-based).
+pub fn register_execution_report_endpoint(
+    endpoint: MStr<Endpoint>,
+    handler: TypedIntoHandler<ExecutionReport>,
+) {
+    get_message_bus()
+        .borrow_mut()
+        .endpoints_exec_reports
+        .register(endpoint, handler);
+}
+
+/// Registers a data handler at an endpoint (ownership-based).
+pub fn register_data_endpoint(endpoint: MStr<Endpoint>, handler: TypedIntoHandler<Data>) {
+    get_message_bus()
+        .borrow_mut()
+        .endpoints_data
+        .register(endpoint, handler);
+}
+
+/// Registers a DeFi data handler at an endpoint (ownership-based).
+#[cfg(feature = "defi")]
+pub fn register_defi_data_endpoint(endpoint: MStr<Endpoint>, handler: TypedIntoHandler<DefiData>) {
+    get_message_bus()
+        .borrow_mut()
+        .endpoints_defi_data
         .register(endpoint, handler);
 }
 
@@ -1101,18 +1168,12 @@ pub fn send_bar(endpoint: MStr<Endpoint>, bar: &Bar) {
     }
 }
 
-/// Sends an order event to an endpoint handler.
-pub fn send_order_event(endpoint: MStr<Endpoint>, event: &OrderEventAny) {
-    let handler = get_message_bus()
+/// Sends an order event to an endpoint handler, transferring ownership.
+pub fn send_order_event(endpoint: MStr<Endpoint>, event: OrderEventAny) {
+    get_message_bus()
         .borrow()
         .endpoints_order_events
-        .get(endpoint)
-        .cloned();
-    if let Some(handler) = handler {
-        handler.handle(event);
-    } else {
-        log::error!("send_order_event: no registered endpoint '{endpoint}'");
-    }
+        .send(endpoint, event);
 }
 
 /// Sends an account state to an endpoint handler.
@@ -1127,6 +1188,55 @@ pub fn send_account_state(endpoint: MStr<Endpoint>, state: &AccountState) {
     } else {
         log::error!("send_account_state: no registered endpoint '{endpoint}'");
     }
+}
+
+/// Sends a trading command to an endpoint handler, transferring ownership.
+pub fn send_trading_command(endpoint: MStr<Endpoint>, command: TradingCommand) {
+    get_message_bus()
+        .borrow()
+        .endpoints_trading_commands
+        .send(endpoint, command);
+}
+
+/// Sends a data command to an endpoint handler, transferring ownership.
+pub fn send_data_command(endpoint: MStr<Endpoint>, command: DataCommand) {
+    get_message_bus()
+        .borrow()
+        .endpoints_data_commands
+        .send(endpoint, command);
+}
+
+/// Sends a data response to an endpoint handler, transferring ownership.
+pub fn send_data_response(endpoint: MStr<Endpoint>, response: DataResponse) {
+    get_message_bus()
+        .borrow()
+        .endpoints_data_responses
+        .send(endpoint, response);
+}
+
+/// Sends an execution report to an endpoint handler, transferring ownership.
+pub fn send_execution_report(endpoint: MStr<Endpoint>, report: ExecutionReport) {
+    get_message_bus()
+        .borrow()
+        .endpoints_exec_reports
+        .send(endpoint, report);
+}
+
+/// Sends data to an endpoint handler, transferring ownership.
+pub fn send_data(endpoint: MStr<Endpoint>, data: Data) {
+    get_message_bus()
+        .borrow()
+        .endpoints_data
+        .send(endpoint, data);
+}
+
+/// Sends DeFi data to an endpoint handler, transferring ownership.
+#[cfg(feature = "defi")]
+pub fn send_defi_data(endpoint: MStr<Endpoint>, data: DefiData) {
+    get_message_bus()
+        .borrow()
+        .endpoints_defi_data
+        .send(endpoint, data);
 }
 
 #[cfg(test)]

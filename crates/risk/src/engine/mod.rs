@@ -27,9 +27,10 @@ use nautilus_common::{
     logging::{CMD, EVT, RECV},
     messages::execution::{ModifyOrder, SubmitOrder, SubmitOrderList, TradingCommand},
     msgbus,
+    msgbus::{MessagingSwitchboard, TypedIntoHandler},
     throttler::Throttler,
 };
-use nautilus_core::UUID4;
+use nautilus_core::{UUID4, WeakCell};
 use nautilus_execution::trailing::{
     trailing_stop_calculate_with_bid_ask, trailing_stop_calculate_with_last,
 };
@@ -102,6 +103,20 @@ impl RiskEngine {
         }
     }
 
+    /// Registers all message bus handlers for the risk engine.
+    pub fn register_msgbus_handlers(engine: Rc<RefCell<Self>>) {
+        let weak = WeakCell::from(Rc::downgrade(&engine));
+
+        msgbus::register_trading_command_endpoint(
+            MessagingSwitchboard::risk_engine_execute(),
+            TypedIntoHandler::from(move |cmd: TradingCommand| {
+                if let Some(rc) = weak.upgrade() {
+                    rc.borrow_mut().execute(cmd);
+                }
+            }),
+        );
+    }
+
     fn create_submit_order_throttler(
         config: &RiskEngineConfig,
         clock: Rc<RefCell<dyn Clock>>,
@@ -109,10 +124,8 @@ impl RiskEngine {
     ) -> Throttler<SubmitOrder, SubmitOrderFn> {
         let success_handler = {
             Box::new(move |submit_order: SubmitOrder| {
-                msgbus::send_any(
-                    "ExecEngine.execute".into(),
-                    &TradingCommand::SubmitOrder(submit_order),
-                );
+                let endpoint = MessagingSwitchboard::exec_engine_execute();
+                msgbus::send_trading_command(endpoint, TradingCommand::SubmitOrder(submit_order));
             }) as Box<dyn Fn(SubmitOrder)>
         };
 
@@ -131,7 +144,8 @@ impl RiskEngine {
 
                 let denied = Self::create_order_denied(&submit_order, reason, &clock);
 
-                msgbus::send_any("ExecEngine.process".into(), &denied);
+                let endpoint = MessagingSwitchboard::exec_engine_process();
+                msgbus::send_order_event(endpoint, denied);
             }) as Box<dyn Fn(SubmitOrder)>
         };
 
@@ -153,10 +167,8 @@ impl RiskEngine {
     ) -> Throttler<ModifyOrder, ModifyOrderFn> {
         let success_handler = {
             Box::new(move |order: ModifyOrder| {
-                msgbus::send_any(
-                    "ExecEngine.execute".into(),
-                    &TradingCommand::ModifyOrder(order),
-                );
+                let endpoint = MessagingSwitchboard::exec_engine_execute();
+                msgbus::send_trading_command(endpoint, TradingCommand::ModifyOrder(order));
             }) as Box<dyn Fn(ModifyOrder)>
         };
 
@@ -178,7 +190,8 @@ impl RiskEngine {
 
                 let rejected = Self::create_modify_rejected(&order, reason, &clock);
 
-                msgbus::send_any("ExecEngine.process".into(), &rejected);
+                let endpoint = MessagingSwitchboard::exec_engine_process();
+                msgbus::send_order_event(endpoint, rejected);
             }) as Box<dyn Fn(ModifyOrder)>
         };
 
@@ -1254,7 +1267,8 @@ impl RiskEngine {
             self.clock.borrow().timestamp_ns(),
         ));
 
-        msgbus::send_any("ExecEngine.process".into(), &denied);
+        let endpoint = MessagingSwitchboard::exec_engine_process();
+        msgbus::send_order_event(endpoint, denied);
     }
 
     fn deny_order_list(&self, order_list: OrderList, reason: &str) {
@@ -1281,7 +1295,8 @@ impl RiskEngine {
             order.account_id(),
         ));
 
-        msgbus::send_any("ExecEngine.process".into(), &denied);
+        let endpoint = MessagingSwitchboard::exec_engine_process();
+        msgbus::send_order_event(endpoint, denied);
     }
 
     fn execution_gateway(&mut self, instrument: InstrumentAny, command: TradingCommand) {
@@ -1367,7 +1382,8 @@ impl RiskEngine {
     }
 
     fn send_to_execution(&self, command: TradingCommand) {
-        msgbus::send_any("ExecEngine.execute".into(), &command);
+        let endpoint = MessagingSwitchboard::exec_engine_execute();
+        msgbus::send_trading_command(endpoint, command);
     }
 
     fn handle_event(&mut self, event: OrderEventAny) {

@@ -614,7 +614,7 @@ impl ExecutionManager {
         events.sort_by_key(|e| e.ts_event());
 
         for event in &events {
-            exec_engine.borrow_mut().process(event);
+            exec_engine.borrow_mut().process(event.clone());
         }
 
         let mut positions_created = 0usize;
@@ -678,7 +678,7 @@ impl ExecutionManager {
                         &positions_with_fills,
                     ) {
                         for event in position_events {
-                            exec_engine.borrow_mut().process(&event);
+                            exec_engine.borrow_mut().process(event.clone());
                             events.push(event);
                         }
                         positions_created += 1;
