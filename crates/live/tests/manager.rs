@@ -5581,6 +5581,142 @@ async fn test_filtered_client_order_ids_skips_matching_orders() {
 }
 
 #[tokio::test]
+async fn test_filtered_client_order_ids_skips_orphan_fills() {
+    // Orphan fills (fills without order reports) should also be filtered
+    let filtered_id = ClientOrderId::from("O-FILTERED-002");
+    let venue_order_id = VenueOrderId::from("V-FILTERED-002");
+    let config = ExecutionManagerConfig {
+        filtered_client_order_ids: AHashSet::from([filtered_id]),
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    // Add the order to cache (simulating an order placed before filtering was enabled)
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .client_order_id(filtered_id)
+        .instrument_id(instrument_id)
+        .quantity(Quantity::from("10.0"))
+        .price(Price::from("100.0"))
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+    ctx.add_order(order);
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Add orphan fill (fill without order report) for the filtered order
+    let fill = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id,
+        TradeId::from("T-001"),
+        OrderSide::Buy,
+        Quantity::from("5.0"),
+        Price::from("100.00"),
+        Money::from("0.50 USD"),
+        LiquiditySide::Taker,
+        Some(filtered_id),
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+    mass_status.add_fill_reports(vec![fill]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // No fill events should be generated for filtered order
+    assert!(
+        !result
+            .events
+            .iter()
+            .any(|e| matches!(e, OrderEventAny::Filled(_))),
+        "Filtered order should not receive orphan fill events"
+    );
+}
+
+#[tokio::test]
+async fn test_filtered_client_order_ids_skips_orphan_fills_via_venue_order_id_lookup() {
+    // Orphan fills looked up by venue_order_id should also be filtered
+    let filtered_id = ClientOrderId::from("O-FILTERED-003");
+    let venue_order_id = VenueOrderId::from("V-FILTERED-003");
+    let config = ExecutionManagerConfig {
+        filtered_client_order_ids: AHashSet::from([filtered_id]),
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    // Add the order to cache
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .client_order_id(filtered_id)
+        .instrument_id(instrument_id)
+        .quantity(Quantity::from("10.0"))
+        .price(Price::from("100.0"))
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+    ctx.add_order(order);
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Add orphan fill WITHOUT client_order_id (will be looked up by venue_order_id)
+    let fill = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id,
+        TradeId::from("T-002"),
+        OrderSide::Buy,
+        Quantity::from("5.0"),
+        Price::from("100.00"),
+        Money::from("0.50 USD"),
+        LiquiditySide::Taker,
+        None, // No client_order_id - will use venue_order_id lookup
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+    mass_status.add_fill_reports(vec![fill]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // No fill events should be generated for filtered order
+    assert!(
+        !result
+            .events
+            .iter()
+            .any(|e| matches!(e, OrderEventAny::Filled(_))),
+        "Filtered order should not receive orphan fill events via venue_order_id lookup"
+    );
+}
+
+#[tokio::test]
 async fn test_reconciliation_instrument_ids_filters_other_instruments() {
     // Only instruments in reconciliation_instrument_ids should be reconciled
     let included_instrument = test_instrument_id();

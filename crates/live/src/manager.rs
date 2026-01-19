@@ -628,9 +628,11 @@ impl ExecutionManager {
                 continue;
             }
 
-            if let Some(first_fill) = fills.first()
-                && !self.should_reconcile_instrument(&first_fill.instrument_id)
-            {
+            let Some(first_fill) = fills.first() else {
+                continue;
+            };
+
+            if !self.should_reconcile_instrument(&first_fill.instrument_id) {
                 log::debug!(
                     "Skipping orphan fills for {}: not in reconciliation_instrument_ids",
                     first_fill.instrument_id
@@ -638,11 +640,38 @@ impl ExecutionManager {
                 continue;
             }
 
-            let order = fills
-                .first()
-                .and_then(|f| f.client_order_id.as_ref())
+            // Skip if fill's client_order_id is in filtered list
+            if let Some(client_order_id) = &first_fill.client_order_id
+                && self
+                    .config
+                    .filtered_client_order_ids
+                    .contains(client_order_id)
+            {
+                log::debug!(
+                    "Skipping orphan fills for {client_order_id}: in filtered_client_order_ids"
+                );
+                continue;
+            }
+
+            let order = first_fill
+                .client_order_id
+                .as_ref()
                 .and_then(|id| self.get_order(id))
                 .or_else(|| self.get_order_by_venue_order_id(venue_order_id));
+
+            // Skip if resolved order's client_order_id is filtered (venue_order_id lookup path)
+            if let Some(ref order) = order
+                && self
+                    .config
+                    .filtered_client_order_ids
+                    .contains(&order.client_order_id())
+            {
+                log::debug!(
+                    "Skipping orphan fills for {}: in filtered_client_order_ids",
+                    order.client_order_id()
+                );
+                continue;
+            }
 
             if let Some(mut order) = order {
                 let instrument_id = order.instrument_id();
