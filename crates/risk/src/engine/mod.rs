@@ -444,14 +444,11 @@ impl RiskEngine {
             return; // Denied
         };
 
-        ////////////////////////////////////////////////////////////////////////////////
-        // PRE-TRADE ORDER(S) CHECKS
-        ////////////////////////////////////////////////////////////////////////////////
         if !self.check_order(instrument.clone(), order.clone()) {
             return; // Denied
         }
 
-        if !self.check_orders_risk(instrument.clone(), Vec::from([order])) {
+        if !self.check_orders_risk(instrument.clone(), &[order]) {
             return; // Denied
         }
 
@@ -480,16 +477,13 @@ impl RiskEngine {
             return; // Denied
         };
 
-        ////////////////////////////////////////////////////////////////////////////////
-        // PRE-TRADE ORDER(S) CHECKS
-        ////////////////////////////////////////////////////////////////////////////////
         for order in command.order_list.orders.clone() {
             if !self.check_order(instrument.clone(), order) {
                 return; // Denied
             }
         }
 
-        if !self.check_orders_risk(instrument.clone(), command.order_list.clone().orders) {
+        if !self.check_orders_risk(instrument.clone(), &command.order_list.orders) {
             self.deny_order_list(
                 command.order_list.clone(),
                 &format!("OrderList {} DENIED", command.order_list.id),
@@ -501,9 +495,6 @@ impl RiskEngine {
     }
 
     fn handle_modify_order(&mut self, command: ModifyOrder) {
-        ////////////////////////////////////////////////////////////////////////////////
-        // VALIDATE COMMAND
-        ////////////////////////////////////////////////////////////////////////////////
         let order_exists = {
             let cache = self.cache.borrow();
             cache.order(&command.client_order_id).cloned()
@@ -602,9 +593,6 @@ impl RiskEngine {
     }
 
     fn check_order(&self, instrument: InstrumentAny, order: OrderAny) -> bool {
-        ////////////////////////////////////////////////////////////////////////////////
-        // VALIDATION CHECKS
-        ////////////////////////////////////////////////////////////////////////////////
         if order.time_in_force() == TimeInForce::Gtd {
             // SAFETY: GTD guarantees an expire time
             let expire_time = order.expire_time().unwrap();
@@ -627,9 +615,6 @@ impl RiskEngine {
     }
 
     fn check_order_price(&self, instrument: InstrumentAny, order: OrderAny) -> bool {
-        ////////////////////////////////////////////////////////////////////////////////
-        // CHECK PRICE
-        ////////////////////////////////////////////////////////////////////////////////
         if order.price().is_some() {
             let risk_msg = self.check_price(&instrument, order.price());
             if let Some(risk_msg) = risk_msg {
@@ -638,9 +623,6 @@ impl RiskEngine {
             }
         }
 
-        ////////////////////////////////////////////////////////////////////////////////
-        // CHECK TRIGGER
-        ////////////////////////////////////////////////////////////////////////////////
         if order.trigger_price().is_some() {
             let risk_msg = self.check_price(&instrument, order.trigger_price());
             if let Some(risk_msg) = risk_msg {
@@ -666,10 +648,7 @@ impl RiskEngine {
         true
     }
 
-    fn check_orders_risk(&self, instrument: InstrumentAny, orders: Vec<OrderAny>) -> bool {
-        ////////////////////////////////////////////////////////////////////////////////
-        // CHECK TRIGGER
-        ////////////////////////////////////////////////////////////////////////////////
+    fn check_orders_risk(&self, instrument: InstrumentAny, orders: &[OrderAny]) -> bool {
         let mut last_px: Option<Price> = None;
         let mut max_notional: Option<Money> = None;
 
@@ -750,7 +729,7 @@ impl RiskEngine {
         let mut cum_notional_buy: Option<Money> = None;
         let mut cum_notional_sell: Option<Money> = None;
         let mut base_currency: Option<Currency> = None;
-        for order in &orders {
+        for order in orders {
             // Determine last price based on order type
             last_px = match order {
                 OrderAny::Market(_) | OrderAny::MarketToLimit(_) => {

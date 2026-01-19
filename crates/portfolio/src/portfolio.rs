@@ -866,7 +866,7 @@ impl Portfolio {
                     .collect()
             };
 
-            self.update_net_position(&instrument_id, positions_open);
+            self.update_net_position(&instrument_id, &positions_open);
 
             if let Some(calculated_unrealized_pnl) = self.calculate_unrealized_pnl(&instrument_id) {
                 self.inner
@@ -1008,7 +1008,7 @@ impl Portfolio {
         );
     }
 
-    fn update_net_position(&mut self, instrument_id: &InstrumentId, positions_open: Vec<Position>) {
+    fn update_net_position(&mut self, instrument_id: &InstrumentId, positions_open: &[Position]) {
         let mut net_position = Decimal::ZERO;
 
         for open_position in positions_open {
@@ -1891,7 +1891,7 @@ fn update_position(
         config: PortfolioConfig::default(), // TODO: TBD
     };
 
-    portfolio_clone.update_net_position(&instrument_id, positions_open.clone());
+    portfolio_clone.update_net_position(&instrument_id, &positions_open);
 
     if let Some(calculated_unrealized_pnl) =
         portfolio_clone.calculate_unrealized_pnl(&instrument_id)
