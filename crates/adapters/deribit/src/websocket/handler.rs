@@ -29,7 +29,7 @@ use nautilus_core::{AtomicTime, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_model::{
     data::{Bar, Data},
     events::{OrderCancelRejected, OrderModifyRejected, OrderRejected},
-    identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId},
+    identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId},
     instruments::{Instrument, InstrumentAny},
 };
 use nautilus_network::{
@@ -212,8 +212,8 @@ pub struct DeribitWsFeedHandler {
     request_id_counter: AtomicU64,
     pending_requests: AHashMap<u64, PendingRequestType>,
     account_id: Option<AccountId>,
-    order_contexts: AHashMap<String, OrderContext>,
-    emitted_order_accepted: AHashSet<String>,
+    order_contexts: AHashMap<VenueOrderId, OrderContext>,
+    emitted_order_accepted: AHashSet<VenueOrderId>,
     pending_bars: AHashMap<String, Bar>,
     bars_timestamp_on_close: bool,
 }
@@ -820,7 +820,6 @@ impl DeribitWsFeedHandler {
 
     /// Processes a raw WebSocket message.
     async fn process_raw_message(&mut self, text: &str) -> Option<NautilusWsMessage> {
-        // Check for reconnection signal
         if text == RECONNECTED {
             log::info!("Received reconnection signal");
             return Some(NautilusWsMessage::Reconnected);
@@ -1035,14 +1034,16 @@ impl DeribitWsFeedHandler {
                                 match serde_json::from_value::<DeribitOrderResponse>(result.clone())
                                 {
                                     Ok(order_response) => {
-                                        let venue_order_id = order_response.order.order_id.clone();
+                                        let venue_order_id_str = &order_response.order.order_id;
+                                        let venue_order_id =
+                                            VenueOrderId::new(venue_order_id_str.as_str());
                                         let order_state = &order_response.order.order_state;
                                         log::debug!(
                                             "Order response: venue_order_id={venue_order_id}, client_order_id={client_order_id}, state={order_state}"
                                         );
 
                                         self.order_contexts.insert(
-                                            venue_order_id.clone(),
+                                            venue_order_id,
                                             OrderContext {
                                                 client_order_id,
                                                 trader_id,
@@ -1149,7 +1150,8 @@ impl DeribitWsFeedHandler {
                                 match serde_json::from_value::<DeribitOrderResponse>(result.clone())
                                 {
                                     Ok(order_response) => {
-                                        let venue_order_id = order_response.order.order_id.clone();
+                                        let venue_order_id =
+                                            VenueOrderId::new(&order_response.order.order_id);
                                         log::info!(
                                             "Order updated: venue_order_id={}, client_order_id={}, state={}",
                                             venue_order_id,
@@ -1605,7 +1607,9 @@ impl DeribitWsFeedHandler {
 
                                     // Process each order and emit appropriate events
                                     for order in &orders {
-                                        let venue_order_id = &order.order_id;
+                                        let venue_order_id_str = &order.order_id;
+                                        let venue_order_id =
+                                            VenueOrderId::new(venue_order_id_str.as_str());
                                         let instrument_name =
                                             Ustr::from(order.instrument_name.as_str());
 
@@ -1623,7 +1627,7 @@ impl DeribitWsFeedHandler {
                                         // Then check pending_requests (for orders whose response hasn't arrived yet)
                                         // If neither found, this is a true external order
                                         let context =
-                                            self.order_contexts.get(venue_order_id).cloned();
+                                            self.order_contexts.get(&venue_order_id).cloned();
 
                                         // Extract client_order_id from order label for pending check
                                         let label_client_order_id = order
@@ -1675,7 +1679,7 @@ impl DeribitWsFeedHandler {
                                                 (
                                                     TraderId::new("EXTERNAL-000"),
                                                     StrategyId::new("EXTERNAL"),
-                                                    ClientOrderId::new(venue_order_id),
+                                                    ClientOrderId::new(venue_order_id_str),
                                                 )
                                             };
 
@@ -1685,7 +1689,7 @@ impl DeribitWsFeedHandler {
                                                 // This prevents duplicates from both response and subscription paths
                                                 if self
                                                     .emitted_order_accepted
-                                                    .contains(venue_order_id)
+                                                    .contains(&venue_order_id)
                                                 {
                                                     log::trace!(
                                                         "Skipping duplicate OrderAccepted: venue_order_id={venue_order_id}"
@@ -1703,8 +1707,7 @@ impl DeribitWsFeedHandler {
                                                 );
 
                                                 // Mark OrderAccepted as emitted
-                                                self.emitted_order_accepted
-                                                    .insert(venue_order_id.clone());
+                                                self.emitted_order_accepted.insert(venue_order_id);
 
                                                 log::debug!(
                                                     "Emitting OrderAccepted: venue_order_id={venue_order_id}, is_known={is_known_order}"
@@ -1726,8 +1729,8 @@ impl DeribitWsFeedHandler {
                                                     "Emitting OrderCanceled: venue_order_id={venue_order_id}"
                                                 );
                                                 // Clean up tracking maps on terminal state
-                                                self.order_contexts.remove(venue_order_id);
-                                                self.emitted_order_accepted.remove(venue_order_id);
+                                                self.order_contexts.remove(&venue_order_id);
+                                                self.emitted_order_accepted.remove(&venue_order_id);
                                                 return Some(NautilusWsMessage::OrderCanceled(
                                                     event,
                                                 ));
@@ -1745,8 +1748,8 @@ impl DeribitWsFeedHandler {
                                                     "Emitting OrderExpired: venue_order_id={venue_order_id}"
                                                 );
                                                 // Clean up tracking maps on terminal state
-                                                self.order_contexts.remove(venue_order_id);
-                                                self.emitted_order_accepted.remove(venue_order_id);
+                                                self.order_contexts.remove(&venue_order_id);
+                                                self.emitted_order_accepted.remove(&venue_order_id);
                                                 return Some(NautilusWsMessage::OrderExpired(
                                                     event,
                                                 ));
@@ -1782,9 +1785,9 @@ impl DeribitWsFeedHandler {
                                                     log::debug!(
                                                         "Cleaning up filled order: venue_order_id={venue_order_id}"
                                                     );
-                                                    self.order_contexts.remove(venue_order_id);
+                                                    self.order_contexts.remove(&venue_order_id);
                                                     self.emitted_order_accepted
-                                                        .remove(venue_order_id);
+                                                        .remove(&venue_order_id);
                                                 } else {
                                                     log::trace!(
                                                         "No event to emit for order {}, state={}",
