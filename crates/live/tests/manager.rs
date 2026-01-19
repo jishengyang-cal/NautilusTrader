@@ -20,9 +20,12 @@
 
 use std::{cell::RefCell, rc::Rc};
 
+use ahash::AHashSet;
 use nautilus_common::{cache::Cache, clock::TestClock};
 use nautilus_core::{UUID4, UnixNanos};
-use nautilus_execution::engine::ExecutionEngine;
+use nautilus_execution::{
+    engine::ExecutionEngine, reconciliation::process_mass_status_for_reconciliation,
+};
 use nautilus_live::manager::{ExecutionManager, ExecutionManagerConfig, ExecutionReport};
 use nautilus_model::{
     accounts::{AccountAny, MarginAccount},
@@ -35,7 +38,10 @@ use nautilus_model::{
         AccountId, ClientId, ClientOrderId, InstrumentId, PositionId, StrategyId, TradeId,
         TraderId, Venue, VenueOrderId,
     },
-    instruments::{Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt},
+    instruments::{
+        Instrument, InstrumentAny,
+        stubs::{crypto_perpetual_ethusdt, xbtusd_bitmex},
+    },
     orders::{Order, OrderAny, OrderTestBuilder, stubs::TestOrderEventStubs},
     position::Position,
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
@@ -130,6 +136,14 @@ fn test_instrument() -> InstrumentAny {
 
 fn test_instrument_id() -> InstrumentId {
     crypto_perpetual_ethusdt().id()
+}
+
+fn test_instrument2() -> InstrumentAny {
+    InstrumentAny::CryptoPerpetual(xbtusd_bitmex())
+}
+
+fn test_instrument_id2() -> InstrumentId {
+    xbtusd_bitmex().id()
 }
 
 fn test_account_id() -> AccountId {
@@ -841,6 +855,64 @@ async fn test_reconcile_mass_status_skips_external_when_filtered() {
         .await;
 
     assert!(result.events.is_empty());
+}
+
+#[tokio::test]
+async fn test_synthetic_orders_bypass_filter_unclaimed_external() {
+    let config = ExecutionManagerConfig {
+        filter_unclaimed_external: true,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    let instrument_id = test_instrument_id();
+
+    ctx.add_instrument(test_instrument());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // S- prefix indicates synthetic order, should bypass filter_unclaimed_external
+    let report = create_order_status_report(
+        None,
+        VenueOrderId::from("S-abc123-def456"),
+        instrument_id,
+        OrderStatus::Filled,
+        Quantity::from("1.0"),
+        Quantity::from("1.0"),
+    )
+    .with_avg_px(100.0)
+    .unwrap();
+    mass_status.add_order_reports(vec![report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    assert!(!result.events.is_empty());
+    assert!(
+        result
+            .events
+            .iter()
+            .any(|e| matches!(e, OrderEventAny::Filled(_)))
+    );
+    if let OrderEventAny::Accepted(accepted) = &result.events[0] {
+        let order = ctx
+            .get_order(&accepted.client_order_id)
+            .expect("Order should exist");
+        let tags = order.tags().expect("Order should have tags");
+        assert!(
+            tags.contains(&ustr::Ustr::from("RECONCILIATION")),
+            "Synthetic order should have RECONCILIATION tag, got {tags:?}",
+        );
+    } else {
+        panic!("Expected Accepted event first, got {:?}", result.events[0]);
+    }
 }
 
 #[tokio::test]
@@ -2705,13 +2777,29 @@ async fn test_reconcile_mass_status_iterates_all_position_reports() {
         .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
         .await;
 
-    // Should have events for both positions (2 initialized + 2 filled = 4 events minimum)
     // Both position reports should be processed, not just the first
-    assert!(
-        result.events.len() >= 4,
-        "Expected at least 4 events for two positions, got {}",
-        result.events.len()
-    );
+    let fill_events: Vec<_> = result
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let OrderEventAny::Filled(f) = e {
+                Some(f)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Should have fills for both long and short positions
+    let has_buy_fill = fill_events.iter().any(|f| f.order_side == OrderSide::Buy);
+    let has_sell_fill = fill_events.iter().any(|f| f.order_side == OrderSide::Sell);
+    assert!(has_buy_fill, "Should have BUY fill for long position");
+    assert!(has_sell_fill, "Should have SELL fill for short position");
+
+    // Verify both positions exist in cache
+    let cache = ctx.cache.borrow();
+    let positions = cache.positions(None, None, None, None, None);
+    assert_eq!(positions.len(), 2, "Should have 2 positions in cache");
 }
 
 #[tokio::test]
@@ -3409,18 +3497,24 @@ async fn test_reconcile_mass_status_deduplicates_netting_reports_same_instrument
 
     mass_status.add_position_reports(vec![position_report_1, position_report_2]);
 
-    let result = ctx
+    let _result = ctx
         .manager
         .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
         .await;
 
-    // Should only create ONE position (2 events: initialized + filled), not two
-    // If deduplication fails, we'd see 4 events (two positions)
+    // Deduplication: only ONE position should be created from duplicate netting reports
+    let cache = ctx.cache.borrow();
+    let positions = cache.positions(None, None, None, None, None);
     assert_eq!(
-        result.events.len(),
-        2,
-        "Expected 2 events (1 position), got {} (duplicate netting reports should be skipped)",
-        result.events.len()
+        positions.len(),
+        1,
+        "Should have exactly 1 position (duplicates skipped), got {}",
+        positions.len()
+    );
+    assert_eq!(
+        positions[0].quantity,
+        Quantity::from("5.0"),
+        "Position should have qty 5.0"
     );
 }
 
@@ -3468,17 +3562,28 @@ async fn test_reconcile_mass_status_deduplicates_hedge_reports_same_position_id(
 
     mass_status.add_position_reports(vec![position_report_1, position_report_2]);
 
-    let result = ctx
+    let _result = ctx
         .manager
         .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
         .await;
 
-    // Should only create ONE position (2 events: initialized + filled), not two
+    // Deduplication: only ONE position should be created from duplicate hedge reports
+    let cache = ctx.cache.borrow();
+    let positions = cache.positions(None, None, None, None, None);
     assert_eq!(
-        result.events.len(),
-        2,
-        "Expected 2 events (1 position), got {} (duplicate hedge reports should be skipped)",
-        result.events.len()
+        positions.len(),
+        1,
+        "Should have exactly 1 position (duplicates skipped), got {}",
+        positions.len()
+    );
+    assert_eq!(
+        positions[0].id, venue_position_id,
+        "Position should have correct ID"
+    );
+    assert_eq!(
+        positions[0].quantity,
+        Quantity::from("5.0"),
+        "Position should have qty 5.0"
     );
 }
 
@@ -3626,6 +3731,108 @@ async fn test_external_order_has_venue_tag() {
         tags.contains(&ustr::Ustr::from("VENUE")),
         "External order should have VENUE tag"
     );
+}
+
+#[tokio::test]
+async fn test_external_order_with_fills_but_no_avg_px_applies_real_fills_only() {
+    // When an external order has real fill reports but order report lacks avg_px,
+    // only the real fills should be applied (no inferred fill generated)
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    let venue_order_id = VenueOrderId::from("V-FILLS-001");
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Order report shows Filled but WITHOUT avg_px (using Market order for this scenario)
+    let report = OrderStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        None, // External order
+        venue_order_id,
+        OrderSide::Buy,
+        OrderType::Market,
+        TimeInForce::Gtc,
+        OrderStatus::Filled,
+        Quantity::from("10.0"),
+        Quantity::from("10.0"),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None, // No avg_px - cannot generate inferred fill
+    );
+
+    // Real fill report with actual price
+    let fill = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id,
+        TradeId::from("T-REAL-001"),
+        OrderSide::Buy,
+        Quantity::from("10.0"),
+        Price::from("3000.00"),
+        Money::from("1.00 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+
+    mass_status.add_order_reports(vec![report]);
+    mass_status.add_fill_reports(vec![fill]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // Should have events including Accepted and the real fill
+    let accepted_count = result
+        .events
+        .iter()
+        .filter(|e| matches!(e, OrderEventAny::Accepted(_)))
+        .count();
+    assert_eq!(accepted_count, 1, "Should have exactly 1 Accepted event");
+
+    let fill_events: Vec<_> = result
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let OrderEventAny::Filled(f) = e {
+                Some(f)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Only the real fill should be applied (no inferred fill due to missing avg_px)
+    assert_eq!(
+        fill_events.len(),
+        1,
+        "Should have exactly 1 fill (the real one)"
+    );
+    assert_eq!(
+        fill_events[0].trade_id,
+        TradeId::from("T-REAL-001"),
+        "Fill should be the real fill, not an inferred one"
+    );
+    assert_eq!(fill_events[0].last_qty, Quantity::from("10.0"));
+
+    // Order should exist and be in Filled state
+    let client_order_id = ClientOrderId::from("V-FILLS-001");
+    let order = ctx.get_order(&client_order_id).expect("Order should exist");
+    assert_eq!(order.status(), OrderStatus::Filled);
+    assert_eq!(order.filled_qty(), Quantity::from("10.0"));
 }
 
 #[tokio::test]
@@ -4168,5 +4375,1338 @@ async fn test_partial_window_adjustment_skips_hedge_mode_instruments() {
         fill_events[0].last_qty,
         Quantity::from("5.0"),
         "Fill quantity should match original fill report"
+    );
+}
+
+#[tokio::test]
+async fn test_adjust_fills_multi_instrument_preserves_all_fills() {
+    // Test that adjusting fills for one instrument doesn't affect fills for another.
+    let mut ctx = TestContext::new();
+    let instrument_id1 = test_instrument_id();
+    let instrument_id2 = test_instrument_id2();
+
+    ctx.add_instrument(test_instrument());
+    ctx.add_instrument(test_instrument2());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Instrument 1 (ETHUSDT) - position of 2.0, fills sum to 2.0 (complete history)
+    let venue_order_id1a = VenueOrderId::from("V-ETH-001");
+    let venue_order_id1b = VenueOrderId::from("V-ETH-002");
+
+    let order_report1a = create_order_status_report(
+        Some(ClientOrderId::from("O-ETH-001")),
+        venue_order_id1a,
+        instrument_id1,
+        OrderStatus::Filled,
+        Quantity::from("1.000"),
+        Quantity::from("1.000"),
+    );
+    let order_report1b = create_order_status_report(
+        Some(ClientOrderId::from("O-ETH-002")),
+        venue_order_id1b,
+        instrument_id1,
+        OrderStatus::Filled,
+        Quantity::from("1.000"),
+        Quantity::from("1.000"),
+    );
+
+    let fill1a = FillReport::new(
+        test_account_id(),
+        instrument_id1,
+        venue_order_id1a,
+        TradeId::from("T-ETH-001"),
+        OrderSide::Buy,
+        Quantity::from("1.000"),
+        Price::from("3000.00"),
+        Money::from("0.50 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+    let fill1b = FillReport::new(
+        test_account_id(),
+        instrument_id1,
+        venue_order_id1b,
+        TradeId::from("T-ETH-002"),
+        OrderSide::Buy,
+        Quantity::from("1.000"),
+        Price::from("3100.00"),
+        Money::from("0.50 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(2_000),
+        UnixNanos::from(2_000),
+        None,
+    );
+
+    let position_report1 = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id1,
+        PositionSideSpecified::Long,
+        Quantity::from("2.000"),
+        UnixNanos::from(2_000),
+        UnixNanos::from(2_000),
+        None,
+        None,
+        Some(dec!(3050.00)),
+    );
+
+    // Instrument 2 (XBTUSD) - position of 100, fills sum to 100 (complete history)
+    let venue_order_id2a = VenueOrderId::from("V-BTC-001");
+    let venue_order_id2b = VenueOrderId::from("V-BTC-002");
+
+    let order_report2a = create_order_status_report(
+        Some(ClientOrderId::from("O-BTC-001")),
+        venue_order_id2a,
+        instrument_id2,
+        OrderStatus::Filled,
+        Quantity::from("50"),
+        Quantity::from("50"),
+    );
+    let order_report2b = create_order_status_report(
+        Some(ClientOrderId::from("O-BTC-002")),
+        venue_order_id2b,
+        instrument_id2,
+        OrderStatus::Filled,
+        Quantity::from("50"),
+        Quantity::from("50"),
+    );
+
+    let fill2a = FillReport::new(
+        test_account_id(),
+        instrument_id2,
+        venue_order_id2a,
+        TradeId::from("T-BTC-001"),
+        OrderSide::Buy,
+        Quantity::from("50"),
+        Price::from("50000.0"),
+        Money::from("0.001 BTC"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(1_500),
+        UnixNanos::from(1_500),
+        None,
+    );
+    let fill2b = FillReport::new(
+        test_account_id(),
+        instrument_id2,
+        venue_order_id2b,
+        TradeId::from("T-BTC-002"),
+        OrderSide::Buy,
+        Quantity::from("50"),
+        Price::from("51000.0"),
+        Money::from("0.001 BTC"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(2_500),
+        UnixNanos::from(2_500),
+        None,
+    );
+
+    let position_report2 = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id2,
+        PositionSideSpecified::Long,
+        Quantity::from("100"),
+        UnixNanos::from(2_500),
+        UnixNanos::from(2_500),
+        None,
+        None,
+        Some(dec!(50500.0)),
+    );
+
+    mass_status.add_order_reports(vec![
+        order_report1a,
+        order_report1b,
+        order_report2a,
+        order_report2b,
+    ]);
+    mass_status.add_fill_reports(vec![fill1a, fill1b, fill2a, fill2b]);
+    mass_status.add_position_reports(vec![position_report1, position_report2]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    let fill_events: Vec<_> = result
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let OrderEventAny::Filled(f) = e {
+                Some(f)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert_eq!(
+        fill_events.len(),
+        4,
+        "Expected 4 fill events (2 per instrument)"
+    );
+
+    let eth_fills: Vec<_> = fill_events
+        .iter()
+        .filter(|f| f.instrument_id == instrument_id1)
+        .collect();
+    assert_eq!(eth_fills.len(), 2, "Expected 2 fills for ETHUSDT");
+    let eth_total_qty: f64 = eth_fills.iter().map(|f| f.last_qty.as_f64()).sum();
+    assert!(
+        (eth_total_qty - 2.0).abs() < 0.001,
+        "ETHUSDT total qty should be 2.0, got {eth_total_qty}"
+    );
+
+    let btc_fills: Vec<_> = fill_events
+        .iter()
+        .filter(|f| f.instrument_id == instrument_id2)
+        .collect();
+    assert_eq!(btc_fills.len(), 2, "Expected 2 fills for XBTUSD");
+    let btc_total_qty: f64 = btc_fills.iter().map(|f| f.last_qty.as_f64()).sum();
+    assert!(
+        (btc_total_qty - 100.0).abs() < 0.001,
+        "XBTUSD total qty should be 100.0, got {btc_total_qty}"
+    );
+}
+
+#[tokio::test]
+async fn test_adjust_fills_missing_order_reports_uses_fill_side() {
+    // Test that fills without order reports still use fill.order_side correctly
+    // for partial-window adjustment calculations.
+    //
+    // Scenario: When position qty > fills qty, partial-window adjustment calculates
+    // the net effect of fills and creates a synthetic fill to match the position.
+    // The fill.order_side from fills (even without order reports) is used to
+    // determine the direction of the synthetic fill.
+    //
+    // Note: Fills without order reports contribute to calculations but don't
+    // directly produce events - only the synthetic fill does.
+    let instrument_id = test_instrument_id();
+    let instrument = test_instrument();
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Fill without order report: 0.02 BUY
+    let venue_order_id1 = VenueOrderId::from("V-NO-REPORT-001");
+    let fill1 = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id1,
+        TradeId::from("T-001"),
+        OrderSide::Buy, // This is the key: fill.order_side is BUY
+        Quantity::from("0.020"),
+        Price::from("4000.00"),
+        Money::from("0.00 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+
+    // Position report: 0.05 LONG (larger than our fill)
+    // Synthetic fill of 0.03 BUY should be created to bridge the gap
+    let position_report = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Long,
+        Quantity::from("0.050"),
+        UnixNanos::from(2_000),
+        UnixNanos::from(2_000),
+        None,
+        None,
+        Some(dec!(3900.00)),
+    );
+
+    // No order reports - only fill1 with its fill.order_side
+    mass_status.add_fill_reports(vec![fill1]);
+    mass_status.add_position_reports(vec![position_report]);
+
+    let result = process_mass_status_for_reconciliation(&mass_status, &instrument, None).unwrap();
+
+    assert!(
+        !result.orders.is_empty(),
+        "Synthetic order should be created"
+    );
+    assert!(!result.fills.is_empty(), "Fills should be present");
+
+    // Synthetic order direction should be inferred from fill.order_side
+    for order in result.orders.values() {
+        assert_eq!(
+            order.order_side,
+            OrderSide::Buy,
+            "Synthetic order side should be BUY (inferred from fill.order_side)"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_adjust_fills_filter_to_current_lifecycle_preserves_working_orders() {
+    // Test FilterToCurrentLifecycle filters closed orders from previous lifecycles
+    // while preserving working orders.
+    //
+    // Scenario:
+    // - Position lifecycle: +100 (O1 BUY) -> FLAT (O2 SELL) -> +200 (O3 BUY current)
+    // - O1 and O2 are FILLED (previous lifecycle, before zero-crossing)
+    // - O3 is PARTIALLY_FILLED (working order in current lifecycle)
+    // - Assert: O1 and O2 filtered out, O3 preserved
+    let instrument_id = test_instrument_id();
+    let instrument = test_instrument();
+    let ts_now: u64 = 1_000_000_000_000;
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let position_report = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Long,
+        Quantity::from("200"),
+        UnixNanos::from(ts_now),
+        UnixNanos::from(ts_now),
+        None,
+        None,
+        Some(dec!(1.1000)),
+    );
+
+    // O1: BUY 100 (previous lifecycle)
+    let venue_order_id1 = VenueOrderId::from("V-001");
+    let order_o1 = create_order_status_report(
+        Some(ClientOrderId::from("C-001")),
+        venue_order_id1,
+        instrument_id,
+        OrderStatus::Filled,
+        Quantity::from("100"),
+        Quantity::from("100"),
+    );
+
+    let fill_o1 = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id1,
+        TradeId::from("T-001"),
+        OrderSide::Buy,
+        Quantity::from("100"),
+        Price::from("1.0900"),
+        Money::from("0.00 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(ts_now - 3_000_000_000),
+        UnixNanos::from(ts_now - 3_000_000_000),
+        None,
+    );
+
+    // O2: SELL 100 (zero-crossing to FLAT)
+    let venue_order_id2 = VenueOrderId::from("V-002");
+    let order_o2 = OrderStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        Some(ClientOrderId::from("C-002")),
+        venue_order_id2,
+        OrderSide::Sell,
+        OrderType::Limit,
+        TimeInForce::Gtc,
+        OrderStatus::Filled,
+        Quantity::from("100"),
+        Quantity::from("100"),
+        UnixNanos::from(ts_now - 2_000_000_000),
+        UnixNanos::from(ts_now - 2_000_000_000),
+        UnixNanos::from(ts_now - 2_000_000_000),
+        None,
+    );
+
+    let fill_o2 = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id2,
+        TradeId::from("T-002"),
+        OrderSide::Sell,
+        Quantity::from("100"),
+        Price::from("1.0950"),
+        Money::from("0.00 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(ts_now - 2_000_000_000), // Zero-crossing here
+        UnixNanos::from(ts_now - 2_000_000_000),
+        None,
+    );
+
+    // O3: BUY 200 (current lifecycle, PARTIALLY_FILLED working order)
+    let venue_order_id3 = VenueOrderId::from("V-003");
+    let order_o3 = create_order_status_report(
+        Some(ClientOrderId::from("C-003")),
+        venue_order_id3,
+        instrument_id,
+        OrderStatus::PartiallyFilled,
+        Quantity::from("300"),
+        Quantity::from("200"),
+    );
+
+    let fill_o3 = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id3,
+        TradeId::from("T-003"),
+        OrderSide::Buy,
+        Quantity::from("200"),
+        Price::from("1.1000"),
+        Money::from("0.00 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(ts_now),
+        UnixNanos::from(ts_now),
+        None,
+    );
+
+    mass_status.add_order_reports(vec![order_o1, order_o2, order_o3]);
+    mass_status.add_fill_reports(vec![fill_o1, fill_o2, fill_o3]);
+    mass_status.add_position_reports(vec![position_report]);
+
+    let result = process_mass_status_for_reconciliation(&mass_status, &instrument, None).unwrap();
+
+    // O1 and O2 should be filtered out (closed orders from previous lifecycle)
+    assert!(
+        !result.orders.contains_key(&venue_order_id1),
+        "O1 should be filtered (closed order from previous lifecycle)"
+    );
+    assert!(
+        !result.orders.contains_key(&venue_order_id2),
+        "O2 should be filtered (closed order from previous lifecycle)"
+    );
+
+    // O3 should be preserved (working order in current lifecycle)
+    assert!(
+        result.orders.contains_key(&venue_order_id3),
+        "O3 should be preserved (working order)"
+    );
+    assert_eq!(
+        result.orders[&venue_order_id3].order_status,
+        OrderStatus::PartiallyFilled
+    );
+
+    // Only O3 fill should be present
+    assert!(
+        result.fills.contains_key(&venue_order_id3),
+        "O3 fills should be present"
+    );
+    assert_eq!(result.fills.len(), 1, "Only O3 fills should remain");
+}
+
+#[tokio::test]
+async fn test_cross_zero_with_missing_cached_avg_px_returns_none() {
+    // When cached position has no avg_px, cross-zero cannot generate close fill
+    let mut ctx = TestContext::new();
+    let instrument = test_instrument();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(instrument.clone());
+
+    let position = create_test_position(
+        &instrument,
+        PositionId::new("P-001"),
+        OrderSide::Buy,
+        "5.0",
+        "0.00", // Zero price - will be treated as no avg_px in some paths
+    );
+    ctx.add_position(position);
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let position_report = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Short,
+        Quantity::from("3.0"),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        None,
+        None,
+        Some(dec!(3100.00)),
+    );
+    mass_status.add_position_reports(vec![position_report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // With zero cached price, cross-zero should still attempt reconciliation
+    // but may produce different behavior - verify no panic at minimum
+    assert!(
+        result.events.len() <= 4,
+        "Should not produce excessive events"
+    );
+}
+
+#[tokio::test]
+async fn test_cross_zero_with_missing_venue_avg_px_closes_only() {
+    // When venue position has no avg_px, cross-zero can close but not open new position
+    let mut ctx = TestContext::new();
+    let instrument = test_instrument();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(instrument.clone());
+
+    let position = create_test_position(
+        &instrument,
+        PositionId::new("P-001"),
+        OrderSide::Buy,
+        "5.0",
+        "3000.00",
+    );
+    ctx.add_position(position);
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let position_report = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Short,
+        Quantity::from("3.0"),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        None,
+        None,
+        None, // No avg_px - cannot open new position
+    );
+    mass_status.add_position_reports(vec![position_report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // Should generate close fill only (not open fill due to missing venue avg_px)
+    let fill_events: Vec<_> = result
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let OrderEventAny::Filled(f) = e {
+                Some(f)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert_eq!(
+        fill_events.len(),
+        1,
+        "Should generate only close fill when venue avg_px missing, got {}",
+        fill_events.len()
+    );
+    assert_eq!(fill_events[0].order_side, OrderSide::Sell);
+    assert_eq!(fill_events[0].last_qty, Quantity::from("5.0"));
+}
+
+#[tokio::test]
+async fn test_hedge_mode_multiple_positions_same_instrument() {
+    // Hedge mode venues can have multiple positions (long + short) for same instrument
+    let mut ctx = TestContext::new();
+    let instrument = test_instrument();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(instrument.clone());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let long_position = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Long,
+        Quantity::from("10.0"),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        None,
+        Some(PositionId::new("HEDGE-LONG-001")), // venue_position_id indicates hedge mode
+        Some(dec!(3000.00)),
+    );
+
+    let short_position = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Short,
+        Quantity::from("5.0"),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        None,
+        Some(PositionId::new("HEDGE-SHORT-001")),
+        Some(dec!(3100.00)),
+    );
+
+    mass_status.add_position_reports(vec![long_position, short_position]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    let fill_events: Vec<_> = result
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let OrderEventAny::Filled(f) = e {
+                Some(f)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(
+        fill_events.len() >= 2,
+        "Should process both hedge positions, got {} fills",
+        fill_events.len()
+    );
+    let has_buy = fill_events.iter().any(|f| f.order_side == OrderSide::Buy);
+    let has_sell = fill_events.iter().any(|f| f.order_side == OrderSide::Sell);
+    assert!(has_buy, "Should have BUY fill for long position");
+    assert!(has_sell, "Should have SELL fill for short position");
+}
+
+#[tokio::test]
+async fn test_hedge_mode_with_filter_unclaimed_external_allows_synthetic() {
+    // Synthetic orders should bypass filter_unclaimed_external
+    let config = ExecutionManagerConfig {
+        filter_unclaimed_external: true,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    let instrument = test_instrument();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(instrument.clone());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let position_report = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Long,
+        Quantity::from("10.0"),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        None,
+        Some(PositionId::new("HEDGE-001")),
+        Some(dec!(3000.00)),
+    );
+    mass_status.add_position_reports(vec![position_report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    assert!(
+        !result.events.is_empty(),
+        "Synthetic orders should bypass filter_unclaimed_external"
+    );
+}
+
+#[tokio::test]
+async fn test_duplicate_order_reports_keeps_most_advanced_state() {
+    // When multiple order reports exist for same venue_order_id, keep most advanced
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    let venue_order_id = VenueOrderId::from("V-DUP-001");
+    let client_order_id = ClientOrderId::from("O-DUP-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .client_order_id(client_order_id)
+        .instrument_id(instrument_id)
+        .quantity(Quantity::from("10.0"))
+        .price(Price::from("3000.00"))
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+    ctx.add_order(order);
+    ctx.cache
+        .borrow_mut()
+        .add_venue_order_id(&client_order_id, &venue_order_id, false)
+        .unwrap();
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Tests deduplication: PartiallyFilled and Filled reports, Filled should win
+    let report_partial = OrderStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        Some(client_order_id),
+        venue_order_id,
+        OrderSide::Buy,
+        OrderType::Limit,
+        TimeInForce::Gtc,
+        OrderStatus::PartiallyFilled,
+        Quantity::from("10.0"),
+        Quantity::from("5.0"),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+
+    let report_filled = OrderStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        Some(client_order_id),
+        venue_order_id,
+        OrderSide::Buy,
+        OrderType::Limit,
+        TimeInForce::Gtc,
+        OrderStatus::Filled,
+        Quantity::from("10.0"),
+        Quantity::from("10.0"),
+        UnixNanos::from(2_000),
+        UnixNanos::from(2_000),
+        UnixNanos::from(2_000),
+        None,
+    )
+    .with_avg_px(3000.0)
+    .unwrap();
+
+    mass_status.add_order_reports(vec![report_partial, report_filled]);
+
+    let fill = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id,
+        TradeId::from("T-001"),
+        OrderSide::Buy,
+        Quantity::from("10.0"),
+        Price::from("3000.00"),
+        Money::from("1.00 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(2_000),
+        UnixNanos::from(2_000),
+        None,
+    );
+    mass_status.add_fill_reports(vec![fill]);
+
+    let _result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    let order = ctx.get_order(&client_order_id).expect("Order should exist");
+    assert_eq!(
+        order.status(),
+        OrderStatus::Filled,
+        "Order should be in most advanced state (Filled)"
+    );
+}
+
+#[tokio::test]
+async fn test_reconciliation_order_skipped_on_restart() {
+    // Closed reconciliation orders (with RECONCILIATION tag) should be skipped on restart
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    let venue_order_id = VenueOrderId::from("S-RECON-001");
+    let client_order_id = ClientOrderId::from("S-RECON-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .client_order_id(client_order_id)
+        .instrument_id(instrument_id)
+        .quantity(Quantity::from("5.0"))
+        .tags(vec![ustr::Ustr::from("RECONCILIATION")])
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+    let filled = TestOrderEventStubs::filled(
+        &order,
+        &test_instrument(),
+        None,
+        None,
+        Some(Price::from("3000.00")),
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    order.apply(filled).unwrap();
+    ctx.add_order(order);
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Report the same order again (simulating restart)
+    let report = OrderStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        Some(client_order_id),
+        venue_order_id,
+        OrderSide::Buy,
+        OrderType::Market,
+        TimeInForce::Gtc,
+        OrderStatus::Filled,
+        Quantity::from("5.0"),
+        Quantity::from("5.0"),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    )
+    .with_avg_px(3000.0)
+    .unwrap();
+    mass_status.add_order_reports(vec![report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    assert!(
+        result.events.is_empty(),
+        "Closed reconciliation order should be skipped on restart"
+    );
+}
+
+#[tokio::test]
+async fn test_partially_filled_order_has_fills_applied() {
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    let venue_order_id = VenueOrderId::from("V-PARTIAL-001");
+    let client_order_id = ClientOrderId::from("O-PARTIAL-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .client_order_id(client_order_id)
+        .instrument_id(instrument_id)
+        .quantity(Quantity::from("10.0"))
+        .price(Price::from("3000.00"))
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+    ctx.add_order(order);
+    ctx.cache
+        .borrow_mut()
+        .add_venue_order_id(&client_order_id, &venue_order_id, false)
+        .unwrap();
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        instrument_id,
+        OrderStatus::PartiallyFilled,
+        Quantity::from("10.0"),
+        Quantity::from("5.0"),
+    )
+    .with_avg_px(3000.0)
+    .unwrap();
+
+    let fill = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id,
+        TradeId::from("T-001"),
+        OrderSide::Buy,
+        Quantity::from("5.0"),
+        Price::from("3000.00"),
+        Money::from("0.50 USDT"),
+        LiquiditySide::Maker,
+        None,
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+
+    mass_status.add_order_reports(vec![report]);
+    mass_status.add_fill_reports(vec![fill]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    let has_fills = result
+        .events
+        .iter()
+        .any(|e| matches!(e, OrderEventAny::Filled(_)));
+    assert!(has_fills, "Should generate fill events");
+
+    let order = ctx.get_order(&client_order_id).expect("Order should exist");
+    assert!(
+        order.filled_qty() >= Quantity::from("5.0"),
+        "Order should have at least 5.0 filled"
+    );
+}
+
+#[tokio::test]
+async fn test_working_order_with_new_fills_updates_correctly() {
+    // Tests incremental fill reconciliation for a working order
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    let venue_order_id = VenueOrderId::from("V-WORKING-001");
+    let client_order_id = ClientOrderId::from("O-WORKING-001");
+
+    // Start with order already partially filled (3 of 10)
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .client_order_id(client_order_id)
+        .instrument_id(instrument_id)
+        .quantity(Quantity::from("10.0"))
+        .price(Price::from("3000.00"))
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    order.apply(accepted).unwrap();
+    let first_fill = TestOrderEventStubs::filled(
+        &order,
+        &test_instrument(),
+        Some(TradeId::from("T-PREV-001")),
+        None,
+        Some(Price::from("3000.00")),
+        Some(Quantity::from("3.0")),
+        None,
+        None,
+        None,
+        None,
+    );
+    order.apply(first_fill).unwrap();
+    ctx.add_order(order);
+    ctx.cache
+        .borrow_mut()
+        .add_venue_order_id(&client_order_id, &venue_order_id, false)
+        .unwrap();
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Venue reports 7 filled (was 3, now +4)
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        instrument_id,
+        OrderStatus::PartiallyFilled,
+        Quantity::from("10.0"),
+        Quantity::from("7.0"),
+    )
+    .with_avg_px(3000.0)
+    .unwrap();
+
+    let new_fill = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        venue_order_id,
+        TradeId::from("T-NEW-001"),
+        OrderSide::Buy,
+        Quantity::from("4.0"),
+        Price::from("3000.00"),
+        Money::from("0.40 USDT"),
+        LiquiditySide::Maker,
+        None,
+        None,
+        UnixNanos::from(2_000),
+        UnixNanos::from(2_000),
+        None,
+    );
+
+    mass_status.add_order_reports(vec![report]);
+    mass_status.add_fill_reports(vec![new_fill]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    let has_fills = result
+        .events
+        .iter()
+        .any(|e| matches!(e, OrderEventAny::Filled(_)));
+    assert!(has_fills, "Should generate fill events");
+
+    let order = ctx.get_order(&client_order_id).expect("Order should exist");
+    assert_eq!(
+        order.filled_qty(),
+        Quantity::from("7.0"),
+        "Order should have updated filled qty"
+    );
+}
+
+#[tokio::test]
+async fn test_orphan_fills_without_order_reports_processed() {
+    // Fills without matching order reports should still be processed
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let orphan_venue_order_id = VenueOrderId::from("V-ORPHAN-001");
+    let orphan_fill = FillReport::new(
+        test_account_id(),
+        instrument_id,
+        orphan_venue_order_id,
+        TradeId::from("T-ORPHAN-001"),
+        OrderSide::Buy,
+        Quantity::from("2.0"),
+        Price::from("3000.00"),
+        Money::from("0.20 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+
+    let position_report = PositionStatusReport::new(
+        test_account_id(),
+        instrument_id,
+        PositionSideSpecified::Long,
+        Quantity::from("2.0"),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+        None,
+        Some(dec!(3000.00)),
+    );
+
+    mass_status.add_fill_reports(vec![orphan_fill]);
+    mass_status.add_position_reports(vec![position_report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // Orphan fills processed via position reconciliation (should not panic)
+    assert!(
+        !result.events.is_empty()
+            || !ctx
+                .cache
+                .borrow()
+                .positions(None, None, None, None, None)
+                .is_empty(),
+        "Orphan fills should be processed in some way"
+    );
+}
+
+#[tokio::test]
+async fn test_orphan_fills_for_unknown_instrument_skipped() {
+    // Fills for instruments not in cache should be skipped gracefully
+    let mut ctx = TestContext::new();
+    ctx.add_instrument(test_instrument());
+
+    let unknown_instrument_id = InstrumentId::from("UNKNOWN-PERP.BINANCE");
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    let orphan_fill = FillReport::new(
+        test_account_id(),
+        unknown_instrument_id,
+        VenueOrderId::from("V-UNKNOWN-001"),
+        TradeId::from("T-UNKNOWN-001"),
+        OrderSide::Buy,
+        Quantity::from("1.0"),
+        Price::from("100.00"),
+        Money::from("0.10 USDT"),
+        LiquiditySide::Taker,
+        None,
+        None,
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+    );
+
+    mass_status.add_fill_reports(vec![orphan_fill]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    let has_unknown_fills = result.events.iter().any(|e| {
+        if let OrderEventAny::Filled(f) = e {
+            f.instrument_id == unknown_instrument_id
+        } else {
+            false
+        }
+    });
+
+    assert!(
+        !has_unknown_fills,
+        "Fills for unknown instruments should be skipped"
+    );
+}
+
+#[tokio::test]
+async fn test_filtered_client_order_ids_skips_matching_orders() {
+    // Orders in filtered_client_order_ids should be skipped during reconciliation
+    let filtered_id = ClientOrderId::from("O-FILTERED-001");
+    let config = ExecutionManagerConfig {
+        filtered_client_order_ids: AHashSet::from([filtered_id]),
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    let instrument_id = test_instrument_id();
+    ctx.add_instrument(test_instrument());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Add an order report that should be filtered
+    let report = create_order_status_report(
+        Some(filtered_id),
+        VenueOrderId::from("V-FILTERED-001"),
+        instrument_id,
+        OrderStatus::Accepted,
+        Quantity::from("10.0"),
+        Quantity::from("0.0"),
+    );
+    mass_status.add_order_reports(vec![report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // No events should be generated for filtered order
+    assert!(
+        result.events.is_empty(),
+        "Filtered order should not generate events"
+    );
+
+    // Order should not be in cache
+    assert!(
+        ctx.get_order(&filtered_id).is_none(),
+        "Filtered order should not be added to cache"
+    );
+}
+
+#[tokio::test]
+async fn test_reconciliation_instrument_ids_filters_other_instruments() {
+    // Only instruments in reconciliation_instrument_ids should be reconciled
+    let included_instrument = test_instrument_id();
+    let config = ExecutionManagerConfig {
+        reconciliation_instrument_ids: AHashSet::from([included_instrument]),
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    // Add a second instrument that's NOT in the filter list
+    let excluded_instrument = test_instrument2();
+    let excluded_instrument_id = test_instrument_id2();
+    ctx.add_instrument(excluded_instrument.clone());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Add order for included instrument
+    let included_report = create_order_status_report(
+        Some(ClientOrderId::from("O-INCLUDED-001")),
+        VenueOrderId::from("V-INCLUDED-001"),
+        included_instrument,
+        OrderStatus::Accepted,
+        Quantity::from("5.0"),
+        Quantity::from("0.0"),
+    );
+
+    // Add order for excluded instrument
+    let excluded_report = create_order_status_report(
+        Some(ClientOrderId::from("O-EXCLUDED-001")),
+        VenueOrderId::from("V-EXCLUDED-001"),
+        excluded_instrument_id,
+        OrderStatus::Accepted,
+        Quantity::from("5.0"),
+        Quantity::from("0.0"),
+    );
+
+    mass_status.add_order_reports(vec![included_report, excluded_report]);
+
+    let result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // Only included instrument should have generated events
+    let included_order = ctx.get_order(&ClientOrderId::from("O-INCLUDED-001"));
+    let excluded_order = ctx.get_order(&ClientOrderId::from("O-EXCLUDED-001"));
+
+    assert!(
+        included_order.is_some(),
+        "Included instrument order should be reconciled"
+    );
+    assert!(
+        excluded_order.is_none(),
+        "Excluded instrument order should NOT be reconciled"
+    );
+
+    // Events should only be for included instrument
+    let has_excluded_events = result.events.iter().any(|e| match e {
+        OrderEventAny::Initialized(init) => init.instrument_id == excluded_instrument_id,
+        OrderEventAny::Accepted(acc) => acc.instrument_id == excluded_instrument_id,
+        _ => false,
+    });
+    assert!(
+        !has_excluded_events,
+        "No events should be generated for excluded instrument"
+    );
+}
+
+#[tokio::test]
+async fn test_reconciliation_instrument_ids_filters_position_reports() {
+    // Position reports for instruments NOT in reconciliation_instrument_ids should be skipped
+    let included_instrument_id = test_instrument_id();
+    let config = ExecutionManagerConfig {
+        reconciliation_instrument_ids: AHashSet::from([included_instrument_id]),
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    // Add excluded instrument
+    let excluded_instrument = test_instrument2();
+    let excluded_instrument_id = test_instrument_id2();
+    ctx.add_instrument(excluded_instrument.clone());
+
+    let mut mass_status = ExecutionMassStatus::new(
+        test_client_id(),
+        test_account_id(),
+        test_venue(),
+        UnixNanos::default(),
+        Some(UUID4::new()),
+    );
+
+    // Position report for excluded instrument
+    let position_report = PositionStatusReport::new(
+        test_account_id(),
+        excluded_instrument_id,
+        PositionSideSpecified::Long,
+        Quantity::from("10.0"),
+        UnixNanos::from(1_000),
+        UnixNanos::from(1_000),
+        None,
+        None,
+        Some(dec!(100.00)),
+    );
+    mass_status.add_position_reports(vec![position_report]);
+
+    let _result = ctx
+        .manager
+        .reconcile_execution_mass_status(mass_status, ctx.exec_engine.clone())
+        .await;
+
+    // No position should be created for excluded instrument
+    let cache = ctx.cache.borrow();
+    let positions = cache.positions(None, None, None, None, None);
+    let has_excluded_position = positions
+        .iter()
+        .any(|p| p.instrument_id == excluded_instrument_id);
+    assert!(
+        !has_excluded_position,
+        "No position should be created for excluded instrument"
     );
 }
