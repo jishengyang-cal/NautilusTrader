@@ -183,3 +183,7 @@ pub const DERIBIT_WS_SUBSCRIPTION_KEY: &str = "subscription";
 
 /// Rate limit key for WebSocket order operations.
 pub const DERIBIT_WS_ORDER_KEY: &str = "order";
+
+/// Pre-interned rate limit key for WebSocket order operations.
+pub static DERIBIT_RATE_LIMIT_KEY_ORDER: LazyLock<[Ustr; 1]> =
+    LazyLock::new(|| [Ustr::from(DERIBIT_WS_ORDER_KEY)]);

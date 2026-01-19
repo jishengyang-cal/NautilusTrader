@@ -59,6 +59,7 @@ use super::{
         resolution_to_bar_type,
     },
 };
+use crate::common::consts::DERIBIT_RATE_LIMIT_KEY_ORDER;
 
 /// Type of pending request for request ID correlation.
 #[derive(Debug, Clone)]
@@ -275,17 +276,22 @@ impl DeribitWsFeedHandler {
     async fn send_with_retry(
         &self,
         payload: String,
-        rate_limit_keys: Option<Vec<String>>,
+        rate_limit_keys: Option<&[Ustr]>,
     ) -> Result<(), DeribitWsError> {
         if let Some(client) = &self.inner {
+            let keys_owned: Option<Vec<Ustr>> = rate_limit_keys.map(|k| k.to_vec());
             self.retry_manager
                 .execute_with_retry(
                     "websocket_send",
-                    || async {
-                        client
-                            .send_text(payload.clone(), rate_limit_keys.clone())
-                            .await
-                            .map_err(|e| DeribitWsError::Send(e.to_string()))
+                    || {
+                        let payload = payload.clone();
+                        let keys = keys_owned.clone();
+                        async move {
+                            client
+                                .send_text(payload, keys.as_deref())
+                                .await
+                                .map_err(|e| DeribitWsError::Send(e.to_string()))
+                        }
                     },
                     |e| matches!(e, DeribitWsError::Send(_)),
                     DeribitWsError::Timeout,
@@ -419,7 +425,7 @@ impl DeribitWsFeedHandler {
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
         log::debug!("Sending buy order: request_id={request_id}");
-        self.send_with_retry(payload, Some(vec!["order".to_string()]))
+        self.send_with_retry(payload, Some(DERIBIT_RATE_LIMIT_KEY_ORDER.as_slice()))
             .await
     }
 
@@ -450,7 +456,7 @@ impl DeribitWsFeedHandler {
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
         log::debug!("Sending sell order: request_id={request_id}");
-        self.send_with_retry(payload, Some(vec!["order".to_string()]))
+        self.send_with_retry(payload, Some(DERIBIT_RATE_LIMIT_KEY_ORDER.as_slice()))
             .await
     }
 
@@ -482,7 +488,7 @@ impl DeribitWsFeedHandler {
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
         log::debug!("Sending edit order: request_id={request_id}, order_id={order_id}");
-        self.send_with_retry(payload, Some(vec!["order".to_string()]))
+        self.send_with_retry(payload, Some(DERIBIT_RATE_LIMIT_KEY_ORDER.as_slice()))
             .await
     }
 
@@ -514,7 +520,7 @@ impl DeribitWsFeedHandler {
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
         log::debug!("Sending cancel order: request_id={request_id}, order_id={order_id}");
-        self.send_with_retry(payload, Some(vec!["order".to_string()]))
+        self.send_with_retry(payload, Some(DERIBIT_RATE_LIMIT_KEY_ORDER.as_slice()))
             .await
     }
 
@@ -542,7 +548,7 @@ impl DeribitWsFeedHandler {
         log::debug!(
             "Sending cancel_all_by_instrument: request_id={request_id}, instrument={instrument_name}"
         );
-        self.send_with_retry(payload, Some(vec!["order".to_string()]))
+        self.send_with_retry(payload, Some(DERIBIT_RATE_LIMIT_KEY_ORDER.as_slice()))
             .await
     }
 
@@ -578,7 +584,7 @@ impl DeribitWsFeedHandler {
             serde_json::to_string(&request).map_err(|e| DeribitWsError::Json(e.to_string()))?;
 
         log::debug!("Sending get_order_state: request_id={request_id}, order_id={order_id}");
-        self.send_with_retry(payload, Some(vec!["order".to_string()]))
+        self.send_with_retry(payload, Some(DERIBIT_RATE_LIMIT_KEY_ORDER.as_slice()))
             .await
     }
 
