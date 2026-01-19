@@ -3450,6 +3450,12 @@ impl OrderMatchingEngine {
             venue_position_id,
             Some(commission),
         ));
+
+        // TODO: Remove when tests wire up ExecutionEngine to process events
+        order
+            .apply(event.clone())
+            .expect("Failed to apply order event");
+
         let endpoint = MessagingSwitchboard::exec_engine_process();
         msgbus::send_order_event(endpoint, event);
     }
