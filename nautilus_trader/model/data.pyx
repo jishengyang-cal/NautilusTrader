@@ -3335,7 +3335,6 @@ cdef class OrderBookDeltas(Data):
         cdef OrderBookDeltas_API *data = <OrderBookDeltas_API *>PyMem_Malloc(sizeof(OrderBookDeltas_API))
         data[0] = self._mem
         capsule = PyCapsule_New(data, NULL, <PyCapsule_Destructor>capsule_destructor_deltas)
-
         return capsule
 
     @staticmethod
@@ -3369,7 +3368,6 @@ cdef class OrderBookDeltas(Data):
         """
         capsule = self.to_capsule()
         deltas = nautilus_pyo3.OrderBookDeltas.from_pycapsule(capsule)
-
         return deltas
 
 
