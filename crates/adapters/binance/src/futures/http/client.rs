@@ -69,7 +69,7 @@ use crate::common::{
     },
     models::BinanceErrorResponse,
     parse::{parse_coinm_instrument, parse_usdm_instrument},
-    symbol::format_binance_symbol,
+    symbol::{format_binance_symbol, format_instrument_id},
     urls::get_http_base_url,
 };
 
@@ -943,6 +943,15 @@ pub enum BinanceFuturesInstrument {
 }
 
 impl BinanceFuturesInstrument {
+    /// Returns the symbol name for the instrument.
+    #[must_use]
+    pub const fn symbol(&self) -> Ustr {
+        match self {
+            Self::UsdM(s) => s.symbol,
+            Self::CoinM(s) => s.symbol,
+        }
+    }
+
     /// Returns the price precision for the instrument.
     #[must_use]
     pub const fn price_precision(&self) -> i32 {
@@ -958,6 +967,15 @@ impl BinanceFuturesInstrument {
         match self {
             Self::UsdM(s) => s.quantity_precision,
             Self::CoinM(s) => s.quantity_precision,
+        }
+    }
+
+    /// Returns the Nautilus-formatted instrument ID.
+    #[must_use]
+    pub fn id(&self) -> InstrumentId {
+        match self {
+            Self::UsdM(s) => format_instrument_id(&s.symbol, BinanceProductType::UsdM),
+            Self::CoinM(s) => format_instrument_id(&s.symbol, BinanceProductType::CoinM),
         }
     }
 }

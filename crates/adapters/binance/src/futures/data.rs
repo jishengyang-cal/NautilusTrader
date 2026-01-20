@@ -60,7 +60,7 @@ use crate::{
         http::client::BinanceFuturesHttpClient,
         websocket::{
             client::BinanceFuturesWebSocketClient,
-            messages::{BinanceFuturesWsMessage, NautilusFuturesDataWsMessage},
+            messages::{NautilusDataWsMessage, NautilusWsMessage},
         },
     },
 };
@@ -162,38 +162,41 @@ impl BinanceFuturesDataClient {
     }
 
     fn handle_ws_message(
-        message: BinanceFuturesWsMessage,
+        msg: NautilusWsMessage,
         data_sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
         instruments: &Arc<RwLock<AHashMap<InstrumentId, InstrumentAny>>>,
     ) {
-        match message {
-            BinanceFuturesWsMessage::Data(data_msg) => match data_msg {
-                NautilusFuturesDataWsMessage::Data(payloads) => {
+        match msg {
+            NautilusWsMessage::Data(data_msg) => match data_msg {
+                NautilusDataWsMessage::Data(payloads) => {
                     for data in payloads {
                         Self::send_data(data_sender, data);
                     }
                 }
-                NautilusFuturesDataWsMessage::Deltas(deltas) => {
+                NautilusDataWsMessage::Deltas(deltas) => {
                     Self::send_data(data_sender, Data::Deltas(OrderBookDeltas_API::new(deltas)));
                 }
-                NautilusFuturesDataWsMessage::Instrument(instrument) => {
+                NautilusDataWsMessage::Instrument(instrument) => {
                     upsert_instrument(instruments, *instrument);
                 }
-                NautilusFuturesDataWsMessage::RawJson(value) => {
+                NautilusDataWsMessage::RawJson(value) => {
                     log::debug!("Unhandled JSON message: {value:?}");
                 }
             },
-            BinanceFuturesWsMessage::Exec(exec_msg) => {
+            NautilusWsMessage::Exec(exec_msg) => {
                 log::debug!("Received exec message in data client (ignored): {exec_msg:?}");
             }
-            BinanceFuturesWsMessage::Error(e) => {
+            NautilusWsMessage::ExecRaw(raw_msg) => {
+                log::debug!("Received raw exec message in data client (ignored): {raw_msg:?}");
+            }
+            NautilusWsMessage::Error(e) => {
                 log::error!(
                     "Binance Futures WebSocket error: code={}, msg={}",
                     e.code,
                     e.msg
                 );
             }
-            BinanceFuturesWsMessage::Reconnected => {
+            NautilusWsMessage::Reconnected => {
                 log::info!("WebSocket reconnected");
             }
         }

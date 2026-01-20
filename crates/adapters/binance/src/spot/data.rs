@@ -158,11 +158,11 @@ impl BinanceSpotDataClient {
     }
 
     fn handle_ws_message(
-        message: BinanceSpotWsMessage,
+        msg: BinanceSpotWsMessage,
         data_sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
         instruments: &Arc<RwLock<AHashMap<InstrumentId, InstrumentAny>>>,
     ) {
-        match message {
+        match msg {
             BinanceSpotWsMessage::Data(data_msg) => match data_msg {
                 NautilusSpotDataWsMessage::Data(payloads) => {
                     for data in payloads {
