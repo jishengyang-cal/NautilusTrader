@@ -49,10 +49,9 @@ use super::{
     POSITION_EVENT_HANDLERS, QUOTE_HANDLERS, TRADE_HANDLERS,
     core::{MessageBus, Subscription},
     get_message_bus,
-    handler::ShareableMessageHandler,
     matching::is_matching_backtracking,
     mstr::{Endpoint, MStr, Pattern, Topic},
-    typed_handler::{TypedHandler, TypedIntoHandler},
+    typed_handler::{ShareableMessageHandler, TypedHandler, TypedIntoHandler},
 };
 #[cfg(feature = "defi")]
 use super::{

@@ -61,8 +61,7 @@ use nautilus_common::{
         UnsubscribeCommand,
     },
     msgbus::{
-        self, MStr, Topic, TypedHandler, TypedIntoHandler,
-        handler::ShareableMessageHandler,
+        self, MStr, ShareableMessageHandler, Topic, TypedHandler, TypedIntoHandler,
         switchboard::{self, MessagingSwitchboard},
     },
     runner::get_data_cmd_sender,
