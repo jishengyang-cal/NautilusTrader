@@ -26,6 +26,7 @@ Released on TBD (UTC).
 - Fixed matching engine liquidity consumption using cumulative book quantity
 - Fixed matching engine trade execution fills discarded with `liquidity_consumption`
 - Fixed remaining `F_LAST` flag checks to use proper bitmask comparison
+- Fixed OTO child order sizing with rapid parent fills (#3435), thanks for reporting @dxwil
 - Fixed `ExecAlgorithm` spawn quantity accounting (will now restore quantity from denied/rejected spawned orders)
 - Fixed reconciliation `venue_order_id` indexing and validation
 - Fixed analyzer epoch timestamp from empty shell positions
