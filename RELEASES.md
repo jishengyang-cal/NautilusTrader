@@ -53,6 +53,7 @@ Released on TBD (UTC).
 - Fixed Interactive Brokers synthetic position order reconciliation causing filled_qty mismatch errors during periodic consistency checks (#3443), thanks @shzhng
 - Fixed Polymarket order state race condition where PLACEMENT events could arrive late
 - Fixed Polymarket duplicate WebSocket subscriptions (#3403), thanks for reporting @santivazq
+- Fixed Polymarket duplicate trade_id for multi-order fills (#3450), thanks for reporting @santivazq
 
 ### Internal Improvements
 - Added support for setting cache database adapter in cache and `LiveNode` (#3401), thanks @filipmacek
