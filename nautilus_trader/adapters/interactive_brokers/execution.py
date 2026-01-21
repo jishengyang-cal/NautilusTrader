@@ -439,12 +439,9 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
         # periodic checks causes filled_qty mismatches because the position may have
         # changed due to partial fills on exit orders.
         if not command.open_only:
-            positions: list[IBPosition] | None = await self._client.get_positions(
+            positions: list[IBPosition] = await self._client.get_positions(
                 self.account_id.get_id(),
             )
-
-            if not positions:
-                positions = []
 
             ts_init = self._clock.timestamp_ns()
 
@@ -678,7 +675,7 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
         command: GeneratePositionStatusReports,
     ) -> list[PositionStatusReport]:
         report = []
-        positions: list[IBPosition] | None = await self._client.get_positions(
+        positions: list[IBPosition] = await self._client.get_positions(
             self.account_id.get_id(),
         )
 
