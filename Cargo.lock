@@ -92,9 +92,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-chains"
-version = "0.2.28"
+version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3842d8c52fcd3378039f4703dba392dca8b546b1c8ed6183048f8dab95b2be78"
+checksum = "ef3a72a2247c34a8545ee99e562b1b9b69168e5000567257ae51e91b4e6b1193"
 dependencies = [
  "alloy-primitives",
  "num_enum",
@@ -2353,9 +2353,9 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "databento"
-version = "0.38.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94cdb5faf991f5fc854ed5c0408fcacb187f7447d949d2c7ab8d4e08b783c516"
+checksum = "f0b4533c04b6f863f1ac0fa3c8258409e96f18ecfbfe875be39f283953ecfbc5"
 dependencies = [
  "async-compression",
  "dbn",
@@ -3009,9 +3009,9 @@ dependencies = [
 
 [[package]]
 name = "dbn"
-version = "0.45.0"
+version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0ce97da0733faa207a0ff8feea166b5508c4941bd08e15f9514832bfe0e46c2"
+checksum = "2ce071718bb8c5c035f846dfd170d53c92f2c31a910848521465929f24f206b3"
 dependencies = [
  "async-compression",
  "csv",
@@ -3030,9 +3030,9 @@ dependencies = [
 
 [[package]]
 name = "dbn-macros"
-version = "0.45.0"
+version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bba743d04027b13120076e55bda4898079594aecf81a829a2c7aa351da06e134"
+checksum = "2967fb980ba18075810e52e05af819179a8c8bc555f5ca3b1cb5d4431465fe13"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -6526,9 +6526,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.105"
+version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "535d180e0ecab6268a3e718bb9fd44db66bbbc256257165fc699dadf70d16fe7"
+checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
 ]

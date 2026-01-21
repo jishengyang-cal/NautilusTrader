@@ -288,7 +288,7 @@ arc-swap = "1.8.0"
 bip32 = "0.5.3"
 cosmrs = { version = "0.22.0", default-features = false, features = ["bip32"] }
 csv = "1.4.0"
-databento = { version = "0.38.0", default-features = false, features = [
+databento = { version = "0.39.0", default-features = false, features = [
   "historical",
   "live",
 ] }

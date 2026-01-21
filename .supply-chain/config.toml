@@ -135,7 +135,7 @@ version = "1.4.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-chains]]
-version = "0.2.28"
+version = "0.2.29"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-consensus]]
@@ -795,7 +795,7 @@ version = "2.10.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.databento]]
-version = "0.38.0"
+version = "0.39.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion]]
@@ -923,11 +923,11 @@ version = "52.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn]]
-version = "0.45.0"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn-macros]]
-version = "0.45.0"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.deranged]]
@@ -1755,7 +1755,7 @@ version = "2.0.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro2]]
-version = "1.0.105"
+version = "1.0.106"
 criteria = "safe-to-deploy"
 
 [[exemptions.proptest]]

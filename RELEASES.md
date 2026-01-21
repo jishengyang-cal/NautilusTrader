@@ -5,7 +5,7 @@ Released on TBD (UTC).
 ### Enhancements
 - Added multi-account execution support (#3194), thanks @faysou
 - Added `use_market_order_acks` venue config option to generate `OrderAccepted` events for market orders before filling (mimics behavior of venues like Binance)
-- Added `oto_trigger_model` venue config option to control whether OTO child orders activate on partial fills (PARTIAL) or only after full fill (FULL) (default PARTIAL)
+- Added `oto_trigger_model` venue config option to control whether OTO child orders activate on partial fills (PARTIAL) or only after full fill (FULL) (default PARTIAL) (#3454), thanks @godnight10061
 - Improved tearsheet with dynamic Nautilus version and refined run info table (#3396), thanks @KaulSe
 
 ### Breaking Changes
@@ -52,6 +52,7 @@ Released on TBD (UTC).
 - Fixed Deribit race condition between response and subscription (#3436), thanks @filipmacek
 - Fixed Interactive Brokers `fetch_all_open_orders` in client cache key preventing connection sharing (#3441), thanks @shzhng
 - Fixed Interactive Brokers synthetic position order reconciliation causing filled_qty mismatch errors during periodic consistency checks (#3443), thanks @shzhng
+- Fixed Interactive Brokers reconciliation error when account has no positions (#3459), thanks @shzhng
 - Fixed Polymarket order state race condition where PLACEMENT events could arrive late
 - Fixed Polymarket duplicate WebSocket subscriptions (#3403), thanks for reporting @santivazq
 - Fixed Polymarket duplicate trade_id for multi-order fills (#3450), thanks for reporting @santivazq
@@ -91,6 +92,7 @@ Released on TBD (UTC).
 - Upgraded Cap'n Proto to v1.3.0
 - Upgraded Cython to v3.2.4
 - Upgraded `capnp` and `capnpc` crates to v0.25.0
+- Upgraded `databento` crate to v0.39.0
 - Upgraded `datafusion` crate to v52.0.0
 - Upgraded `tokio` crate to v1.49.0
 
