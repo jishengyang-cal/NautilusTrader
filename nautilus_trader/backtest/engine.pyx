@@ -3071,8 +3071,8 @@ cdef class SimulatedExchange:
             )
             return
 
-        balance.total = Money(balance.total + adjustment, adjustment.currency)
-        balance.free = Money(balance.free + adjustment, adjustment.currency)
+        balance.total = balance.total + adjustment
+        balance.free = balance.free + adjustment
 
         cdef list margins = []
         if account.is_margin_account:

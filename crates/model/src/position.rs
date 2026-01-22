@@ -304,7 +304,7 @@ impl Position {
         if let Some(commission) = fill.commission {
             let commission_currency = commission.currency;
             if let Some(existing_commission) = self.commissions.get_mut(&commission_currency) {
-                *existing_commission += commission;
+                *existing_commission = *existing_commission + commission;
             } else {
                 self.commissions.insert(commission_currency, commission);
             }
@@ -412,7 +412,7 @@ impl Position {
         ));
 
         self.signed_qty += last_qty;
-        self.buy_qty += last_qty_object;
+        self.buy_qty = self.buy_qty + last_qty_object;
     }
 
     fn handle_sell_order_fill(&mut self, fill: &OrderFilled) {
@@ -458,7 +458,7 @@ impl Position {
         ));
 
         self.signed_qty -= last_qty;
-        self.sell_qty += last_qty_object;
+        self.sell_qty = self.sell_qty + last_qty_object;
     }
 
     /// Applies a position adjustment event.

@@ -80,7 +80,7 @@ impl Quantity {
             let other_float: f64 = other.extract()?;
             (self.as_f64() + other_float).into_py_any(py)
         } else if let Ok(other_qty) = other.extract::<Self>() {
-            (self.as_decimal() + other_qty.as_decimal()).into_py_any(py)
+            (*self + other_qty).into_py_any(py)
         } else if let Ok(other_dec) = other.extract::<Decimal>() {
             (self.as_decimal() + other_dec).into_py_any(py)
         } else {
@@ -96,7 +96,7 @@ impl Quantity {
             let other_float: f64 = other.extract()?;
             (other_float + self.as_f64()).into_py_any(py)
         } else if let Ok(other_qty) = other.extract::<Self>() {
-            (other_qty.as_decimal() + self.as_decimal()).into_py_any(py)
+            (other_qty + *self).into_py_any(py)
         } else if let Ok(other_dec) = other.extract::<Decimal>() {
             (other_dec + self.as_decimal()).into_py_any(py)
         } else {
@@ -112,7 +112,12 @@ impl Quantity {
             let other_float: f64 = other.extract()?;
             (self.as_f64() - other_float).into_py_any(py)
         } else if let Ok(other_qty) = other.extract::<Self>() {
-            (self.as_decimal() - other_qty.as_decimal()).into_py_any(py)
+            if other_qty.raw > self.raw {
+                return Err(to_pyvalue_err(format!(
+                    "Quantity subtraction would result in negative value: {self} - {other_qty}"
+                )));
+            }
+            (*self - other_qty).into_py_any(py)
         } else if let Ok(other_dec) = other.extract::<Decimal>() {
             (self.as_decimal() - other_dec).into_py_any(py)
         } else {
@@ -128,7 +133,12 @@ impl Quantity {
             let other_float: f64 = other.extract()?;
             (other_float - self.as_f64()).into_py_any(py)
         } else if let Ok(other_qty) = other.extract::<Self>() {
-            (other_qty.as_decimal() - self.as_decimal()).into_py_any(py)
+            if self.raw > other_qty.raw {
+                return Err(to_pyvalue_err(format!(
+                    "Quantity subtraction would result in negative value: {other_qty} - {self}"
+                )));
+            }
+            (other_qty - *self).into_py_any(py)
         } else if let Ok(other_dec) = other.extract::<Decimal>() {
             (other_dec - self.as_decimal()).into_py_any(py)
         } else {

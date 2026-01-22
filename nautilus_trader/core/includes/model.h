@@ -3291,32 +3291,16 @@ struct Money_t money_from_raw(MoneyRaw raw, struct Currency_t currency);
 
 double money_as_f64(const struct Money_t *money);
 
-void money_add_assign(struct Money_t a, struct Money_t b);
-
-void money_sub_assign(struct Money_t a, struct Money_t b);
-
 struct Price_t price_new(double value, uint8_t precision);
 
 struct Price_t price_from_raw(PriceRaw raw, uint8_t precision);
 
 double price_as_f64(const struct Price_t *price);
 
-void price_add_assign(struct Price_t a, struct Price_t b);
-
-void price_sub_assign(struct Price_t a, struct Price_t b);
-
 struct Quantity_t quantity_new(double value, uint8_t precision);
 
 struct Quantity_t quantity_from_raw(QuantityRaw raw, uint8_t precision);
 
 double quantity_as_f64(const struct Quantity_t *qty);
-
-void quantity_add_assign(struct Quantity_t a, struct Quantity_t b);
-
-void quantity_add_assign_u64(struct Quantity_t a, uint64_t b);
-
-void quantity_sub_assign(struct Quantity_t a, struct Quantity_t b);
-
-void quantity_sub_assign_u64(struct Quantity_t a, uint64_t b);
 
 struct Quantity_t quantity_saturating_sub(struct Quantity_t a, struct Quantity_t b);

@@ -1404,7 +1404,7 @@ class BetfairExecutionClient(LiveExecutionClient):
         if total_matched_qty <= baseline_qty:
             return Quantity.zero(BETFAIR_QUANTITY_PRECISION)
 
-        fill_qty = Quantity(total_matched_qty - baseline_qty, BETFAIR_QUANTITY_PRECISION)
+        fill_qty = total_matched_qty - baseline_qty
 
         if total_matched_qty >= order.quantity:
             self._filled_qty_cache.pop(order.client_order_id, None)
