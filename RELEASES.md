@@ -49,6 +49,7 @@ Released on TBD (UTC).
 - Fixed Redis cache buffer flushing during idle periods (#3426), thanks for reporting @santivazq
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 - Fixed Binance Futures instrument parsing for margin requirements (#3420), thanks @linimin
+- Fixed Binance algo order quantity `AttributeError` on _mem access
 - Fixed Bybit demo trading by using HTTP REST API for order operations (Bybit demo does not support WebSocket Trade API)
 - Fixed Databento `databento_data` to fetch definitions for full date range (#3414), thanks @Johnkhk
 - Fixed Databento zero-length interval at dataset boundary (#3429), thanks @shzhng
