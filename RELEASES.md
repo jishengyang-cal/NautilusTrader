@@ -97,6 +97,7 @@ Released on TBD (UTC).
 - Optimized message bus publish with thread-local `SmallVec` buffers in Rust
 - Optimized message bus pattern matching with greedy algorithm
 - Upgraded Interactive Brokers adapter to `ibapi` 10.37.2 (#3427), thanks @faysou
+- Upgraded Rust (MSRV) to 1.93.0
 - Upgraded Cap'n Proto to v1.3.0
 - Upgraded Cython to v3.2.4
 - Upgraded `capnp` and `capnpc` crates to v0.25.0
