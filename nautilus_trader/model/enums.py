@@ -35,6 +35,7 @@ from nautilus_trader.core.rust.model import OptionKind
 from nautilus_trader.core.rust.model import OrderSide
 from nautilus_trader.core.rust.model import OrderStatus
 from nautilus_trader.core.rust.model import OrderType
+from nautilus_trader.core.rust.model import OtoTriggerMode
 from nautilus_trader.core.rust.model import PositionSide
 from nautilus_trader.core.rust.model import PriceType
 from nautilus_trader.core.rust.model import RecordFlag
@@ -81,6 +82,8 @@ from nautilus_trader.model.functions import order_status_from_str
 from nautilus_trader.model.functions import order_status_to_str
 from nautilus_trader.model.functions import order_type_from_str
 from nautilus_trader.model.functions import order_type_to_str
+from nautilus_trader.model.functions import oto_trigger_mode_from_str
+from nautilus_trader.model.functions import oto_trigger_mode_to_str
 from nautilus_trader.model.functions import position_side_from_str
 from nautilus_trader.model.functions import position_side_to_str
 from nautilus_trader.model.functions import price_type_from_str
@@ -95,20 +98,6 @@ from nautilus_trader.model.functions import trailing_offset_type_from_str
 from nautilus_trader.model.functions import trailing_offset_type_to_str
 from nautilus_trader.model.functions import trigger_type_from_str
 from nautilus_trader.model.functions import trigger_type_to_str
-
-
-@unique
-class OtoTriggerModel(str, Enum):
-    """
-    Defines when OTO child orders are released.
-
-    - ``PARTIAL``: release child order(s) pro-rata to each partial fill (default).
-    - ``FULL``: release child order(s) only once the parent is fully filled.
-
-    """
-
-    PARTIAL = "PARTIAL"
-    FULL = "FULL"
 
 
 __all__ = [
@@ -131,7 +120,7 @@ __all__ = [
     "OrderSide",
     "OrderStatus",
     "OrderType",
-    "OtoTriggerModel",
+    "OtoTriggerMode",
     "PositionSide",
     "PriceType",
     "RecordFlag",
@@ -177,6 +166,8 @@ __all__ = [
     "order_status_to_str",
     "order_type_from_str",
     "order_type_to_str",
+    "oto_trigger_mode_from_str",
+    "oto_trigger_mode_to_str",
     "position_side_from_str",
     "position_side_to_str",
     "price_type_from_str",

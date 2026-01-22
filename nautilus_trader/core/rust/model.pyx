@@ -30,6 +30,7 @@ from nautilus_trader.core.rust.model cimport MarketStatus  # type: ignore
 from nautilus_trader.core.rust.model cimport MarketStatusAction  # type: ignore
 from nautilus_trader.core.rust.model cimport OmsType  # type: ignore
 from nautilus_trader.core.rust.model cimport OptionKind  # type: ignore
+from nautilus_trader.core.rust.model cimport OtoTriggerMode  # type: ignore
 from nautilus_trader.core.rust.model cimport OrderSide  # type: ignore
 from nautilus_trader.core.rust.model cimport OrderStatus  # type: ignore
 from nautilus_trader.core.rust.model cimport OrderType  # type: ignore

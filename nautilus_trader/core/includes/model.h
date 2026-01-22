@@ -604,6 +604,20 @@ typedef enum OptionKind {
 } OptionKind;
 
 /**
+ * Defines when OTO (One-Triggers-Other) child orders are released.
+ */
+typedef enum OtoTriggerMode {
+    /**
+     * Release child order(s) pro-rata to each partial fill (default).
+     */
+    PARTIAL = 0,
+    /**
+     * Release child order(s) only once the parent is fully filled.
+     */
+    FULL = 1,
+} OtoTriggerMode;
+
+/**
  * The status for a specific order.
  *
  * An order is considered _open_ for the following status:
@@ -2514,6 +2528,21 @@ const char *option_kind_to_cstr(enum OptionKind value);
  * Panics if the C string does not correspond to a valid `OptionKind` variant.
  */
 enum OptionKind option_kind_from_cstr(const char *ptr);
+
+const char *oto_trigger_mode_to_cstr(enum OtoTriggerMode value);
+
+/**
+ * Returns an enum from a Python string.
+ *
+ * # Safety
+ *
+ * Assumes `ptr` is a valid C string pointer.
+ *
+ * # Panics
+ *
+ * Panics if the C string does not correspond to a valid `OtoTriggerMode` variant.
+ */
+enum OtoTriggerMode oto_trigger_mode_from_cstr(const char *ptr);
 
 const char *order_side_to_cstr(enum OrderSide value);
 

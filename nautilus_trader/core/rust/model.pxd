@@ -322,6 +322,13 @@ cdef extern from "../includes/model.h":
         # A Put option gives the holder the right, but not the obligation, to sell an underlying asset at a specified strike price within a specified period of time.
         PUT # = 2,
 
+    # Defines when OTO (One-Triggers-Other) child orders are released.
+    cpdef enum OtoTriggerMode:
+        # Release child order(s) pro-rata to each partial fill (default).
+        PARTIAL # = 0,
+        # Release child order(s) only once the parent is fully filled.
+        FULL # = 1,
+
     # The status for a specific order.
     #
     # An order is considered _open_ for the following status:
@@ -1577,6 +1584,19 @@ cdef extern from "../includes/model.h":
     #
     # Panics if the C string does not correspond to a valid `OptionKind` variant.
     OptionKind option_kind_from_cstr(const char *ptr);
+
+    const char *oto_trigger_mode_to_cstr(OtoTriggerMode value);
+
+    # Returns an enum from a Python string.
+    #
+    # # Safety
+    #
+    # Assumes `ptr` is a valid C string pointer.
+    #
+    # # Panics
+    #
+    # Panics if the C string does not correspond to a valid `OtoTriggerMode` variant.
+    OtoTriggerMode oto_trigger_mode_from_cstr(const char *ptr);
 
     const char *order_side_to_cstr(OrderSide value);
 

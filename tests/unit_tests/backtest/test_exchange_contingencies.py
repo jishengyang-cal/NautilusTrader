@@ -34,7 +34,7 @@ from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import OrderStatus
 from nautilus_trader.model.enums import OrderType
-from nautilus_trader.model.enums import OtoTriggerModel
+from nautilus_trader.model.enums import OtoTriggerMode
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Quantity
@@ -800,7 +800,7 @@ class TestSimulatedExchangeContingencyAdvancedOrders:
         assert len(self.exchange.cache.positions_open()) == 1
 
 
-class TestSimulatedExchangeOtoFullTriggerModel:
+class TestSimulatedExchangeOtoFullTriggerMode:
     def setup(self):
         # Fixture Setup
         self.clock = TestClock()
@@ -842,7 +842,7 @@ class TestSimulatedExchangeOtoFullTriggerModel:
             cache=self.cache,
             clock=self.clock,
             latency_model=LatencyModel(0),
-            oto_trigger_model=OtoTriggerModel.FULL,
+            oto_trigger_mode=OtoTriggerMode.FULL,
         )
         self.exchange.add_instrument(ETHUSDT_PERP_BINANCE)
 
@@ -937,3 +937,67 @@ class TestSimulatedExchangeOtoFullTriggerModel:
         assert len(self.exchange.get_open_orders()) == 2
         assert sl_order in self.exchange.get_open_orders()
         assert tp_order in self.exchange.get_open_orders()
+
+
+class TestOtoTriggerModeValidation:
+    def test_oto_trigger_mode_full(self):
+        # Arrange
+        clock = TestClock()
+        trader_id = TestIdStubs.trader_id()
+        msgbus = MessageBus(trader_id=trader_id, clock=clock)
+        cache = TestComponentStubs.cache()
+        portfolio = Portfolio(msgbus=msgbus, cache=cache, clock=clock)
+
+        # Act
+        exchange = SimulatedExchange(
+            venue=BINANCE,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            base_currency=None,
+            starting_balances=[Money(1_000_000, USDT)],
+            default_leverage=Decimal(10),
+            leverages={},
+            modules=[],
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            portfolio=portfolio,
+            msgbus=msgbus,
+            cache=cache,
+            clock=clock,
+            latency_model=LatencyModel(0),
+            oto_trigger_mode=OtoTriggerMode.FULL,
+        )
+
+        # Assert
+        assert exchange.oto_full_trigger is True
+
+    def test_oto_trigger_mode_partial(self):
+        # Arrange
+        clock = TestClock()
+        trader_id = TestIdStubs.trader_id()
+        msgbus = MessageBus(trader_id=trader_id, clock=clock)
+        cache = TestComponentStubs.cache()
+        portfolio = Portfolio(msgbus=msgbus, cache=cache, clock=clock)
+
+        # Act
+        exchange = SimulatedExchange(
+            venue=BINANCE,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            base_currency=None,
+            starting_balances=[Money(1_000_000, USDT)],
+            default_leverage=Decimal(10),
+            leverages={},
+            modules=[],
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            portfolio=portfolio,
+            msgbus=msgbus,
+            cache=cache,
+            clock=clock,
+            latency_model=LatencyModel(0),
+            oto_trigger_mode=OtoTriggerMode.PARTIAL,
+        )
+
+        # Assert
+        assert exchange.oto_full_trigger is False
