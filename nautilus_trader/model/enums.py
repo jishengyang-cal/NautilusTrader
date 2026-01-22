@@ -36,6 +36,7 @@ from nautilus_trader.core.rust.model import OrderSide
 from nautilus_trader.core.rust.model import OrderStatus
 from nautilus_trader.core.rust.model import OrderType
 from nautilus_trader.core.rust.model import OtoTriggerMode
+from nautilus_trader.core.rust.model import PositionAdjustmentType
 from nautilus_trader.core.rust.model import PositionSide
 from nautilus_trader.core.rust.model import PriceType
 from nautilus_trader.core.rust.model import RecordFlag
@@ -84,6 +85,8 @@ from nautilus_trader.model.functions import order_type_from_str
 from nautilus_trader.model.functions import order_type_to_str
 from nautilus_trader.model.functions import oto_trigger_mode_from_str
 from nautilus_trader.model.functions import oto_trigger_mode_to_str
+from nautilus_trader.model.functions import position_adjustment_type_from_str
+from nautilus_trader.model.functions import position_adjustment_type_to_str
 from nautilus_trader.model.functions import position_side_from_str
 from nautilus_trader.model.functions import position_side_to_str
 from nautilus_trader.model.functions import price_type_from_str
@@ -121,6 +124,7 @@ __all__ = [
     "OrderStatus",
     "OrderType",
     "OtoTriggerMode",
+    "PositionAdjustmentType",
     "PositionSide",
     "PriceType",
     "RecordFlag",
@@ -168,6 +172,8 @@ __all__ = [
     "order_type_to_str",
     "oto_trigger_mode_from_str",
     "oto_trigger_mode_to_str",
+    "position_adjustment_type_from_str",
+    "position_adjustment_type_to_str",
     "position_side_from_str",
     "position_side_to_str",
     "price_type_from_str",
@@ -339,6 +345,16 @@ if TYPE_CHECKING:
         LIMIT_IF_TOUCHED = 7
         TRAILING_STOP_MARKET = 8
         TRAILING_STOP_LIMIT = 9
+
+    @unique
+    class OtoTriggerMode(Enum):
+        PARTIAL = 0
+        FULL = 1
+
+    @unique
+    class PositionAdjustmentType(Enum):
+        COMMISSION = 1
+        FUNDING = 2
 
     @unique
     class PositionSide(Enum):
