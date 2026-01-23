@@ -364,7 +364,7 @@ pub struct DeribitOrderParams {
         with = "rust_decimal::serde::float_option"
     )]
     pub price: Option<Decimal>,
-    /// Time in force: "good_til_cancelled", "good_til_date", "fill_or_kill", "immediate_or_cancel".
+    /// Time in force: "good_til_cancelled", "good_til_day", "fill_or_kill", "immediate_or_cancel".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_in_force: Option<String>,
     /// Post-only flag. If true and order would take liquidity, price is adjusted

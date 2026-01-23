@@ -146,7 +146,11 @@ pub fn parse_deribit_instrument_any(
             parse_option_instrument(instrument, ts_init, ts_event).map(Some)
         }
         DeribitInstrumentKind::FutureCombo | DeribitInstrumentKind::OptionCombo => {
-            // Skip combos for initial implementation
+            log::debug!(
+                "Skipping combo instrument: {} (kind={:?})",
+                instrument.instrument_name,
+                instrument.kind
+            );
             Ok(None)
         }
     }
