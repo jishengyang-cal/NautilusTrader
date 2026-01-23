@@ -1863,8 +1863,6 @@ def _add_fill_scatter_trace(
         "instrument_id",
         "order_side",
         "last_qty",
-        "last_px",
-        "ts_init",
     ]
     has_all_cols = all(col in fills_df.columns for col in required_cols)
 
@@ -1887,7 +1885,6 @@ def _add_fill_scatter_trace(
                 "Instrument: %{customdata[1]}<br>"
                 "Side: %{customdata[2]}<br>"
                 "Quantity: %{customdata[3]:.2f}<br>"
-                "Price: %{customdata[4]:.2f}<br>"
                 "<extra></extra>"
             )
             if has_all_cols
