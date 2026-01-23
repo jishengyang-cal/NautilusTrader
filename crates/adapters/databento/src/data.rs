@@ -723,12 +723,11 @@ impl DataClient for DatabentoDataClient {
         Ok(())
     }
 
-    fn request_instruments(&self, request: &RequestInstruments) -> anyhow::Result<()> {
+    fn request_instruments(&self, request: RequestInstruments) -> anyhow::Result<()> {
         log::debug!("Request instruments: {request:?}");
 
         let historical_client = self.historical.clone();
         let data_sender = self.data_sender.clone();
-        let request = request.clone();
 
         get_runtime().spawn(async move {
             let symbols = vec!["ALL_SYMBOLS".to_string()]; // TODO: Improve symbol handling
@@ -766,11 +765,10 @@ impl DataClient for DatabentoDataClient {
         Ok(())
     }
 
-    fn request_quotes(&self, request: &RequestQuotes) -> anyhow::Result<()> {
+    fn request_quotes(&self, request: RequestQuotes) -> anyhow::Result<()> {
         log::debug!("Request quotes: {request:?}");
 
         let historical_client = self.historical.clone();
-        let request = request.clone();
 
         get_runtime().spawn(async move {
             let symbols = vec![instrument_id_to_symbol_string(
@@ -807,11 +805,10 @@ impl DataClient for DatabentoDataClient {
         Ok(())
     }
 
-    fn request_trades(&self, request: &RequestTrades) -> anyhow::Result<()> {
+    fn request_trades(&self, request: RequestTrades) -> anyhow::Result<()> {
         log::debug!("Request trades: {request:?}");
 
         let historical_client = self.historical.clone();
-        let request = request.clone();
 
         get_runtime().spawn(async move {
             let symbols = vec![instrument_id_to_symbol_string(
@@ -848,11 +845,10 @@ impl DataClient for DatabentoDataClient {
         Ok(())
     }
 
-    fn request_bars(&self, request: &RequestBars) -> anyhow::Result<()> {
+    fn request_bars(&self, request: RequestBars) -> anyhow::Result<()> {
         log::debug!("Request bars: {request:?}");
 
         let historical_client = self.historical.clone();
-        let request = request.clone();
 
         get_runtime().spawn(async move {
             let symbols = vec![instrument_id_to_symbol_string(

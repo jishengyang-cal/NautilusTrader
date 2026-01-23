@@ -1010,14 +1010,14 @@ pub fn send_any_value<T: 'static>(endpoint: MStr<Endpoint>, message: T) {
 }
 
 /// Sends the [`DataResponse`] to the registered correlation ID handler.
-pub fn send_response(correlation_id: &UUID4, message: &DataResponse) {
+pub fn send_response(correlation_id: &UUID4, message: DataResponse) {
     let handler = get_message_bus()
         .borrow()
         .get_response_handler(correlation_id)
         .cloned();
 
     if let Some(handler) = handler {
-        match message {
+        match &message {
             DataResponse::Data(resp) => handler.0.handle(resp),
             DataResponse::Instrument(resp) => handler.0.handle(resp.as_ref()),
             DataResponse::Instruments(resp) => handler.0.handle(resp),

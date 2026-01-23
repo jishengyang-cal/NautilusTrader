@@ -1147,7 +1147,7 @@ impl DataClient for DeribitDataClient {
         Ok(())
     }
 
-    fn request_instruments(&self, request: &RequestInstruments) -> anyhow::Result<()> {
+    fn request_instruments(&self, request: RequestInstruments) -> anyhow::Result<()> {
         if request.start.is_some() {
             log::warn!(
                 "Requesting instruments for {:?} with specified `start` which has no effect",
@@ -1168,7 +1168,7 @@ impl DataClient for DeribitDataClient {
         let client_id = request.client_id.unwrap_or(self.client_id);
         let start_nanos = datetime_to_unix_nanos(request.start);
         let end_nanos = datetime_to_unix_nanos(request.end);
-        let params = request.params.clone();
+        let params = request.params;
         let clock = self.clock;
         let venue = *DERIBIT_VENUE;
 
@@ -1239,7 +1239,7 @@ impl DataClient for DeribitDataClient {
         Ok(())
     }
 
-    fn request_instrument(&self, request: &RequestInstrument) -> anyhow::Result<()> {
+    fn request_instrument(&self, request: RequestInstrument) -> anyhow::Result<()> {
         if request.start.is_some() {
             log::warn!(
                 "Requesting instrument {} with specified `start` which has no effect",
@@ -1269,7 +1269,7 @@ impl DataClient for DeribitDataClient {
                 datetime_to_unix_nanos(request.start),
                 datetime_to_unix_nanos(request.end),
                 self.clock.get_time_ns(),
-                request.params.clone(),
+                request.params,
             )));
 
             if let Err(e) = self.data_sender.send(DataEvent::Response(response)) {
@@ -1291,7 +1291,7 @@ impl DataClient for DeribitDataClient {
         let client_id = request.client_id.unwrap_or(self.client_id);
         let start_nanos = datetime_to_unix_nanos(request.start);
         let end_nanos = datetime_to_unix_nanos(request.end);
-        let params = request.params.clone();
+        let params = request.params;
         let clock = self.clock;
 
         get_runtime().spawn(async move {
@@ -1336,7 +1336,7 @@ impl DataClient for DeribitDataClient {
         Ok(())
     }
 
-    fn request_trades(&self, request: &RequestTrades) -> anyhow::Result<()> {
+    fn request_trades(&self, request: RequestTrades) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
         let sender = self.data_sender.clone();
         let instrument_id = request.instrument_id;
@@ -1345,7 +1345,7 @@ impl DataClient for DeribitDataClient {
         let limit = request.limit.map(|n| n.get() as u32);
         let request_id = request.request_id;
         let client_id = request.client_id.unwrap_or(self.client_id);
-        let params = request.params.clone();
+        let params = request.params;
         let clock = self.clock;
         let start_nanos = datetime_to_unix_nanos(start);
         let end_nanos = datetime_to_unix_nanos(end);
@@ -1378,7 +1378,7 @@ impl DataClient for DeribitDataClient {
         Ok(())
     }
 
-    fn request_bars(&self, request: &RequestBars) -> anyhow::Result<()> {
+    fn request_bars(&self, request: RequestBars) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
         let sender = self.data_sender.clone();
         let bar_type = request.bar_type;
@@ -1387,7 +1387,7 @@ impl DataClient for DeribitDataClient {
         let limit = request.limit.map(|n| n.get() as u32);
         let request_id = request.request_id;
         let client_id = request.client_id.unwrap_or(self.client_id);
-        let params = request.params.clone();
+        let params = request.params;
         let clock = self.clock;
         let start_nanos = datetime_to_unix_nanos(start);
         let end_nanos = datetime_to_unix_nanos(end);
@@ -1420,14 +1420,14 @@ impl DataClient for DeribitDataClient {
         Ok(())
     }
 
-    fn request_book_snapshot(&self, request: &RequestBookSnapshot) -> anyhow::Result<()> {
+    fn request_book_snapshot(&self, request: RequestBookSnapshot) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
         let sender = self.data_sender.clone();
         let instrument_id = request.instrument_id;
         let depth = request.depth.map(|n| n.get() as u32);
         let request_id = request.request_id;
         let client_id = request.client_id.unwrap_or(self.client_id);
-        let params = request.params.clone();
+        let params = request.params;
         let clock = self.clock;
 
         get_runtime().spawn(async move {
