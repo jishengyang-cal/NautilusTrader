@@ -217,6 +217,7 @@ impl OrderMatchingEngine {
         fills: Vec<(Price, Quantity)>,
         order_side: OrderSide,
         leaves_qty: Quantity,
+        book_prices: Option<&[Price]>,
     ) -> Vec<(Price, Quantity)> {
         if !self.config.liquidity_consumption {
             return fills;
@@ -231,18 +232,25 @@ impl OrderMatchingEngine {
         let mut adjusted_fills = Vec::with_capacity(fills.len());
         let mut remaining_qty = leaves_qty.raw;
 
-        for (price, qty) in fills {
+        for (fill_idx, (price, qty)) in fills.into_iter().enumerate() {
             if remaining_qty == 0 {
                 break;
             }
 
-            let price_raw = price.raw;
+            // Use book_price for consumption tracking (original price before MAKER adjustment),
+            // but use price (potentially adjusted) for the output fill.
+            let book_price = book_prices
+                .and_then(|bp| bp.get(fill_idx).copied())
+                .unwrap_or(price);
+
+            let book_price_raw = book_price.raw;
             let level_size = self
                 .book
-                .get_quantity_at_level(price, order_side, qty.precision);
+                .get_quantity_at_level(book_price, order_side, qty.precision);
 
-            let (original_size, consumed) =
-                consumption.entry(price_raw).or_insert((level_size.raw, 0));
+            let (original_size, consumed) = consumption
+                .entry(book_price_raw)
+                .or_insert((level_size.raw, 0));
 
             // Reset consumption when book size changes (fresh data)
             if *original_size != level_size.raw {
@@ -2015,6 +2023,20 @@ impl OrderMatchingEngine {
                     return fills;
                 }
 
+                // Save original book prices BEFORE any fill price modifications for consumption tracking,
+                // since the TAKER and MAKER loops below may adjust fill prices. Consumption should be
+                // tracked against the original book price levels where liquidity was sourced from.
+                let book_prices: Vec<Price> = if self.config.liquidity_consumption {
+                    fills.iter().map(|(px, _)| *px).collect()
+                } else {
+                    Vec::new()
+                };
+                let book_prices_ref: Option<&[Price]> = if book_prices.is_empty() {
+                    None
+                } else {
+                    Some(&book_prices)
+                };
+
                 // check if trigger price exists
                 if let Some(triggered_price) = order.trigger_price() {
                     // Filling as TAKER from trigger
@@ -2063,15 +2085,16 @@ impl OrderMatchingEngine {
                             } else {
                                 order_price
                             };
-                            for fill in &fills {
+                            for fill in &mut fills {
                                 let last_px = fill.0;
                                 if last_px < order_price {
-                                    // Marketable SELL would have filled at limit
+                                    // Marketable BUY would have filled at limit
                                     self.target_bid = self.core.bid;
                                     self.target_ask = self.core.ask;
                                     self.target_last = self.core.last;
                                     self.core.set_ask_raw(target_price);
                                     self.core.set_last_raw(target_price);
+                                    fill.0 = target_price;
                                 }
                             }
                         }
@@ -2084,22 +2107,28 @@ impl OrderMatchingEngine {
                             } else {
                                 order_price
                             };
-                            for fill in &fills {
+                            for fill in &mut fills {
                                 let last_px = fill.0;
                                 if last_px > order_price {
-                                    // Marketable BUY would have filled at limit
+                                    // Marketable SELL would have filled at limit
                                     self.target_bid = self.core.bid;
                                     self.target_ask = self.core.ask;
                                     self.target_last = self.core.last;
                                     self.core.set_bid_raw(target_price);
                                     self.core.set_last_raw(target_price);
+                                    fill.0 = target_price;
                                 }
                             }
                         }
                     }
                 }
 
-                self.apply_liquidity_consumption(fills, order.order_side(), order.leaves_qty())
+                self.apply_liquidity_consumption(
+                    fills,
+                    order.order_side(),
+                    order.leaves_qty(),
+                    book_prices_ref,
+                )
             }
             None => panic!("Limit order must have a price"),
         }
@@ -2156,7 +2185,7 @@ impl OrderMatchingEngine {
             return capped_fills;
         }
 
-        self.apply_liquidity_consumption(fills, order.order_side(), order.leaves_qty())
+        self.apply_liquidity_consumption(fills, order.order_side(), order.leaves_qty(), None)
     }
 
     /// Fills a market order against the current order book.

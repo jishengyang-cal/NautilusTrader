@@ -30,6 +30,7 @@ from nautilus_trader.common.component import is_logging_pyo3
 from nautilus_trader.common.config import InvalidConfiguration
 from nautilus_trader.config import BacktestEngineConfig
 from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.inspect import is_nautilus_class
 from nautilus_trader.core.rust.model import OtoTriggerMode
 from nautilus_trader.data.engine import TimeRangeGenerator
 from nautilus_trader.data.engine import get_time_range_generator
@@ -79,9 +80,6 @@ from nautilus_trader.core.datetime cimport format_iso8601
 from nautilus_trader.core.datetime cimport format_optional_iso8601
 from nautilus_trader.core.datetime cimport maybe_dt_to_unix_nanos
 from nautilus_trader.core.datetime cimport unix_nanos_to_dt
-
-from nautilus_trader.core.inspect import is_nautilus_class
-
 from nautilus_trader.core.rust.backtest cimport TimeEventAccumulator_API
 from nautilus_trader.core.rust.backtest cimport time_event_accumulator_advance_clock
 from nautilus_trader.core.rust.backtest cimport time_event_accumulator_drop
@@ -5342,7 +5340,13 @@ cdef class OrderMatchingEngine:
             # Fall back to standard logic
             return self.determine_market_price_and_volume(order)
 
-    cdef list _apply_liquidity_consumption(self, list fills, OrderSide order_side, QuantityRaw max_qty_raw=0):
+    cdef list _apply_liquidity_consumption(
+        self,
+        list fills,
+        OrderSide order_side,
+        QuantityRaw max_qty_raw=0,
+        list[Price] book_prices=None,
+    ):
         if not self._liquidity_consumption:
             return fills
 
@@ -5360,10 +5364,12 @@ cdef class OrderMatchingEngine:
 
         cdef:
             Price price
+            Price book_price
             Quantity qty
             Quantity level_size
             tuple level_state
             PriceRaw price_raw
+            PriceRaw book_price_raw
             PriceRaw p_raw
             QuantityRaw qty_raw
             QuantityRaw q_raw
@@ -5374,11 +5380,12 @@ cdef class OrderMatchingEngine:
             QuantityRaw adjusted_qty_raw
             QuantityRaw fill_total
             Quantity adjusted_qty
+            int fill_idx
 
         # Aggregated fill quantities per price (computed on-demand for missing levels)
         cdef dict[PriceRaw, QuantityRaw] fill_totals = None
 
-        for fill in fills:
+        for fill_idx, fill in enumerate(fills):
             if max_qty_raw > 0 and remaining_qty == 0:
                 break
 
@@ -5386,10 +5393,19 @@ cdef class OrderMatchingEngine:
             qty = fill[1]
             price_raw = price._mem.raw
 
-            level_size = self._book.get_quantity_at_level(price, order_side, self._size_prec)
+            # Use book_price for consumption tracking (original price before MAKER adjustment),
+            # but use price (potentially adjusted) for the output fill.
+            if book_prices is not None and fill_idx < len(book_prices):
+                book_price = book_prices[fill_idx]
+                book_price_raw = book_price._mem.raw
+            else:
+                book_price = price
+                book_price_raw = price_raw
+
+            level_size = self._book.get_quantity_at_level(book_price, order_side, self._size_prec)
             level_size_raw = level_size._mem.raw
 
-            level_state = consumption.get(price_raw)
+            level_state = consumption.get(book_price_raw)
 
             # Handle race condition where level no longer exists in book (returns 0)
             if level_size_raw == 0:
@@ -5400,26 +5416,30 @@ cdef class OrderMatchingEngine:
 
                 if fill_totals is None:
                     fill_totals = {}
-                    for f in fills:
-                        p_raw = (<Price>f[0])._mem.raw
+
+                    for idx, f in enumerate(fills):
+                        if book_prices is not None and idx < len(book_prices):
+                            p_raw = (<Price>book_prices[idx])._mem.raw
+                        else:
+                            p_raw = (<Price>f[0])._mem.raw
                         q_raw = (<Quantity>f[1])._mem.raw
                         if p_raw in fill_totals:
                             fill_totals[p_raw] += q_raw
                         else:
                             fill_totals[p_raw] = q_raw
 
-                fill_total = fill_totals.get(price_raw, qty._mem.raw)
+                fill_total = fill_totals.get(book_price_raw, qty._mem.raw)
 
                 if level_state is not None:
                     level_size_raw = max(level_state[0], fill_total)
                     self._log.debug(
-                        f"Liquidity consumption: level {price} not found in book, "
+                        f"Liquidity consumption: level {book_price} not found in book, "
                         f"using max of prior size {level_state[0]} and fill total {fill_total}",
                     )
                 else:
                     level_size_raw = fill_total
                     self._log.debug(
-                        f"Liquidity consumption: level {price} not found in book, "
+                        f"Liquidity consumption: level {book_price} not found in book, "
                         f"using aggregated fill total {fill_total} as fallback",
                     )
 
@@ -5438,7 +5458,7 @@ cdef class OrderMatchingEngine:
             available = original_size - consumed if original_size > consumed else 0
             if available == 0:
                 self._log.debug(
-                    f"Liquidity consumed: skipping level {price} "
+                    f"Liquidity consumed: skipping level {book_price} "
                     f"(original_size={original_size}, consumed={consumed}, level_size_raw={level_size_raw})",
                 )
                 continue
@@ -5453,7 +5473,7 @@ cdef class OrderMatchingEngine:
                 continue
 
             consumed += adjusted_qty_raw
-            consumption[price_raw] = (original_size, consumed)
+            consumption[book_price_raw] = (original_size, consumed)
 
             adjusted_qty = Quantity.from_raw_c(adjusted_qty_raw, qty.precision)
             adjusted_fills.append((price, adjusted_qty))
@@ -5710,6 +5730,19 @@ cdef class OrderMatchingEngine:
                     # discard these fills when the trade price isn't in the order book.
                     return [(order.price, fill_qty)]
 
+        # Save original book prices BEFORE any fill price modifications for consumption tracking,
+        # since the TAKER and MAKER loops below may adjust fill prices. Consumption should be
+        # tracked against the original book price levels where liquidity was sourced from.
+        # We must create new Price objects since the MAKER loop modifies prices in place.
+        cdef list[Price] book_prices = None
+        cdef Price orig_price
+
+        if self._liquidity_consumption and fills:
+            book_prices = []
+            for fill in fills:
+                orig_price = fill[0]
+                book_prices.append(Price.from_raw_c(orig_price._mem.raw, orig_price._mem.precision))
+
         if (
             fills
             and triggered_price is not None
@@ -5777,7 +5810,7 @@ cdef class OrderMatchingEngine:
             else:
                 raise RuntimeError(f"invalid `OrderSide`, was {order.side}")  # pragma: no cover (design-time error)
 
-        return self._apply_liquidity_consumption(fills, order.side, order.leaves_qty._mem.raw)
+        return self._apply_liquidity_consumption(fills, order.side, order.leaves_qty._mem.raw, book_prices)
 
     cpdef void apply_fills(
         self,

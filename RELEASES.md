@@ -30,6 +30,7 @@ Released on TBD (UTC).
 
 ### Fixes
 - Fixed matching engine liquidity consumption using cumulative book quantity
+- Fixed matching engine liquidity consumption tracking for MAKER fills
 - Fixed matching engine trade execution fills discarded with `liquidity_consumption`
 - Fixed remaining `F_LAST` flag checks to use proper bitmask comparison
 - Fixed `MarketIfTouchedOrder` (MIT) filling at bar extremes instead of trigger price during backtesting (#3461, #3462), thanks @HaakonFlaaronning

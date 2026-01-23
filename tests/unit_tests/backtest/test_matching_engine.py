@@ -5413,3 +5413,212 @@ class TestOrderMatchingEngineLiquidityConsumption:
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1
         assert filled_events[0].last_qty == Quantity.from_str("300.000")
+
+    @pytest.mark.parametrize(
+        "order_side",
+        [OrderSide.BUY, OrderSide.SELL],
+    )
+    def test_liquidity_consumption_tracks_fills_at_multiple_price_levels(
+        self,
+        order_side: OrderSide,
+    ):
+        """
+        Regression test for liquidity consumption tracking at multiple price levels.
+
+        When an order fills across multiple price levels, consumption must be tracked
+        separately at each original book price level. This test verifies that after
+        consuming liquidity at multiple levels, subsequent orders cannot access that
+        consumed liquidity.
+
+        """
+        matching_engine = OrderMatchingEngine(
+            instrument=self.instrument,
+            raw_id=0,
+            fill_model=FillModel(),
+            fee_model=MakerTakerFeeModel(),
+            book_type=BookType.L2_MBP,
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            reject_stop_orders=True,
+            msgbus=self.msgbus,
+            cache=self.cache,
+            clock=self.clock,
+            liquidity_consumption=True,
+        )
+
+        messages: list[Any] = []
+        self.msgbus.register("ExecEngine.process", messages.append)
+
+        if order_side == OrderSide.BUY:
+            # Arrange: bid at 90, asks at 99, 100, 101 (50 qty each at 99/100)
+            bid_delta = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.BUY,
+                    price=Price.from_str("90.00"),
+                    size=Quantity.from_str("1000.000"),
+                    order_id=100,
+                ),
+                flags=0,
+                sequence=0,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(bid_delta)
+
+            ask1 = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.SELL,
+                    price=Price.from_str("99.00"),
+                    size=Quantity.from_str("50.000"),
+                    order_id=1,
+                ),
+                flags=0,
+                sequence=1,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(ask1)
+
+            ask2 = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.SELL,
+                    price=Price.from_str("100.00"),
+                    size=Quantity.from_str("50.000"),
+                    order_id=2,
+                ),
+                flags=0,
+                sequence=2,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(ask2)
+
+            ask3 = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.SELL,
+                    price=Price.from_str("101.00"),
+                    size=Quantity.from_str("100.000"),
+                    order_id=3,
+                ),
+                flags=0,
+                sequence=3,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(ask3)
+
+            limit_price = Price.from_str("100.00")
+        else:
+            # Arrange: ask at 110, bids at 101, 100, 99 (50 qty each at 101/100)
+            ask_delta = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.SELL,
+                    price=Price.from_str("110.00"),
+                    size=Quantity.from_str("1000.000"),
+                    order_id=100,
+                ),
+                flags=0,
+                sequence=0,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(ask_delta)
+
+            bid1 = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.BUY,
+                    price=Price.from_str("101.00"),
+                    size=Quantity.from_str("50.000"),
+                    order_id=1,
+                ),
+                flags=0,
+                sequence=1,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(bid1)
+
+            bid2 = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.BUY,
+                    price=Price.from_str("100.00"),
+                    size=Quantity.from_str("50.000"),
+                    order_id=2,
+                ),
+                flags=0,
+                sequence=2,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(bid2)
+
+            bid3 = OrderBookDelta(
+                instrument_id=self.instrument.id,
+                action=BookAction.ADD,
+                order=BookOrder(
+                    side=OrderSide.BUY,
+                    price=Price.from_str("99.00"),
+                    size=Quantity.from_str("100.000"),
+                    order_id=3,
+                ),
+                flags=0,
+                sequence=3,
+                ts_event=0,
+                ts_init=0,
+            )
+            matching_engine.process_order_book_delta(bid3)
+
+            limit_price = Price.from_str("100.00")
+
+        # Act: first order crosses both levels (50 + 50 = 100 total)
+        order1 = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=order_side,
+            quantity=self.instrument.make_qty(100.0),
+            price=limit_price,
+            client_order_id=TestIdStubs.client_order_id(1),
+        )
+        matching_engine.process_order(order1, self.account_id)
+        matching_engine.iterate(timestamp_ns=1)
+
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        order1_fills = [f for f in filled_events if f.client_order_id.value.endswith("-1")]
+        total_order1 = sum((f.last_qty for f in order1_fills), Quantity.zero(3))
+        assert total_order1 == Quantity.from_str("100.000"), "First order should fill 100"
+
+        messages.clear()
+
+        # Act: second order attempts to fill from consumed levels
+        order2 = TestExecStubs.limit_order(
+            instrument=self.instrument,
+            order_side=order_side,
+            quantity=self.instrument.make_qty(50.0),
+            price=limit_price,
+            client_order_id=TestIdStubs.client_order_id(2),
+        )
+        matching_engine.process_order(order2, self.account_id)
+        matching_engine.iterate(timestamp_ns=2)
+
+        # Assert: no fill since both levels are consumed
+        filled_events = [m for m in messages if isinstance(m, OrderFilled)]
+        order2_fills = [f for f in filled_events if f.client_order_id.value.endswith("-2")]
+        total_order2 = sum((f.last_qty for f in order2_fills), Quantity.zero(3))
+        assert total_order2 == Quantity.zero(3), (
+            "Second order should NOT fill - both price levels should be consumed. "
+            f"Got fill of {total_order2}. If this fails, consumption was incorrectly "
+            "tracked at wrong price levels."
+        )

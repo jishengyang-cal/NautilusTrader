@@ -4199,3 +4199,176 @@ fn test_market_if_touched_sell_fills_at_trigger_price_with_liquidity_consumption
         "SELL MIT should fill at trigger price with liquidity consumption enabled"
     );
 }
+
+/// Regression test for liquidity consumption tracking at multiple price levels.
+///
+/// When an order fills across multiple price levels, consumption must be tracked
+/// separately at each original book price level. This test verifies that after
+/// consuming liquidity at multiple levels, subsequent orders cannot access that
+/// consumed liquidity.
+#[rstest]
+#[case(OrderSide::Buy)]
+#[case(OrderSide::Sell)]
+fn test_liquidity_consumption_tracks_fills_at_multiple_price_levels(
+    order_event_handler: TypedIntoMessageSavingHandler<OrderEventAny>,
+    account_id: AccountId,
+    instrument_eth_usdt: InstrumentAny,
+    #[case] order_side: OrderSide,
+) {
+    let config = OrderMatchingEngineConfig {
+        liquidity_consumption: true,
+        ..Default::default()
+    };
+    let mut engine_l2 =
+        get_order_matching_engine_l2(instrument_eth_usdt.clone(), None, None, Some(config), None);
+
+    if order_side == OrderSide::Buy {
+        let bid_delta = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Buy,
+                Price::from("900.00"),
+                Quantity::from("1000.000"),
+                100,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&bid_delta).unwrap();
+
+        let ask1 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Sell,
+                Price::from("999.00"),
+                Quantity::from("50.000"),
+                1,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&ask1).unwrap();
+
+        let ask2 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Sell,
+                Price::from("1000.00"),
+                Quantity::from("50.000"),
+                2,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&ask2).unwrap();
+
+        let ask3 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Sell,
+                Price::from("1001.00"),
+                Quantity::from("100.000"),
+                3,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&ask3).unwrap();
+    } else {
+        let ask_delta = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Sell,
+                Price::from("1100.00"),
+                Quantity::from("1000.000"),
+                100,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&ask_delta).unwrap();
+
+        let bid1 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Buy,
+                Price::from("1001.00"),
+                Quantity::from("50.000"),
+                1,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&bid1).unwrap();
+
+        let bid2 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Buy,
+                Price::from("1000.00"),
+                Quantity::from("50.000"),
+                2,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&bid2).unwrap();
+
+        let bid3 = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+            .book_action(BookAction::Add)
+            .book_order(BookOrder::new(
+                OrderSide::Buy,
+                Price::from("999.00"),
+                Quantity::from("100.000"),
+                3,
+            ))
+            .build();
+        engine_l2.process_order_book_delta(&bid3).unwrap();
+    }
+
+    let limit_price = Price::from("1000.00");
+
+    let mut order1 = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(order_side)
+        .price(limit_price)
+        .quantity(Quantity::from("100.000"))
+        .client_order_id(ClientOrderId::from("O-19700101-000000-001-001-1"))
+        .submit(true)
+        .build();
+    engine_l2.process_order(&mut order1, account_id);
+
+    let saved_messages = get_order_event_handler_messages(&order_event_handler);
+    let order1_fills: Vec<_> = saved_messages
+        .iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) if fill.client_order_id.as_str().ends_with("-1") => {
+                Some(fill)
+            }
+            _ => None,
+        })
+        .collect();
+
+    let total_order1: f64 = order1_fills.iter().map(|f| f.last_qty.as_f64()).sum();
+    assert!(
+        (total_order1 - 100.0).abs() < 0.001,
+        "First order should fill 100, got {total_order1}"
+    );
+
+    clear_order_event_handler_messages(&order_event_handler);
+
+    let mut order2 = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(order_side)
+        .price(limit_price)
+        .quantity(Quantity::from("50.000"))
+        .client_order_id(ClientOrderId::from("O-19700101-000000-001-001-2"))
+        .submit(true)
+        .build();
+    engine_l2.process_order(&mut order2, account_id);
+
+    let saved_messages = get_order_event_handler_messages(&order_event_handler);
+    let order2_fills: Vec<_> = saved_messages
+        .iter()
+        .filter_map(|event| match event {
+            OrderEventAny::Filled(fill) if fill.client_order_id.as_str().ends_with("-2") => {
+                Some(fill)
+            }
+            _ => None,
+        })
+        .collect();
+
+    let total_order2: f64 = order2_fills.iter().map(|f| f.last_qty.as_f64()).sum();
+    assert!(
+        total_order2 < 0.001,
+        "Second order should NOT fill - both price levels should be consumed. \
+         Got fill of {total_order2}. If this fails, consumption was incorrectly \
+         tracked at wrong price levels."
+    );
+}
