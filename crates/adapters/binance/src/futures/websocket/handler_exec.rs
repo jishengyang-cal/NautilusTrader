@@ -107,7 +107,7 @@ impl Debug for BinanceFuturesExecWsFeedHandler {
 }
 
 impl BinanceFuturesExecWsFeedHandler {
-    /// Creates a new [`BinanceFuturesExecHandler`] instance.
+    /// Creates a new [`BinanceFuturesExecWsFeedHandler`] instance.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         clock: &'static AtomicTime,
