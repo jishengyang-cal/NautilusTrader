@@ -1474,6 +1474,8 @@ impl BinanceFuturesHttpClient {
             new_order_resp_type: None,
             good_till_date: None,
             recv_window: None,
+            price_match: None,
+            self_trade_prevention_mode: None,
         };
 
         let order = self.raw.submit_order(&params).await?;

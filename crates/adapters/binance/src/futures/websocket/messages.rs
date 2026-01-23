@@ -68,8 +68,12 @@ pub enum NautilusWsMessage {
 pub enum NautilusDataWsMessage {
     /// Market data (trades, quotes, etc.).
     Data(Vec<Data>),
-    /// Order book deltas.
-    Deltas(OrderBookDeltas),
+    /// Order book deltas with Binance-specific sequence metadata for validation.
+    DepthUpdate {
+        deltas: OrderBookDeltas,
+        first_update_id: u64,
+        prev_final_update_id: u64,
+    },
     /// Instrument update.
     Instrument(Box<InstrumentAny>),
     /// Raw JSON message (for debugging or unhandled types).

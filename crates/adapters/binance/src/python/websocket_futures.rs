@@ -109,7 +109,7 @@ impl BinanceFuturesWebSocketClient {
                                     }
                                 });
                             }
-                            NautilusDataWsMessage::Deltas(deltas) => {
+                            NautilusDataWsMessage::DepthUpdate { deltas, .. } => {
                                 Python::attach(|py| {
                                     let py_obj = data_to_pycapsule(
                                         py,

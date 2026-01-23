@@ -396,9 +396,13 @@ impl BinanceFuturesDataWsFeedHandler {
                 {
                     match parse_depth_update(&msg, instrument, ts_init) {
                         Ok(deltas) => {
-                            return Some(NautilusWsMessage::Data(NautilusDataWsMessage::Deltas(
-                                deltas,
-                            )));
+                            return Some(NautilusWsMessage::Data(
+                                NautilusDataWsMessage::DepthUpdate {
+                                    deltas,
+                                    first_update_id: msg.first_update_id,
+                                    prev_final_update_id: msg.prev_final_update_id,
+                                },
+                            ));
                         }
                         Err(e) => {
                             log::warn!("Failed to parse depth update: {e}");
@@ -410,7 +414,9 @@ impl BinanceFuturesDataWsFeedHandler {
                 if let Ok(msg) = serde_json::from_value::<BinanceFuturesMarkPriceMsg>(json.clone())
                 {
                     match parse_mark_price(&msg, instrument, ts_init) {
-                        Ok((mark_update, index_update)) => {
+                        Ok((mark_update, index_update, _funding_update)) => {
+                            // Note: FundingRateUpdate is not a variant of Data enum
+                            // Funding rates need custom data handling (like Python adapter)
                             return Some(NautilusWsMessage::Data(NautilusDataWsMessage::Data(
                                 vec![
                                     Data::MarkPriceUpdate(mark_update),

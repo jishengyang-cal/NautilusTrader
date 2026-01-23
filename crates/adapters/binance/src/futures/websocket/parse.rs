@@ -18,8 +18,8 @@
 use nautilus_core::nanos::UnixNanos;
 use nautilus_model::{
     data::{
-        Bar, BarSpecification, BarType, BookOrder, IndexPriceUpdate, MarkPriceUpdate,
-        OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick,
+        Bar, BarSpecification, BarType, BookOrder, FundingRateUpdate, IndexPriceUpdate,
+        MarkPriceUpdate, OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick,
     },
     enums::{
         AggregationSource, AggressorSide, BarAggregation, BookAction, OrderSide, PriceType,
@@ -29,6 +29,7 @@ use nautilus_model::{
     instruments::{Instrument, InstrumentAny},
     types::{Price, Quantity},
 };
+use rust_decimal::{Decimal, prelude::FromPrimitive};
 use ustr::Ustr;
 
 use super::{
@@ -263,7 +264,7 @@ pub fn parse_depth_update(
     Ok(OrderBookDeltas::new(instrument_id, deltas))
 }
 
-/// Parses a mark price message into `MarkPriceUpdate` and `IndexPriceUpdate`.
+/// Parses a mark price message into `MarkPriceUpdate`, `IndexPriceUpdate`, and `FundingRateUpdate`.
 ///
 /// # Errors
 ///
@@ -272,7 +273,7 @@ pub fn parse_mark_price(
     msg: &BinanceFuturesMarkPriceMsg,
     instrument: &InstrumentAny,
     ts_init: UnixNanos,
-) -> BinanceWsResult<(MarkPriceUpdate, IndexPriceUpdate)> {
+) -> BinanceWsResult<(MarkPriceUpdate, IndexPriceUpdate, FundingRateUpdate)> {
     let instrument_id = instrument.id();
     let price_precision = instrument.price_precision();
 
@@ -284,8 +285,17 @@ pub fn parse_mark_price(
         .index_price
         .parse::<f64>()
         .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
+    let funding_rate = msg
+        .funding_rate
+        .parse::<f64>()
+        .map_err(|e| BinanceWsError::ParseError(e.to_string()))?;
 
     let ts_event = UnixNanos::from(msg.event_time as u64 * 1_000_000); // ms to ns
+    let next_funding_ns = if msg.next_funding_time > 0 {
+        Some(UnixNanos::from(msg.next_funding_time as u64 * 1_000_000))
+    } else {
+        None
+    };
 
     let mark_update = MarkPriceUpdate::new(
         instrument_id,
@@ -301,7 +311,15 @@ pub fn parse_mark_price(
         ts_init,
     );
 
-    Ok((mark_update, index_update))
+    let funding_update = FundingRateUpdate::new(
+        instrument_id,
+        Decimal::from_f64(funding_rate).unwrap_or_default(),
+        next_funding_ns,
+        ts_event,
+        ts_init,
+    );
+
+    Ok((mark_update, index_update, funding_update))
 }
 
 /// Converts a Binance kline interval to a Nautilus `BarSpecification`.
