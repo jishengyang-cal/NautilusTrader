@@ -65,7 +65,7 @@ Released on TBD (UTC).
 - Fixed Interactive Brokers venue determination when primaryExchange is empty (#3452), thanks @shzhng
 - Fixed Interactive Brokers option symbol parsing to preserve OCC format with space padding (#3452), thanks @shzhng
 - Fixed Interactive Brokers minor bugs with options (#3452), thanks @shzhng
-- Fixed Interactive Brokers partial fill state transition errors where openOrder callbacks after fills caused invalid PARTIALLY_FILLED -> ACCEPTED transitions, thanks @shzhng
+- Fixed Interactive Brokers partial fill state transition errors where `openOrder` callbacks after fills caused invalid `PARTIALLY_FILLED` -> `ACCEPTED` transitions, thanks @shzhng
 - Fixed Interactive Brokers OrderStatusReport filled_qty always being 0 for open orders causing reconciliation errors, thanks @shzhng
 - Fixed Kraken spot instrument fee/margin parsing where parameters were incorrectly swapped
 - Fixed Polymarket order state race condition where `PLACEMENT` events could arrive late
@@ -94,6 +94,7 @@ Released on TBD (UTC).
 - Improved checks before writing data in catalog._write_chunk (#3411), thanks @faysou
 - Improved `OptionExerciseModule` logging and fix cache reference (#3388), thanks @davidsblom
 - Improved execution reports builder pattern in Rust (#3417), thanks @filipmacek
+- Improved visualization to use fill report for create_bars_with_fills (#3466), thanks @faysou
 - Refined closing of streaming writer (#3394), thanks @faysou
 - Refined handling of `skip_first_non_full_bar` in `TimeBarAggregator` (#3395), thanks @faysou
 - Refined greeks safeguards and docs (#3407), thanks @faysou

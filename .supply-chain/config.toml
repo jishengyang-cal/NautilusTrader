@@ -135,7 +135,7 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-chains]]
-version = "0.2.29"
+version = "0.2.30"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-consensus]]
@@ -171,7 +171,7 @@ version = "0.6.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-eip7928]]
-version = "0.3.0"
+version = "0.3.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-eips]]
@@ -443,11 +443,11 @@ version = "1.3.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.aws-lc-rs]]
-version = "1.15.3"
+version = "1.15.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.aws-lc-sys]]
-version = "0.36.0"
+version = "0.37.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.axum]]
@@ -575,7 +575,7 @@ version = "0.29.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
-version = "1.2.53"
+version = "1.2.54"
 criteria = "safe-to-deploy"
 
 [[exemptions.cesu8]]
@@ -807,7 +807,7 @@ version = "52.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog-listing]]
@@ -815,15 +815,15 @@ version = "52.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-common]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-common-runtime]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-arrow]]
@@ -831,99 +831,99 @@ version = "52.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-csv]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-json]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-parquet]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-doc]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-execution]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-expr]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-expr-common]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-aggregate]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-aggregate-common]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-nested]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-table]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-window]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-window-common]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-macros]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-optimizer]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr-adapter]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr-common]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-optimizer]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-plan]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-pruning]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-session]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-sql]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn]]
@@ -1843,7 +1843,7 @@ version = "0.11.13"
 criteria = "safe-to-deploy"
 
 [[exemptions.quote]]
-version = "1.0.43"
+version = "1.0.44"
 criteria = "safe-to-deploy"
 
 [[exemptions.r-efi]]
@@ -2199,7 +2199,7 @@ version = "0.5.10"
 criteria = "safe-to-deploy"
 
 [[exemptions.socket2]]
-version = "0.6.1"
+version = "0.6.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.spin]]

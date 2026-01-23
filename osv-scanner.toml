@@ -76,3 +76,7 @@ reason = "lru unsound IterMut, transitive via alloy-provider, awaiting alloy upd
 [[IgnoredVulns]]
 id = "GHSA-rhfx-m35p-ff5j"
 reason = "lru unsound IterMut (alias of RUSTSEC-2026-0002), transitive via alloy-provider"
+
+[[IgnoredVulns]]
+id = "GHSA-7gcm-g887-7qv7"
+reason = "protobuf JSON recursion DoS, no fix available yet, low risk for internal use (we don't parse untrusted JSON with protobuf)"
