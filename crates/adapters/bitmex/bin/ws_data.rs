@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Give the connection a moment to stabilize
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let instrument_id = InstrumentId::from(format!("{symbol}.BITMEX").as_str());
+    let instrument_id = InstrumentId::from(format!("{symbol}.BITMEX"));
     log::info!("Using instrument_id: {instrument_id}");
 
     match subscription_type {

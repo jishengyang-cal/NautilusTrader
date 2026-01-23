@@ -625,22 +625,21 @@ impl FromStr for Quantity {
     }
 }
 
-// Note: we can't implement `AsRef<str>` due overlapping traits (maybe there is a way)
 impl From<&str> for Quantity {
     fn from(value: &str) -> Self {
-        Self::from_str(value).expect("Valid string input for `Quantity`")
+        Self::from_str(value).expect(FAILED)
     }
 }
 
 impl From<String> for Quantity {
     fn from(value: String) -> Self {
-        Self::from_str(&value).expect("Valid string input for `Quantity`")
+        Self::from_str(&value).expect(FAILED)
     }
 }
 
 impl From<&String> for Quantity {
     fn from(value: &String) -> Self {
-        Self::from_str(value).expect("Valid string input for `Quantity`")
+        Self::from_str(value).expect(FAILED)
     }
 }
 

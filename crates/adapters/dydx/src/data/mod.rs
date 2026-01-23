@@ -7490,7 +7490,7 @@ mod tests {
 
         for i in 0..100 {
             let symbol = format!("INSTRUMENT-{i}");
-            let instrument_id = InstrumentId::from(format!("{symbol}-PERP.DYDX").as_str());
+            let instrument_id = InstrumentId::from(format!("{symbol}-PERP.DYDX"));
             client.order_books.insert(
                 instrument_id,
                 OrderBook::new(instrument_id, BookType::L2_MBP),

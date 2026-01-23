@@ -1766,7 +1766,7 @@ impl BinanceFuturesHttpClient {
             let order_instrument_id = instrument_id.unwrap_or_else(|| {
                 // Build instrument ID from order symbol
                 let suffix = self.product_type.suffix();
-                InstrumentId::from(format!("{}{}.BINANCE", order.symbol, suffix).as_str())
+                InstrumentId::from(format!("{}{}.BINANCE", order.symbol, suffix))
             });
 
             let size_precision = self.get_size_precision(&order.symbol).unwrap_or(8); // Default precision if not in cache
