@@ -373,6 +373,28 @@ class TestQuantity:
         with pytest.raises(ValueError, match="negative"):
             _ = qty1 - qty2
 
+    def test_saturating_sub_returns_zero_when_result_would_be_negative(self):
+        # Arrange
+        qty1 = Quantity(1.0, 1)
+        qty2 = Quantity(2.0, 1)
+
+        # Act
+        result = qty1.saturating_sub(qty2)
+
+        # Assert
+        assert result == Quantity.zero(1)
+
+    def test_saturating_sub_returns_difference_when_result_is_positive(self):
+        # Arrange
+        qty1 = Quantity(5.0, 1)
+        qty2 = Quantity(2.0, 1)
+
+        # Act
+        result = qty1.saturating_sub(qty2)
+
+        # Assert
+        assert result == Quantity(3.0, 1)
+
     @pytest.mark.parametrize(
         ("value1", "value2", "expected_type", "expected_value"),
         [

@@ -336,7 +336,7 @@ cdef class Quantity:
         cdef uint8_t precision = max(self._mem.precision, other._mem.precision)
         return Quantity.from_raw_c(self._mem.raw - other._mem.raw, precision)
 
-    cdef Quantity saturating_sub(self, Quantity other):
+    cpdef Quantity saturating_sub(self, Quantity other):
         return Quantity.from_mem_c(quantity_saturating_sub(self._mem, other._mem))
 
     cdef QuantityRaw raw_uint_c(self):

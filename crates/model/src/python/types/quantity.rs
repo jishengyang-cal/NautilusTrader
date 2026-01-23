@@ -388,4 +388,9 @@ impl Quantity {
     fn py_to_formatted_str(&self) -> String {
         self.to_formatted_string()
     }
+
+    #[pyo3(name = "saturating_sub")]
+    fn py_saturating_sub(&self, other: Self) -> Self {
+        self.saturating_sub(other)
+    }
 }

@@ -45,7 +45,7 @@ cdef class Quantity:
 
     cdef Quantity add(self, Quantity other)
     cdef Quantity sub(self, Quantity other)
-    cdef Quantity saturating_sub(self, Quantity other)
+    cpdef Quantity saturating_sub(self, Quantity other)
 
     @staticmethod
     cdef object _extract_decimal(object obj)
