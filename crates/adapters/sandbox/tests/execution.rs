@@ -435,7 +435,7 @@ fn test_process_bar_disabled(test_context: TestContext, instrument: InstrumentAn
         .unwrap();
 
     // Config has bar_execution = false, so this should be a no-op
-    let bar_type = BarType::from(format!("{}-1-MINUTE-LAST-INTERNAL", instrument.id()).as_str());
+    let bar_type = BarType::from(format!("{}-1-MINUTE-LAST-INTERNAL", instrument.id()));
     let bar = Bar::new(
         bar_type,
         Price::from("1000.0"),
