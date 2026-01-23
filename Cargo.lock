@@ -5683,6 +5683,7 @@ dependencies = [
  "nautilus-network",
  "nautilus-okx",
  "nautilus-persistence",
+ "nautilus-sandbox",
  "nautilus-serialization",
  "nautilus-tardis",
  "nautilus-testkit",
@@ -5705,6 +5706,33 @@ dependencies = [
  "rstest",
  "rust_decimal",
  "rust_decimal_macros",
+ "ustr",
+]
+
+[[package]]
+name = "nautilus-sandbox"
+version = "0.53.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "async-trait",
+ "derive_builder",
+ "dotenvy",
+ "log",
+ "nautilus-common",
+ "nautilus-core",
+ "nautilus-databento",
+ "nautilus-execution",
+ "nautilus-live",
+ "nautilus-model",
+ "nautilus-system",
+ "nautilus-testkit",
+ "pyo3",
+ "rstest",
+ "rust_decimal",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
  "ustr",
 ]
 

@@ -868,6 +868,8 @@ impl DataEngine {
     // -- DATA HANDLERS ---------------------------------------------------------------------------
 
     fn handle_instrument(&mut self, instrument: InstrumentAny) {
+        log::info!("Handling instrument: {}", instrument.id());
+
         if let Err(e) = self
             .cache
             .as_ref()
@@ -878,6 +880,7 @@ impl DataEngine {
         }
 
         let topic = switchboard::get_instrument_topic(instrument.id());
+        log::debug!("Publishing instrument to topic: {topic}");
         msgbus::publish_any(topic, &instrument);
     }
 
