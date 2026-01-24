@@ -486,11 +486,11 @@ impl DataClient for BitmexDataClient {
                     BitmexBookChannel::OrderBookL2 => ws
                         .subscribe_book(instrument_id)
                         .await
-                        .map_err(|err| anyhow::anyhow!(err))?,
+                        .map_err(|e| anyhow::anyhow!(e))?,
                     BitmexBookChannel::OrderBookL2_25 => ws
                         .subscribe_book_25(instrument_id)
                         .await
-                        .map_err(|err| anyhow::anyhow!(err))?,
+                        .map_err(|e| anyhow::anyhow!(e))?,
                     BitmexBookChannel::OrderBook10 => unreachable!(),
                 }
                 book_channels
@@ -514,7 +514,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.subscribe_book_depth10(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))?;
+                    .map_err(|e| anyhow::anyhow!(e))?;
                 book_channels
                     .write()
                     .expect("book channel cache lock poisoned")
@@ -534,7 +534,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.subscribe_quotes(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX quote subscription",
         );
@@ -549,7 +549,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.subscribe_trades(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX trade subscription",
         );
@@ -564,7 +564,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.subscribe_mark_prices(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX mark price subscription",
         );
@@ -579,7 +579,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.subscribe_index_prices(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX index price subscription",
         );
@@ -594,7 +594,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.subscribe_funding_rates(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX funding rate subscription",
         );
@@ -609,7 +609,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.subscribe_bars(bar_type)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX bar subscription",
         );
@@ -632,15 +632,15 @@ impl DataClient for BitmexDataClient {
                     Some(BitmexBookChannel::OrderBookL2) => ws
                         .unsubscribe_book(instrument_id)
                         .await
-                        .map_err(|err| anyhow::anyhow!(err))?,
+                        .map_err(|e| anyhow::anyhow!(e))?,
                     Some(BitmexBookChannel::OrderBookL2_25) => ws
                         .unsubscribe_book_25(instrument_id)
                         .await
-                        .map_err(|err| anyhow::anyhow!(err))?,
+                        .map_err(|e| anyhow::anyhow!(e))?,
                     Some(BitmexBookChannel::OrderBook10) | None => ws
                         .unsubscribe_book(instrument_id)
                         .await
-                        .map_err(|err| anyhow::anyhow!(err))?,
+                        .map_err(|e| anyhow::anyhow!(e))?,
                 }
                 Ok(())
             },
@@ -662,7 +662,7 @@ impl DataClient for BitmexDataClient {
                     .remove(&instrument_id);
                 ws.unsubscribe_book_depth10(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX book depth10 unsubscribe",
         );
@@ -677,7 +677,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.unsubscribe_quotes(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX quote unsubscribe",
         );
@@ -692,7 +692,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.unsubscribe_trades(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX trade unsubscribe",
         );
@@ -707,7 +707,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.unsubscribe_mark_prices(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX mark price unsubscribe",
         );
@@ -722,7 +722,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.unsubscribe_index_prices(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX index price unsubscribe",
         );
@@ -737,7 +737,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.unsubscribe_funding_rates(instrument_id)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX funding rate unsubscribe",
         );
@@ -752,7 +752,7 @@ impl DataClient for BitmexDataClient {
             async move {
                 ws.unsubscribe_bars(bar_type)
                     .await
-                    .map_err(|err| anyhow::anyhow!(err))
+                    .map_err(|e| anyhow::anyhow!(e))
             },
             "BitMEX bar unsubscribe",
         );

@@ -926,18 +926,16 @@ pub(crate) fn parse_quantity_with_precision(
 }
 
 pub(crate) fn parse_price(value: &str, field: &str) -> anyhow::Result<Price> {
-    Price::from_str(value)
-        .map_err(|err| anyhow::anyhow!("Failed to parse {field}='{value}': {err}"))
+    Price::from_str(value).map_err(|e| anyhow::anyhow!("Failed to parse {field}='{value}': {e}"))
 }
 
 pub(crate) fn parse_quantity(value: &str, field: &str) -> anyhow::Result<Quantity> {
-    Quantity::from_str(value)
-        .map_err(|err| anyhow::anyhow!("Failed to parse {field}='{value}': {err}"))
+    Quantity::from_str(value).map_err(|e| anyhow::anyhow!("Failed to parse {field}='{value}': {e}"))
 }
 
 pub(crate) fn parse_decimal(value: &str, field: &str) -> anyhow::Result<Decimal> {
     Decimal::from_str(value)
-        .map_err(|err| anyhow::anyhow!("Failed to parse {field}='{value}' as Decimal: {err}"))
+        .map_err(|e| anyhow::anyhow!("Failed to parse {field}='{value}' as Decimal: {e}"))
 }
 
 pub(crate) fn parse_millis_timestamp(value: &str, field: &str) -> anyhow::Result<UnixNanos> {

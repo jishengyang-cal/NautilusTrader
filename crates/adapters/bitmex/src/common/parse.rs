@@ -197,9 +197,9 @@ pub fn parse_fractional_quantity(value: f64, instrument: &InstrumentAny) -> Quan
         return instrument.make_qty(0.0, None);
     }
 
-    instrument.try_make_qty(value, None).unwrap_or_else(|err| {
+    instrument.try_make_qty(value, None).unwrap_or_else(|e| {
         log::warn!(
-            "Failed to convert fractional quantity {value} with precision {}: {err}",
+            "Failed to convert fractional quantity {value} with precision {}: {e}",
             instrument.size_precision(),
         );
         instrument.make_qty(0.0, None)

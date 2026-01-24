@@ -286,7 +286,7 @@ fn test_process_mint_with_fail_if_pool_not_initialized() {
 fn test_if_pool_process_fails_if_tick_lower_is_greater_than_tick_upper(mut profiler: PoolProfiler) {
     let mint_event = create_mint_event(lp_address(), 2, 1, 1);
     let result = profiler.process(&DexPoolData::LiquidityUpdate(mint_event));
-    assert!(result.is_err_and(|error| error.to_string() == "Invalid tick range: 2 >= 1"));
+    assert!(result.is_err_and(|e| e.to_string() == "Invalid tick range: 2 >= 1"));
 }
 
 #[rstest]
