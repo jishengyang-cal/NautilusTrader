@@ -6458,7 +6458,7 @@ fn test_get_all_crossed_levels(
     assert_eq!(
         levels.len(),
         expected.len(),
-        "Expected {} levels, got {}",
+        "Expected {} levels, was {}",
         expected.len(),
         levels.len()
     );

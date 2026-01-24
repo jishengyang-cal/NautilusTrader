@@ -1155,7 +1155,7 @@ mod tests {
         let ts_init = UnixNanos::from(1u64);
         let instrument_any = match parse_instrument_any(&instrument, ts_init) {
             InstrumentParseResult::Ok(inst) => inst,
-            other => panic!("Expected Ok, got {other:?}"),
+            other => panic!("Expected Ok, was {other:?}"),
         };
 
         let spec = BarSpecification::new(1, BarAggregation::Minute, PriceType::Last);
@@ -1184,7 +1184,7 @@ mod tests {
         let ts_init = UnixNanos::from(1u64);
         let instrument_any = match parse_instrument_any(&instrument, ts_init) {
             InstrumentParseResult::Ok(inst) => inst,
-            other => panic!("Expected Ok, got {other:?}"),
+            other => panic!("Expected Ok, was {other:?}"),
         };
 
         let spec = BarSpecification::new(1, BarAggregation::Minute, PriceType::Last);

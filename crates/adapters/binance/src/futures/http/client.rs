@@ -1013,7 +1013,7 @@ impl BinanceFuturesHttpClient {
             BinanceProductType::UsdM | BinanceProductType::CoinM => {}
             _ => {
                 return Err(BinanceFuturesHttpError::ValidationError(format!(
-                    "BinanceFuturesHttpClient requires UsdM or CoinM product type, got {product_type:?}"
+                    "BinanceFuturesHttpClient requires UsdM or CoinM product type, was {product_type:?}"
                 )));
             }
         }
@@ -2038,7 +2038,7 @@ mod tests {
                 assert_eq!(code, -1121);
                 assert_eq!(message, "Invalid symbol.");
             }
-            other => panic!("Expected BinanceError, got {other:?}"),
+            other => panic!("Expected BinanceError, was {other:?}"),
         }
     }
 }

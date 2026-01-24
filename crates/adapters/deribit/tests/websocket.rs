@@ -1362,7 +1362,7 @@ async fn test_authentication_session_scope() {
     assert_eq!(scopes.len(), 1);
     assert!(
         scopes[0].starts_with("session:"),
-        "expected session scope, got: {}",
+        "expected session scope, was: {}",
         scopes[0]
     );
 

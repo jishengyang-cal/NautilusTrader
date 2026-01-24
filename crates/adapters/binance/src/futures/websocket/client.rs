@@ -121,7 +121,7 @@ impl BinanceFuturesWebSocketClient {
             BinanceProductType::UsdM | BinanceProductType::CoinM => {}
             _ => {
                 anyhow::bail!(
-                    "BinanceFuturesWebSocketClient requires UsdM or CoinM product type, got {product_type:?}"
+                    "BinanceFuturesWebSocketClient requires UsdM or CoinM product type, was {product_type:?}"
                 );
             }
         }

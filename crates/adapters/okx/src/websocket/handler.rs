@@ -3009,7 +3009,7 @@ mod tests {
                     // Candle channel variant is Candle1Day for "candle1D"
                     assert!(
                         matches!(arg.channel, OKXWsChannel::Candle1Day),
-                        "Expected Candle1Day channel, got {:?}",
+                        "Expected Candle1Day channel, was {:?}",
                         arg.channel
                     );
                     assert_eq!(arg.inst_id, Some(Ustr::from("BTC-USDT")));
@@ -3072,7 +3072,7 @@ mod tests {
                 NautilusWsMessage::Data(payloads) => {
                     assert!(!payloads.is_empty(), "Should produce data payloads");
                 }
-                other => panic!("Expected NautilusWsMessage::Data, got {other:?}"),
+                other => panic!("Expected NautilusWsMessage::Data, was {other:?}"),
             }
         }
 
@@ -3121,7 +3121,7 @@ mod tests {
                 NautilusWsMessage::Data(payloads) => {
                     assert!(!payloads.is_empty(), "Should produce trade data payloads");
                 }
-                other => panic!("Expected NautilusWsMessage::Data, got {other:?}"),
+                other => panic!("Expected NautilusWsMessage::Data, was {other:?}"),
             }
         }
 
@@ -3143,7 +3143,7 @@ mod tests {
                 NautilusWsMessage::Data(payloads) => {
                     assert!(!payloads.is_empty(), "Should produce order book payloads");
                 }
-                other => panic!("Expected NautilusWsMessage::Data, got {other:?}"),
+                other => panic!("Expected NautilusWsMessage::Data, was {other:?}"),
             }
         }
 
@@ -3168,7 +3168,7 @@ mod tests {
                         "Should produce order book delta payloads"
                     );
                 }
-                other => panic!("Expected NautilusWsMessage::Data, got {other:?}"),
+                other => panic!("Expected NautilusWsMessage::Data, was {other:?}"),
             }
         }
 
@@ -3190,7 +3190,7 @@ mod tests {
                 NautilusWsMessage::Data(payloads) => {
                     assert!(!payloads.is_empty(), "Should produce bar data payloads");
                 }
-                other => panic!("Expected NautilusWsMessage::Data, got {other:?}"),
+                other => panic!("Expected NautilusWsMessage::Data, was {other:?}"),
             }
         }
 
@@ -3232,7 +3232,7 @@ mod tests {
                         "Should have balance data"
                     );
                 }
-                other => panic!("Expected NautilusWsMessage::AccountUpdate, got {other:?}"),
+                other => panic!("Expected NautilusWsMessage::AccountUpdate, was {other:?}"),
             }
         }
 

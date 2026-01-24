@@ -1922,7 +1922,7 @@ mod rust_tests {
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("suffix cannot be empty"),
-            "Error should mention empty suffix, got: {err_msg}"
+            "Error should mention empty suffix, was: {err_msg}"
         );
     }
 }

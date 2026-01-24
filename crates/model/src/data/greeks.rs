@@ -739,7 +739,7 @@ mod tests {
 
         assert!(
             greeks.price > 0.0,
-            "Put option price should be positive, got: {}",
+            "Put option price should be positive, was: {}",
             greeks.price
         );
         assert!(greeks.delta < 0.0 && greeks.delta > -1.0);

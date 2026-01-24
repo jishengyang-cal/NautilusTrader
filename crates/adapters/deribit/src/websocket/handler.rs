@@ -1471,7 +1471,7 @@ impl DeribitWsFeedHandler {
                                     && prev_id != last_id
                                 {
                                     log::warn!(
-                                        "Book sequence gap for {}: expected prev_change_id={}, got {}",
+                                        "Book sequence gap for {}: expected prev_change_id={}, was {}",
                                         book_msg.instrument_name,
                                         last_id,
                                         prev_id

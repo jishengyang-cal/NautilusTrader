@@ -750,7 +750,7 @@ async fn test_ping_pong() {
     let pong_count = state.pong_count.load(Ordering::Relaxed);
     assert!(
         pong_count >= 1,
-        "Expected at least 1 completed ping/pong cycle within 3s, got {pong_count}"
+        "Expected at least 1 completed ping/pong cycle within 3s, was {pong_count}"
     );
 
     client.disconnect().await.unwrap();
@@ -951,7 +951,7 @@ async fn test_multiple_subscription_failures() {
     let failures: Vec<_> = events.iter().filter(|(_, success)| !*success).collect();
     assert!(
         failures.len() >= 2,
-        "Should have at least 2 failed subscriptions, got {}",
+        "Should have at least 2 failed subscriptions, was {}",
         failures.len()
     );
 
@@ -1115,7 +1115,7 @@ async fn test_sends_pong_for_control_ping() {
     let pong_count = state.pong_count.load(Ordering::Relaxed);
     assert!(
         pong_count >= 1,
-        "Expected at least 1 completed ping/pong cycle within 3s, got {pong_count}"
+        "Expected at least 1 completed ping/pong cycle within 3s, was {pong_count}"
     );
 
     client.disconnect().await.unwrap();
@@ -1997,7 +1997,7 @@ async fn test_heartbeat_keeps_connection_alive() {
     let pong_count = state.pong_count.load(Ordering::Relaxed);
     assert!(
         pong_count >= 1,
-        "Expected at least 1 completed heartbeat cycle within 5s (heartbeat_interval=1s), got {pong_count}"
+        "Expected at least 1 completed heartbeat cycle within 5s (heartbeat_interval=1s), was {pong_count}"
     );
     assert!(
         client.is_connected(),

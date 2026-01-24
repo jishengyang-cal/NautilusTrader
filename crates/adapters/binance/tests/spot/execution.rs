@@ -774,7 +774,7 @@ async fn test_cancel_all_orders_generates_canceled_events() {
 
     assert!(
         canceled_count >= 1,
-        "Expected at least one OrderCanceled event, got {canceled_count}"
+        "Expected at least one OrderCanceled event, was {canceled_count}"
     );
 }
 

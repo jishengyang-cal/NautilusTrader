@@ -2413,7 +2413,7 @@ class TestPolymarketExecutionClient:
 
         # Assert - Both orders should have generated fills with proper attribution
         fill_calls = filled_spy.call_args_list
-        assert len(fill_calls) == 2, f"Expected 2 fills, got {len(fill_calls)}"
+        assert len(fill_calls) == 2, f"Expected 2 fills, was {len(fill_calls)}"
 
         # Verify both fills have strategy_id (proper attribution, not fill reports)
         for call in fill_calls:

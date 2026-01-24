@@ -922,7 +922,7 @@ async def test_targeted_query_limiting_with_retry_accumulation(
     # Check that the remaining 7 orders have retry count incremented
     for order in orders:
         if order.status == OrderStatus.ACCEPTED:
-            # These hit the limit, got retries incremented but not queried
+            # These hit the limit (retries incremented but not queried)
             assert exec_engine._recon_check_retries.get(order.client_order_id, 0) == 6
 
     # Cycle 7: 3 more get queried (total 6 resolved), remaining 4 at retry 7

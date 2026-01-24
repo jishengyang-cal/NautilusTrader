@@ -988,14 +988,14 @@ impl DataClient for DydxDataClient {
         // Validate bar type requirements
         if bar_type.aggregation_source() != AggregationSource::External {
             anyhow::bail!(
-                "dYdX only supports EXTERNAL aggregation, got {:?}",
+                "dYdX only supports EXTERNAL aggregation, was {:?}",
                 bar_type.aggregation_source()
             );
         }
 
         if spec.price_type != PriceType::Last {
             anyhow::bail!(
-                "dYdX only supports LAST price type, got {:?}",
+                "dYdX only supports LAST price type, was {:?}",
                 spec.price_type
             );
         }

@@ -72,7 +72,7 @@ impl Wallet {
         let word_count = mnemonic.split_whitespace().count();
         let mnemonic_obj = Mnemonic::new(mnemonic, Language::English).with_context(|| {
             format!(
-                "Invalid BIP-39 mnemonic: expected 12, 15, 18, 21, or 24 words, got {word_count}. \
+                "Invalid BIP-39 mnemonic: expected 12, 15, 18, 21, or 24 words, was {word_count}. \
                  Ensure words are space-separated and from the BIP-39 English wordlist"
             )
         })?;

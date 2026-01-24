@@ -1292,7 +1292,7 @@ impl ExecTester {
 
         if self.config.bracket_entry_order_type != OrderType::Limit {
             anyhow::bail!(
-                "Only Limit entry orders are supported for brackets, got {:?}",
+                "Only Limit entry orders are supported for brackets, was {:?}",
                 self.config.bracket_entry_order_type
             );
         }

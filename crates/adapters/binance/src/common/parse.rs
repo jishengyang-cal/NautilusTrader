@@ -1017,7 +1017,7 @@ mod tests {
                 assert_eq!(perp.price_increment, Price::from_str("0.10").unwrap());
                 assert_eq!(perp.size_increment, Quantity::from_str("0.001").unwrap());
             }
-            other => panic!("Expected CryptoPerpetual, got {other:?}"),
+            other => panic!("Expected CryptoPerpetual, was {other:?}"),
         }
     }
 

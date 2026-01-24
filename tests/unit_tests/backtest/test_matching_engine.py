@@ -934,7 +934,7 @@ class TestOrderMatchingEngine:
             "BUY LIMIT at 211.32 should fill on SELLER trade at 211.32 with L2_MBP"
         )
         assert filled_events[0].ts_event == trade_ts, (
-            f"Fill should occur at trade timestamp {trade_ts}, got {filled_events[0].ts_event}"
+            f"Fill should occur at trade timestamp {trade_ts}, was {filled_events[0].ts_event}"
         )
 
     def test_trade_execution_complete_fill_when_trade_exceeds_order(self) -> None:
@@ -1000,7 +1000,7 @@ class TestOrderMatchingEngine:
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1
         assert filled_events[0].last_qty == self.instrument.make_qty(50.0), (
-            f"Fill qty should be capped at order size 50, got {filled_events[0].last_qty}"
+            f"Fill qty should be capped at order size 50, was {filled_events[0].last_qty}"
         )
 
     def test_modify_partially_filled_order_quantity_below_filled_rejected(self) -> None:
@@ -1069,7 +1069,7 @@ class TestOrderMatchingEngine:
         # Assert - Should receive OrderModifyRejected
         rejected_events = [m for m in messages if isinstance(m, OrderModifyRejected)]
         assert len(rejected_events) == 1, (
-            f"Expected OrderModifyRejected, got {[type(m).__name__ for m in messages]}"
+            f"Expected OrderModifyRejected, was {[type(m).__name__ for m in messages]}"
         )
         assert "below filled quantity" in rejected_events[0].reason
 
@@ -1159,9 +1159,9 @@ class TestOrderMatchingEngine:
 
         # Assert
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
-        assert len(filled_events) == 1, f"Expected 1 fill, got {len(filled_events)}"
+        assert len(filled_events) == 1, f"Expected 1 fill, was {len(filled_events)}"
         assert filled_events[0].last_qty == self.instrument.make_qty(10.0), (
-            f"First fill should be 10, got {filled_events[0].last_qty}"
+            f"First fill should be 10, was {filled_events[0].last_qty}"
         )
         messages.clear()
 
@@ -1185,10 +1185,10 @@ class TestOrderMatchingEngine:
         # Assert - fills against current book liquidity (50)
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1, (
-            f"Expected 1 fill event after second delta, got {len(filled_events)}"
+            f"Expected 1 fill event after second delta, was {len(filled_events)}"
         )
         assert filled_events[0].last_qty == self.instrument.make_qty(50.0), (
-            f"Second fill should be 50 (current book liquidity), got {filled_events[0].last_qty}"
+            f"Second fill should be 50 (current book liquidity), was {filled_events[0].last_qty}"
         )
 
     def test_new_liquidity_at_better_price_fills(self) -> None:
@@ -1263,7 +1263,7 @@ class TestOrderMatchingEngine:
 
         # Assert
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
-        assert len(filled_events) == 1, f"Expected 1 fill, got {len(filled_events)}"
+        assert len(filled_events) == 1, f"Expected 1 fill, was {len(filled_events)}"
         assert filled_events[0].last_qty == self.instrument.make_qty(10.0)
         messages.clear()
 
@@ -3190,7 +3190,7 @@ class TestOrderMatchingEngine:
         # Assert
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 2, (
-            f"Expected 2 fills for {order_side.name} orders, got {len(filled_events)}"
+            f"Expected 2 fills for {order_side.name} orders, was {len(filled_events)}"
         )
         assert filled_events[0].last_qty == Quantity.from_str("30.000")
         assert filled_events[1].last_qty == Quantity.from_str("20.000")
@@ -3272,7 +3272,7 @@ class TestOrderMatchingEngine:
 
         # Assert: Orders fill in order, consuming 30 + 30 + 10 = 70
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
-        assert len(filled_events) == 3, f"Expected 3 fills, got {len(filled_events)}"
+        assert len(filled_events) == 3, f"Expected 3 fills, was {len(filled_events)}"
         assert filled_events[0].last_qty == Quantity.from_str("30.000")
         assert filled_events[1].last_qty == Quantity.from_str("30.000")
         assert filled_events[2].last_qty == Quantity.from_str("10.000")
@@ -3333,7 +3333,7 @@ class TestOrderMatchingEngine:
 
         # Assert: Only 2 orders fill (20 + 20 = 40), third order gets nothing
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
-        assert len(filled_events) == 2, f"Expected 2 fills, got {len(filled_events)}"
+        assert len(filled_events) == 2, f"Expected 2 fills, was {len(filled_events)}"
         assert filled_events[0].last_qty == Quantity.from_str("20.000")
         assert filled_events[1].last_qty == Quantity.from_str("20.000")
 
@@ -3390,7 +3390,7 @@ class TestOrderMatchingEngine:
 
         # Assert: Fill is limited to trade size (30) not order size (100)
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
-        assert len(filled_events) == 1, f"Expected 1 fill, got {len(filled_events)}"
+        assert len(filled_events) == 1, f"Expected 1 fill, was {len(filled_events)}"
         assert filled_events[0].last_qty == Quantity.from_str("30.000")
 
     def test_stop_market_fills_on_seller_trade_tick(self) -> None:
@@ -3453,7 +3453,7 @@ class TestOrderMatchingEngine:
 
         # Assert: stop-market fills directly (no OrderTriggered event)
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
-        assert len(filled_events) == 1, f"Stop should fill, got {len(filled_events)} fills"
+        assert len(filled_events) == 1, f"Stop should fill, was {len(filled_events)} fills"
 
 
 def _create_bar_execution_matching_engine() -> OrderMatchingEngine:
@@ -3685,9 +3685,9 @@ def test_modify_partially_filled_limit_order_crosses_new_book_level(
 
     # Verify partial fill occurred
     filled_events = [e for e in events if isinstance(e, OrderFilled)]
-    assert len(filled_events) == 1, f"Expected 1 partial fill, got {len(filled_events)}"
+    assert len(filled_events) == 1, f"Expected 1 partial fill, was {len(filled_events)}"
     assert filled_events[0].last_qty == Quantity.from_str("50.000"), (
-        f"Expected partial fill of 50, got {filled_events[0].last_qty}"
+        f"Expected partial fill of 50, was {filled_events[0].last_qty}"
     )
     events.clear()
 
@@ -3713,7 +3713,7 @@ def test_modify_partially_filled_limit_order_crosses_new_book_level(
         f"got events: {[type(e).__name__ for e in events]}"
     )
     assert filled_events[0].last_px == Price.from_str(second_level_price), (
-        f"Fill price should be {second_level_price}, got {filled_events[0].last_px}"
+        f"Fill price should be {second_level_price}, was {filled_events[0].last_px}"
     )
 
 
@@ -3908,7 +3908,7 @@ class TestOrderMatchingEngineLiquidityConsumption:
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
 
         assert len(filled_events) == 1, (
-            f"Stop should fill despite gap, got: {[type(m).__name__ for m in messages]}"
+            f"Stop should fill despite gap, was: {[type(m).__name__ for m in messages]}"
         )
 
     def test_market_if_touched_fills_at_trigger_price(self) -> None:
@@ -3990,11 +3990,11 @@ class TestOrderMatchingEngineLiquidityConsumption:
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
 
         assert len(filled_events) == 1, (
-            f"MIT should fill at trigger price, got: {[type(m).__name__ for m in messages]}"
+            f"MIT should fill at trigger price, was: {[type(m).__name__ for m in messages]}"
         )
         fill_event = filled_events[0]
         assert fill_event.last_px == Price.from_str("95.00"), (
-            f"Expected fill at trigger price 95.00, got {fill_event.last_px}"
+            f"Expected fill at trigger price 95.00, was {fill_event.last_px}"
         )
 
     def test_market_if_touched_sell_fills_at_trigger_price(self) -> None:
@@ -4069,11 +4069,11 @@ class TestOrderMatchingEngineLiquidityConsumption:
         # Assert
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1, (
-            f"MIT should fill at trigger price, got: {[type(m).__name__ for m in messages]}"
+            f"MIT should fill at trigger price, was: {[type(m).__name__ for m in messages]}"
         )
         fill_event = filled_events[0]
         assert fill_event.last_px == Price.from_str("105.00"), (
-            f"Expected fill at trigger price 105.00, got {fill_event.last_px}"
+            f"Expected fill at trigger price 105.00, was {fill_event.last_px}"
         )
 
     def test_market_if_touched_buy_fills_at_trigger_price_with_liquidity_consumption(
@@ -4154,11 +4154,11 @@ class TestOrderMatchingEngineLiquidityConsumption:
         # Assert
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1, (
-            f"MIT should fill with liquidity consumption, got: {[type(m).__name__ for m in messages]}"
+            f"MIT should fill with liquidity consumption, was: {[type(m).__name__ for m in messages]}"
         )
         fill_event = filled_events[0]
         assert fill_event.last_px == Price.from_str("95.00"), (
-            f"Expected fill at trigger price 95.00 with liquidity consumption, got {fill_event.last_px}"
+            f"Expected fill at trigger price 95.00 with liquidity consumption, was {fill_event.last_px}"
         )
 
     def test_market_if_touched_sell_fills_at_trigger_price_with_liquidity_consumption(
@@ -4239,11 +4239,11 @@ class TestOrderMatchingEngineLiquidityConsumption:
         # Assert
         filled_events = [m for m in messages if isinstance(m, OrderFilled)]
         assert len(filled_events) == 1, (
-            f"MIT should fill with liquidity consumption, got: {[type(m).__name__ for m in messages]}"
+            f"MIT should fill with liquidity consumption, was: {[type(m).__name__ for m in messages]}"
         )
         fill_event = filled_events[0]
         assert fill_event.last_px == Price.from_str("105.00"), (
-            f"Expected fill at trigger price 105.00 with liquidity consumption, got {fill_event.last_px}"
+            f"Expected fill at trigger price 105.00 with liquidity consumption, was {fill_event.last_px}"
         )
 
     def test_liquidity_consumption_regression_level_after_delete(self):

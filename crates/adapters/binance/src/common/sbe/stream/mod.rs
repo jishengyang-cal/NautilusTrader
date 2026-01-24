@@ -80,7 +80,7 @@ impl Display for StreamDecodeError {
             Self::BufferTooShort { expected, actual } => {
                 write!(
                     f,
-                    "Buffer too short: expected {expected} bytes, got {actual}"
+                    "Buffer too short: expected {expected} bytes, was {actual}"
                 )
             }
             Self::GroupSizeTooLarge { count, max } => {
@@ -88,7 +88,7 @@ impl Display for StreamDecodeError {
             }
             Self::InvalidUtf8 => write!(f, "Invalid UTF-8 in symbol"),
             Self::SchemaMismatch { expected, actual } => {
-                write!(f, "Schema mismatch: expected {expected}, got {actual}")
+                write!(f, "Schema mismatch: expected {expected}, was {actual}")
             }
             Self::UnknownTemplateId(id) => write!(f, "Unknown template ID: {id}"),
         }

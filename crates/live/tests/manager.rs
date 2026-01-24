@@ -806,7 +806,7 @@ async fn test_external_order_filled_with_partial_fills_generates_inferred() {
         assert_ne!(
             filled2.trade_id.as_str(),
             "T-PARTIAL-001",
-            "Expected inferred trade ID (UUID), got known fill report trade ID"
+            "Expected inferred trade ID (UUID), was known fill report trade ID"
         );
         assert_eq!(filled2.trade_id.as_str().len(), 36);
         assert_eq!(filled2.last_qty, Quantity::from("1.000"));
@@ -908,10 +908,10 @@ async fn test_synthetic_orders_bypass_filter_unclaimed_external() {
         let tags = order.tags().expect("Order should have tags");
         assert!(
             tags.contains(&ustr::Ustr::from("RECONCILIATION")),
-            "Synthetic order should have RECONCILIATION tag, got {tags:?}",
+            "Synthetic order should have RECONCILIATION tag, was {tags:?}",
         );
     } else {
-        panic!("Expected Accepted event first, got {:?}", result.events[0]);
+        panic!("Expected Accepted event first, was {:?}", result.events[0]);
     }
 }
 
@@ -3165,7 +3165,7 @@ async fn test_reconcile_hedge_does_not_skip_unrelated_positions() {
     // At least 2 fills: one from fill report, one from position report for P-HEDGE-002
     assert!(
         filled_count >= 2,
-        "Expected at least 2 fill events, got {filled_count}"
+        "Expected at least 2 fill events, was {filled_count}"
     );
 }
 
@@ -3212,7 +3212,7 @@ async fn test_reconcile_hedge_position_matching_quantities() {
     // No events needed since positions match
     assert!(
         result.events.is_empty(),
-        "Expected no events when positions match, got {}",
+        "Expected no events when positions match, was {}",
         result.events.len()
     );
 }
@@ -3508,7 +3508,7 @@ async fn test_reconcile_mass_status_deduplicates_netting_reports_same_instrument
     assert_eq!(
         positions.len(),
         1,
-        "Should have exactly 1 position (duplicates skipped), got {}",
+        "Should have exactly 1 position (duplicates skipped), was {}",
         positions.len()
     );
     assert_eq!(
@@ -3573,7 +3573,7 @@ async fn test_reconcile_mass_status_deduplicates_hedge_reports_same_position_id(
     assert_eq!(
         positions.len(),
         1,
-        "Should have exactly 1 position (duplicates skipped), got {}",
+        "Should have exactly 1 position (duplicates skipped), was {}",
         positions.len()
     );
     assert_eq!(
@@ -3677,7 +3677,7 @@ async fn test_adjust_fills_creates_synthetic_for_partial_window() {
     // Should have at least 2 fills (synthetic opening + original)
     assert!(
         fill_events.len() >= 2,
-        "Expected at least 2 fills (synthetic + original), got {}",
+        "Expected at least 2 fills (synthetic + original), was {}",
         fill_events.len()
     );
 
@@ -3685,7 +3685,7 @@ async fn test_adjust_fills_creates_synthetic_for_partial_window() {
     let total_qty: f64 = fill_events.iter().map(|f| f.last_qty.as_f64()).sum();
     assert!(
         (total_qty - 5.0).abs() < 0.001,
-        "Total filled qty should be ~5.0 to match position, got {total_qty}"
+        "Total filled qty should be ~5.0 to match position, was {total_qty}"
     );
 }
 
@@ -3878,10 +3878,10 @@ async fn test_position_reconciliation_order_has_reconciliation_tag() {
         let tags = order.tags().expect("Order should have tags");
         assert!(
             tags.contains(&ustr::Ustr::from("RECONCILIATION")),
-            "Position reconciliation order should have RECONCILIATION tag, got {tags:?}",
+            "Position reconciliation order should have RECONCILIATION tag, was {tags:?}",
         );
     } else {
-        panic!("Expected Accepted event, got {:?}", result.events[0]);
+        panic!("Expected Accepted event, was {:?}", result.events[0]);
     }
 }
 
@@ -4018,7 +4018,7 @@ async fn test_netting_position_cross_zero_long_to_short() {
     assert_eq!(
         fill_events.len(),
         2,
-        "Cross-zero should generate 2 fills (close + open), got {}",
+        "Cross-zero should generate 2 fills (close + open), was {}",
         fill_events.len()
     );
 
@@ -4093,7 +4093,7 @@ async fn test_netting_position_cross_zero_short_to_long() {
     assert_eq!(
         fill_events.len(),
         2,
-        "Cross-zero should generate 2 fills (close + open), got {}",
+        "Cross-zero should generate 2 fills (close + open), was {}",
         fill_events.len()
     );
 
@@ -4168,7 +4168,7 @@ async fn test_netting_position_flat_report_closes_cached_position() {
     assert_eq!(
         fill_events.len(),
         1,
-        "Flat report should generate 1 closing fill, got {}",
+        "Flat report should generate 1 closing fill, was {}",
         fill_events.len()
     );
 
@@ -4568,7 +4568,7 @@ async fn test_adjust_fills_multi_instrument_preserves_all_fills() {
     let eth_total_qty: f64 = eth_fills.iter().map(|f| f.last_qty.as_f64()).sum();
     assert!(
         (eth_total_qty - 2.0).abs() < 0.001,
-        "ETHUSDT total qty should be 2.0, got {eth_total_qty}"
+        "ETHUSDT total qty should be 2.0, was {eth_total_qty}"
     );
 
     let btc_fills: Vec<_> = fill_events
@@ -4579,7 +4579,7 @@ async fn test_adjust_fills_multi_instrument_preserves_all_fills() {
     let btc_total_qty: f64 = btc_fills.iter().map(|f| f.last_qty.as_f64()).sum();
     assert!(
         (btc_total_qty - 100.0).abs() < 0.001,
-        "XBTUSD total qty should be 100.0, got {btc_total_qty}"
+        "XBTUSD total qty should be 100.0, was {btc_total_qty}"
     );
 }
 
@@ -4931,7 +4931,7 @@ async fn test_cross_zero_with_missing_venue_avg_px_closes_only() {
     assert_eq!(
         fill_events.len(),
         1,
-        "Should generate only close fill when venue avg_px missing, got {}",
+        "Should generate only close fill when venue avg_px missing, was {}",
         fill_events.len()
     );
     assert_eq!(fill_events[0].order_side, OrderSide::Sell);
@@ -4999,7 +4999,7 @@ async fn test_hedge_mode_multiple_positions_same_instrument() {
 
     assert!(
         fill_events.len() >= 2,
-        "Should process both hedge positions, got {} fills",
+        "Should process both hedge positions, was {} fills",
         fill_events.len()
     );
     let has_buy = fill_events.iter().any(|f| f.order_side == OrderSide::Buy);

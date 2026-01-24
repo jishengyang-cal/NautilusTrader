@@ -854,13 +854,13 @@ fn test_market_order_with_acks_generates_accepted_then_filled(
 
     let accepted = match saved_messages.first().unwrap() {
         OrderEventAny::Accepted(a) => a,
-        other => panic!("Expected OrderAccepted, got {other:?}"),
+        other => panic!("Expected OrderAccepted, was {other:?}"),
     };
     assert_eq!(accepted.client_order_id, market_order.client_order_id());
 
     let filled = match saved_messages.get(1).unwrap() {
         OrderEventAny::Filled(f) => f,
-        other => panic!("Expected OrderFilled, got {other:?}"),
+        other => panic!("Expected OrderFilled, was {other:?}"),
     };
     assert_eq!(filled.client_order_id, market_order.client_order_id());
     assert_eq!(filled.last_px, Price::from("1500.00"));
@@ -908,20 +908,20 @@ fn test_market_order_with_protection_and_acks_generates_accepted_then_filled(
 
     let updated = match saved_messages.first().unwrap() {
         OrderEventAny::Updated(u) => u,
-        other => panic!("Expected OrderUpdated, got {other:?}"),
+        other => panic!("Expected OrderUpdated, was {other:?}"),
     };
     assert_eq!(updated.client_order_id, market_order.client_order_id());
     assert!(updated.protection_price.is_some());
 
     let accepted = match saved_messages.get(1).unwrap() {
         OrderEventAny::Accepted(a) => a,
-        other => panic!("Expected OrderAccepted, got {other:?}"),
+        other => panic!("Expected OrderAccepted, was {other:?}"),
     };
     assert_eq!(accepted.client_order_id, market_order.client_order_id());
 
     let filled = match saved_messages.get(2).unwrap() {
         OrderEventAny::Filled(f) => f,
-        other => panic!("Expected OrderFilled, got {other:?}"),
+        other => panic!("Expected OrderFilled, was {other:?}"),
     };
     assert_eq!(filled.client_order_id, market_order.client_order_id());
 }
@@ -3055,7 +3055,7 @@ fn test_modify_partially_filled_order_quantity_below_filled_rejected(
     let event = saved_messages.first().unwrap();
     let rejected = match event {
         OrderEventAny::ModifyRejected(rejected) => rejected,
-        _ => panic!("Expected OrderModifyRejected event, got {event:?}"),
+        _ => panic!("Expected OrderModifyRejected event, was {event:?}"),
     };
     assert_eq!(rejected.client_order_id, client_order_id);
     assert!(rejected.reason.contains("below filled quantity"));
@@ -3193,7 +3193,7 @@ fn test_ouo_child_cancelled_when_parent_leaves_zero(
     let event2 = saved_messages.get(1).unwrap();
     let cancelled_child = match event2 {
         OrderEventAny::Canceled(cancelled) => cancelled,
-        _ => panic!("Expected OrderCanceled event for contingent, got {event2:?}"),
+        _ => panic!("Expected OrderCanceled event for contingent, was {event2:?}"),
     };
     assert_eq!(cancelled_child.client_order_id, client_order_id_contingent);
 
@@ -3201,7 +3201,7 @@ fn test_ouo_child_cancelled_when_parent_leaves_zero(
     let event3 = saved_messages.get(2).unwrap();
     let cancelled_primary = match event3 {
         OrderEventAny::Canceled(cancelled) => cancelled,
-        _ => panic!("Expected OrderCanceled event for primary, got {event3:?}"),
+        _ => panic!("Expected OrderCanceled event for primary, was {event3:?}"),
     };
     assert_eq!(cancelled_primary.client_order_id, client_order_id_primary);
 }
@@ -3683,7 +3683,7 @@ fn test_stop_limit_triggered_not_filled_single_accept(
 
     assert_eq!(
         accepted_count, 1,
-        "Expected exactly 1 Accepted event, got {accepted_count} (double-accept bug)"
+        "Expected exactly 1 Accepted event, was {accepted_count} (double-accept bug)"
     );
     assert_eq!(
         saved_messages.len(),
@@ -4338,7 +4338,7 @@ fn test_liquidity_consumption_tracks_fills_at_multiple_price_levels(
     let total_order1: f64 = order1_fills.iter().map(|f| f.last_qty.as_f64()).sum();
     assert!(
         (total_order1 - 100.0).abs() < 0.001,
-        "First order should fill 100, got {total_order1}"
+        "First order should fill 100, was {total_order1}"
     );
 
     clear_order_event_handler_messages(&order_event_handler);

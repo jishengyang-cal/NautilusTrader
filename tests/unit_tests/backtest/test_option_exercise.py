@@ -953,7 +953,7 @@ class TestOptionExerciseModuleIntegration:
         balance_change = final_balance - initial_balance
         balance_change_money = Money(balance_change, USD)
         assert balance_change_money == expected_pnl, (
-            f"Balance should increase by {expected_pnl}, got {balance_change_money}"
+            f"Balance should increase by {expected_pnl}, was {balance_change_money}"
         )
 
     def test_otm_expiry_worthless(self):
@@ -997,7 +997,7 @@ class TestOptionExerciseModuleIntegration:
         balance_change = final_balance - initial_balance
         balance_change_money = Money(balance_change, USD)
         assert balance_change_money == expected_pnl, (
-            f"Balance should decrease by {expected_pnl}, got {balance_change_money}"
+            f"Balance should decrease by {expected_pnl}, was {balance_change_money}"
         )
 
     def test_physical_settlement_short_itm_call(self):

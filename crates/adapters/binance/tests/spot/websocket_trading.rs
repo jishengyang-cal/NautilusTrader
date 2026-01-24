@@ -540,7 +540,7 @@ async fn test_order_rejection_via_json_error() {
                             assert_eq!(code, -2010);
                             assert!(msg.contains("insufficient balance"));
                         }
-                        _ => panic!("Expected OrderRejected, got {rejection:?}"),
+                        _ => panic!("Expected OrderRejected, was {rejection:?}"),
                     }
                 }
             }
@@ -548,7 +548,7 @@ async fn test_order_rejection_via_json_error() {
                 assert_eq!(code, -2010);
                 assert!(msg.contains("insufficient balance"));
             }
-            _ => panic!("Expected OrderRejected or Connected, got {msg:?}"),
+            _ => panic!("Expected OrderRejected or Connected, was {msg:?}"),
         }
     }
 

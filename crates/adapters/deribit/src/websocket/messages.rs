@@ -834,7 +834,7 @@ mod tests {
                 assert_eq!(error.code, 10028);
                 assert_eq!(error.message, "too_many_requests");
             }
-            _ => panic!("Expected Response with error, got {msg:?}"),
+            _ => panic!("Expected Response with error, was {msg:?}"),
         }
     }
 
