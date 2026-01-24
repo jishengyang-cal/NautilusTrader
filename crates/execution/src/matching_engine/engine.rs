@@ -1988,44 +1988,37 @@ impl OrderMatchingEngine {
                             .core
                             .is_limit_matched(order.order_side_specified(), order_price)
                     {
-                        // When trade price equals limit price (not crossing), use fill model
-                        // to simulate queue position. Skip trade execution fill but let book
-                        // fills continue through liquidity consumption and price adjustments.
-                        let skip_trade_fill =
-                            trade_price == order_price && !self.fill_model.is_limit_filled();
+                        // Fill model check for MAKER at limit is already handled in fill_limit_order,
+                        // don't re-check here to avoid calling is_limit_filled() twice (p² probability).
+                        let leaves_qty = order.leaves_qty();
+                        let available_qty = if self.config.liquidity_consumption {
+                            let remaining = trade_size.raw.saturating_sub(self.trade_consumption);
+                            Quantity::from_raw(remaining, trade_size.precision)
+                        } else {
+                            trade_size
+                        };
 
-                        if !skip_trade_fill {
-                            let leaves_qty = order.leaves_qty();
-                            let available_qty = if self.config.liquidity_consumption {
-                                let remaining =
-                                    trade_size.raw.saturating_sub(self.trade_consumption);
-                                Quantity::from_raw(remaining, trade_size.precision)
-                            } else {
-                                trade_size
-                            };
+                        let fill_qty = min(leaves_qty, available_qty);
 
-                            let fill_qty = min(leaves_qty, available_qty);
+                        if !fill_qty.is_zero() {
+                            log::debug!(
+                                "Trade execution fill: {} @ {} (trade_price={}, available: {}, book had {} fills)",
+                                fill_qty,
+                                order_price,
+                                trade_price,
+                                available_qty,
+                                fills.len()
+                            );
 
-                            if !fill_qty.is_zero() {
-                                log::debug!(
-                                    "Trade execution fill: {} @ {} (trade_price={}, available: {}, book had {} fills)",
-                                    fill_qty,
-                                    order_price,
-                                    trade_price,
-                                    available_qty,
-                                    fills.len()
-                                );
-
-                                if self.config.liquidity_consumption {
-                                    self.trade_consumption += fill_qty.raw;
-                                }
-
-                                // Fill at the limit price (conservative) rather than the trade price.
-                                // Trade execution fills already account for consumption via trade_consumption,
-                                // return early to bypass apply_liquidity_consumption which would incorrectly
-                                // discard these fills when the trade price isn't in the order book.
-                                return vec![(order_price, fill_qty)];
+                            if self.config.liquidity_consumption {
+                                self.trade_consumption += fill_qty.raw;
                             }
+
+                            // Fill at the limit price (conservative) rather than the trade price.
+                            // Trade execution fills already account for consumption via trade_consumption,
+                            // return early to bypass apply_liquidity_consumption which would incorrectly
+                            // discard these fills when the trade price isn't in the order book.
+                            return vec![(order_price, fill_qty)];
                         }
                     }
                 }

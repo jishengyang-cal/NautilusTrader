@@ -5741,28 +5741,20 @@ cdef class OrderMatchingEngine:
                 not fills_at_trade_price
                 and self._core.is_limit_matched(order.side, order.price)
             ):
-                # When trade price equals limit price (not crossing), use fill model
-                # to simulate queue position. Skip trade execution fill but let book
-                # fills continue through liquidity consumption and price adjustments.
-                skip_trade_fill = (
-                    trade_price == order.price
-                    and self._fill_model is not None
-                    and not self._fill_model.is_limit_filled()
-                )
+                # Fill model check for MAKER at limit is already handled in fill_limit_order,
+                # don't re-check here to avoid calling is_limit_filled() twice (p² probability).
+                fill_qty = self.determine_trade_fill_qty(order)
+                if fill_qty is not None:
+                    self._log.debug(
+                        f"Trade execution fill: {fill_qty} @ {order.price} "
+                        f"(trade_price={trade_price}, trade_size={self._last_trade_size})",
+                    )
 
-                if not skip_trade_fill:
-                    fill_qty = self.determine_trade_fill_qty(order)
-                    if fill_qty is not None:
-                        self._log.debug(
-                            f"Trade execution fill: {fill_qty} @ {order.price} "
-                            f"(trade_price={trade_price}, trade_size={self._last_trade_size})",
-                        )
-
-                        # Fill at the limit price (conservative) rather than the trade price.
-                        # Trade execution fills already account for consumption via _trade_consumption,
-                        # return early to bypass _apply_liquidity_consumption which would incorrectly
-                        # discard these fills when the trade price isn't in the order book.
-                        return [(order.price, fill_qty)]
+                    # Fill at the limit price (conservative) rather than the trade price.
+                    # Trade execution fills already account for consumption via _trade_consumption,
+                    # return early to bypass _apply_liquidity_consumption which would incorrectly
+                    # discard these fills when the trade price isn't in the order book.
+                    return [(order.price, fill_qty)]
 
         # Save original book prices BEFORE any fill price modifications for consumption tracking,
         # since the TAKER and MAKER loops below may adjust fill prices. Consumption should be
