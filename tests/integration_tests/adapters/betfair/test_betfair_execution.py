@@ -698,6 +698,31 @@ async def test_duplicate_trade_id(exec_client, setup_order_state, fill_events, c
     assert fill3.trade_id.value == "75076f6b172799e168869d64df86b4d2717d"
 
 
+@pytest.mark.asyncio
+async def test_duplicate_cancel_events_prevented(exec_client, setup_order_state, cancel_events):
+    """
+    Test that duplicate cancel events from the stream don't cause state transition
+    errors.
+
+    This prevents InvalidStateTrigger: CANCELED -> CANCELED errors when the same
+    cancel message arrives multiple times (e.g., from stream replay or reconnect).
+
+    """
+    # Arrange
+    order_change_message = BetfairStreaming.ocm_CANCEL()
+    await setup_order_state(order_change_message=order_change_message)
+
+    # Act - Send the same cancel message twice (simulating reconnect/replay)
+    exec_client.handle_order_stream_update(order_change_message)
+    await asyncio.sleep(0)
+    exec_client.handle_order_stream_update(order_change_message)
+    await asyncio.sleep(0)
+
+    # Assert - Only one cancel event should be generated
+    assert len(cancel_events) == 1
+    assert isinstance(cancel_events[0], OrderCanceled)
+
+
 @pytest.mark.parametrize(
     ("side", "price", "quantity", "free"),
     [

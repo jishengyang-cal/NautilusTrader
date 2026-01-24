@@ -71,6 +71,7 @@ from nautilus_trader.core.datetime import as_utc_timestamp
 from nautilus_trader.core.datetime import ensure_pydatetime_utc
 from nautilus_trader.core.datetime import millis_to_nanos
 from nautilus_trader.core.datetime import secs_to_nanos
+from nautilus_trader.core.nautilus_pyo3 import FifoCache
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.execution.messages import CancelOrder
@@ -188,6 +189,10 @@ class BetfairExecutionClient(LiveExecutionClient):
         # Stores published executions per order to avoid duplicates and support reconciliation
         self._published_executions: dict[ClientOrderId, list[TradeId]] = defaultdict(list)
 
+        # Tracks orders for which a terminal event (cancel/expire) has been generated
+        # to prevent duplicate events from race conditions with multiple event sources
+        self._terminal_orders: FifoCache = FifoCache()
+
     @property
     def instrument_provider(self) -> BetfairInstrumentProvider:
         """
@@ -284,6 +289,9 @@ class BetfairExecutionClient(LiveExecutionClient):
         synced_count = 0
 
         for order in orders:
+            if order.is_closed:
+                self._terminal_orders.add(order.client_order_id.value)
+
             if order.filled_qty > 0:
                 self._filled_qty_cache[order.client_order_id] = order.filled_qty
 
@@ -299,6 +307,14 @@ class BetfairExecutionClient(LiveExecutionClient):
                 f"Synced fill caches from {synced_count} order(s) with existing fills",
                 LogColor.BLUE,
             )
+
+    def _try_mark_terminal_order(self, client_order_id: ClientOrderId) -> bool:
+        key = client_order_id.value
+        if key in self._terminal_orders:
+            return False
+
+        self._terminal_orders.add(key)
+        return True
 
     # -- ACCOUNT HANDLERS -------------------------------------------------------------------------
 
@@ -1244,6 +1260,11 @@ class BetfairExecutionClient(LiveExecutionClient):
             )
             # If this is the result of a ModifyOrder, we don't want to emit a cancel
             if key not in self._pending_update_order_client_ids:
+                # Guard against duplicate terminal events from race conditions
+                if not self._try_mark_terminal_order(client_order_id):
+                    self._log.debug(f"Skipping duplicate cancel for {client_order_id!r}")
+                    return
+
                 # The remainder of this order has been canceled
                 canceled_ts = self._get_canceled_timestamp(unmatched_order)
                 self.generate_order_canceled(
@@ -1273,11 +1294,13 @@ class BetfairExecutionClient(LiveExecutionClient):
                 self._log.error("Cannot handle cancel: {order.client_order_id!r} not found")
                 return
 
-            # Check if order is still open before generating a cancel.
-            # Note: A race condition exists where a closing event might still be en route
-            # to the execution engine. Running with this for now to avoid the complexity
-            # of another hot cache to deal with the lapsed bet sequencing.
+            # Check if order is still open before generating a cancel
             if order.is_open:
+                # Guard against duplicate terminal events from race conditions
+                if not self._try_mark_terminal_order(client_order_id):
+                    self._log.debug(f"Skipping duplicate lapse cancel for {client_order_id!r}")
+                    return
+
                 canceled_ts = self._get_canceled_timestamp(unmatched_order)
                 self.generate_order_canceled(
                     strategy_id=order.strategy_id,
