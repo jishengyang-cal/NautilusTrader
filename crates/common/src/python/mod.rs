@@ -66,6 +66,10 @@ pub fn common(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(logging::py_logging_clock_set_static_mode, m)?)?;
     m.add_function(wrap_pyfunction!(logging::py_logging_clock_set_realtime_mode, m)?)?;
     m.add_function(wrap_pyfunction!(logging::py_logging_clock_set_static_time, m)?)?;
+    #[cfg(feature = "tracing-bridge")]
+    m.add_function(wrap_pyfunction!(logging::py_tracing_is_initialized, m)?)?;
+    #[cfg(feature = "tracing-bridge")]
+    m.add_function(wrap_pyfunction!(logging::py_init_tracing, m)?)?;
     m.add_function(wrap_pyfunction!(xrate::py_get_exchange_rate, m)?)?;
 
     #[cfg(feature = "live")]

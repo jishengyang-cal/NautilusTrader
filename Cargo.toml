@@ -269,6 +269,13 @@ toml = { version = "0.9.11", default-features = false, features = [
   "parse",
   "serde",
 ] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.22", default-features = false, features = [
+  "std",
+  "env-filter",
+  "fmt",
+  "registry",
+] }
 unbounded-interval-tree = { version = "1.1.2", default-features = false }
 url = { version = "2.5.8", default-features = false }
 ustr = { version = "1.1.0", features = ["serde"] }
