@@ -1988,31 +1988,43 @@ impl OrderMatchingEngine {
                             .core
                             .is_limit_matched(order.order_side_specified(), order_price)
                     {
-                        let leaves_qty = order.leaves_qty();
+                        // When trade price equals limit price (not crossing), use fill model
+                        // to simulate queue position. Skip trade execution fill but let book
+                        // fills continue through liquidity consumption and price adjustments.
+                        let skip_trade_fill =
+                            trade_price == order_price && !self.fill_model.is_limit_filled();
 
-                        // Calculate available quantity from trade (minus any consumption)
-                        let available_qty = if self.config.liquidity_consumption {
-                            let remaining = trade_size.raw.saturating_sub(self.trade_consumption);
-                            Quantity::from_raw(remaining, trade_size.precision)
-                        } else {
-                            trade_size
-                        };
+                        if !skip_trade_fill {
+                            let leaves_qty = order.leaves_qty();
+                            let available_qty = if self.config.liquidity_consumption {
+                                let remaining =
+                                    trade_size.raw.saturating_sub(self.trade_consumption);
+                                Quantity::from_raw(remaining, trade_size.precision)
+                            } else {
+                                trade_size
+                            };
 
-                        let fill_qty = min(leaves_qty, available_qty);
+                            let fill_qty = min(leaves_qty, available_qty);
 
-                        if !fill_qty.is_zero() {
-                            log::debug!(
-                                "Trade execution fill: {} @ {} (available: {}, book had {} fills)",
-                                fill_qty,
-                                trade_price,
-                                available_qty,
-                                fills.len()
-                            );
+                            if !fill_qty.is_zero() {
+                                log::debug!(
+                                    "Trade execution fill: {} @ {} (trade_price={}, available: {}, book had {} fills)",
+                                    fill_qty,
+                                    order_price,
+                                    trade_price,
+                                    available_qty,
+                                    fills.len()
+                                );
 
-                            fills = vec![(trade_price, fill_qty)];
+                                if self.config.liquidity_consumption {
+                                    self.trade_consumption += fill_qty.raw;
+                                }
 
-                            if self.config.liquidity_consumption {
-                                self.trade_consumption += fill_qty.raw;
+                                // Fill at the limit price (conservative) rather than the trade price.
+                                // Trade execution fills already account for consumption via trade_consumption,
+                                // return early to bypass apply_liquidity_consumption which would incorrectly
+                                // discard these fills when the trade price isn't in the order book.
+                                return vec![(order_price, fill_qty)];
                             }
                         }
                     }
@@ -2269,23 +2281,23 @@ impl OrderMatchingEngine {
                     return;
                 }
 
+                // Check fill model for MAKER orders at the limit price
                 if order
                     .liquidity_side()
                     .is_some_and(|liquidity_side| liquidity_side == LiquiditySide::Maker)
                 {
-                    if order.order_side() == OrderSide::Buy
-                        && self.core.bid.is_some_and(|bid| bid == order_price)
-                        && !self.fill_model.is_limit_filled()
-                    {
-                        // no filled
-                        return;
-                    }
-                    if order.order_side() == OrderSide::Sell
-                        && self.core.ask.is_some_and(|ask| ask == order_price)
-                        && !self.fill_model.is_limit_filled()
-                    {
-                        // no filled
-                        return;
+                    // For trade execution: check if trade price equals order price
+                    // For quote updates: check if bid/ask equals order price
+                    let at_limit = if self.last_trade_size.is_some() && self.core.last.is_some() {
+                        self.core.last.is_some_and(|last| last == order_price)
+                    } else if order.order_side() == OrderSide::Buy {
+                        self.core.bid.is_some_and(|bid| bid == order_price)
+                    } else {
+                        self.core.ask.is_some_and(|ask| ask == order_price)
+                    };
+
+                    if at_limit && !self.fill_model.is_limit_filled() {
+                        return; // Not filled (simulates queue position)
                     }
                 }
 
@@ -2311,7 +2323,16 @@ impl OrderMatchingEngine {
                 // Skip apply_fills when consumed-liquidity adjustment produces no fills.
                 // This occurs for partially filled orders when an unrelated delta arrives
                 // and no new liquidity is available at the order's price level.
-                if fills.is_empty() {
+                if fills.is_empty() && self.config.liquidity_consumption {
+                    log::debug!(
+                        "Skipping fill for {}: no liquidity available after consumption",
+                        order.client_order_id()
+                    );
+
+                    if matches!(order.time_in_force(), TimeInForce::Fok | TimeInForce::Ioc) {
+                        self.cancel_order(&order, None);
+                    }
+
                     return;
                 }
 

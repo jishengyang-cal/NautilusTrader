@@ -1011,7 +1011,7 @@ cdef class BacktestEngine:
         self._kernel._msgbus.request(endpoint="DataEngine.request", request=new_request)
 
     cpdef void _handle_data_response(self, DataResponse response):
-        cdef list data = response.data
+        cdef list[Data] data = response.data
         cdef str subscription_name = response.params["subscription_name"]
 
         if not data:
@@ -1900,7 +1900,7 @@ cdef class BacktestEngine:
         self._log.info(f"Total orders: {self._kernel.cache.orders_total_count():_}")
 
         # Get all positions for venue
-        cdef list positions = []
+        cdef list[Position] positions = []
 
         for position in self._kernel.cache.positions() + self._kernel.cache.position_snapshots():
             positions.append(position)
@@ -1911,7 +1911,7 @@ cdef class BacktestEngine:
             return
 
         cdef:
-            list venue_positions
+            list[Position] venue_positions
             set venue_currencies
         for venue in self._venues.values():
             account = venue.exec_client.get_account()
@@ -2933,7 +2933,7 @@ cdef class SimulatedExchange:
         dict[InstrumentId, OrderBook]
 
         """
-        cdef dict books = {}
+        cdef dict[InstrumentId, OrderBook] books = {}
 
         cdef OrderMatchingEngine matching_engine
         for matching_engine in self._matching_engines.values():
@@ -2941,7 +2941,7 @@ cdef class SimulatedExchange:
 
         return books
 
-    cpdef list get_open_orders(self, InstrumentId instrument_id = None):
+    cpdef list[Order] get_open_orders(self, InstrumentId instrument_id = None):
         """
         Return the open orders at the exchange.
 
@@ -2963,13 +2963,13 @@ cdef class SimulatedExchange:
             else:
                 return matching_engine.get_open_orders()
 
-        cdef list open_orders = []
+        cdef list[Order] open_orders = []
         for matching_engine in self._matching_engines.values():
             open_orders += matching_engine.get_open_orders()
 
         return open_orders
 
-    cpdef list get_open_bid_orders(self, InstrumentId instrument_id = None):
+    cpdef list[Order] get_open_bid_orders(self, InstrumentId instrument_id = None):
         """
         Return the open bid orders at the exchange.
 
@@ -2991,13 +2991,13 @@ cdef class SimulatedExchange:
             else:
                 return matching_engine.get_open_bid_orders()
 
-        cdef list open_bid_orders = []
+        cdef list[Order] open_bid_orders = []
         for matching_engine in self._matching_engines.values():
             open_bid_orders += matching_engine.get_open_bid_orders()
 
         return open_bid_orders
 
-    cpdef list get_open_ask_orders(self, InstrumentId instrument_id = None):
+    cpdef list[Order] get_open_ask_orders(self, InstrumentId instrument_id = None):
         """
         Return the open ask orders at the exchange.
 
@@ -3019,7 +3019,7 @@ cdef class SimulatedExchange:
             else:
                 return matching_engine.get_open_ask_orders()
 
-        cdef list open_ask_orders = []
+        cdef list[Order] open_ask_orders = []
         for matching_engine in self._matching_engines.values():
             open_ask_orders += matching_engine.get_open_ask_orders()
 
@@ -3072,7 +3072,7 @@ cdef class SimulatedExchange:
         balance.total = balance.total + adjustment
         balance.free = balance.free + adjustment
 
-        cdef list margins = []
+        cdef list[MarginBalance] margins = []
         if account.is_margin_account:
             margins = list(account.margins().values())
 
@@ -3533,7 +3533,7 @@ cdef class SimulatedExchange:
 # -- EVENT GENERATORS -----------------------------------------------------------------------------
 
     cdef void _generate_fresh_account_state(self):
-        cdef list balances = [
+        cdef list[AccountBalance] balances = [
             AccountBalance(
                 total=money,
                 locked=Money(0, money.currency),
@@ -3820,7 +3820,7 @@ cdef class OrderMatchingEngine:
         """
         return self._book
 
-    cpdef list get_open_orders(self):
+    cpdef list[Order] get_open_orders(self):
         """
         Return the open orders in the matching engine.
 
@@ -3831,7 +3831,7 @@ cdef class OrderMatchingEngine:
         """
         return self.get_open_bid_orders() + self.get_open_ask_orders()
 
-    cpdef list get_open_bid_orders(self):
+    cpdef list[Order] get_open_bid_orders(self):
         """
         Return the open bid orders in the matching engine.
 
@@ -3842,7 +3842,7 @@ cdef class OrderMatchingEngine:
         """
         return self._core.get_orders_bid()
 
-    cpdef list get_open_ask_orders(self):
+    cpdef list[Order] get_open_ask_orders(self):
         """
         Return the open ask orders at the exchange.
 
@@ -5201,7 +5201,7 @@ cdef class OrderMatchingEngine:
 
         self._core.iterate(timestamp_ns)
 
-        cdef list orders = self._core.get_orders()
+        cdef list[Order] orders = self._core.get_orders()
         cdef Order order
         for order in orders:
             if order.is_closed_c():
@@ -5290,7 +5290,7 @@ cdef class OrderMatchingEngine:
             return  # Order canceled
 
         order.liquidity_side = LiquiditySide.TAKER
-        cdef list fills = self.determine_market_fills_with_simulation(order)
+        cdef list[tuple[Price, Quantity]] fills = self.determine_market_fills_with_simulation(order)
 
         self.apply_fills(
             order=order,
@@ -5300,7 +5300,7 @@ cdef class OrderMatchingEngine:
             position=position,
         )
 
-    cdef list determine_market_fills_with_simulation(self, Order order):
+    cdef list[tuple[Price, Quantity]] determine_market_fills_with_simulation(self, Order order):
         """
         Determine market order fills using FillModel simulation if available.
 
@@ -5340,9 +5340,9 @@ cdef class OrderMatchingEngine:
             # Fall back to standard logic
             return self.determine_market_price_and_volume(order)
 
-    cdef list _apply_liquidity_consumption(
+    cdef list[tuple[Price, Quantity]] _apply_liquidity_consumption(
         self,
-        list fills,
+        list[tuple[Price, Quantity]] fills,
         OrderSide order_side,
         QuantityRaw max_qty_raw=0,
         list[Price] book_prices=None,
@@ -5359,7 +5359,7 @@ cdef class OrderMatchingEngine:
         else:
             return fills
 
-        cdef list adjusted_fills = []
+        cdef list[tuple[Price, Quantity]] adjusted_fills = []
         cdef QuantityRaw remaining_qty = max_qty_raw  # 0 means no limit
 
         cdef:
@@ -5475,12 +5475,12 @@ cdef class OrderMatchingEngine:
             consumed += adjusted_qty_raw
             consumption[book_price_raw] = (original_size, consumed)
 
-            adjusted_qty = Quantity.from_raw_c(adjusted_qty_raw, qty.precision)
+            adjusted_qty = Quantity.from_raw_c(adjusted_qty_raw, qty._mem.precision)
             adjusted_fills.append((price, adjusted_qty))
 
         return adjusted_fills
 
-    cpdef list determine_market_price_and_volume(self, Order order):
+    cpdef list[tuple[Price, Quantity]] determine_market_price_and_volume(self, Order order):
         """
         Return the projected fills for the given *marketable* order filling
         aggressively into the opposite order side.
@@ -5497,7 +5497,7 @@ cdef class OrderMatchingEngine:
         list[tuple[Price, Quantity]]
 
         """
-        cdef list fills = self._book.simulate_fills(
+        cdef list[tuple[Price, Quantity]] fills = self._book.simulate_fills(
             order,
             price_prec=self._price_prec,
             size_prec=self._size_prec,
@@ -5544,6 +5544,7 @@ cdef class OrderMatchingEngine:
 
         cdef Price price = order.price
         cdef Quantity cached_filled_qty = self._cached_filled_qty.get(order.client_order_id)
+        cdef bint at_limit = False
 
         if cached_filled_qty is not None and cached_filled_qty._mem.raw >= order.quantity._mem.raw:
             self._log.debug(
@@ -5552,11 +5553,19 @@ cdef class OrderMatchingEngine:
             )
             return
 
+        # Check fill model for MAKER orders at the limit price
         if order.liquidity_side == LiquiditySide.MAKER and self._fill_model:
-            if order.side == OrderSide.BUY and self._core.bid_raw == price._mem.raw and not self._fill_model.is_limit_filled():
-                return  # Not filled
-            elif order.side == OrderSide.SELL and self._core.ask_raw == price._mem.raw and not self._fill_model.is_limit_filled():
-                return  # Not filled
+            # For trade execution: check if trade price equals order price
+            # For quote updates: check if bid/ask equals order price
+            if self._last_trade_size is not None and self._core.is_last_initialized:
+                at_limit = self._core.last_raw == price._mem.raw
+            elif order.side == OrderSide.BUY:
+                at_limit = self._core.bid_raw == price._mem.raw
+            elif order.side == OrderSide.SELL:
+                at_limit = self._core.ask_raw == price._mem.raw
+
+            if at_limit and not self._fill_model.is_limit_filled():
+                return  # Not filled (simulates queue position)
 
         cdef PositionId venue_position_id = self._get_position_id(order)
         cdef Position position = None
@@ -5571,7 +5580,20 @@ cdef class OrderMatchingEngine:
             self.cancel_order(order)
             return  # Order canceled
 
-        cdef list fills = self.determine_limit_fills_with_simulation(order)
+        cdef list[tuple[Price, Quantity]] fills = self.determine_limit_fills_with_simulation(order)
+
+        # Skip apply_fills when consumed-liquidity adjustment produces no fills.
+        # This occurs for partially filled orders when an unrelated delta arrives
+        # and no new liquidity is available at the order's price level.
+        if not fills and self._liquidity_consumption:
+            self._log.debug(
+                f"Skipping fill for {order.client_order_id}: no liquidity available after consumption",
+            )
+
+            if order.time_in_force == TimeInForce.FOK or order.time_in_force == TimeInForce.IOC:
+                self.cancel_order(order)
+
+            return
 
         self.apply_fills(
             order=order,
@@ -5581,7 +5603,7 @@ cdef class OrderMatchingEngine:
             position=position,
         )
 
-    cdef list determine_limit_fills_with_simulation(self, Order order):
+    cdef list[tuple[Price, Quantity]] determine_limit_fills_with_simulation(self, Order order):
         """
         Determine limit order fills using FillModel simulation if available.
 
@@ -5655,7 +5677,7 @@ cdef class OrderMatchingEngine:
 
         return Quantity.from_raw_c(fill_raw, self._size_prec)
 
-    cpdef list determine_limit_price_and_volume(self, Order order):
+    cpdef list[tuple[Price, Quantity]] determine_limit_price_and_volume(self, Order order):
         """
         Return the projected fills for the given *limit* order filling passively
         from its limit price.
@@ -5679,7 +5701,7 @@ cdef class OrderMatchingEngine:
         """
         Condition.is_true(order.has_price_c(), "order has no limit `price`")
 
-        cdef list fills
+        cdef list[tuple[Price, Quantity]] fills
 
         # When liquidity consumption is enabled, we need to consider ALL crossed
         # price levels, not just enough to satisfy leaves_qty. This is because some
@@ -5701,15 +5723,17 @@ cdef class OrderMatchingEngine:
         cdef:
             Price trade_price
             bint fills_at_trade_price
+            bint skip_trade_fill
             Quantity fill_qty
-            tuple fill[Price, Quantity]
+            Price fill_px
 
         if self._last_trade_size is not None and self._core.is_last_initialized:
             trade_price = Price.from_raw_c(self._core.last_raw, self._price_prec)
 
             fills_at_trade_price = False
             for fill in fills:
-                if fill[0] == trade_price:
+                fill_px = fill[0]
+                if fill_px == trade_price:
                     fills_at_trade_price = True
                     break
 
@@ -5717,18 +5741,28 @@ cdef class OrderMatchingEngine:
                 not fills_at_trade_price
                 and self._core.is_limit_matched(order.side, order.price)
             ):
-                fill_qty = self.determine_trade_fill_qty(order)
-                if fill_qty is not None:
-                    self._log.debug(
-                        f"Trade execution fill: {fill_qty} @ {order.price} "
-                        f"(trade_price={trade_price}, trade_size={self._last_trade_size})",
-                    )
+                # When trade price equals limit price (not crossing), use fill model
+                # to simulate queue position. Skip trade execution fill but let book
+                # fills continue through liquidity consumption and price adjustments.
+                skip_trade_fill = (
+                    trade_price == order.price
+                    and self._fill_model is not None
+                    and not self._fill_model.is_limit_filled()
+                )
 
-                    # Fill at the limit price (conservative) rather than the trade price.
-                    # Trade execution fills already account for consumption via _trade_consumption,
-                    # return early to bypass _apply_liquidity_consumption which would incorrectly
-                    # discard these fills when the trade price isn't in the order book.
-                    return [(order.price, fill_qty)]
+                if not skip_trade_fill:
+                    fill_qty = self.determine_trade_fill_qty(order)
+                    if fill_qty is not None:
+                        self._log.debug(
+                            f"Trade execution fill: {fill_qty} @ {order.price} "
+                            f"(trade_price={trade_price}, trade_size={self._last_trade_size})",
+                        )
+
+                        # Fill at the limit price (conservative) rather than the trade price.
+                        # Trade execution fills already account for consumption via _trade_consumption,
+                        # return early to bypass _apply_liquidity_consumption which would incorrectly
+                        # discard these fills when the trade price isn't in the order book.
+                        return [(order.price, fill_qty)]
 
         # Save original book prices BEFORE any fill price modifications for consumption tracking,
         # since the TAKER and MAKER loops below may adjust fill prices. Consumption should be
@@ -5795,6 +5829,7 @@ cdef class OrderMatchingEngine:
             elif order.side == OrderSide.SELL:
                 if triggered_price and price < triggered_price:
                     price = triggered_price
+
                 for fill in fills:
                     last_px = fill[0]
 
@@ -5815,7 +5850,7 @@ cdef class OrderMatchingEngine:
     cpdef void apply_fills(
         self,
         Order order,
-        list fills,
+        list[tuple[Price, Quantity]] fills,
         LiquiditySide liquidity_side,
         PositionId venue_position_id: PositionId | None = None,
         Position position: Position | None = None,
@@ -5919,7 +5954,10 @@ cdef class OrderMatchingEngine:
                 f"fills={fills}",
             )
 
-        for fill_px, fill_qty in fills:
+        for fill in fills:
+            fill_px = fill[0]
+            fill_qty = fill[1]
+
             # Validate price precision
             if fill_px._mem.precision != self._price_prec:
                 raise RuntimeError(
@@ -6078,7 +6116,7 @@ cdef class OrderMatchingEngine:
     cdef void _generate_spread_leg_fills(
         self,
         Order order,
-        list fills,
+        list[tuple[Price, Quantity]] fills,
         LiquiditySide liquidity_side,
     ):
         """
@@ -6100,8 +6138,8 @@ cdef class OrderMatchingEngine:
         leg_tuples = instrument.legs()
         spread_instrument_ids = [leg[0] for leg in leg_tuples]
 
-        spread_fill_px = fills[0][0]
-        spread_fill_qty = fills[0][1]
+        cdef Price spread_fill_px = fills[0][0]
+        cdef Quantity spread_fill_qty = fills[0][1]
 
         # Calculate leg execution prices
         leg_prices = self._calculate_leg_execution_prices(
@@ -6124,7 +6162,7 @@ cdef class OrderMatchingEngine:
             # Calculate leg quantity: spread_quantity * abs(ratio)
             leg_quantity = Quantity(
                 spread_fill_qty.as_double() * abs(ratio),
-                precision=spread_fill_qty.precision,
+                precision=spread_fill_qty._mem.precision,
             )
 
             # Get leg instrument for precision validation
@@ -6209,8 +6247,8 @@ cdef class OrderMatchingEngine:
         Uses mid-price for all legs except the highest-priced one, which is
         adjusted to satisfy: Σ(leg_price × ratio) = spread_execution_price
         """
-        cdef dict leg_mid_prices = {}
-        cdef dict leg_prices = {}
+        cdef dict[InstrumentId, double] leg_mid_prices = {}
+        cdef dict[InstrumentId, Price] leg_prices = {}
         cdef double highest_mid_price = 0.0
         cdef InstrumentId highest_price_leg_id = None
 
@@ -6537,7 +6575,7 @@ cdef class OrderMatchingEngine:
         ####################################################################
         # NETTING OMS (position ID will be `{instrument_id}-{strategy_id}`)
         ####################################################################
-        cdef list positions_open = self.cache.positions_open(
+        cdef list[Position] positions_open = self.cache.positions_open(
             venue=None,  # Faster query filtering
             instrument_id=order.instrument_id,
         )

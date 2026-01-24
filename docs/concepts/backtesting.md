@@ -906,6 +906,12 @@ representing expected market liquidity. The matching engine fills orders against
 2. If the model returns a synthetic order book, fills execute against that book's liquidity.
 3. If the model returns `None`, standard fill logic applies.
 
+:::note
+When a custom fill model provides a simulated order book, the `liquidity_consumption` tracking is **not** applied.
+Custom fill models are expected to manage their own liquidity simulation within the returned order book.
+Liquidity consumption tracking only affects the built-in fill logic (when `get_orderbook_for_fill_simulation()` returns `None`).
+:::
+
 **Example: ThreeTierFillModel**
 
 This model creates a book with liquidity distributed across three price levels:
