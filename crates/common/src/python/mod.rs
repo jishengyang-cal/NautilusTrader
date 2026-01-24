@@ -20,6 +20,7 @@ pub mod cache;
 pub mod clock;
 pub mod custom;
 pub mod enums;
+pub mod fifo;
 pub mod listener;
 pub mod logging;
 pub mod msgbus;
@@ -44,6 +45,7 @@ pub fn common(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::cache::Cache>()?;
     m.add_class::<crate::python::actor::PyDataActor>()?;
     m.add_class::<crate::python::cache::PyCache>()?;
+    m.add_class::<crate::python::fifo::PyFifoCache>()?;
     m.add_class::<crate::python::clock::PyClock>()?;
     m.add_class::<crate::python::logging::PyLogger>()?;
     m.add_class::<crate::actor::data_actor::DataActorConfig>()?;

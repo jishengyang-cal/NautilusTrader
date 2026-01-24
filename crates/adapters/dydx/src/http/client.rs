@@ -28,7 +28,7 @@
 //! The domain client wraps the raw client in an `Arc`, maintains an instrument cache using `DashMap`,
 //! and provides high-level methods that work with Nautilus domain types.
 //!
-//! ## Key Responsibilities
+//! ## Responsibilities
 //!
 //! - Rate-limiting based on the public dYdX specification.
 //! - Zero-copy deserialization of large JSON payloads into domain models.
