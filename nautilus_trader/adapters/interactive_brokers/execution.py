@@ -1547,6 +1547,14 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
                 order=nautilus_order,
                 reason=reason,
             )
+
+            if venue_order_id is not None and status in (
+                OrderStatus.FILLED,
+                OrderStatus.EXPIRED,
+                OrderStatus.CANCELED,
+                OrderStatus.REJECTED,
+            ):
+                self._order_filled_qty.pop(venue_order_id, None)
         else:
             self._log.warning(f"ClientOrderId {order_ref} not found in Cache")
 
