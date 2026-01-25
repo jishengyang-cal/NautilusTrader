@@ -61,6 +61,7 @@ Released on TBD (UTC).
 - Fixed Databento zero-length interval at dataset boundary (#3429), thanks @shzhng
 - Fixed Deribit auth token refresh race condition (#3402), thanks @filipmacek
 - Fixed Deribit race condition between response and subscription (#3436), thanks @filipmacek
+- Fixed Deribit grouped book channel parsing (#3473), thanks @filipmacek
 - Fixed Interactive Brokers `fetch_all_open_orders` in client cache key preventing connection sharing (#3441), thanks @shzhng
 - Fixed Interactive Brokers synthetic position order reconciliation causing filled_qty mismatch errors during periodic consistency checks (#3443), thanks @shzhng
 - Fixed Interactive Brokers reconciliation error when account has no positions (#3459), thanks @shzhng
@@ -114,7 +115,7 @@ Released on TBD (UTC).
 - Upgraded Cython to v3.2.4
 - Upgraded `capnp` and `capnpc` crates to v0.25.0
 - Upgraded `databento` crate to v0.39.0
-- Upgraded `datafusion` crate to v52.0.0
+- Upgraded `datafusion` crate to v52.1.0
 - Upgraded `tokio` crate to v1.49.0
 
 ### Documentation Updates

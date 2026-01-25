@@ -803,7 +803,7 @@ version = "0.39.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog]]
@@ -811,7 +811,7 @@ version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog-listing]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-common]]
@@ -827,7 +827,7 @@ version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-arrow]]
-version = "52.0.0"
+version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-csv]]
@@ -1367,7 +1367,7 @@ version = "0.2.180"
 criteria = "safe-to-deploy"
 
 [[exemptions.libm]]
-version = "0.2.15"
+version = "0.2.16"
 criteria = "safe-to-deploy"
 
 [[exemptions.libredox]]
@@ -1576,6 +1576,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.num-complex]]
 version = "0.4.6"
+criteria = "safe-to-deploy"
+
+[[exemptions.num-conv]]
+version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.num_cpus]]
@@ -2327,15 +2331,15 @@ version = "0.17.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.time]]
-version = "0.3.45"
+version = "0.3.46"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-core]]
-version = "0.1.7"
+version = "0.1.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-macros]]
-version = "0.2.25"
+version = "0.2.26"
 criteria = "safe-to-deploy"
 
 [[exemptions.tiny-keccak]]
@@ -2430,6 +2434,10 @@ criteria = "safe-to-deploy"
 version = "0.1.36"
 criteria = "safe-to-deploy"
 
+[[exemptions.tracing-subscriber]]
+version = "0.3.22"
+criteria = "safe-to-deploy"
+
 [[exemptions.tungstenite]]
 version = "0.28.0"
 criteria = "safe-to-deploy"
@@ -2515,7 +2523,7 @@ version = "1.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
-version = "1.19.0"
+version = "1.20.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.value-bag]]
