@@ -53,6 +53,7 @@ Released on TBD (UTC).
 - Fixed Redis cache buffer flushing during idle periods (#3426), thanks for reporting @santivazq
 - Fixed Betfair dropped fills from premature cache update
 - Fixed Betfair duplicate cancel event race condition
+- Fixed Betfair stream batch handling and modify/cancel edge cases
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 - Fixed Binance Futures instrument parsing for margin requirements (#3420), thanks @linimin
 - Fixed Binance algo order quantity `AttributeError` on _mem access
