@@ -23,12 +23,13 @@ use nautilus_common::{
     cache::Cache,
     clients::ExecutionClient,
     clock::Clock,
+    factories::OrderEventFactory,
     messages::execution::{
         BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
         GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
         ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
     },
-    msgbus::{self, MStr, Pattern, TypedHandler},
+    msgbus::{self, MStr, MessagingSwitchboard, Pattern, TypedHandler},
 };
 use nautilus_core::{UnixNanos, WeakCell};
 use nautilus_execution::{
@@ -43,9 +44,9 @@ use nautilus_model::{
     accounts::AccountAny,
     data::{Bar, OrderBookDeltas, QuoteTick, TradeTick},
     enums::OmsType,
-    identifiers::{AccountId, ClientId, InstrumentId, Venue},
+    identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
-    orders::Order,
+    orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, MarginBalance, Money},
 };
@@ -56,18 +57,18 @@ use crate::config::SandboxExecutionClientConfig;
 ///
 /// This is wrapped in `Rc<RefCell<>>` so message handlers can hold weak references.
 struct SandboxInner {
+    /// Dynamic clock for matching engines.
+    clock: Rc<RefCell<dyn Clock>>,
+    /// Reference to the cache.
+    cache: Rc<RefCell<Cache>>,
+    /// The sandbox configuration.
+    config: SandboxExecutionClientConfig,
     /// Matching engines per instrument.
     matching_engines: AHashMap<InstrumentId, OrderEngineAdapter>,
     /// Next raw ID assigned to a matching engine.
     next_engine_raw_id: u32,
     /// Current account balances.
     balances: AHashMap<String, Money>,
-    /// Reference to the clock.
-    clock: Rc<RefCell<dyn Clock>>,
-    /// Reference to the cache.
-    cache: Rc<RefCell<Cache>>,
-    /// The sandbox configuration.
-    config: SandboxExecutionClientConfig,
 }
 
 impl SandboxInner {
@@ -166,6 +167,8 @@ struct RegisteredHandlers {
 pub struct SandboxExecutionClient {
     /// The core execution client functionality.
     core: RefCell<ExecutionClientCore>,
+    /// Factory for generating order events.
+    factory: OrderEventFactory,
     /// The sandbox configuration.
     config: SandboxExecutionClientConfig,
     /// Inner state wrapped for handler access.
@@ -211,16 +214,24 @@ impl SandboxExecutionClient {
         }
 
         let inner = Rc::new(RefCell::new(SandboxInner {
-            matching_engines: AHashMap::new(),
-            next_engine_raw_id: 0,
-            balances,
             clock: clock.clone(),
             cache: cache.clone(),
             config: config.clone(),
+            matching_engines: AHashMap::new(),
+            next_engine_raw_id: 0,
+            balances,
         }));
+
+        let factory = OrderEventFactory::new(
+            core.trader_id,
+            core.account_id,
+            core.account_type,
+            core.base_currency,
+        );
 
         Self {
             core: RefCell::new(core),
+            factory,
             config,
             inner,
             handlers: RefCell::new(None),
@@ -470,6 +481,14 @@ impl SandboxExecutionClient {
             .map(|money| AccountBalance::new(*money, Money::new(0.0, money.currency), *money))
             .collect()
     }
+
+    fn get_order(&self, client_order_id: &ClientOrderId) -> anyhow::Result<OrderAny> {
+        self.cache
+            .borrow()
+            .order(client_order_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Order not found in cache for {client_order_id}"))
+    }
 }
 
 #[async_trait(?Send)]
@@ -495,7 +514,8 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     fn get_account(&self) -> Option<AccountAny> {
-        self.core.borrow().get_account()
+        let account_id = self.core.borrow().account_id;
+        self.cache.borrow().account(&account_id).cloned()
     }
 
     fn generate_account_state(
@@ -503,11 +523,14 @@ impl ExecutionClient for SandboxExecutionClient {
         balances: Vec<AccountBalance>,
         margins: Vec<MarginBalance>,
         reported: bool,
-        _ts_event: UnixNanos,
+        ts_event: UnixNanos,
     ) -> anyhow::Result<()> {
-        let core = self.core.borrow();
-        let state = core.generate_account_state(balances, margins, reported);
-        core.send_account_state(&state);
+        let ts_init = self.clock.borrow().timestamp_ns();
+        let state = self
+            .factory
+            .generate_account_state(balances, margins, reported, ts_event, ts_init);
+        let endpoint = MessagingSwitchboard::portfolio_update_account();
+        msgbus::send_account_state(endpoint, &state);
         Ok(())
     }
 
@@ -581,16 +604,19 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let core = self.core.borrow();
-        let mut order = core.get_order(&cmd.client_order_id)?;
+        let mut order = self.get_order(&cmd.client_order_id)?;
 
         if order.is_closed() {
             log::warn!("Cannot submit closed order {}", order.client_order_id());
             return Ok(());
         }
 
-        let event = core.generate_order_submitted(&order);
-        core.send_order_event(event);
+        let ts_now = self.clock.borrow().timestamp_ns();
+        let event = self
+            .factory
+            .generate_order_submitted(&order, ts_now, ts_now);
+        let endpoint = MessagingSwitchboard::exec_engine_process();
+        msgbus::send_order_event(endpoint, event);
 
         let instrument_id = order.instrument_id();
         let instrument = self
@@ -599,8 +625,6 @@ impl ExecutionClient for SandboxExecutionClient {
             .instrument(&instrument_id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Instrument not found: {instrument_id}"))?;
-
-        drop(core); // Release borrow before mutable borrow
 
         let mut inner = self.inner.borrow_mut();
         inner.ensure_matching_engine(&instrument);
@@ -630,7 +654,8 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     fn submit_order_list(&self, cmd: &SubmitOrderList) -> anyhow::Result<()> {
-        let core = self.core.borrow();
+        let ts_now = self.clock.borrow().timestamp_ns();
+        let endpoint = MessagingSwitchboard::exec_engine_process();
 
         for order in &cmd.order_list.orders {
             if order.is_closed() {
@@ -638,11 +663,9 @@ impl ExecutionClient for SandboxExecutionClient {
                 continue;
             }
 
-            let event = core.generate_order_submitted(order);
-            core.send_order_event(event);
+            let event = self.factory.generate_order_submitted(order, ts_now, ts_now);
+            msgbus::send_order_event(endpoint, event);
         }
-
-        drop(core); // Release borrow before mutable operations
 
         let account_id = self.core.borrow().account_id;
         for order in &cmd.order_list.orders {

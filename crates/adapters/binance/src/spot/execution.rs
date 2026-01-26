@@ -40,7 +40,7 @@ use nautilus_core::{
     MUTEX_POISONED, UUID4, UnixNanos,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
-use nautilus_live::{ExecutionClientCore, OrderEventEmitter};
+use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
     enums::OmsType,
@@ -69,10 +69,10 @@ use crate::{
 /// and Spot Margin markets. Uses HTTP API for all order operations with SBE encoding.
 #[derive(Debug)]
 pub struct BinanceSpotExecutionClient {
-    clock: &'static AtomicTime,
     core: ExecutionClientCore,
-    event_emitter: OrderEventEmitter,
+    clock: &'static AtomicTime,
     config: BinanceExecClientConfig,
+    emitter: ExecutionEventEmitter,
     http_client: BinanceSpotHttpClient,
     started: bool,
     connected: AtomicBool,
@@ -112,13 +112,18 @@ impl BinanceSpotExecutionClient {
         .context("failed to construct Binance Spot HTTP client")?;
 
         let clock = get_atomic_clock_realtime();
-        let event_emitter = OrderEventEmitter::new(core.trader_id, core.account_id);
+        let emitter = ExecutionEventEmitter::new(
+            core.trader_id,
+            core.account_id,
+            core.account_type,
+            core.base_currency,
+        );
 
         Ok(Self {
-            clock,
             core,
-            event_emitter,
+            clock,
             config,
+            emitter,
             http_client,
             started: false,
             connected: AtomicBool::new(false),
@@ -137,21 +142,28 @@ impl BinanceSpotExecutionClient {
         let runtime = get_runtime();
         let account_state = runtime.block_on(self.refresh_account_state())?;
 
-        let state = self.core.generate_account_state(
+        let ts_now = self.clock.get_time_ns();
+        self.emitter.emit_account_state_generated(
             account_state.balances.clone(),
             account_state.margins.clone(),
             account_state.is_reported,
+            ts_now,
+            ts_now,
         );
-        self.event_emitter.emit_account_state_event(state);
 
         Ok(())
     }
 
     fn submit_order_internal(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = self.core.get_order(&cmd.client_order_id)?;
+        let order = self
+            .core
+            .cache()
+            .order(&cmd.client_order_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Order not found: {}", cmd.client_order_id))?;
         let http_client = self.http_client.clone();
 
-        let event_emitter = self.event_emitter.clone();
+        let event_emitter = self.emitter.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -199,7 +211,7 @@ impl BinanceSpotExecutionClient {
                         false,
                     );
 
-                    event_emitter.emit_execution_order_event(OrderEventAny::Accepted(accepted));
+                    event_emitter.emit_order_event(OrderEventAny::Accepted(accepted));
                 }
                 Err(e) => {
                     let rejected = OrderRejected::new(
@@ -216,7 +228,7 @@ impl BinanceSpotExecutionClient {
                         false,
                     );
 
-                    event_emitter.emit_execution_order_event(OrderEventAny::Rejected(rejected));
+                    event_emitter.emit_order_event(OrderEventAny::Rejected(rejected));
 
                     return Err(e);
                 }
@@ -232,7 +244,7 @@ impl BinanceSpotExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let event_emitter = self.event_emitter.clone();
+        let event_emitter = self.emitter.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -264,8 +276,7 @@ impl BinanceSpotExecutionClient {
                         Some(account_id),
                     );
 
-                    event_emitter
-                        .emit_execution_order_event(OrderEventAny::Canceled(canceled_event));
+                    event_emitter.emit_order_event(OrderEventAny::Canceled(canceled_event));
                 }
                 Err(e) => {
                     let rejected_event = OrderCancelRejected::new(
@@ -282,8 +293,7 @@ impl BinanceSpotExecutionClient {
                         Some(account_id),
                     );
 
-                    event_emitter
-                        .emit_execution_order_event(OrderEventAny::CancelRejected(rejected_event));
+                    event_emitter.emit_order_event(OrderEventAny::CancelRejected(rejected_event));
 
                     return Err(e);
                 }
@@ -322,7 +332,7 @@ impl BinanceSpotExecutionClient {
     async fn await_account_registered(&self, timeout_secs: f64) -> anyhow::Result<()> {
         let account_id = self.core.account_id;
 
-        if self.core.cache().borrow().account(&account_id).is_some() {
+        if self.core.cache().account(&account_id).is_some() {
             log::info!("Account {account_id} registered");
             return Ok(());
         }
@@ -334,7 +344,7 @@ impl BinanceSpotExecutionClient {
         loop {
             tokio::time::sleep(interval).await;
 
-            if self.core.cache().borrow().account(&account_id).is_some() {
+            if self.core.cache().account(&account_id).is_some() {
                 log::info!("Account {account_id} registered");
                 return Ok(());
             }
@@ -371,7 +381,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
     }
 
     fn get_account(&self) -> Option<AccountAny> {
-        self.core.get_account()
+        self.core.cache().account(&self.core.account_id).cloned()
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
@@ -391,17 +401,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                 log::warn!("No instruments returned for Binance Spot");
             } else {
                 log::info!("Loaded {} Spot instruments", instruments.len());
-                self.http_client.cache_instruments(instruments.clone());
-
-                // Add instruments to Nautilus Cache for reconciliation
-                {
-                    let mut cache = self.core.cache().borrow_mut();
-                    for instrument in &instruments {
-                        if let Err(e) = cache.add_instrument(instrument.clone()) {
-                            log::debug!("Instrument already in cache: {e}");
-                        }
-                    }
-                }
+                self.http_client.cache_instruments(instruments);
             }
 
             self.instruments_initialized.store(true, Ordering::Release);
@@ -420,7 +420,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
             );
         }
 
-        self.event_emitter.emit_account_state_event(account_state);
+        self.emitter.emit_account_state(account_state);
 
         // Wait for account to be registered in cache before completing connect
         self.await_account_registered(30.0).await?;
@@ -451,7 +451,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
 
         let http_client = self.http_client.clone();
         let command = cmd.clone();
-        let event_emitter = self.event_emitter.clone();
+        let event_emitter = self.emitter.clone();
         let account_id = self.core.account_id;
 
         self.spawn_task("query_order", async move {
@@ -482,12 +482,11 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         balances: Vec<AccountBalance>,
         margins: Vec<MarginBalance>,
         reported: bool,
-        _ts_event: UnixNanos,
+        ts_event: UnixNanos,
     ) -> anyhow::Result<()> {
-        let state = self
-            .core
-            .generate_account_state(balances, margins, reported);
-        self.event_emitter.emit_account_state_event(state);
+        let ts_init = self.clock.get_time_ns();
+        self.emitter
+            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -496,7 +495,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
             return Ok(());
         }
 
-        self.event_emitter.set_sender(get_exec_event_sender());
+        self.emitter.set_sender(get_exec_event_sender());
         self.started = true;
 
         // Spawn instrument bootstrap task
@@ -542,7 +541,12 @@ impl ExecutionClient for BinanceSpotExecutionClient {
     }
 
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = self.core.get_order(&cmd.client_order_id)?;
+        let order = self
+            .core
+            .cache()
+            .order(&cmd.client_order_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Order not found: {}", cmd.client_order_id))?;
 
         if order.is_closed() {
             let client_order_id = order.client_order_id();
@@ -551,8 +555,9 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         }
 
         log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-        let event = self.core.generate_order_submitted(&order);
-        self.event_emitter.emit_execution_order_event(event);
+        let ts_event = self.clock.get_time_ns();
+        self.emitter
+            .emit_order_submitted(&order, ts_event, ts_event);
 
         self.submit_order_internal(cmd)
     }
@@ -569,10 +574,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         // Binance Spot uses cancel-replace for order modification, which requires
         // the full order specification (side, type, time_in_force). Since ModifyOrder
         // doesn't include these fields, we need to look up the original order from cache.
-        let order = {
-            let cache = self.core.cache().borrow();
-            cache.order(&cmd.client_order_id).cloned()
-        };
+        let order = self.core.cache().order(&cmd.client_order_id).cloned();
 
         let Some(order) = order else {
             log::warn!(
@@ -593,15 +595,15 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                 Some(self.core.account_id),
             );
 
-            self.event_emitter
-                .emit_execution_order_event(OrderEventAny::ModifyRejected(rejected_event));
+            self.emitter
+                .emit_order_event(OrderEventAny::ModifyRejected(rejected_event));
             return Ok(());
         };
 
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let event_emitter = self.event_emitter.clone();
+        let event_emitter = self.emitter.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let ts_init = cmd.ts_init;
@@ -652,7 +654,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                         None, // protection_price
                     );
 
-                    event_emitter.emit_execution_order_event(OrderEventAny::Updated(updated_event));
+                    event_emitter.emit_order_event(OrderEventAny::Updated(updated_event));
                 }
                 Err(e) => {
                     let rejected_event = OrderModifyRejected::new(
@@ -669,8 +671,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                         Some(account_id),
                     );
 
-                    event_emitter
-                        .emit_execution_order_event(OrderEventAny::ModifyRejected(rejected_event));
+                    event_emitter.emit_order_event(OrderEventAny::ModifyRejected(rejected_event));
 
                     return Err(e);
                 }
@@ -690,7 +691,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let event_emitter = self.event_emitter.clone();
+        let event_emitter = self.emitter.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let clock = self.clock;
@@ -713,7 +714,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                     Some(account_id),
                 );
 
-                event_emitter.emit_execution_order_event(OrderEventAny::Canceled(canceled_event));
+                event_emitter.emit_order_event(OrderEventAny::Canceled(canceled_event));
             }
 
             Ok(())
@@ -732,7 +733,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         let http_client = self.http_client.clone();
         let command = cmd.clone();
 
-        let event_emitter = self.event_emitter.clone();
+        let event_emitter = self.emitter.clone();
         let trader_id = self.core.trader_id;
         let account_id = self.core.account_id;
         let clock = self.clock;
@@ -785,9 +786,8 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                                         Some(account_id),
                                     );
 
-                                    event_emitter.emit_execution_order_event(
-                                        OrderEventAny::Canceled(canceled_event),
-                                    );
+                                    event_emitter
+                                        .emit_order_event(OrderEventAny::Canceled(canceled_event));
                                 }
                                 BatchCancelResult::Error(error) => {
                                     let rejected_event = OrderCancelRejected::new(
@@ -808,9 +808,9 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                                         Some(account_id),
                                     );
 
-                                    event_emitter.emit_execution_order_event(
-                                        OrderEventAny::CancelRejected(rejected_event),
-                                    );
+                                    event_emitter.emit_order_event(OrderEventAny::CancelRejected(
+                                        rejected_event,
+                                    ));
                                 }
                             }
                         }
@@ -831,9 +831,8 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                                 Some(account_id),
                             );
 
-                            event_emitter.emit_execution_order_event(
-                                OrderEventAny::CancelRejected(rejected_event),
-                            );
+                            event_emitter
+                                .emit_order_event(OrderEventAny::CancelRejected(rejected_event));
                         }
                     }
                 }

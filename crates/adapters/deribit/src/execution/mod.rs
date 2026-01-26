@@ -38,12 +38,14 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{
-    MUTEX_POISONED, UnixNanos, datetime::NANOSECONDS_IN_SECOND, time::get_atomic_clock_realtime,
+    MUTEX_POISONED, UnixNanos,
+    datetime::NANOSECONDS_IN_SECOND,
+    time::{AtomicTime, get_atomic_clock_realtime},
 };
-use nautilus_live::{ExecutionClientCore, OrderEventEmitter};
+use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{OmsType, OrderSide, OrderType, TimeInForce, TriggerType},
+    enums::{AccountType, OmsType, OrderSide, OrderType, TimeInForce, TriggerType},
     events::OrderEventAny,
     identifiers::{AccountId, ClientId, Venue},
     orders::Order,
@@ -68,8 +70,9 @@ use crate::{
 #[derive(Debug)]
 pub struct DeribitExecutionClient {
     core: ExecutionClientCore,
-    event_emitter: OrderEventEmitter,
+    clock: &'static AtomicTime,
     config: DeribitExecClientConfig,
+    emitter: ExecutionEventEmitter,
     http_client: DeribitHttpClient,
     ws_client: DeribitWebSocketClient,
     started: bool,
@@ -120,11 +123,14 @@ impl DeribitExecutionClient {
         // Set account ID for order/fill reports
         ws_client.set_account_id(core.account_id);
 
-        let event_emitter = OrderEventEmitter::new(core.trader_id, core.account_id);
+        let emitter =
+            ExecutionEventEmitter::new(core.trader_id, core.account_id, AccountType::Margin, None);
+
         Ok(Self {
             core,
-            event_emitter,
+            clock: get_atomic_clock_realtime(),
             config,
+            emitter,
             http_client,
             ws_client,
             started: false,
@@ -250,7 +256,7 @@ impl DeribitExecutionClient {
     fn submit_single_order(
         &self,
         order: &dyn Order,
-        ts_init: UnixNanos,
+        _ts_init: UnixNanos,
         task_name: &'static str,
     ) -> anyhow::Result<()> {
         if order.is_closed() {
@@ -260,16 +266,19 @@ impl DeribitExecutionClient {
 
         // Validate instrument belongs to Deribit venue
         if order.instrument_id().venue != *DERIBIT_VENUE {
-            let event = self.core.generate_order_rejected(
-                order,
+            let ts_init = self.clock.get_time_ns();
+            self.emitter.emit_order_rejected_event(
+                order.strategy_id(),
+                order.instrument_id(),
+                order.client_order_id(),
                 &format!(
                     "Instrument {} does not belong to DERIBIT venue (got {})",
                     order.instrument_id(),
                     order.instrument_id().venue
                 ),
+                ts_init,
                 false,
             );
-            self.event_emitter.emit_execution_order_event(event);
 
             log::error!(
                 "Cannot submit order: instrument {} does not belong to DERIBIT venue",
@@ -285,13 +294,12 @@ impl DeribitExecutionClient {
         let instrument_id = order.instrument_id();
         let order_side = order.order_side();
 
-        // Send OrderSubmitted event
         log::debug!("OrderSubmitted client_order_id={client_order_id}");
-        let event = self.core.generate_order_submitted(order);
-        self.event_emitter.emit_execution_order_event(event);
+        let ts_init = self.clock.get_time_ns();
+        self.emitter.emit_order_submitted_event(order, ts_init);
 
         let ws_client = self.ws_client.clone();
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
 
         self.spawn_task(task_name, async move {
             let result = ws_client
@@ -332,7 +340,7 @@ impl DeribitExecutionClient {
             return;
         }
 
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
 
         let handle = get_runtime().spawn(async move {
             pin_mut!(stream);
@@ -369,7 +377,7 @@ impl ExecutionClient for DeribitExecutionClient {
     }
 
     fn get_account(&self) -> Option<AccountAny> {
-        self.core.get_account()
+        self.core.cache().account(&self.core.account_id).cloned()
     }
 
     fn generate_account_state(
@@ -377,12 +385,11 @@ impl ExecutionClient for DeribitExecutionClient {
         balances: Vec<AccountBalance>,
         margins: Vec<MarginBalance>,
         reported: bool,
-        _ts_event: UnixNanos,
+        ts_event: UnixNanos,
     ) -> anyhow::Result<()> {
-        let state = self
-            .core
-            .generate_account_state(balances, margins, reported);
-        self.event_emitter.emit_account_state_event(state);
+        let ts_init = self.clock.get_time_ns();
+        self.emitter
+            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -392,7 +399,7 @@ impl ExecutionClient for DeribitExecutionClient {
         }
 
         let sender = get_exec_event_sender();
-        self.event_emitter.set_sender(sender);
+        self.emitter.set_sender(sender);
         self.started = true;
 
         log::info!(
@@ -459,7 +466,7 @@ impl ExecutionClient for DeribitExecutionClient {
             .await
             .context("failed to request account state")?;
 
-        self.event_emitter.emit_account_state_event(account_state);
+        self.emitter.emit_account_state(account_state);
 
         self.ws_client
             .connect()
@@ -529,7 +536,7 @@ impl ExecutionClient for DeribitExecutionClient {
             let params = GetOrderStateParams {
                 order_id: venue_order_id.to_string(),
             };
-            let ts_init = get_atomic_clock_realtime().get_time_ns();
+            let ts_init = self.clock.get_time_ns();
 
             match self.http_client.inner.get_order_state(params).await {
                 Ok(response) => {
@@ -629,7 +636,7 @@ impl ExecutionClient for DeribitExecutionClient {
         lookback_mins: Option<u64>,
     ) -> anyhow::Result<Option<ExecutionMassStatus>> {
         log::info!("Generating ExecutionMassStatus (lookback_mins={lookback_mins:?})");
-        let ts_now = get_atomic_clock_realtime().get_time_ns();
+        let ts_now = self.clock.get_time_ns();
         let start = lookback_mins.map(|mins| {
             let lookback_ns = mins
                 .saturating_mul(60)
@@ -684,7 +691,7 @@ impl ExecutionClient for DeribitExecutionClient {
     fn query_account(&self, _cmd: &QueryAccount) -> anyhow::Result<()> {
         let http_client = self.http_client.clone();
         let account_id = self.core.account_id;
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
 
         self.spawn_task("query_account", async move {
             let account_state = http_client
@@ -692,7 +699,7 @@ impl ExecutionClient for DeribitExecutionClient {
                 .await
                 .context("failed to query account state (check API credentials are valid)")?;
 
-            emitter.emit_account_state_event(account_state);
+            emitter.emit_account_state(account_state);
             Ok(())
         });
 
@@ -736,7 +743,12 @@ impl ExecutionClient for DeribitExecutionClient {
     }
 
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = self.core.get_order(&cmd.client_order_id)?;
+        let order = self
+            .core
+            .cache()
+            .order(&cmd.client_order_id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Order not found: {}", cmd.client_order_id))?;
         self.submit_single_order(&order, cmd.ts_init, "submit_order")
     }
 
@@ -777,7 +789,10 @@ impl ExecutionClient for DeribitExecutionClient {
             qty
         } else {
             // Get order from cache to use its current quantity
-            let order = self.core.get_order(&cmd.client_order_id)?;
+            let cache = self.core.cache();
+            let order = cache
+                .order(&cmd.client_order_id)
+                .ok_or_else(|| anyhow::anyhow!("Order not found: {}", cmd.client_order_id))?;
             order.quantity()
         };
 
@@ -791,7 +806,7 @@ impl ExecutionClient for DeribitExecutionClient {
         let instrument_id = cmd.instrument_id;
         let venue_order_id = cmd.venue_order_id;
         let ts_init = cmd.ts_init;
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
 
         log::info!(
             "Modifying order: order_id={order_id}, quantity={quantity}, price={price}, client_order_id={client_order_id}"
@@ -848,7 +863,7 @@ impl ExecutionClient for DeribitExecutionClient {
         let instrument_id = cmd.instrument_id;
         let venue_order_id = cmd.venue_order_id;
         let ts_init = cmd.ts_init;
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
 
         log::info!("Canceling order: order_id={order_id}, client_order_id={client_order_id}");
 
@@ -915,7 +930,7 @@ impl ExecutionClient for DeribitExecutionClient {
         );
 
         let orders_to_cancel: Vec<_> = {
-            let cache = self.core.cache().borrow();
+            let cache = self.core.cache();
             let open_orders = cache.orders_open(None, Some(&instrument_id), None, None, None);
 
             open_orders
@@ -958,7 +973,7 @@ impl ExecutionClient for DeribitExecutionClient {
             let ws_client = self.ws_client.clone();
             let trader_id = cmd.trader_id;
             let strategy_id = cmd.strategy_id;
-            let emitter = self.event_emitter.clone();
+            let emitter = self.emitter.clone();
 
             self.spawn_task("cancel_order_by_side", async move {
                 if let Err(e) = ws_client
@@ -1015,7 +1030,7 @@ impl ExecutionClient for DeribitExecutionClient {
                     );
 
                     // Emit OrderCancelRejected event for missing venue_order_id
-                    self.event_emitter.emit_order_cancel_rejected_event(
+                    self.emitter.emit_order_cancel_rejected_event(
                         cancel.strategy_id,
                         cancel.instrument_id,
                         cancel.client_order_id,
@@ -1028,7 +1043,7 @@ impl ExecutionClient for DeribitExecutionClient {
             };
 
             let ws_client = self.ws_client.clone();
-            let emitter = self.event_emitter.clone();
+            let emitter = self.emitter.clone();
             let client_order_id = cancel.client_order_id;
             let trader_id = cancel.trader_id;
             let strategy_id = cancel.strategy_id;
@@ -1070,10 +1085,10 @@ impl ExecutionClient for DeribitExecutionClient {
 }
 
 /// Dispatches a WebSocket message using the event emitter.
-fn dispatch_ws_message(message: NautilusWsMessage, emitter: &OrderEventEmitter) {
+fn dispatch_ws_message(message: NautilusWsMessage, emitter: &ExecutionEventEmitter) {
     match message {
         NautilusWsMessage::AccountState(state) => {
-            emitter.emit_account_state_event(state);
+            emitter.emit_account_state(state);
         }
         NautilusWsMessage::OrderStatusReports(reports) => {
             log::debug!("Processing {} order status report(s)", reports.len());
@@ -1088,25 +1103,25 @@ fn dispatch_ws_message(message: NautilusWsMessage, emitter: &OrderEventEmitter) 
             }
         }
         NautilusWsMessage::OrderRejected(event) => {
-            emitter.emit_execution_order_event(OrderEventAny::Rejected(event));
+            emitter.emit_order_event(OrderEventAny::Rejected(event));
         }
         NautilusWsMessage::OrderAccepted(event) => {
-            emitter.emit_execution_order_event(OrderEventAny::Accepted(event));
+            emitter.emit_order_event(OrderEventAny::Accepted(event));
         }
         NautilusWsMessage::OrderCanceled(event) => {
-            emitter.emit_execution_order_event(OrderEventAny::Canceled(event));
+            emitter.emit_order_event(OrderEventAny::Canceled(event));
         }
         NautilusWsMessage::OrderExpired(event) => {
-            emitter.emit_execution_order_event(OrderEventAny::Expired(event));
+            emitter.emit_order_event(OrderEventAny::Expired(event));
         }
         NautilusWsMessage::OrderUpdated(event) => {
-            emitter.emit_execution_order_event(OrderEventAny::Updated(event));
+            emitter.emit_order_event(OrderEventAny::Updated(event));
         }
         NautilusWsMessage::OrderCancelRejected(event) => {
-            emitter.emit_execution_order_event(OrderEventAny::CancelRejected(event));
+            emitter.emit_order_event(OrderEventAny::CancelRejected(event));
         }
         NautilusWsMessage::OrderModifyRejected(event) => {
-            emitter.emit_execution_order_event(OrderEventAny::ModifyRejected(event));
+            emitter.emit_order_event(OrderEventAny::ModifyRejected(event));
         }
         NautilusWsMessage::Error(e) => {
             log::warn!("WebSocket error: {e}");

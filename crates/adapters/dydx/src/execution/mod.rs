@@ -60,10 +60,10 @@ use nautilus_core::{
     env::get_or_env_var_opt,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
-use nautilus_live::{ExecutionClientCore, OrderEventEmitter};
+use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{OmsType, OrderSide, OrderType, TimeInForce},
+    enums::{AccountType, OmsType, OrderSide, OrderType, TimeInForce},
     identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, Venue},
     instruments::{Instrument, InstrumentAny},
     orders::Order,
@@ -111,10 +111,10 @@ pub const MAX_CLIENT_ID: u32 = u32::MAX;
 /// consistent behavior across the Nautilus ecosystem.
 #[derive(Debug)]
 pub struct DydxExecutionClient {
-    clock: &'static AtomicTime,
     core: ExecutionClientCore,
-    event_emitter: OrderEventEmitter,
+    clock: &'static AtomicTime,
     config: DydxAdapterConfig,
+    emitter: ExecutionEventEmitter,
     http_client: DydxHttpClient,
     ws_client: DydxWebSocketClient,
     grpc_client: Arc<tokio::sync::RwLock<Option<DydxGrpcClient>>>,
@@ -150,7 +150,7 @@ impl DydxExecutionClient {
     ) -> anyhow::Result<Self> {
         let trader_id = core.trader_id;
         let account_id = core.account_id;
-        let event_emitter = OrderEventEmitter::new(trader_id, account_id);
+        let emitter = ExecutionEventEmitter::new(trader_id, account_id, AccountType::Margin, None);
 
         let retry_config = RetryConfig {
             max_retries: config.max_retries,
@@ -186,10 +186,10 @@ impl DydxExecutionClient {
         let grpc_client = Arc::new(tokio::sync::RwLock::new(None));
 
         Ok(Self {
-            clock: get_atomic_clock_realtime(),
             core,
-            event_emitter,
+            clock: get_atomic_clock_realtime(),
             config,
+            emitter,
             http_client,
             ws_client,
             grpc_client,
@@ -379,7 +379,7 @@ impl DydxExecutionClient {
         reason: &str,
         ts_init: UnixNanos,
     ) {
-        self.event_emitter.clone().emit_order_rejected_event(
+        self.emitter.clone().emit_order_rejected_event(
             strategy_id,
             instrument_id,
             client_order_id,
@@ -418,7 +418,7 @@ impl DydxExecutionClient {
     ) where
         F: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
     {
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
 
         let handle = get_runtime().spawn(async move {
             if let Err(e) = fut.await {
@@ -474,7 +474,7 @@ impl ExecutionClient for DydxExecutionClient {
     }
 
     fn get_account(&self) -> Option<AccountAny> {
-        self.core.get_account()
+        self.core.cache().account(&self.core.account_id).cloned()
     }
 
     fn generate_account_state(
@@ -482,12 +482,11 @@ impl ExecutionClient for DydxExecutionClient {
         balances: Vec<AccountBalance>,
         margins: Vec<MarginBalance>,
         reported: bool,
-        _ts_event: UnixNanos,
+        ts_event: UnixNanos,
     ) -> anyhow::Result<()> {
-        let state = self
-            .core
-            .generate_account_state(balances, margins, reported);
-        self.event_emitter.emit_account_state_event(state);
+        let ts_init = self.clock.get_time_ns();
+        self.emitter
+            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -498,7 +497,7 @@ impl ExecutionClient for DydxExecutionClient {
         }
 
         let sender = get_exec_event_sender();
-        self.event_emitter.set_sender(sender);
+        self.emitter.set_sender(sender);
         log::info!("Starting dYdX execution client");
         self.started = true;
         Ok(())
@@ -534,17 +533,22 @@ impl ExecutionClient for DydxExecutionClient {
     /// Validates synchronously, generates OrderSubmitted event, then spawns async task for
     /// gRPC submission to avoid blocking. Unsupported order types generate OrderRejected.
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = self.core.get_order(&cmd.client_order_id)?;
-
-        // Check connection status
+        // Check connection status first (doesn't need order)
         if !self.is_connected() {
             let reason = "Cannot submit order: execution client not connected";
             log::error!("{reason}");
             anyhow::bail!(reason);
         }
 
-        // Check block height is available for short-term orders
+        // Check block height is available for short-term orders (doesn't need order)
         let current_block = self.block_height.load(Ordering::Relaxed);
+
+        // Hold cache borrow for all order access, clone only when needed for async
+        let cache = self.core.cache();
+        let order = cache.order(&cmd.client_order_id).ok_or_else(|| {
+            anyhow::anyhow!("Order not found in cache for {}", cmd.client_order_id)
+        })?;
+
         if current_block == 0 {
             let reason = "Block height not initialized";
             log::warn!(
@@ -633,9 +637,9 @@ impl ExecutionClient for DydxExecutionClient {
         }
 
         log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-        self.event_emitter
+        self.emitter
             .clone()
-            .emit_order_submitted_event(&order, cmd.ts_init);
+            .emit_order_submitted_event(order, cmd.ts_init);
 
         let grpc_client = self.grpc_client.clone();
         let wallet = self.wallet.clone();
@@ -647,7 +651,6 @@ impl ExecutionClient for DydxExecutionClient {
         let block_height = self.block_height.load(std::sync::atomic::Ordering::Relaxed) as u32;
         let chain_id = self.get_chain_id();
         let authenticator_ids = self.config.authenticator_ids.clone();
-        #[allow(clippy::redundant_clone)]
         let order_clone = order.clone();
 
         // Generate client_order_id as u32 before async block (dYdX requires u32 client IDs)
@@ -851,9 +854,8 @@ impl ExecutionClient for DydxExecutionClient {
 
         // Validate order exists in cache and is not closed
         let cache = self.core.cache();
-        let cache_borrow = cache.borrow();
 
-        let order = match cache_borrow.order(&client_order_id) {
+        let order = match cache.order(&client_order_id) {
             Some(order) => order,
             None => {
                 log::error!("Cannot cancel order {client_order_id}: not found in cache");
@@ -873,7 +875,7 @@ impl ExecutionClient for DydxExecutionClient {
 
         // Retrieve instrument from cache
         let instrument_id = cmd.instrument_id;
-        let instrument = match cache_borrow.instrument(&instrument_id) {
+        let instrument = match cache.instrument(&instrument_id) {
             Some(instrument) => instrument,
             None => {
                 log::error!(
@@ -909,7 +911,7 @@ impl ExecutionClient for DydxExecutionClient {
             }
         };
 
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
 
         self.spawn_task("cancel_order", async move {
             let wallet_guard = wallet.read().await;
@@ -965,7 +967,7 @@ impl ExecutionClient for DydxExecutionClient {
         }
 
         // Query all open orders from cache
-        let cache = self.core.cache().borrow();
+        let cache = self.core.cache();
         let mut open_orders: Vec<_> = cache
             .orders_open(None, None, None, None, None)
             .into_iter()
@@ -1273,12 +1275,14 @@ impl ExecutionClient for DydxExecutionClient {
                 account_state.margins.len()
             );
 
-            let state = self.core.generate_account_state(
+            let ts_init = self.clock.get_time_ns();
+            self.emitter.emit_account_state_generated(
                 account_state.balances,
                 account_state.margins,
                 account_state.is_reported,
+                ts_init,
+                ts_init,
             );
-            self.event_emitter.emit_account_state_event(state);
 
             // Spawn WebSocket message processing task following standard adapter pattern
             // Per docs/developer_guide/adapters.md: Parse -> Dispatch -> Engine handles events
@@ -1292,7 +1296,7 @@ impl ExecutionClient for DydxExecutionClient {
                 let clob_pair_id_to_instrument = self.clob_pair_id_to_instrument.clone();
                 let int_to_client_order_id = self.int_to_client_order_id.clone();
                 let block_height = self.block_height.clone();
-                let emitter = self.event_emitter.clone();
+                let emitter = self.emitter.clone();
                 let clock = self.clock;
 
                 let handle = get_runtime().spawn(async move {
@@ -1328,7 +1332,7 @@ impl ExecutionClient for DydxExecutionClient {
                             }
                             NautilusWsMessage::AccountState(state) => {
                                 log::debug!("Received account state update");
-                                emitter.emit_account_state_event(*state);
+                                emitter.emit_account_state(*state);
                             }
                             NautilusWsMessage::SubaccountSubscribed(msg) => {
                                 log::debug!(
@@ -1364,7 +1368,7 @@ impl ExecutionClient for DydxExecutionClient {
                                             account_state.balances.len(),
                                             account_state.margins.len()
                                         );
-                                        emitter.emit_account_state_event(account_state);
+                                        emitter.emit_account_state(account_state);
                                     }
                                     Err(e) => {
                                         log::error!("Failed to parse account state: {e}");

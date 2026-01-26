@@ -163,7 +163,6 @@ impl ExecutionClientFactory for DydxExecutionClientFactory {
         name: &str,
         config: &dyn ClientConfig,
         cache: Rc<RefCell<Cache>>,
-        clock: Rc<RefCell<dyn Clock>>,
     ) -> anyhow::Result<Box<dyn ExecutionClient>> {
         let dydx_config = config
             .as_any()
@@ -189,7 +188,6 @@ impl ExecutionClientFactory for DydxExecutionClientFactory {
             dydx_config.account_id,
             account_type,
             None, // base_currency
-            clock,
             cache,
         );
 
@@ -368,9 +366,8 @@ mod tests {
         let wrong_config = DydxDataClientConfig::default();
 
         let cache = Rc::new(RefCell::new(Cache::default()));
-        let clock = Rc::new(RefCell::new(TestClock::new()));
 
-        let result = factory.create("DYDX-TEST", &wrong_config, cache, clock);
+        let result = factory.create("DYDX-TEST", &wrong_config, cache);
         assert!(result.is_err());
         assert!(
             result

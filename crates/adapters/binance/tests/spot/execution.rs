@@ -36,7 +36,6 @@ use nautilus_binance::{
 use nautilus_common::{
     cache::Cache,
     clients::ExecutionClient,
-    clock::{Clock, TestClock},
     live::runner::set_exec_event_sender,
     messages::{
         ExecutionEvent,
@@ -552,7 +551,6 @@ fn create_test_execution_client(
     let client_id = ClientId::from("BINANCE");
 
     let cache = Rc::new(RefCell::new(Cache::default()));
-    let clock: Rc<RefCell<dyn Clock>> = Rc::new(RefCell::new(TestClock::new()));
 
     let core = ExecutionClientCore::new(
         trader_id,
@@ -562,7 +560,6 @@ fn create_test_execution_client(
         account_id,
         AccountType::Cash,
         None,
-        clock,
         cache.clone(),
     );
 

@@ -36,11 +36,14 @@ use nautilus_common::{
         ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
     },
 };
-use nautilus_core::{MUTEX_POISONED, UUID4, UnixNanos, time::get_atomic_clock_realtime};
-use nautilus_live::{ExecutionClientCore, OrderEventEmitter};
+use nautilus_core::{
+    MUTEX_POISONED, UUID4, UnixNanos,
+    time::{AtomicTime, get_atomic_clock_realtime},
+};
+use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{OmsType, OrderSide, OrderType},
+    enums::{AccountType, OmsType, OrderSide, OrderType},
     events::OrderEventAny,
     identifiers::{
         AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, Venue, VenueOrderId,
@@ -63,8 +66,9 @@ use crate::{
 #[derive(Debug)]
 pub struct AxExecutionClient {
     core: ExecutionClientCore,
-    event_emitter: OrderEventEmitter,
+    clock: &'static AtomicTime,
     config: AxExecClientConfig,
+    emitter: ExecutionEventEmitter,
     http_client: AxHttpClient,
     ws_orders: AxOrdersWebSocketClient,
     started: bool,
@@ -95,7 +99,7 @@ impl AxExecutionClient {
 
         let account_id = core.account_id;
         let trader_id = core.trader_id;
-        let event_emitter = OrderEventEmitter::new(trader_id, account_id);
+        let emitter = ExecutionEventEmitter::new(trader_id, account_id, AccountType::Margin, None);
         let ws_orders = AxOrdersWebSocketClient::new(
             config.ws_private_url(),
             account_id,
@@ -105,8 +109,9 @@ impl AxExecutionClient {
 
         Ok(Self {
             core,
-            event_emitter,
+            clock: get_atomic_clock_realtime(),
             config,
+            emitter,
             http_client,
             ws_orders,
             started: false,
@@ -178,12 +183,14 @@ impl AxExecutionClient {
             .await
             .context("failed to request AX account state")?;
 
-        let state = self.core.generate_account_state(
+        let ts_init = self.clock.get_time_ns();
+        self.emitter.emit_account_state_generated(
             account_state.balances.clone(),
             account_state.margins.clone(),
             account_state.is_reported,
+            ts_init,
+            ts_init,
         );
-        self.event_emitter.emit_account_state_event(state);
         Ok(())
     }
 
@@ -205,9 +212,8 @@ impl AxExecutionClient {
         const PRICE_BAND_PCT: f64 = 0.03;
 
         let cache = self.core.cache();
-        let cache_guard = cache.borrow();
 
-        let quote = cache_guard.quote(&instrument_id).ok_or_else(|| {
+        let quote = cache.quote(&instrument_id).ok_or_else(|| {
             anyhow::anyhow!("Market order simulation requires cached quote for {instrument_id}")
         })?;
 
@@ -237,28 +243,48 @@ impl AxExecutionClient {
     }
 
     fn submit_order_impl(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = self.core.get_order(&cmd.client_order_id)?;
-        let ws_orders = self.ws_orders.clone();
-
-        let emitter = self.event_emitter.clone();
-        let trader_id = self.core.trader_id;
-        let ts_init = cmd.ts_init;
-        let client_order_id = order.client_order_id();
-        let strategy_id = order.strategy_id();
-        let instrument_id = order.instrument_id();
-        let order_side = order.order_side();
-        let order_type = order.order_type();
-        let quantity = order.quantity();
-        let trigger_price = order.trigger_price();
-        let time_in_force = order.time_in_force();
-        let is_post_only = order.is_post_only();
+        // Extract all needed fields in a single borrow scope
+        let (
+            client_order_id,
+            strategy_id,
+            instrument_id,
+            order_side,
+            order_type,
+            quantity,
+            trigger_price,
+            time_in_force,
+            is_post_only,
+            limit_price,
+        ) = {
+            let cache = self.core.cache();
+            let order = cache.order(&cmd.client_order_id).ok_or_else(|| {
+                anyhow::anyhow!("Order not found in cache for {}", cmd.client_order_id)
+            })?;
+            (
+                order.client_order_id(),
+                order.strategy_id(),
+                order.instrument_id(),
+                order.order_side(),
+                order.order_type(),
+                order.quantity(),
+                order.trigger_price(),
+                order.time_in_force(),
+                order.is_post_only(),
+                order.price(),
+            )
+        };
 
         // For market orders, calculate aggressive price from cached quote
         let price = if order_type == OrderType::Market {
             self.calculate_market_order_price(instrument_id, order_side)?
         } else {
-            order.price()
+            limit_price
         };
+
+        let ws_orders = self.ws_orders.clone();
+        let emitter = self.emitter.clone();
+        let trader_id = self.core.trader_id;
+        let ts_init = cmd.ts_init;
 
         self.spawn_task("submit_order", async move {
             let result = ws_orders
@@ -300,7 +326,7 @@ impl AxExecutionClient {
     fn cancel_order_impl(&self, cmd: &CancelOrder) -> anyhow::Result<()> {
         let ws_orders = self.ws_orders.clone();
 
-        let emitter = self.event_emitter.clone();
+        let emitter = self.emitter.clone();
         let ts_init = cmd.ts_init;
         let instrument_id = cmd.instrument_id;
         let client_order_id = cmd.client_order_id;
@@ -358,7 +384,7 @@ impl AxExecutionClient {
     async fn await_account_registered(&self, timeout_secs: f64) -> anyhow::Result<()> {
         let account_id = self.core.account_id;
 
-        if self.core.cache().borrow().account(&account_id).is_some() {
+        if self.core.cache().account(&account_id).is_some() {
             log::info!("Account {account_id} registered");
             return Ok(());
         }
@@ -370,7 +396,7 @@ impl AxExecutionClient {
         loop {
             tokio::time::sleep(interval).await;
 
-            if self.core.cache().borrow().account(&account_id).is_some() {
+            if self.core.cache().account(&account_id).is_some() {
                 log::info!("Account {account_id} registered");
                 return Ok(());
             }
@@ -407,7 +433,7 @@ impl ExecutionClient for AxExecutionClient {
     }
 
     fn get_account(&self) -> Option<AccountAny> {
-        self.core.get_account()
+        self.core.cache().account(&self.core.account_id).cloned()
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
@@ -428,15 +454,6 @@ impl ExecutionClient for AxExecutionClient {
                 log::info!("Loaded {} instruments", instruments.len());
                 self.http_client.cache_instruments(instruments.clone());
 
-                {
-                    let mut cache = self.core.cache().borrow_mut();
-                    for instrument in &instruments {
-                        if let Err(e) = cache.add_instrument(instrument.clone()) {
-                            log::debug!("Instrument already in cache: {e}");
-                        }
-                    }
-                }
-
                 for instrument in instruments {
                     self.ws_orders.cache_instrument(instrument);
                 }
@@ -450,7 +467,7 @@ impl ExecutionClient for AxExecutionClient {
 
         if self.ws_stream_handle.is_none() {
             let stream = self.ws_orders.stream();
-            let emitter = self.event_emitter.clone();
+            let emitter = self.emitter.clone();
 
             let handle = get_runtime().spawn(async move {
                 pin_mut!(stream);
@@ -473,7 +490,7 @@ impl ExecutionClient for AxExecutionClient {
                 account_state.balances.len()
             );
         }
-        self.event_emitter.emit_account_state_event(account_state);
+        self.emitter.emit_account_state(account_state);
 
         self.await_account_registered(30.0).await?;
 
@@ -518,12 +535,11 @@ impl ExecutionClient for AxExecutionClient {
         balances: Vec<AccountBalance>,
         margins: Vec<MarginBalance>,
         reported: bool,
-        _ts_event: UnixNanos,
+        ts_event: UnixNanos,
     ) -> anyhow::Result<()> {
-        let state = self
-            .core
-            .generate_account_state(balances, margins, reported);
-        self.event_emitter.emit_account_state_event(state);
+        let ts_init = self.clock.get_time_ns();
+        self.emitter
+            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -532,7 +548,7 @@ impl ExecutionClient for AxExecutionClient {
             return Ok(());
         }
 
-        self.event_emitter.set_sender(get_exec_event_sender());
+        self.emitter.set_sender(get_exec_event_sender());
         self.started = true;
         log::info!(
             "Started: client_id={}, account_id={}, is_sandbox={}",
@@ -559,29 +575,31 @@ impl ExecutionClient for AxExecutionClient {
     }
 
     fn submit_order(&self, cmd: &SubmitOrder) -> anyhow::Result<()> {
-        let order = self.core.get_order(&cmd.client_order_id)?;
-
-        if order.is_closed() {
-            let client_order_id = order.client_order_id();
-            log::warn!("Cannot submit closed order {client_order_id}");
-            return Ok(());
-        }
-
-        // For market orders, validate quote is cached before emitting OrderSubmitted
-        if order.order_type() == OrderType::Market {
+        // Hold single borrow for all cache access
+        {
             let cache = self.core.cache();
-            let cache_guard = cache.borrow();
-            let instrument_id = order.instrument_id();
-            if cache_guard.quote(&instrument_id).is_none() {
-                anyhow::bail!(
-                    "Market order requires cached quote for {instrument_id} (quote not yet received)"
-                );
-            }
-        }
+            let order = cache.order(&cmd.client_order_id).ok_or_else(|| {
+                anyhow::anyhow!("Order not found in cache for {}", cmd.client_order_id)
+            })?;
 
-        log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-        self.event_emitter
-            .emit_order_submitted_event(&order, cmd.ts_init);
+            if order.is_closed() {
+                log::warn!("Cannot submit closed order {}", order.client_order_id());
+                return Ok(());
+            }
+
+            // For market orders, validate quote is cached before emitting OrderSubmitted
+            if order.order_type() == OrderType::Market {
+                let instrument_id = order.instrument_id();
+                if cache.quote(&instrument_id).is_none() {
+                    anyhow::bail!(
+                        "Market order requires cached quote for {instrument_id} (quote not yet received)"
+                    );
+                }
+            }
+
+            log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
+            self.emitter.emit_order_submitted_event(order, cmd.ts_init);
+        }
 
         self.submit_order_impl(cmd)
     }
@@ -607,7 +625,7 @@ impl ExecutionClient for AxExecutionClient {
     }
 
     fn cancel_all_orders(&self, cmd: &CancelAllOrders) -> anyhow::Result<()> {
-        let cache = self.core.cache().borrow();
+        let cache = self.core.cache();
         let open_orders = cache.orders_open(None, Some(&cmd.instrument_id), None, None, None);
 
         if open_orders.is_empty() {
@@ -822,7 +840,7 @@ impl ExecutionClient for AxExecutionClient {
 }
 
 /// Dispatches a WebSocket message using the event emitter.
-fn dispatch_ws_message(message: AxOrdersWsMessage, emitter: &OrderEventEmitter) {
+fn dispatch_ws_message(message: AxOrdersWsMessage, emitter: &ExecutionEventEmitter) {
     match message {
         AxOrdersWsMessage::Nautilus(message) => match message {
             NautilusExecWsMessage::OrderAccepted(event) => {
@@ -831,7 +849,7 @@ fn dispatch_ws_message(message: AxOrdersWsMessage, emitter: &OrderEventEmitter) 
                     event.client_order_id,
                     event.venue_order_id
                 );
-                emitter.emit_execution_order_event(OrderEventAny::Accepted(event));
+                emitter.emit_order_event(OrderEventAny::Accepted(event));
             }
             NautilusExecWsMessage::OrderFilled(event) => {
                 log::debug!(
@@ -840,23 +858,23 @@ fn dispatch_ws_message(message: AxOrdersWsMessage, emitter: &OrderEventEmitter) 
                     event.last_qty,
                     event.last_px
                 );
-                emitter.emit_execution_order_event(OrderEventAny::Filled(*event));
+                emitter.emit_order_event(OrderEventAny::Filled(*event));
             }
             NautilusExecWsMessage::OrderCanceled(event) => {
                 log::debug!("Order canceled: {}", event.client_order_id);
-                emitter.emit_execution_order_event(OrderEventAny::Canceled(event));
+                emitter.emit_order_event(OrderEventAny::Canceled(event));
             }
             NautilusExecWsMessage::OrderExpired(event) => {
                 log::debug!("Order expired: {}", event.client_order_id);
-                emitter.emit_execution_order_event(OrderEventAny::Expired(event));
+                emitter.emit_order_event(OrderEventAny::Expired(event));
             }
             NautilusExecWsMessage::OrderRejected(event) => {
                 log::warn!("Order rejected: {}", event.client_order_id);
-                emitter.emit_execution_order_event(OrderEventAny::Rejected(event));
+                emitter.emit_order_event(OrderEventAny::Rejected(event));
             }
             NautilusExecWsMessage::OrderCancelRejected(event) => {
                 log::warn!("Cancel rejected: {}", event.client_order_id);
-                emitter.emit_execution_order_event(OrderEventAny::CancelRejected(event));
+                emitter.emit_order_event(OrderEventAny::CancelRejected(event));
             }
             NautilusExecWsMessage::OrderStatusReports(reports) => {
                 log::debug!("Order status reports: {}", reports.len());

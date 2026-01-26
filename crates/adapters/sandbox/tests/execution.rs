@@ -122,7 +122,6 @@ fn create_test_context(trader_id: TraderId, account_id: AccountId, venue: Venue)
         config.account_id,
         config.account_type,
         config.base_currency,
-        clock.clone(),
         cache.clone(),
     );
 

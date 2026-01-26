@@ -31,8 +31,7 @@ use nautilus_common::{
     cache::Cache,
     clock::Clock,
     messages::execution::{BatchCancelOrders, CancelAllOrders, CancelOrder, ModifyOrder},
-    msgbus,
-    msgbus::MessagingSwitchboard,
+    msgbus::{self, MessagingSwitchboard},
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
