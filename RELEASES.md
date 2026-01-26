@@ -91,6 +91,7 @@ Released on TBD (UTC).
 - Added Deribit real-time portfolio WS subscription (#3444), thanks @filipmacek
 - Added Polymarket data loader rate limiting
 - Migrated Nautilus internal logging to `log` crate (external `tracing` available via `use_tracing` config)
+- Refactored execution clients to use `OrderEventEmitter` in Rust (#3469), thanks @filipmacek
 - Refactored computation of greeks (#3393), thanks @faysou
 - Refactored `TearsheetConfig.charts` to chart objects (removed `chart_args`) (#3398), thanks @KaulSe
 - Refactored Betfair order matching to use `rfo` as primary key
