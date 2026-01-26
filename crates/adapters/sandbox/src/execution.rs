@@ -611,10 +611,8 @@ impl ExecutionClient for SandboxExecutionClient {
             return Ok(());
         }
 
-        let ts_now = self.clock.borrow().timestamp_ns();
-        let event = self
-            .factory
-            .generate_order_submitted(&order, ts_now, ts_now);
+        let ts_init = self.clock.borrow().timestamp_ns();
+        let event = self.factory.generate_order_submitted(&order, ts_init);
         let endpoint = MessagingSwitchboard::exec_engine_process();
         msgbus::send_order_event(endpoint, event);
 
@@ -654,7 +652,7 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     fn submit_order_list(&self, cmd: &SubmitOrderList) -> anyhow::Result<()> {
-        let ts_now = self.clock.borrow().timestamp_ns();
+        let ts_init = self.clock.borrow().timestamp_ns();
         let endpoint = MessagingSwitchboard::exec_engine_process();
 
         for order in &cmd.order_list.orders {
@@ -663,7 +661,7 @@ impl ExecutionClient for SandboxExecutionClient {
                 continue;
             }
 
-            let event = self.factory.generate_order_submitted(order, ts_now, ts_now);
+            let event = self.factory.generate_order_submitted(order, ts_init);
             msgbus::send_order_event(endpoint, event);
         }
 

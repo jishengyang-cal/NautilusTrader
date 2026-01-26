@@ -187,7 +187,7 @@ impl OKXExecutionClient {
             .await
             .context("failed to request OKX account state")?;
 
-        self.emitter.emit_account_state(account_state);
+        self.emitter.send_account_state(account_state);
         Ok(())
     }
 
@@ -256,6 +256,7 @@ impl OKXExecutionClient {
                     client_order_id,
                     &format!("submit-order-error: {e}"),
                     ts_init,
+                    ts_init,
                     false,
                 );
                 return Err(e);
@@ -317,6 +318,7 @@ impl OKXExecutionClient {
                     client_order_id,
                     &format!("submit-order-error: {e}"),
                     ts_init,
+                    ts_init,
                     false,
                 );
                 return Err(e);
@@ -354,6 +356,7 @@ impl OKXExecutionClient {
                     command.client_order_id,
                     command.venue_order_id,
                     &format!("cancel-order-error: {e}"),
+                    ts_init,
                     ts_init,
                 );
                 return Err(e);
@@ -556,7 +559,7 @@ impl ExecutionClient for OKXExecutionClient {
                 account_state.balances.len()
             );
         }
-        self.emitter.emit_account_state(account_state);
+        self.emitter.send_account_state(account_state);
 
         // Wait for account to be registered in cache before completing connect
         self.await_account_registered(30.0).await?;
@@ -616,7 +619,7 @@ impl ExecutionClient for OKXExecutionClient {
     ) -> anyhow::Result<()> {
         let ts_init = self.clock.get_time_ns();
         self.emitter
-            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
+            .emit_account_state(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -705,8 +708,8 @@ impl ExecutionClient for OKXExecutionClient {
             }
 
             log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-            let ts_event = self.clock.get_time_ns();
-            self.emitter.emit_order_submitted(order, ts_event, ts_event);
+            let ts_init = self.clock.get_time_ns();
+            self.emitter.emit_order_submitted(order, ts_init);
 
             order.order_type()
         };
@@ -754,6 +757,7 @@ impl ExecutionClient for OKXExecutionClient {
                     command.client_order_id,
                     command.venue_order_id,
                     &format!("modify-order-error: {e}"),
+                    ts_init,
                     ts_init,
                 );
                 return Err(e);
@@ -1070,47 +1074,47 @@ impl ExecutionClient for OKXExecutionClient {
 fn dispatch_ws_message(message: NautilusWsMessage, emitter: &ExecutionEventEmitter) {
     match message {
         NautilusWsMessage::AccountUpdate(state) => {
-            emitter.emit_account_state(state);
+            emitter.send_account_state(state);
         }
         NautilusWsMessage::PositionUpdate(report) => {
-            emitter.emit_position_report(report);
+            emitter.send_position_report(report);
         }
         NautilusWsMessage::ExecutionReports(reports) => {
             log::debug!("Processing {} execution report(s)", reports.len());
             for report in reports {
                 match report {
                     ExecutionReport::Order(order_report) => {
-                        emitter.emit_order_status_report(order_report);
+                        emitter.send_order_status_report(order_report);
                     }
                     ExecutionReport::Fill(fill_report) => {
-                        emitter.emit_fill_report(fill_report);
+                        emitter.send_fill_report(fill_report);
                     }
                 }
             }
         }
         NautilusWsMessage::OrderAccepted(event) => {
-            emitter.emit_order_event(OrderEventAny::Accepted(event));
+            emitter.send_order_event(OrderEventAny::Accepted(event));
         }
         NautilusWsMessage::OrderCanceled(event) => {
-            emitter.emit_order_event(OrderEventAny::Canceled(event));
+            emitter.send_order_event(OrderEventAny::Canceled(event));
         }
         NautilusWsMessage::OrderExpired(event) => {
-            emitter.emit_order_event(OrderEventAny::Expired(event));
+            emitter.send_order_event(OrderEventAny::Expired(event));
         }
         NautilusWsMessage::OrderRejected(event) => {
-            emitter.emit_order_event(OrderEventAny::Rejected(event));
+            emitter.send_order_event(OrderEventAny::Rejected(event));
         }
         NautilusWsMessage::OrderCancelRejected(event) => {
-            emitter.emit_order_event(OrderEventAny::CancelRejected(event));
+            emitter.send_order_event(OrderEventAny::CancelRejected(event));
         }
         NautilusWsMessage::OrderModifyRejected(event) => {
-            emitter.emit_order_event(OrderEventAny::ModifyRejected(event));
+            emitter.send_order_event(OrderEventAny::ModifyRejected(event));
         }
         NautilusWsMessage::OrderTriggered(event) => {
-            emitter.emit_order_event(OrderEventAny::Triggered(event));
+            emitter.send_order_event(OrderEventAny::Triggered(event));
         }
         NautilusWsMessage::OrderUpdated(event) => {
-            emitter.emit_order_event(OrderEventAny::Updated(event));
+            emitter.send_order_event(OrderEventAny::Updated(event));
         }
         NautilusWsMessage::Error(e) => {
             log::warn!(

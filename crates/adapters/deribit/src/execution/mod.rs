@@ -48,7 +48,7 @@ use nautilus_model::{
     enums::{AccountType, OmsType, OrderSide, OrderType, TimeInForce, TriggerType},
     events::OrderEventAny,
     identifiers::{AccountId, ClientId, Venue},
-    orders::Order,
+    orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, MarginBalance},
 };
@@ -253,18 +253,14 @@ impl DeribitExecutionClient {
     /// Submits a single order to Deribit.
     ///
     /// This is the core submission logic shared by `submit_order` and `submit_order_list`.
-    fn submit_single_order(
-        &self,
-        order: &dyn Order,
-        _ts_init: UnixNanos,
-        task_name: &'static str,
-    ) -> anyhow::Result<()> {
+    fn submit_single_order(&self, order: &OrderAny, task_name: &'static str) -> anyhow::Result<()> {
         if order.is_closed() {
             log::warn!("Cannot submit closed order {}", order.client_order_id());
             return Ok(());
         }
 
         // Validate instrument belongs to Deribit venue
+        // TODO: We can do this in a cenrtalized place (execution client adapter?) upstream
         if order.instrument_id().venue != *DERIBIT_VENUE {
             let ts_init = self.clock.get_time_ns();
             self.emitter.emit_order_rejected_event(
@@ -276,6 +272,7 @@ impl DeribitExecutionClient {
                     order.instrument_id(),
                     order.instrument_id().venue
                 ),
+                ts_init,
                 ts_init,
                 false,
             );
@@ -296,7 +293,7 @@ impl DeribitExecutionClient {
 
         log::debug!("OrderSubmitted client_order_id={client_order_id}");
         let ts_init = self.clock.get_time_ns();
-        self.emitter.emit_order_submitted_event(order, ts_init);
+        self.emitter.emit_order_submitted(order, ts_init);
 
         let ws_client = self.ws_client.clone();
         let emitter = self.emitter.clone();
@@ -319,7 +316,8 @@ impl DeribitExecutionClient {
                     instrument_id,
                     client_order_id,
                     &format!("{task_name}-error: {e}"),
-                    ts_init.as_u64(),
+                    ts_init,
+                    ts_init,
                     false,
                 );
                 return Err(e.into());
@@ -389,7 +387,7 @@ impl ExecutionClient for DeribitExecutionClient {
     ) -> anyhow::Result<()> {
         let ts_init = self.clock.get_time_ns();
         self.emitter
-            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
+            .emit_account_state(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -466,7 +464,7 @@ impl ExecutionClient for DeribitExecutionClient {
             .await
             .context("failed to request account state")?;
 
-        self.emitter.emit_account_state(account_state);
+        self.emitter.send_account_state(account_state);
 
         self.ws_client
             .connect()
@@ -699,7 +697,7 @@ impl ExecutionClient for DeribitExecutionClient {
                 .await
                 .context("failed to query account state (check API credentials are valid)")?;
 
-            emitter.emit_account_state(account_state);
+            emitter.send_account_state(account_state);
             Ok(())
         });
 
@@ -749,7 +747,7 @@ impl ExecutionClient for DeribitExecutionClient {
             .order(&cmd.client_order_id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Order not found: {}", cmd.client_order_id))?;
-        self.submit_single_order(&order, cmd.ts_init, "submit_order")
+        self.submit_single_order(&order, "submit_order")
     }
 
     fn submit_order_list(&self, cmd: &SubmitOrderList) -> anyhow::Result<()> {
@@ -768,7 +766,7 @@ impl ExecutionClient for DeribitExecutionClient {
         // Deribit doesn't have native batch order submission
         // Loop through and submit each order individually using shared helper
         for order in &cmd.order_list.orders {
-            self.submit_single_order(order, cmd.ts_init, "submit_order_list_item")?;
+            self.submit_single_order(order, "submit_order_list_item")?;
         }
 
         Ok(())
@@ -836,7 +834,8 @@ impl ExecutionClient for DeribitExecutionClient {
                     client_order_id,
                     venue_order_id,
                     &format!("modify-order-error: {e}"),
-                    ts_init.as_u64(),
+                    ts_init,
+                    ts_init,
                 );
 
                 anyhow::bail!("Modify order failed: {e}");
@@ -889,7 +888,8 @@ impl ExecutionClient for DeribitExecutionClient {
                     client_order_id,
                     venue_order_id,
                     &format!("cancel-order-error: {e}"),
-                    ts_init.as_u64(),
+                    ts_init,
+                    ts_init,
                 );
 
                 anyhow::bail!("Cancel order failed: {e}");
@@ -996,7 +996,8 @@ impl ExecutionClient for DeribitExecutionClient {
                         client_order_id,
                         venue_order_id,
                         &format!("cancel-order-error: {e}"),
-                        ts_init.as_u64(),
+                        ts_init,
+                        ts_init,
                     );
                 }
                 Ok(())
@@ -1036,7 +1037,8 @@ impl ExecutionClient for DeribitExecutionClient {
                         cancel.client_order_id,
                         None,
                         "venue_order_id required for cancel",
-                        cancel.ts_init.as_u64(),
+                        cancel.ts_init,
+                        cancel.ts_init,
                     );
                     continue;
                 }
@@ -1071,7 +1073,8 @@ impl ExecutionClient for DeribitExecutionClient {
                         client_order_id,
                         None,
                         &format!("batch-cancel-error: {e}"),
-                        ts_init.as_u64(),
+                        ts_init,
+                        ts_init,
                     );
 
                     anyhow::bail!("Batch cancel order failed: {e}");
@@ -1088,40 +1091,40 @@ impl ExecutionClient for DeribitExecutionClient {
 fn dispatch_ws_message(message: NautilusWsMessage, emitter: &ExecutionEventEmitter) {
     match message {
         NautilusWsMessage::AccountState(state) => {
-            emitter.emit_account_state(state);
+            emitter.send_account_state(state);
         }
         NautilusWsMessage::OrderStatusReports(reports) => {
             log::debug!("Processing {} order status report(s)", reports.len());
             for report in reports {
-                emitter.emit_order_status_report(report);
+                emitter.send_order_status_report(report);
             }
         }
         NautilusWsMessage::FillReports(reports) => {
             log::debug!("Processing {} fill report(s)", reports.len());
             for report in reports {
-                emitter.emit_fill_report(report);
+                emitter.send_fill_report(report);
             }
         }
         NautilusWsMessage::OrderRejected(event) => {
-            emitter.emit_order_event(OrderEventAny::Rejected(event));
+            emitter.send_order_event(OrderEventAny::Rejected(event));
         }
         NautilusWsMessage::OrderAccepted(event) => {
-            emitter.emit_order_event(OrderEventAny::Accepted(event));
+            emitter.send_order_event(OrderEventAny::Accepted(event));
         }
         NautilusWsMessage::OrderCanceled(event) => {
-            emitter.emit_order_event(OrderEventAny::Canceled(event));
+            emitter.send_order_event(OrderEventAny::Canceled(event));
         }
         NautilusWsMessage::OrderExpired(event) => {
-            emitter.emit_order_event(OrderEventAny::Expired(event));
+            emitter.send_order_event(OrderEventAny::Expired(event));
         }
         NautilusWsMessage::OrderUpdated(event) => {
-            emitter.emit_order_event(OrderEventAny::Updated(event));
+            emitter.send_order_event(OrderEventAny::Updated(event));
         }
         NautilusWsMessage::OrderCancelRejected(event) => {
-            emitter.emit_order_event(OrderEventAny::CancelRejected(event));
+            emitter.send_order_event(OrderEventAny::CancelRejected(event));
         }
         NautilusWsMessage::OrderModifyRejected(event) => {
-            emitter.emit_order_event(OrderEventAny::ModifyRejected(event));
+            emitter.send_order_event(OrderEventAny::ModifyRejected(event));
         }
         NautilusWsMessage::Error(e) => {
             log::warn!("WebSocket error: {e}");

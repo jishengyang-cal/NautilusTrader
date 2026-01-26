@@ -385,6 +385,7 @@ impl DydxExecutionClient {
             client_order_id,
             reason,
             ts_init,
+            ts_init,
             false,
         );
     }
@@ -431,6 +432,7 @@ impl DydxExecutionClient {
                     instrument_id,
                     client_order_id,
                     &error_msg,
+                    ts_now,
                     ts_now,
                     false,
                 );
@@ -486,7 +488,7 @@ impl ExecutionClient for DydxExecutionClient {
     ) -> anyhow::Result<()> {
         let ts_init = self.clock.get_time_ns();
         self.emitter
-            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
+            .emit_account_state(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -636,10 +638,8 @@ impl ExecutionClient for DydxExecutionClient {
             }
         }
 
-        log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-        self.emitter
-            .clone()
-            .emit_order_submitted_event(order, cmd.ts_init);
+        let ts_init = self.clock.get_time_ns();
+        self.emitter.emit_order_submitted(order, ts_init);
 
         let grpc_client = self.grpc_client.clone();
         let wallet = self.wallet.clone();
@@ -911,6 +911,7 @@ impl ExecutionClient for DydxExecutionClient {
             }
         };
 
+        let clock = self.clock;
         let emitter = self.emitter.clone();
 
         self.spawn_task("cancel_order", async move {
@@ -943,13 +944,14 @@ impl ExecutionClient for DydxExecutionClient {
                 Err(e) => {
                     log::error!("Failed to cancel order {client_order_id}: {e:?}");
 
-                    let ts_now = UnixNanos::default();
+                    let ts_now = clock.get_time_ns();
                     emitter.emit_order_cancel_rejected_event(
                         strategy_id,
                         instrument_id,
                         client_order_id,
                         venue_order_id,
                         &format!("Cancel order failed: {e:?}"),
+                        ts_now,
                         ts_now,
                     );
                 }
@@ -1276,7 +1278,7 @@ impl ExecutionClient for DydxExecutionClient {
             );
 
             let ts_init = self.clock.get_time_ns();
-            self.emitter.emit_account_state_generated(
+            self.emitter.emit_account_state(
                 account_state.balances,
                 account_state.margins,
                 account_state.is_reported,
@@ -1320,19 +1322,19 @@ impl ExecutionClient for DydxExecutionClient {
                         match msg {
                             NautilusWsMessage::Order(report) => {
                                 log::debug!("Received order update: {:?}", report.order_status);
-                                emitter.emit_order_status_report(*report);
+                                emitter.send_order_status_report(*report);
                             }
                             NautilusWsMessage::Fill(report) => {
                                 log::debug!("Received fill update");
-                                emitter.emit_fill_report(*report);
+                                emitter.send_fill_report(*report);
                             }
                             NautilusWsMessage::Position(report) => {
                                 log::debug!("Received position update");
-                                emitter.emit_position_report(*report);
+                                emitter.send_position_report(*report);
                             }
                             NautilusWsMessage::AccountState(state) => {
                                 log::debug!("Received account state update");
-                                emitter.emit_account_state(*state);
+                                emitter.send_account_state(*state);
                             }
                             NautilusWsMessage::SubaccountSubscribed(msg) => {
                                 log::debug!(
@@ -1368,7 +1370,7 @@ impl ExecutionClient for DydxExecutionClient {
                                             account_state.balances.len(),
                                             account_state.margins.len()
                                         );
-                                        emitter.emit_account_state(account_state);
+                                        emitter.send_account_state(account_state);
                                     }
                                     Err(e) => {
                                         log::error!("Failed to parse account state: {e}");
@@ -1399,7 +1401,7 @@ impl ExecutionClient for DydxExecutionClient {
                                                     report.quantity,
                                                     market
                                                 );
-                                                emitter.emit_position_report(report);
+                                                emitter.send_position_report(report);
                                             }
                                             Err(e) => {
                                                 log::error!(
@@ -1443,7 +1445,7 @@ impl ExecutionClient for DydxExecutionClient {
                                                     report.quantity,
                                                     report.client_order_id
                                                 );
-                                                emitter.emit_order_status_report(report);
+                                                emitter.send_order_status_report(report);
                                             }
                                             Err(e) => {
                                                 log::error!(
@@ -1471,7 +1473,7 @@ impl ExecutionClient for DydxExecutionClient {
                                                     report.last_qty,
                                                     report.last_px
                                                 );
-                                                emitter.emit_fill_report(report);
+                                                emitter.send_fill_report(report);
                                             }
                                             Err(e) => {
                                                 log::error!(

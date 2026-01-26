@@ -184,7 +184,7 @@ impl AxExecutionClient {
             .context("failed to request AX account state")?;
 
         let ts_init = self.clock.get_time_ns();
-        self.emitter.emit_account_state_generated(
+        self.emitter.emit_account_state(
             account_state.balances.clone(),
             account_state.margins.clone(),
             account_state.is_reported,
@@ -284,7 +284,7 @@ impl AxExecutionClient {
         let ws_orders = self.ws_orders.clone();
         let emitter = self.emitter.clone();
         let trader_id = self.core.trader_id;
-        let ts_init = cmd.ts_init;
+        let ts_init = self.clock.get_time_ns();
 
         self.spawn_task("submit_order", async move {
             let result = ws_orders
@@ -311,6 +311,7 @@ impl AxExecutionClient {
                     instrument_id,
                     client_order_id,
                     &format!("submit-order-error: {e}"),
+                    ts_init, // TODO: Use proper event timestamp
                     ts_init,
                     false,
                 );
@@ -327,11 +328,11 @@ impl AxExecutionClient {
         let ws_orders = self.ws_orders.clone();
 
         let emitter = self.emitter.clone();
-        let ts_init = cmd.ts_init;
         let instrument_id = cmd.instrument_id;
         let client_order_id = cmd.client_order_id;
         let venue_order_id = cmd.venue_order_id;
         let strategy_id = cmd.strategy_id;
+        let ts_init = self.clock.get_time_ns();
 
         self.spawn_task("cancel_order", async move {
             let result = ws_orders
@@ -346,6 +347,7 @@ impl AxExecutionClient {
                     client_order_id,
                     venue_order_id,
                     &format!("cancel-order-error: {e}"),
+                    ts_init, // TODO: Use proper event timestamp
                     ts_init,
                 );
                 anyhow::bail!("{e}");
@@ -490,7 +492,7 @@ impl ExecutionClient for AxExecutionClient {
                 account_state.balances.len()
             );
         }
-        self.emitter.emit_account_state(account_state);
+        self.emitter.send_account_state(account_state);
 
         self.await_account_registered(30.0).await?;
 
@@ -539,7 +541,7 @@ impl ExecutionClient for AxExecutionClient {
     ) -> anyhow::Result<()> {
         let ts_init = self.clock.get_time_ns();
         self.emitter
-            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
+            .emit_account_state(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -597,8 +599,10 @@ impl ExecutionClient for AxExecutionClient {
                 }
             }
 
+            let ts_init = self.clock.get_time_ns();
+
             log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
-            self.emitter.emit_order_submitted_event(order, cmd.ts_init);
+            self.emitter.emit_order_submitted(order, ts_init);
         }
 
         self.submit_order_impl(cmd)
@@ -849,7 +853,7 @@ fn dispatch_ws_message(message: AxOrdersWsMessage, emitter: &ExecutionEventEmitt
                     event.client_order_id,
                     event.venue_order_id
                 );
-                emitter.emit_order_event(OrderEventAny::Accepted(event));
+                emitter.send_order_event(OrderEventAny::Accepted(event));
             }
             NautilusExecWsMessage::OrderFilled(event) => {
                 log::debug!(
@@ -858,23 +862,23 @@ fn dispatch_ws_message(message: AxOrdersWsMessage, emitter: &ExecutionEventEmitt
                     event.last_qty,
                     event.last_px
                 );
-                emitter.emit_order_event(OrderEventAny::Filled(*event));
+                emitter.send_order_event(OrderEventAny::Filled(*event));
             }
             NautilusExecWsMessage::OrderCanceled(event) => {
                 log::debug!("Order canceled: {}", event.client_order_id);
-                emitter.emit_order_event(OrderEventAny::Canceled(event));
+                emitter.send_order_event(OrderEventAny::Canceled(event));
             }
             NautilusExecWsMessage::OrderExpired(event) => {
                 log::debug!("Order expired: {}", event.client_order_id);
-                emitter.emit_order_event(OrderEventAny::Expired(event));
+                emitter.send_order_event(OrderEventAny::Expired(event));
             }
             NautilusExecWsMessage::OrderRejected(event) => {
                 log::warn!("Order rejected: {}", event.client_order_id);
-                emitter.emit_order_event(OrderEventAny::Rejected(event));
+                emitter.send_order_event(OrderEventAny::Rejected(event));
             }
             NautilusExecWsMessage::OrderCancelRejected(event) => {
                 log::warn!("Cancel rejected: {}", event.client_order_id);
-                emitter.emit_order_event(OrderEventAny::CancelRejected(event));
+                emitter.send_order_event(OrderEventAny::CancelRejected(event));
             }
             NautilusExecWsMessage::OrderStatusReports(reports) => {
                 log::debug!("Order status reports: {}", reports.len());

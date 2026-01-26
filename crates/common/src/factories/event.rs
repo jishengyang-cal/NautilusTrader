@@ -94,12 +94,13 @@ impl OrderEventFactory {
     }
 
     /// Generates an order denied event.
+    ///
+    /// The event timestamp `ts_event` is the same as the initialized timestamp `ts_init`.
     #[must_use]
     pub fn generate_order_denied(
         &self,
         order: &OrderAny,
         reason: &str,
-        ts_event: UnixNanos,
         ts_init: UnixNanos,
     ) -> OrderEventAny {
         let event = OrderDenied::new(
@@ -109,20 +110,17 @@ impl OrderEventFactory {
             order.client_order_id(),
             reason.into(),
             UUID4::new(),
-            ts_event,
+            ts_init,
             ts_init,
         );
         OrderEventAny::Denied(event)
     }
 
     /// Generates an order submitted event.
+    ///
+    /// The event timestamp `ts_event` is the same as the initialized timestamp `ts_init`.
     #[must_use]
-    pub fn generate_order_submitted(
-        &self,
-        order: &OrderAny,
-        ts_event: UnixNanos,
-        ts_init: UnixNanos,
-    ) -> OrderEventAny {
+    pub fn generate_order_submitted(&self, order: &OrderAny, ts_init: UnixNanos) -> OrderEventAny {
         let event = OrderSubmitted::new(
             self.trader_id,
             order.strategy_id(),
@@ -130,7 +128,7 @@ impl OrderEventFactory {
             order.client_order_id(),
             self.account_id,
             UUID4::new(),
-            ts_event,
+            ts_init,
             ts_init,
         );
         OrderEventAny::Submitted(event)

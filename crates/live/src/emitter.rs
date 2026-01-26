@@ -33,18 +33,17 @@ use nautilus_common::{
     factories::OrderEventFactory,
     messages::{ExecutionEvent, ExecutionReport},
 };
-use nautilus_core::{UUID4, UnixNanos, time::get_atomic_clock_realtime};
+use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     enums::{AccountType, LiquiditySide},
     events::{
         AccountState, OrderCancelRejected, OrderEventAny, OrderModifyRejected, OrderRejected,
-        OrderSubmitted,
     },
     identifiers::{
         AccountId, ClientOrderId, InstrumentId, PositionId, StrategyId, TradeId, TraderId,
         VenueOrderId,
     },
-    orders::{Order, OrderAny},
+    orders::OrderAny,
     reports::{FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, Currency, MarginBalance, Money, Price, Quantity},
 };
@@ -102,56 +101,8 @@ impl ExecutionEventEmitter {
         self.factory.account_id()
     }
 
-    /// Emits an order event.
-    pub fn emit_order_event(&self, event: OrderEventAny) {
-        if let Some(sender) = &self.sender {
-            if let Err(e) = sender.send(ExecutionEvent::Order(event)) {
-                log::warn!("Failed to send order event: {e}");
-            }
-        } else {
-            log::warn!("Cannot send order event: sender not initialized");
-        }
-    }
-
-    /// Emits an account state event.
-    pub fn emit_account_state(&self, state: AccountState) {
-        if let Some(sender) = &self.sender {
-            if let Err(e) = sender.send(ExecutionEvent::Account(state)) {
-                log::warn!("Failed to send account state: {e}");
-            }
-        } else {
-            log::warn!("Cannot send account state: sender not initialized");
-        }
-    }
-
-    /// Emits an execution report.
-    pub fn emit_execution_report(&self, report: ExecutionReport) {
-        if let Some(sender) = &self.sender {
-            if let Err(e) = sender.send(ExecutionEvent::Report(report)) {
-                log::warn!("Failed to send execution report: {e}");
-            }
-        } else {
-            log::warn!("Cannot send execution report: sender not initialized");
-        }
-    }
-
-    /// Emits an order status report.
-    pub fn emit_order_status_report(&self, report: OrderStatusReport) {
-        self.emit_execution_report(ExecutionReport::Order(Box::new(report)));
-    }
-
-    /// Emits a fill report.
-    pub fn emit_fill_report(&self, report: FillReport) {
-        self.emit_execution_report(ExecutionReport::Fill(Box::new(report)));
-    }
-
-    /// Emits a position status report.
-    pub fn emit_position_report(&self, report: PositionStatusReport) {
-        self.emit_execution_report(ExecutionReport::Position(Box::new(report)));
-    }
-
     /// Generates and emits an account state event.
-    pub fn emit_account_state_generated(
+    pub fn emit_account_state(
         &self,
         balances: Vec<AccountBalance>,
         margins: Vec<MarginBalance>,
@@ -162,29 +113,19 @@ impl ExecutionEventEmitter {
         let state = self
             .factory
             .generate_account_state(balances, margins, reported, ts_event, ts_init);
-        self.emit_account_state(state);
+        self.send_account_state(state);
     }
 
     /// Generates and emits an order denied event.
-    pub fn emit_order_denied(
-        &self,
-        order: &OrderAny,
-        reason: &str,
-        ts_event: UnixNanos,
-        ts_init: UnixNanos,
-    ) {
-        let event = self
-            .factory
-            .generate_order_denied(order, reason, ts_event, ts_init);
-        self.emit_order_event(event);
+    pub fn emit_order_denied(&self, order: &OrderAny, reason: &str, ts_init: UnixNanos) {
+        let event = self.factory.generate_order_denied(order, reason, ts_init);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order submitted event.
-    pub fn emit_order_submitted(&self, order: &OrderAny, ts_event: UnixNanos, ts_init: UnixNanos) {
-        let event = self
-            .factory
-            .generate_order_submitted(order, ts_event, ts_init);
-        self.emit_order_event(event);
+    pub fn emit_order_submitted(&self, order: &OrderAny, ts_init: UnixNanos) {
+        let event = self.factory.generate_order_submitted(order, ts_init);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order rejected event.
@@ -199,7 +140,7 @@ impl ExecutionEventEmitter {
         let event =
             self.factory
                 .generate_order_rejected(order, reason, ts_event, ts_init, due_post_only);
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order accepted event.
@@ -213,7 +154,7 @@ impl ExecutionEventEmitter {
         let event = self
             .factory
             .generate_order_accepted(order, venue_order_id, ts_event, ts_init);
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order modify rejected event.
@@ -232,7 +173,7 @@ impl ExecutionEventEmitter {
             ts_event,
             ts_init,
         );
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order cancel rejected event.
@@ -251,7 +192,7 @@ impl ExecutionEventEmitter {
             ts_event,
             ts_init,
         );
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order updated event.
@@ -277,7 +218,7 @@ impl ExecutionEventEmitter {
             ts_event,
             ts_init,
         );
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order canceled event.
@@ -291,7 +232,7 @@ impl ExecutionEventEmitter {
         let event = self
             .factory
             .generate_order_canceled(order, venue_order_id, ts_event, ts_init);
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order triggered event.
@@ -305,7 +246,7 @@ impl ExecutionEventEmitter {
         let event = self
             .factory
             .generate_order_triggered(order, venue_order_id, ts_event, ts_init);
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order expired event.
@@ -319,7 +260,7 @@ impl ExecutionEventEmitter {
         let event = self
             .factory
             .generate_order_expired(order, venue_order_id, ts_event, ts_init);
-        self.emit_order_event(event);
+        self.send_order_event(event);
     }
 
     /// Generates and emits an order filled event.
@@ -351,36 +292,21 @@ impl ExecutionEventEmitter {
             ts_event,
             ts_init,
         );
-        self.emit_order_event(event);
-    }
-
-    /// Constructs and emits an order submitted event (uses realtime clock for ts_init).
-    pub fn emit_order_submitted_event(&self, order: &dyn Order, ts_event: impl Into<UnixNanos>) {
-        let ts_init = get_atomic_clock_realtime().get_time_ns();
-        let event = OrderSubmitted::new(
-            self.factory.trader_id(),
-            order.strategy_id(),
-            order.instrument_id(),
-            order.client_order_id(),
-            self.factory.account_id(),
-            UUID4::new(),
-            ts_event.into(),
-            ts_init,
-        );
-        self.emit_order_event(OrderEventAny::Submitted(event));
+        self.send_order_event(event);
     }
 
     /// Constructs and emits an order rejected event from raw fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_order_rejected_event(
         &self,
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
         client_order_id: ClientOrderId,
         reason: &str,
-        ts_event: impl Into<UnixNanos>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
         due_post_only: bool,
     ) {
-        let ts_init = get_atomic_clock_realtime().get_time_ns();
         let event = OrderRejected::new(
             self.factory.trader_id(),
             strategy_id,
@@ -389,15 +315,16 @@ impl ExecutionEventEmitter {
             self.factory.account_id(),
             reason.into(),
             UUID4::new(),
-            ts_event.into(),
+            ts_event,
             ts_init,
             false,
             due_post_only,
         );
-        self.emit_order_event(OrderEventAny::Rejected(event));
+        self.send_order_event(OrderEventAny::Rejected(event));
     }
 
     /// Constructs and emits an order modify rejected event from raw fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_order_modify_rejected_event(
         &self,
         strategy_id: StrategyId,
@@ -405,9 +332,9 @@ impl ExecutionEventEmitter {
         client_order_id: ClientOrderId,
         venue_order_id: Option<VenueOrderId>,
         reason: &str,
-        ts_event: impl Into<UnixNanos>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
     ) {
-        let ts_init = get_atomic_clock_realtime().get_time_ns();
         let event = OrderModifyRejected::new(
             self.factory.trader_id(),
             strategy_id,
@@ -415,16 +342,17 @@ impl ExecutionEventEmitter {
             client_order_id,
             reason.into(),
             UUID4::new(),
-            ts_event.into(),
+            ts_event,
             ts_init,
             false,
             venue_order_id,
             Some(self.factory.account_id()),
         );
-        self.emit_order_event(OrderEventAny::ModifyRejected(event));
+        self.send_order_event(OrderEventAny::ModifyRejected(event));
     }
 
     /// Constructs and emits an order cancel rejected event from raw fields.
+    #[allow(clippy::too_many_arguments)]
     pub fn emit_order_cancel_rejected_event(
         &self,
         strategy_id: StrategyId,
@@ -432,9 +360,9 @@ impl ExecutionEventEmitter {
         client_order_id: ClientOrderId,
         venue_order_id: Option<VenueOrderId>,
         reason: &str,
-        ts_event: impl Into<UnixNanos>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
     ) {
-        let ts_init = get_atomic_clock_realtime().get_time_ns();
         let event = OrderCancelRejected::new(
             self.factory.trader_id(),
             strategy_id,
@@ -442,12 +370,60 @@ impl ExecutionEventEmitter {
             client_order_id,
             reason.into(),
             UUID4::new(),
-            ts_event.into(),
+            ts_event,
             ts_init,
             false,
             venue_order_id,
             Some(self.factory.account_id()),
         );
-        self.emit_order_event(OrderEventAny::CancelRejected(event));
+        self.send_order_event(OrderEventAny::CancelRejected(event));
+    }
+
+    /// Emits an order event.
+    pub fn send_order_event(&self, event: OrderEventAny) {
+        if let Some(sender) = &self.sender {
+            if let Err(e) = sender.send(ExecutionEvent::Order(event)) {
+                log::warn!("Failed to send order event: {e}");
+            }
+        } else {
+            log::warn!("Cannot send order event: sender not initialized");
+        }
+    }
+
+    /// Emits an account state event.
+    pub fn send_account_state(&self, state: AccountState) {
+        if let Some(sender) = &self.sender {
+            if let Err(e) = sender.send(ExecutionEvent::Account(state)) {
+                log::warn!("Failed to send account state: {e}");
+            }
+        } else {
+            log::warn!("Cannot send account state: sender not initialized");
+        }
+    }
+
+    /// Emits an execution report.
+    pub fn send_execution_report(&self, report: ExecutionReport) {
+        if let Some(sender) = &self.sender {
+            if let Err(e) = sender.send(ExecutionEvent::Report(report)) {
+                log::warn!("Failed to send execution report: {e}");
+            }
+        } else {
+            log::warn!("Cannot send execution report: sender not initialized");
+        }
+    }
+
+    /// Emits an order status report.
+    pub fn send_order_status_report(&self, report: OrderStatusReport) {
+        self.send_execution_report(ExecutionReport::Order(Box::new(report)));
+    }
+
+    /// Emits a fill report.
+    pub fn send_fill_report(&self, report: FillReport) {
+        self.send_execution_report(ExecutionReport::Fill(Box::new(report)));
+    }
+
+    /// Emits a position status report.
+    pub fn send_position_report(&self, report: PositionStatusReport) {
+        self.send_execution_report(ExecutionReport::Position(Box::new(report)));
     }
 }

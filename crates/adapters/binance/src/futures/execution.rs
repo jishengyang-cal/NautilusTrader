@@ -286,7 +286,7 @@ impl BinanceFuturesExecutionClient {
         let account_state = runtime.block_on(self.refresh_account_state())?;
 
         let ts_now = self.clock.get_time_ns();
-        self.emitter.emit_account_state_generated(
+        self.emitter.emit_account_state(
             account_state.balances.clone(),
             account_state.margins.clone(),
             account_state.is_reported,
@@ -308,22 +308,22 @@ impl BinanceFuturesExecutionClient {
     fn handle_exec_event(message: NautilusExecWsMessage, emitter: &ExecutionEventEmitter) {
         match message {
             NautilusExecWsMessage::OrderAccepted(event) => {
-                emitter.emit_order_event(OrderEventAny::Accepted(event));
+                emitter.send_order_event(OrderEventAny::Accepted(event));
             }
             NautilusExecWsMessage::OrderCanceled(event) => {
-                emitter.emit_order_event(OrderEventAny::Canceled(event));
+                emitter.send_order_event(OrderEventAny::Canceled(event));
             }
             NautilusExecWsMessage::OrderRejected(event) => {
-                emitter.emit_order_event(OrderEventAny::Rejected(event));
+                emitter.send_order_event(OrderEventAny::Rejected(event));
             }
             NautilusExecWsMessage::OrderFilled(event) => {
-                emitter.emit_order_event(OrderEventAny::Filled(event));
+                emitter.send_order_event(OrderEventAny::Filled(event));
             }
             NautilusExecWsMessage::OrderUpdated(event) => {
-                emitter.emit_order_event(OrderEventAny::Updated(event));
+                emitter.send_order_event(OrderEventAny::Updated(event));
             }
             NautilusExecWsMessage::AccountUpdate(event) => {
-                emitter.emit_account_state(event);
+                emitter.send_account_state(event);
             }
             NautilusExecWsMessage::ListenKeyExpired => {
                 log::warn!("Listen key expired - reconnection required");
@@ -447,7 +447,7 @@ impl BinanceFuturesExecutionClient {
                         false,
                     );
 
-                    emitter.emit_order_event(OrderEventAny::Rejected(rejected_event));
+                    emitter.send_order_event(OrderEventAny::Rejected(rejected_event));
 
                     return Err(e);
                 }
@@ -511,7 +511,7 @@ impl BinanceFuturesExecutionClient {
                         Some(account_id),
                     );
 
-                    emitter.emit_order_event(OrderEventAny::CancelRejected(rejected_event));
+                    emitter.send_order_event(OrderEventAny::CancelRejected(rejected_event));
 
                     return Err(e);
                 }
@@ -847,7 +847,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             );
         }
 
-        self.emitter.emit_account_state(account_state);
+        self.emitter.send_account_state(account_state);
 
         self.await_account_registered(30.0).await?;
 
@@ -939,7 +939,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         size_precision,
                     )?;
 
-                    emitter.emit_order_status_report(report);
+                    emitter.send_order_status_report(report);
                 }
                 Err(e) => log::warn!("Failed to query order status: {e}"),
             }
@@ -959,7 +959,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
     ) -> anyhow::Result<()> {
         let ts_init = self.clock.get_time_ns();
         self.emitter
-            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
+            .emit_account_state(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -1026,8 +1026,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
         log::debug!("OrderSubmitted client_order_id={}", order.client_order_id());
         let ts_init = self.clock.get_time_ns();
-        self.emitter
-            .emit_order_submitted(&order, cmd.ts_init, ts_init);
+        self.emitter.emit_order_submitted(&order, ts_init);
 
         self.submit_order_internal(cmd)
     }
@@ -1066,7 +1065,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             );
 
             self.emitter
-                .emit_order_event(OrderEventAny::ModifyRejected(rejected_event));
+                .send_order_event(OrderEventAny::ModifyRejected(rejected_event));
             return Ok(());
         };
 
@@ -1103,7 +1102,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             );
 
             self.emitter
-                .emit_order_event(OrderEventAny::ModifyRejected(rejected_event));
+                .send_order_event(OrderEventAny::ModifyRejected(rejected_event));
             return Ok(());
         };
         let clock = self.clock;
@@ -1140,7 +1139,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         None,
                     );
 
-                    emitter.emit_order_event(OrderEventAny::Updated(updated_event));
+                    emitter.send_order_event(OrderEventAny::Updated(updated_event));
                 }
                 Err(e) => {
                     let rejected_event = OrderModifyRejected::new(
@@ -1157,7 +1156,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         Some(account_id),
                     );
 
-                    emitter.emit_order_event(OrderEventAny::ModifyRejected(rejected_event));
+                    emitter.send_order_event(OrderEventAny::ModifyRejected(rejected_event));
 
                     anyhow::bail!("Modify order failed: {e}");
                 }
@@ -1259,7 +1258,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                     );
 
                                     emitter
-                                        .emit_order_event(OrderEventAny::Canceled(canceled_event));
+                                        .send_order_event(OrderEventAny::Canceled(canceled_event));
                                 }
                                 BatchOrderResult::Error(error) => {
                                     let rejected_event = OrderCancelRejected::new(
@@ -1280,7 +1279,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                         Some(account_id),
                                     );
 
-                                    emitter.emit_order_event(OrderEventAny::CancelRejected(
+                                    emitter.send_order_event(OrderEventAny::CancelRejected(
                                         rejected_event,
                                     ));
                                 }
@@ -1303,7 +1302,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                                 Some(account_id),
                             );
 
-                            emitter.emit_order_event(OrderEventAny::CancelRejected(rejected_event));
+                            emitter.send_order_event(OrderEventAny::CancelRejected(rejected_event));
                         }
                     }
                 }

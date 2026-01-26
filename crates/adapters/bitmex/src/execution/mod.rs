@@ -250,7 +250,7 @@ impl BitmexExecutionClient {
             .await
             .context("failed to request BitMEX account state")?;
 
-        self.emitter.emit_account_state(account_state);
+        self.emitter.send_account_state(account_state);
         Ok(())
     }
 
@@ -314,7 +314,7 @@ impl ExecutionClient for BitmexExecutionClient {
     ) -> anyhow::Result<()> {
         let ts_init = self.clock.get_time_ns();
         self.emitter
-            .emit_account_state_generated(balances, margins, reported, ts_event, ts_init);
+            .emit_account_state(balances, margins, reported, ts_event, ts_init);
         Ok(())
     }
 
@@ -498,7 +498,7 @@ impl ExecutionClient for BitmexExecutionClient {
                 .request_order_status_report(instrument_id, client_order_id, venue_order_id)
                 .await
             {
-                Ok(report) => emitter.emit_order_status_report(report),
+                Ok(report) => emitter.send_order_status_report(report),
                 Err(e) => log::error!("BitMEX query order failed: {e:?}"),
             }
             Ok(())
@@ -523,7 +523,7 @@ impl ExecutionClient for BitmexExecutionClient {
         }
 
         let ts_init = self.clock.get_time_ns();
-        self.emitter.emit_order_submitted_event(&order, ts_init);
+        self.emitter.emit_order_submitted(&order, ts_init);
 
         let submit_tries = cmd
             .params
@@ -597,13 +597,14 @@ impl ExecutionClient for BitmexExecutionClient {
             };
 
             match result {
-                Ok(report) => emitter.emit_order_status_report(report),
+                Ok(report) => emitter.send_order_status_report(report),
                 Err(e) => {
                     emitter.emit_order_rejected_event(
                         strategy_id,
                         instrument_id,
                         client_order_id,
                         &format!("submit-order-error: {e}"),
+                        ts_event,
                         ts_event,
                         post_only,
                     );
@@ -645,7 +646,7 @@ impl ExecutionClient for BitmexExecutionClient {
                 )
                 .await
             {
-                Ok(report) => emitter.emit_order_status_report(report),
+                Ok(report) => emitter.send_order_status_report(report),
                 Err(e) => log::error!("BitMEX modify order failed: {e:?}"),
             }
             Ok(())
@@ -666,7 +667,7 @@ impl ExecutionClient for BitmexExecutionClient {
                 .broadcast_cancel(instrument_id, client_order_id, venue_order_id)
                 .await
             {
-                Ok(Some(report)) => emitter.emit_order_status_report(report),
+                Ok(Some(report)) => emitter.send_order_status_report(report),
                 Ok(None) => {
                     // Idempotent success - order already cancelled
                     log::debug!("Order already cancelled: {client_order_id:?}");
@@ -692,7 +693,7 @@ impl ExecutionClient for BitmexExecutionClient {
             {
                 Ok(reports) => {
                     for report in reports {
-                        emitter.emit_order_status_report(report);
+                        emitter.send_order_status_report(report);
                     }
                 }
                 Err(e) => log::error!("BitMEX cancel all failed: {e:?}"),
@@ -720,7 +721,7 @@ impl ExecutionClient for BitmexExecutionClient {
             {
                 Ok(reports) => {
                     for report in reports {
-                        emitter.emit_order_status_report(report);
+                        emitter.send_order_status_report(report);
                     }
                 }
                 Err(e) => log::error!("BitMEX batch cancel failed: {e:?}"),
@@ -737,22 +738,22 @@ fn dispatch_ws_message(message: NautilusWsMessage, emitter: &ExecutionEventEmitt
     match message {
         NautilusWsMessage::OrderStatusReports(reports) => {
             for report in reports {
-                emitter.emit_order_status_report(report);
+                emitter.send_order_status_report(report);
             }
         }
         NautilusWsMessage::FillReports(reports) => {
             for report in reports {
-                emitter.emit_fill_report(report);
+                emitter.send_fill_report(report);
             }
         }
         NautilusWsMessage::PositionStatusReport(report) => {
-            emitter.emit_position_report(report);
+            emitter.send_position_report(report);
         }
         NautilusWsMessage::AccountState(state) => {
-            emitter.emit_account_state(state);
+            emitter.send_account_state(state);
         }
         NautilusWsMessage::OrderUpdated(event) => {
-            emitter.emit_order_event(OrderEventAny::Updated(event));
+            emitter.send_order_event(OrderEventAny::Updated(event));
         }
         NautilusWsMessage::Data(_)
         | NautilusWsMessage::Instruments(_)

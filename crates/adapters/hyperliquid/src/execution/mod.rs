@@ -276,7 +276,7 @@ impl HyperliquidExecutionClient {
             // Generate account state event
             let ts_init = self.clock.get_time_ns();
             self.emitter
-                .emit_account_state_generated(balances, margins, true, ts_init, ts_init);
+                .emit_account_state(balances, margins, true, ts_init, ts_init);
 
             log::info!("Account state updated successfully");
         } else {
@@ -359,7 +359,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
     ) -> anyhow::Result<()> {
         let ts_init = self.clock.get_time_ns();
         self.emitter
-            .emit_account_state_generated(balances, margins, reported, ts_init, ts_init);
+            .emit_account_state(balances, margins, reported, ts_init, ts_init);
         Ok(())
     }
 
@@ -449,11 +449,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
 
         if let Err(e) = self.validate_order_submission(&order) {
             let ts_init = self.clock.get_time_ns();
-            self.emitter.emit_order_rejected_event(
-                order.strategy_id(),
-                order.instrument_id(),
-                order.client_order_id(),
+            self.emitter.emit_order_rejected(
+                &order,
                 &format!("validation-error: {e}"),
+                ts_init, // TODO: Use proper event timestamp
                 ts_init,
                 false,
             );
@@ -461,7 +460,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         }
 
         let ts_init = self.clock.get_time_ns();
-        self.emitter.emit_order_submitted_event(&order, ts_init);
+        self.emitter.emit_order_submitted(&order, ts_init);
 
         let http_client = self.http_client.clone();
 
@@ -513,7 +512,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         // Generate submitted events for all orders
         let ts_init = self.clock.get_time_ns();
         for order in &orders {
-            self.emitter.emit_order_submitted_event(order, ts_init);
+            self.emitter.emit_order_submitted(order, ts_init);
         }
 
         self.spawn_task("submit_order_list", async move {
