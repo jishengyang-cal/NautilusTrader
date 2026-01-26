@@ -93,6 +93,7 @@ Released on TBD (UTC).
 - Migrated Nautilus internal logging to `log` crate (external `tracing` available via `use_tracing` config)
 - Refactored computation of greeks (#3393), thanks @faysou
 - Refactored `TearsheetConfig.charts` to chart objects (removed `chart_args`) (#3398), thanks @KaulSe
+- Refactored Betfair order matching to use `rfo` as primary key
 - Refactored Deribit WS client to use standard Nautilus method names (#3418), thanks @filipmacek
 - Refactored Polymarket WebSocket to multi-client pool pattern
 - Improved pnl FX conversions in portfolio (#3335), thanks @faysou
@@ -123,6 +124,7 @@ Released on TBD (UTC).
 ### Documentation Updates
 
 ### Deprecations
+- Deprecated Betfair legacy `customer_order_ref` truncation (first 32 characters); the adapter now uses last 32 characters for better entropy. Legacy truncation support during startup reconciliation will be removed in a future version.
 
 ---
 
