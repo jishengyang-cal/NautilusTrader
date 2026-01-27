@@ -102,6 +102,7 @@ This will be the final release with support for the dYdX v3 (legacy) API. Future
 - Refactored Betfair order matching to use `rfo` as primary key
 - Refactored Deribit WS client to use standard Nautilus method names (#3418), thanks @filipmacek
 - Refactored dYdX v4 execution client in Rust (#3477), thanks @filipmacek
+- Refactored Kraken spot quotes to use dedicated Ticker channel
 - Refactored Polymarket WebSocket to multi-client pool pattern
 - Improved pnl FX conversions in portfolio (#3335), thanks @faysou
 - Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou

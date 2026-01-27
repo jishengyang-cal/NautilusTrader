@@ -24,14 +24,13 @@ use std::{
 };
 
 use ahash::AHashMap;
-use nautilus_common::cache::quote::QuoteCache;
 use nautilus_core::{AtomicTime, UUID4, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_model::{
-    data::{Bar, Data, OrderBookDeltas, QuoteTick},
+    data::{Bar, Data, OrderBookDeltas},
     events::{OrderAccepted, OrderCanceled, OrderExpired, OrderRejected, OrderUpdated},
     identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId},
     instruments::{Instrument, InstrumentAny},
-    types::{Price, Quantity},
+    types::Quantity,
 };
 use nautilus_network::{
     RECONNECTED,
@@ -101,9 +100,7 @@ pub(super) struct SpotFeedHandler {
     instruments_cache: AHashMap<Ustr, InstrumentAny>,
     client_order_cache: AHashMap<ClientOrderId, CachedOrderInfo>,
     order_qty_cache: AHashMap<VenueOrderId, f64>,
-    quote_cache: QuoteCache,
     book_sequence: u64,
-    pending_quotes: Vec<QuoteTick>,
     pending_messages: VecDeque<NautilusWsMessage>,
     account_id: Option<AccountId>,
     ohlc_buffer: AHashMap<OhlcBufferKey, OhlcBufferEntry>,
@@ -127,9 +124,7 @@ impl SpotFeedHandler {
             instruments_cache: AHashMap::new(),
             client_order_cache: AHashMap::new(),
             order_qty_cache: AHashMap::new(),
-            quote_cache: QuoteCache::new(),
             book_sequence: 0,
-            pending_quotes: Vec::new(),
             pending_messages: VecDeque::new(),
             account_id: None,
             ohlc_buffer: AHashMap::new(),
@@ -176,10 +171,6 @@ impl SpotFeedHandler {
         // Check for pending messages first (e.g., from multi-message scenarios like trades)
         if let Some(msg) = self.pending_messages.pop_front() {
             return Some(msg);
-        }
-
-        if let Some(quote) = self.pending_quotes.pop() {
-            return Some(NautilusWsMessage::Data(vec![Data::Quote(quote)]));
         }
 
         loop {
@@ -295,7 +286,6 @@ impl SpotFeedHandler {
 
                     if text == RECONNECTED {
                         log::info!("Received WebSocket reconnected signal");
-                        self.quote_cache.clear();
                         return Some(NautilusWsMessage::Reconnected);
                     }
 
@@ -430,51 +420,21 @@ impl SpotFeedHandler {
             match serde_json::from_value::<KrakenWsBookData>(data) {
                 Ok(book_data) => {
                     let symbol = &book_data.symbol;
+
+                    if !self.is_subscribed(&format!("book:{symbol}")) {
+                        continue;
+                    }
+
                     let instrument = self.get_instrument(symbol)?;
                     instrument_id = Some(instrument.id());
 
-                    let price_precision = instrument.price_precision();
-                    let size_precision = instrument.size_precision();
-
-                    let has_book = self.is_subscribed(&format!("book:{symbol}"));
-                    let has_quotes = self.is_subscribed(&format!("quotes:{symbol}"));
-
-                    if has_quotes {
-                        let best_bid = book_data.bids.as_ref().and_then(|bids| bids.first());
-                        let best_ask = book_data.asks.as_ref().and_then(|asks| asks.first());
-
-                        let bid_price = best_bid.map(|b| Price::new(b.price, price_precision));
-                        let ask_price = best_ask.map(|a| Price::new(a.price, price_precision));
-                        let bid_size = best_bid.map(|b| Quantity::new(b.qty, size_precision));
-                        let ask_size = best_ask.map(|a| Quantity::new(a.qty, size_precision));
-
-                        if let Ok(quote) = self.quote_cache.process(
-                            instrument.id(),
-                            bid_price,
-                            ask_price,
-                            bid_size,
-                            ask_size,
-                            ts_init,
-                            ts_init,
-                        ) {
-                            self.pending_quotes.push(quote);
+                    match parse_book_deltas(&book_data, &instrument, self.book_sequence, ts_init) {
+                        Ok(mut deltas) => {
+                            self.book_sequence += deltas.len() as u64;
+                            all_deltas.append(&mut deltas);
                         }
-                    }
-
-                    if has_book {
-                        match parse_book_deltas(
-                            &book_data,
-                            &instrument,
-                            self.book_sequence,
-                            ts_init,
-                        ) {
-                            Ok(mut deltas) => {
-                                self.book_sequence += deltas.len() as u64;
-                                all_deltas.append(&mut deltas);
-                            }
-                            Err(e) => {
-                                log::error!("Failed to parse book deltas: {e}");
-                            }
+                        Err(e) => {
+                            log::error!("Failed to parse book deltas: {e}");
                         }
                     }
                 }
@@ -485,9 +445,6 @@ impl SpotFeedHandler {
         }
 
         if all_deltas.is_empty() {
-            if let Some(quote) = self.pending_quotes.pop() {
-                return Some(NautilusWsMessage::Data(vec![Data::Quote(quote)]));
-            }
             None
         } else {
             let deltas = OrderBookDeltas::new(instrument_id?, all_deltas);
@@ -505,7 +462,13 @@ impl SpotFeedHandler {
         for data in msg.data {
             match serde_json::from_value::<KrakenWsTickerData>(data) {
                 Ok(ticker_data) => {
-                    let instrument = self.get_instrument(&ticker_data.symbol)?;
+                    let symbol = &ticker_data.symbol;
+
+                    if !self.is_subscribed(&format!("ticker:{symbol}")) {
+                        continue;
+                    }
+
+                    let instrument = self.get_instrument(symbol)?;
 
                     match parse_quote_tick(&ticker_data, &instrument, ts_init) {
                         Ok(quote) => quotes.push(Data::Quote(quote)),
