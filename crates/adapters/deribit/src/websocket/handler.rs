@@ -1316,8 +1316,7 @@ impl DeribitWsFeedHandler {
                                         );
 
                                         // Convert to OrderStatusReport
-                                        let instrument_name_ustr =
-                                            Ustr::from(order_msg.instrument_name.as_str());
+                                        let instrument_name_ustr = order_msg.instrument_name;
                                         if let Some(instrument) =
                                             self.instruments_cache.get(&instrument_name_ustr)
                                         {
@@ -1685,8 +1684,7 @@ impl DeribitWsFeedHandler {
                                         let venue_order_id_str = &order.order_id;
                                         let venue_order_id =
                                             VenueOrderId::new(venue_order_id_str.as_str());
-                                        let instrument_name =
-                                            Ustr::from(order.instrument_name.as_str());
+                                        let instrument_name = order.instrument_name;
 
                                         let Some(instrument) =
                                             self.instruments_cache.get(&instrument_name)
@@ -1908,8 +1906,7 @@ impl DeribitWsFeedHandler {
 
                                     let mut reports = Vec::with_capacity(trades.len());
                                     for trade in &trades {
-                                        let instrument_name =
-                                            Ustr::from(trade.instrument_name.as_str());
+                                        let instrument_name = trade.instrument_name;
                                         if let Some(instrument) =
                                             self.instruments_cache.get(&instrument_name)
                                         {

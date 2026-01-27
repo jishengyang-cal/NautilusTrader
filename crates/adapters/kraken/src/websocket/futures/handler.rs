@@ -1132,9 +1132,7 @@ impl FuturesFeedHandler {
             return None;
         };
 
-        let instrument = self
-            .instruments_cache
-            .get(&Ustr::from(order.instrument.as_str()))?;
+        let instrument = self.instruments_cache.get(&order.instrument)?;
 
         let instrument_id = instrument.id();
 
@@ -1256,9 +1254,7 @@ impl FuturesFeedHandler {
             return None;
         };
 
-        let instrument = self
-            .instruments_cache
-            .get(&Ustr::from(order.instrument.as_str()))?;
+        let instrument = self.instruments_cache.get(&order.instrument)?;
 
         let instrument_id = instrument.id();
         let size_precision = instrument.size_precision();

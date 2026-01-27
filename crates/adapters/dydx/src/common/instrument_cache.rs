@@ -354,10 +354,10 @@ mod tests {
     fn create_test_market(ticker: &str, clob_pair_id: u32) -> PerpetualMarket {
         PerpetualMarket {
             clob_pair_id,
-            ticker: ticker.to_string(),
+            ticker: Ustr::from(ticker),
             status: DydxMarketStatus::Active,
-            base_asset: Some("BTC".to_string()),
-            quote_asset: Some("USD".to_string()),
+            base_asset: Some(Ustr::from("BTC")),
+            quote_asset: Some(Ustr::from("USD")),
             step_size: dec!(0.001),
             tick_size: dec!(0.1),
             index_price: Some(dec!(50000)),

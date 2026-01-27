@@ -216,7 +216,7 @@ pub fn parse_instrument_any(
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
     // Parse instrument ID with Nautilus perpetual suffix and keep raw symbol as venue ticker
-    let instrument_id = parse_instrument_id(&definition.ticker);
+    let instrument_id = parse_instrument_id(definition.ticker);
     let raw_symbol = Symbol::from(definition.ticker.as_str());
 
     // Parse currencies from ticker using helper function
@@ -317,6 +317,7 @@ mod tests {
     use rstest::rstest;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
+    use ustr::Ustr;
 
     use super::*;
     use crate::{
@@ -333,10 +334,10 @@ mod tests {
     fn create_test_market() -> PerpetualMarket {
         PerpetualMarket {
             clob_pair_id: 1,
-            ticker: "BTC-USD".to_string(),
+            ticker: Ustr::from("BTC-USD"),
             status: DydxMarketStatus::Active,
-            base_asset: Some("BTC".to_string()),
-            quote_asset: Some("USD".to_string()),
+            base_asset: Some(Ustr::from("BTC")),
+            quote_asset: Some(Ustr::from("USD")),
             step_size: Decimal::from_str("0.001").unwrap(),
             tick_size: Decimal::from_str("1").unwrap(),
             index_price: Some(Decimal::from_str("50000").unwrap()),
@@ -397,7 +398,7 @@ mod tests {
     #[rstest]
     fn test_parse_instrument_any_invalid_ticker() {
         let mut market = create_test_market();
-        market.ticker = "INVALID".to_string();
+        market.ticker = Ustr::from("INVALID");
 
         let result = parse_instrument_any(&market, None, None, UnixNanos::default());
         assert!(result.is_err());
@@ -1346,6 +1347,7 @@ mod reconciliation_tests {
     use rstest::rstest;
     use rust_decimal::prelude::ToPrimitive;
     use rust_decimal_macros::dec;
+    use ustr::Ustr;
 
     use super::*;
 
@@ -1510,7 +1512,7 @@ mod reconciliation_tests {
             side: OrderSide::Buy,
             liquidity: DydxLiquidity::Taker,
             fill_type: crate::common::enums::DydxFillType::Limit,
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             market_type: crate::common::enums::DydxTickerType::Perpetual,
             price: dec!(50100.0),
             size: dec!(1.0),
@@ -1539,7 +1541,7 @@ mod reconciliation_tests {
         let ts_init = UnixNanos::default();
 
         let position = PerpetualPosition {
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             status: crate::common::enums::DydxPositionStatus::Open,
             side: OrderSide::Buy,
             size: dec!(2.5),
@@ -1573,7 +1575,7 @@ mod reconciliation_tests {
         let ts_init = UnixNanos::default();
 
         let position = PerpetualPosition {
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             status: crate::common::enums::DydxPositionStatus::Open,
             side: OrderSide::Sell,
             size: dec!(-1.5),
@@ -1605,7 +1607,7 @@ mod reconciliation_tests {
         let ts_init = UnixNanos::default();
 
         let position = PerpetualPosition {
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             status: crate::common::enums::DydxPositionStatus::Closed,
             side: OrderSide::Buy,
             size: dec!(0.0),
@@ -1733,7 +1735,7 @@ mod reconciliation_tests {
 
         // Position 1: Long position
         let long_position = PerpetualPosition {
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             status: crate::common::enums::DydxPositionStatus::Open,
             side: OrderSide::Buy,
             size: dec!(1.5),
@@ -1758,7 +1760,7 @@ mod reconciliation_tests {
 
         // Position 2: Short position (should be handled separately if from different market)
         let short_position = PerpetualPosition {
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             status: crate::common::enums::DydxPositionStatus::Open,
             side: OrderSide::Sell,
             size: dec!(-2.0),
@@ -1794,7 +1796,7 @@ mod reconciliation_tests {
             side: OrderSide::Sell,
             liquidity: DydxLiquidity::Maker,
             fill_type: crate::common::enums::DydxFillType::Limit,
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             market_type: crate::common::enums::DydxTickerType::Perpetual,
             price: dec!(50000.0),
             size: dec!(0.1),
@@ -1824,7 +1826,7 @@ mod reconciliation_tests {
             side: OrderSide::Buy,
             liquidity: DydxLiquidity::Maker,
             fill_type: crate::common::enums::DydxFillType::Limit,
-            market: "BTC-USD".to_string(),
+            market: Ustr::from("BTC-USD"),
             market_type: crate::common::enums::DydxTickerType::Perpetual,
             price: dec!(50000.0),
             size: dec!(1.0),

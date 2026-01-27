@@ -282,7 +282,7 @@ fn convert_ws_fill_to_http(ws_fill: &DydxWsFillSubaccountMessageContents) -> any
         side: ws_fill.side,
         liquidity: ws_fill.liquidity,
         fill_type: ws_fill.fill_type,
-        market: ws_fill.market.to_string(),
+        market: ws_fill.market,
         market_type: ws_fill.market_type,
         price,
         size,
@@ -402,7 +402,7 @@ fn convert_ws_position_to_http(
     };
 
     Ok(PerpetualPosition {
-        market: ws_position.market.to_string(),
+        market: ws_position.market,
         status: ws_position.status,
         side,
         size,
@@ -430,6 +430,7 @@ mod tests {
     };
     use rstest::rstest;
     use rust_decimal_macros::dec;
+    use ustr::Ustr;
 
     use super::*;
     use crate::{
@@ -445,10 +446,10 @@ mod tests {
     fn create_test_market(ticker: &str, clob_pair_id: u32) -> PerpetualMarket {
         PerpetualMarket {
             clob_pair_id,
-            ticker: ticker.to_string(),
+            ticker: Ustr::from(ticker),
             status: DydxMarketStatus::Active,
-            base_asset: Some("BTC".to_string()),
-            quote_asset: Some("USD".to_string()),
+            base_asset: Some(Ustr::from("BTC")),
+            quote_asset: Some(Ustr::from("USD")),
             step_size: dec!(0.001),
             tick_size: dec!(0.01),
             index_price: Some(dec!(50000)),

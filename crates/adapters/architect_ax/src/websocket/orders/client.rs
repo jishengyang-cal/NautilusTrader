@@ -246,7 +246,7 @@ impl AxOrdersWebSocketClient {
         }
 
         // Required for correct precision on fills
-        let symbol = Ustr::from(instrument_id.symbol.as_str());
+        let symbol = instrument_id.symbol.inner();
         let Some(instrument) = self.get_cached_instrument(&symbol) else {
             log::warn!(
                 "Cannot register external order {client_order_id}: \
@@ -589,7 +589,7 @@ impl AxOrdersWebSocketClient {
         }
 
         // Get instrument from cache for precision
-        let symbol = Ustr::from(instrument_id.symbol.as_str());
+        let symbol = instrument_id.symbol.inner();
         let instrument = self.get_cached_instrument(&symbol).ok_or_else(|| {
             AxOrdersWsClientError::ClientError(format!(
                 "Instrument {instrument_id} not found in cache"

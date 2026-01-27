@@ -711,7 +711,7 @@ impl DataClient for DydxDataClient {
 
         get_runtime().spawn(async move {
             // First try to get from cache
-            let symbol = Ustr::from(instrument_id.symbol.as_str());
+            let symbol = instrument_id.symbol.inner();
             let instrument = if let Some(cached) = instrument_cache.get(&symbol) {
                 log::debug!("Found instrument {instrument_id} in cache");
                 Some(cached)
@@ -847,7 +847,7 @@ impl DataClient for DydxDataClient {
                 .to_string();
 
             // Look up instrument to derive price and size precision.
-            let instrument = match instrument_cache.get(&Ustr::from(instrument_id.symbol.as_ref())) {
+            let instrument = match instrument_cache.get(&instrument_id.symbol.inner()) {
                 Some(inst) => inst.clone(),
                 None => {
                     log::error!(
@@ -1079,7 +1079,7 @@ impl DataClient for DydxDataClient {
             };
 
             // Look up instrument to derive price and size precision.
-            let instrument = match instrument_cache.get(&Ustr::from(instrument_id.symbol.as_ref())) {
+            let instrument = match instrument_cache.get(&instrument_id.symbol.inner()) {
                 Some(inst) => inst.clone(),
                 None => {
                     log::error!(
@@ -1406,7 +1406,7 @@ impl DydxDataClient {
 
                         for instrument_id in active_instruments {
                             // Get instrument for parsing
-                            let instrument = match instrument_cache.get(&Ustr::from(instrument_id.symbol.as_ref())) {
+                            let instrument = match instrument_cache.get(&instrument_id.symbol.inner()) {
                                 Some(inst) => inst.clone(),
                                 None => {
                                     log::warn!(
@@ -2002,7 +2002,7 @@ impl DydxDataClient {
         let instrument_id = deltas.instrument_id;
 
         // Get instrument for crossed orderbook resolution
-        let instrument = match instrument_cache.get(&Ustr::from(instrument_id.symbol.as_ref())) {
+        let instrument = match instrument_cache.get(&instrument_id.symbol.inner()) {
             Some(inst) => inst,
             None => {
                 log::error!("Cannot resolve crossed order book: no instrument for {instrument_id}");
@@ -2582,7 +2582,7 @@ mod tests {
         let now = Utc::now();
         let candle = crate::http::models::Candle {
             started_at: now - chrono::Duration::minutes(1),
-            ticker: "BTC-USD".to_string(),
+            ticker: Ustr::from("BTC-USD"),
             resolution: crate::common::enums::DydxCandleResolution::OneMinute,
             open: dec!(100.0),
             high: dec!(101.0),
@@ -2624,7 +2624,6 @@ mod tests {
         // Seed instrument cache so request_bars can resolve precision.
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let spec = BarSpecification {
@@ -2812,7 +2811,7 @@ mod tests {
         // Very large prices and sizes (edge cases).
         let candle = Candle {
             started_at: now,
-            ticker: "BTC-USD".to_string(),
+            ticker: Ustr::from("BTC-USD"),
             resolution: crate::common::enums::DydxCandleResolution::OneMinute,
             open: dec!(123456789.123456),
             high: dec!(987654321.987654),  // high is max
@@ -2857,7 +2856,7 @@ mod tests {
 
         let candle = Candle {
             started_at: now,
-            ticker: "BTC-USD".to_string(),
+            ticker: Ustr::from("BTC-USD"),
             resolution: crate::common::enums::DydxCandleResolution::OneDay,
             open: Decimal::from(1),
             high: Decimal::from(1),
@@ -2908,7 +2907,7 @@ mod tests {
         // two candles: one in the past, one in the future
         let candle_past = Candle {
             started_at: now - chrono::Duration::minutes(2),
-            ticker: "BTC-USD".to_string(),
+            ticker: Ustr::from("BTC-USD"),
             resolution: crate::common::enums::DydxCandleResolution::OneMinute,
             open: Decimal::from(1),
             high: Decimal::from(2),
@@ -2955,7 +2954,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_ref());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let spec = BarSpecification {
@@ -3052,7 +3050,6 @@ mod tests {
         // Seed instruments and orderbook state for a single instrument.
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_ref());
         client.instrument_cache.insert_instrument_only(instrument);
         client.order_books.insert(
             instrument_id,
@@ -4047,7 +4044,6 @@ mod tests {
         // Pre-populate cache with test instrument
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client
             .instrument_cache
             .insert_instrument_only(instrument.clone());
@@ -4212,7 +4208,6 @@ mod tests {
         // Pre-populate cache to get immediate response
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client
             .instrument_cache
             .insert_instrument_only(instrument.clone());
@@ -4254,7 +4249,6 @@ mod tests {
         // Pre-populate cache
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client
             .instrument_cache
             .insert_instrument_only(instrument.clone());
@@ -4306,7 +4300,7 @@ mod tests {
 
         for (instrument_id_str, expected_symbol) in test_cases {
             let instrument_id = InstrumentId::from(instrument_id_str);
-            let symbol = Ustr::from(instrument_id.symbol.as_str());
+            let symbol = instrument_id.symbol.inner();
             assert_eq!(symbol.as_str(), expected_symbol);
         }
     }
@@ -4326,7 +4320,6 @@ mod tests {
         // Pre-populate cache
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client
             .instrument_cache
             .insert_instrument_only(instrument.clone());
@@ -4405,7 +4398,6 @@ mod tests {
         let instrument_id = instrument.id();
         let price_precision = instrument.price_precision();
         let size_precision = instrument.size_precision();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request_id = UUID4::new();
@@ -4491,7 +4483,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request_id = UUID4::new();
@@ -4594,7 +4585,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request_id = UUID4::new();
@@ -4671,7 +4661,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request_id = UUID4::new();
@@ -4747,7 +4736,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -4856,7 +4844,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         // Test with limit
@@ -4988,7 +4975,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -5086,7 +5072,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestInstrument::new(
@@ -5242,7 +5227,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -5893,7 +5877,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         // Invalid date range: end is before start
@@ -5948,7 +5931,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         // Minimum valid limit (1)
@@ -5991,7 +5973,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -6040,7 +6021,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -6090,7 +6070,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -6139,7 +6118,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         // Test 1: Invalid instrument ID
@@ -6660,7 +6638,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestInstrument::new(
@@ -6708,7 +6685,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client
             .instrument_cache
             .insert_instrument_only(instrument.clone());
@@ -6758,7 +6734,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestInstrument::new(
@@ -6808,7 +6783,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request_id = UUID4::new();
@@ -6872,7 +6846,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client
             .instrument_cache
             .insert_instrument_only(instrument.clone());
@@ -6936,7 +6909,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client
             .instrument_cache
             .insert_instrument_only(instrument.clone());
@@ -7043,7 +7015,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -7125,7 +7096,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -7232,7 +7202,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -7327,7 +7296,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request = RequestTrades::new(
@@ -7435,7 +7403,6 @@ mod tests {
 
         let instrument = create_test_instrument_any();
         let instrument_id = instrument.id();
-        let _symbol_key = Ustr::from(instrument_id.symbol.as_str());
         client.instrument_cache.insert_instrument_only(instrument);
 
         let request_id = UUID4::new();
