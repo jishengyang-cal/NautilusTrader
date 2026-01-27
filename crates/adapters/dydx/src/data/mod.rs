@@ -2664,6 +2664,8 @@ mod tests {
     struct TradesTestState {
         response: Arc<crate::http::models::TradesResponse>,
         last_ticker: Arc<tokio::sync::Mutex<Option<String>>>,
+        #[allow(clippy::option_option)]
+        // Tracks: None=not called, Some(None)=called without limit, Some(Some)=called with limit
         last_limit: Arc<tokio::sync::Mutex<Option<Option<u32>>>>,
     }
 

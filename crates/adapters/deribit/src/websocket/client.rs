@@ -111,11 +111,7 @@ impl Debug for DeribitWebSocketClient {
             )
             .field(
                 "has_auth_state",
-                &self
-                    .auth_state
-                    .try_read()
-                    .map(|s| s.is_some())
-                    .unwrap_or(false),
+                &self.auth_state.try_read().is_ok_and(|s| s.is_some()),
             )
             .field("heartbeat_interval", &self.heartbeat_interval)
             .finish_non_exhaustive()

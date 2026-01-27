@@ -322,9 +322,9 @@ impl BarsResponse {
             client_id,
             bar_type,
             data,
+            ts_init,
             start,
             end,
-            ts_init,
             params,
         }
     }

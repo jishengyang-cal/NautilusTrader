@@ -104,11 +104,7 @@ impl Default for AxRawHttpClient {
 
 impl Debug for AxRawHttpClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let has_session_token = self
-            .session_token
-            .read()
-            .map(|guard| guard.is_some())
-            .unwrap_or(false);
+        let has_session_token = self.session_token.read().is_ok_and(|guard| guard.is_some());
         f.debug_struct(stringify!(AxRawHttpClient))
             .field("base_url", &self.base_url)
             .field("orders_base_url", &self.orders_base_url)

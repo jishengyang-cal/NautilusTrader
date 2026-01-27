@@ -2548,7 +2548,7 @@ impl DataActorCore {
     }
 
     fn default_actor_id(config: &DataActorConfig) -> ActorId {
-        let memory_address = std::ptr::from_ref(config) as *const _ as usize;
+        let memory_address = std::ptr::from_ref(config) as usize;
         ActorId::from(format!("{}-{memory_address}", stringify!(DataActor)))
     }
 

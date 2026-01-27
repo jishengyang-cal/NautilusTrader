@@ -694,8 +694,9 @@ impl SpotFeedHandler {
                         .get(&VenueOrderId::new(&exec_data.order_id))
                         .copied();
                     let ts_event = chrono::DateTime::parse_from_rfc3339(&exec_data.timestamp)
-                        .map(|t| UnixNanos::from(t.timestamp_nanos_opt().unwrap_or(0) as u64))
-                        .unwrap_or(ts_init);
+                        .map_or(ts_init, |t| {
+                            UnixNanos::from(t.timestamp_nanos_opt().unwrap_or(0) as u64)
+                        });
 
                     // Emit proper order events when we have cached info, otherwise fall back
                     // to OrderStatusReport for external orders or reconciliation
