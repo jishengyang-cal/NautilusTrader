@@ -63,6 +63,7 @@ This will be the final release with support for the dYdX v3 (legacy) API. Future
 - Fixed Bybit HOUR bars not triggering on_bar (#3474), thanks for reporting @88z
 - Fixed Databento `databento_data` to fetch definitions for full date range (#3414), thanks @Johnkhk
 - Fixed Databento zero-length interval at dataset boundary (#3429), thanks @shzhng
+- Fixed Databento empty underlying for index-based derivatives (#3480), thanks for reporting @davidsblom
 - Fixed Deribit auth token refresh race condition (#3402), thanks @filipmacek
 - Fixed Deribit race condition between response and subscription (#3436), thanks @filipmacek
 - Fixed Deribit grouped book channel parsing (#3473), thanks @filipmacek
