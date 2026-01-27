@@ -58,7 +58,6 @@ pub struct BacktestExecutionClient {
     cache: Rc<RefCell<Cache>>,
     clock: Rc<RefCell<dyn Clock>>,
     exchange: WeakCell<SimulatedExchange>,
-    is_connected: bool,
     routing: bool,
     frozen_account: bool,
 }
@@ -113,7 +112,6 @@ impl BacktestExecutionClient {
             exchange: exchange_shared.downgrade(),
             cache,
             clock,
-            is_connected: false,
             routing,
             frozen_account,
         }
@@ -131,7 +129,7 @@ impl BacktestExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for BacktestExecutionClient {
     fn is_connected(&self) -> bool {
-        self.is_connected
+        self.core.is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -171,13 +169,13 @@ impl ExecutionClient for BacktestExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        self.is_connected = true;
+        self.core.set_connected();
         log::info!("Backtest execution client started");
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        self.is_connected = false;
+        self.core.set_disconnected();
         log::info!("Backtest execution client stopped");
         Ok(())
     }

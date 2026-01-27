@@ -17,10 +17,7 @@
 
 use std::{
     future::Future,
-    sync::{
-        Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
@@ -78,9 +75,6 @@ pub struct OKXExecutionClient {
     ws_private: OKXWebSocketClient,
     ws_business: OKXWebSocketClient,
     trade_mode: OKXTradeMode,
-    started: bool,
-    connected: AtomicBool,
-    instruments_initialized: AtomicBool,
     ws_stream_handle: Option<JoinHandle<()>>,
     ws_business_stream_handle: Option<JoinHandle<()>>,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
@@ -148,9 +142,6 @@ impl OKXExecutionClient {
             ws_private,
             ws_business,
             trade_mode,
-            started: false,
-            connected: AtomicBool::new(false),
-            instruments_initialized: AtomicBool::new(false),
             ws_stream_handle: None,
             ws_business_stream_handle: None,
             pending_tasks: Mutex::new(Vec::new()),
@@ -439,7 +430,7 @@ impl OKXExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for OKXExecutionClient {
     fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Acquire)
+        self.core.is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -463,13 +454,13 @@ impl ExecutionClient for OKXExecutionClient {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        if self.connected.load(Ordering::Acquire) {
+        if self.core.is_connected() {
             return Ok(());
         }
 
         let instrument_types = self.instrument_types();
 
-        if !self.instruments_initialized.load(Ordering::Acquire) {
+        if !self.core.instruments_initialized() {
             let mut all_instruments = Vec::new();
             for instrument_type in &instrument_types {
                 let instruments = self
@@ -497,7 +488,7 @@ impl ExecutionClient for OKXExecutionClient {
             if !all_instruments.is_empty() {
                 self.ws_private.cache_instruments(all_instruments);
             }
-            self.instruments_initialized.store(true, Ordering::Release);
+            self.core.set_instruments_initialized();
         }
 
         self.ws_private.connect().await?;
@@ -570,13 +561,13 @@ impl ExecutionClient for OKXExecutionClient {
         // Wait for account to be registered in cache before completing connect
         self.await_account_registered(30.0).await?;
 
-        self.connected.store(true, Ordering::Release);
+        self.core.set_connected();
         log::info!("Connected: client_id={}", self.core.client_id);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !self.connected.load(Ordering::Acquire) {
+        if self.core.is_disconnected() {
             return Ok(());
         }
 
@@ -599,7 +590,7 @@ impl ExecutionClient for OKXExecutionClient {
             handle.abort();
         }
 
-        self.connected.store(false, Ordering::Release);
+        self.core.set_disconnected();
         log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
     }
@@ -629,13 +620,13 @@ impl ExecutionClient for OKXExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        if self.started {
+        if self.core.is_started() {
             return Ok(());
         }
 
         let sender = get_exec_event_sender();
         self.emitter.set_sender(sender);
-        self.started = true;
+        self.core.set_started();
 
         // Spawn instrument bootstrap task
         let http_client = self.http_client.clone();
@@ -686,12 +677,12 @@ impl ExecutionClient for OKXExecutionClient {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        if !self.started {
+        if self.core.is_stopped() {
             return Ok(());
         }
 
-        self.started = false;
-        self.connected.store(false, Ordering::Release);
+        self.core.set_stopped();
+        self.core.set_disconnected();
         if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }

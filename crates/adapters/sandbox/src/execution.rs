@@ -175,10 +175,6 @@ pub struct SandboxExecutionClient {
     inner: Rc<RefCell<SandboxInner>>,
     /// Registered message handlers for cleanup.
     handlers: RefCell<Option<RegisteredHandlers>>,
-    /// Whether the client is started.
-    started: RefCell<bool>,
-    /// Whether the client is connected.
-    connected: RefCell<bool>,
     /// Reference to the clock.
     clock: Rc<RefCell<dyn Clock>>,
     /// Reference to the cache.
@@ -190,7 +186,7 @@ impl Debug for SandboxExecutionClient {
         f.debug_struct(stringify!(SandboxExecutionClient))
             .field("venue", &self.config.venue)
             .field("account_id", &self.core.borrow().account_id)
-            .field("connected", &*self.connected.borrow())
+            .field("connected", &self.core.borrow().is_connected())
             .field(
                 "matching_engines",
                 &self.inner.borrow().matching_engines.len(),
@@ -235,8 +231,6 @@ impl SandboxExecutionClient {
             config,
             inner,
             handlers: RefCell::new(None),
-            started: RefCell::new(false),
-            connected: RefCell::new(false),
             clock,
             cache,
         }
@@ -494,7 +488,7 @@ impl SandboxExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for SandboxExecutionClient {
     fn is_connected(&self) -> bool {
-        *self.connected.borrow()
+        self.core.borrow().is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -535,14 +529,14 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        if *self.started.borrow() {
+        if self.core.borrow().is_started() {
             return Ok(());
         }
 
         // Register message handlers to receive market data
         self.register_message_handlers();
 
-        *self.started.borrow_mut() = true;
+        self.core.borrow().set_started();
         let core = self.core.borrow();
         log::info!(
             "Sandbox execution client started: venue={}, account_id={}, oms_type={:?}, account_type={:?}",
@@ -555,15 +549,15 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        if !*self.started.borrow() {
+        if self.core.borrow().is_stopped() {
             return Ok(());
         }
 
         // Deregister message handlers to stop receiving data
         self.deregister_message_handlers();
 
-        *self.started.borrow_mut() = false;
-        *self.connected.borrow_mut() = false;
+        self.core.borrow().set_stopped();
+        self.core.borrow().set_disconnected();
         log::info!(
             "Sandbox execution client stopped: venue={}",
             self.config.venue
@@ -572,7 +566,7 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        if *self.connected.borrow() {
+        if self.core.borrow().is_connected() {
             return Ok(());
         }
 
@@ -580,8 +574,7 @@ impl ExecutionClient for SandboxExecutionClient {
         let ts_event = self.clock.borrow().timestamp_ns();
         self.generate_account_state(balances, vec![], false, ts_event)?;
 
-        *self.connected.borrow_mut() = true;
-        self.core.borrow_mut().set_connected(true);
+        self.core.borrow().set_connected();
         log::info!(
             "Sandbox execution client connected: venue={}",
             self.config.venue
@@ -590,12 +583,11 @@ impl ExecutionClient for SandboxExecutionClient {
     }
 
     async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !*self.connected.borrow() {
+        if self.core.borrow().is_disconnected() {
             return Ok(());
         }
 
-        *self.connected.borrow_mut() = false;
-        self.core.borrow_mut().set_connected(false);
+        self.core.borrow().set_disconnected();
         log::info!(
             "Sandbox execution client disconnected: venue={}",
             self.config.venue

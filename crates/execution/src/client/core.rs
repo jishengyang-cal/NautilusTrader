@@ -15,7 +15,11 @@
 
 //! Base execution client functionality.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use nautilus_common::cache::Cache;
 use nautilus_model::{
@@ -34,7 +38,7 @@ use nautilus_model::{
 /// For live adapters, use [`ExecutionEventEmitter`] which combines event generation
 /// with async dispatch. For backtest/sandbox, use [`OrderEventFactory`] directly
 /// and dispatch via `msgbus::send_order_event()`.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExecutionClientCore {
     pub trader_id: TraderId,
     pub client_id: ClientId,
@@ -43,8 +47,30 @@ pub struct ExecutionClientCore {
     pub account_id: AccountId,
     pub account_type: AccountType,
     pub base_currency: Option<Currency>,
-    pub is_connected: bool,
+    connected: AtomicBool,
+    started: AtomicBool,
+    instruments_initialized: AtomicBool,
     cache: Rc<RefCell<Cache>>,
+}
+
+impl Clone for ExecutionClientCore {
+    fn clone(&self) -> Self {
+        Self {
+            trader_id: self.trader_id,
+            client_id: self.client_id,
+            venue: self.venue,
+            oms_type: self.oms_type,
+            account_id: self.account_id,
+            account_type: self.account_type,
+            base_currency: self.base_currency,
+            connected: AtomicBool::new(self.connected.load(Ordering::Acquire)),
+            started: AtomicBool::new(self.started.load(Ordering::Acquire)),
+            instruments_initialized: AtomicBool::new(
+                self.instruments_initialized.load(Ordering::Acquire),
+            ),
+            cache: self.cache.clone(),
+        }
+    }
 }
 
 impl ExecutionClientCore {
@@ -69,7 +95,9 @@ impl ExecutionClientCore {
             account_id,
             account_type,
             base_currency,
-            is_connected: false,
+            connected: AtomicBool::new(false),
+            started: AtomicBool::new(false),
+            instruments_initialized: AtomicBool::new(false),
             cache,
         }
     }
@@ -79,9 +107,59 @@ impl ExecutionClientCore {
         self.cache.borrow()
     }
 
-    /// Sets the connection status of the execution client.
-    pub const fn set_connected(&mut self, is_connected: bool) {
-        self.is_connected = is_connected;
+    /// Returns `true` if the client is connected.
+    #[must_use]
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Acquire)
+    }
+
+    /// Returns `true` if the client is disconnected.
+    #[must_use]
+    pub fn is_disconnected(&self) -> bool {
+        !self.is_connected()
+    }
+
+    /// Sets the client as connected.
+    pub fn set_connected(&self) {
+        self.connected.store(true, Ordering::Release);
+    }
+
+    /// Sets the client as disconnected.
+    pub fn set_disconnected(&self) {
+        self.connected.store(false, Ordering::Release);
+    }
+
+    /// Returns `true` if the client has been started.
+    #[must_use]
+    pub fn is_started(&self) -> bool {
+        self.started.load(Ordering::Acquire)
+    }
+
+    /// Returns `true` if the client has not been started.
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        !self.is_started()
+    }
+
+    /// Sets the client as started.
+    pub fn set_started(&self) {
+        self.started.store(true, Ordering::Release);
+    }
+
+    /// Sets the client as stopped.
+    pub fn set_stopped(&self) {
+        self.started.store(false, Ordering::Release);
+    }
+
+    /// Returns `true` if instruments have been initialized.
+    #[must_use]
+    pub fn instruments_initialized(&self) -> bool {
+        self.instruments_initialized.load(Ordering::Acquire)
+    }
+
+    /// Sets instruments as initialized.
+    pub fn set_instruments_initialized(&self) {
+        self.instruments_initialized.store(true, Ordering::Release);
     }
 
     /// Sets the account identifier for the execution client.

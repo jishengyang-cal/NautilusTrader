@@ -69,9 +69,6 @@ pub struct BitmexExecutionClient {
     ws_client: BitmexWebSocketClient,
     _submitter: SubmitBroadcaster,
     _canceller: CancelBroadcaster,
-    started: bool,
-    connected: bool,
-    instruments_initialized: bool,
     ws_stream_handle: Option<JoinHandle<()>>,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -177,9 +174,6 @@ impl BitmexExecutionClient {
             ws_client,
             _submitter,
             _canceller,
-            started: false,
-            connected: false,
-            instruments_initialized: false,
             ws_stream_handle: None,
             pending_tasks: Mutex::new(Vec::new()),
         })
@@ -212,7 +206,7 @@ impl BitmexExecutionClient {
     }
 
     async fn ensure_instruments_initialized_async(&mut self) -> anyhow::Result<()> {
-        if self.instruments_initialized {
+        if self.core.instruments_initialized() {
             return Ok(());
         }
 
@@ -232,12 +226,12 @@ impl BitmexExecutionClient {
 
         self.ws_client.cache_instruments(instruments);
 
-        self.instruments_initialized = true;
+        self.core.set_instruments_initialized();
         Ok(())
     }
 
     fn ensure_instruments_initialized(&mut self) -> anyhow::Result<()> {
-        if self.instruments_initialized {
+        if self.core.instruments_initialized() {
             return Ok(());
         }
 
@@ -284,7 +278,7 @@ impl BitmexExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for BitmexExecutionClient {
     fn is_connected(&self) -> bool {
-        self.connected
+        self.core.is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -320,13 +314,13 @@ impl ExecutionClient for BitmexExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        if self.started {
+        if self.core.is_started() {
             return Ok(());
         }
 
         self.emitter.set_sender(get_exec_event_sender());
         self.ensure_instruments_initialized()?;
-        self.started = true;
+        self.core.set_started();
         log::info!(
             "BitMEX execution client started: client_id={}, account_id={}, use_testnet={}, submitter_pool_size={:?}, canceller_pool_size={:?}, http_proxy_url={:?}, ws_proxy_url={:?}, submitter_proxy_urls={:?}, canceller_proxy_urls={:?}",
             self.core.client_id,
@@ -343,12 +337,12 @@ impl ExecutionClient for BitmexExecutionClient {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        if !self.started {
+        if self.core.is_stopped() {
             return Ok(());
         }
 
-        self.started = false;
-        self.connected = false;
+        self.core.set_stopped();
+        self.core.set_disconnected();
         if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }
@@ -358,7 +352,7 @@ impl ExecutionClient for BitmexExecutionClient {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        if self.connected {
+        if self.core.is_connected() {
             return Ok(());
         }
 
@@ -381,14 +375,13 @@ impl ExecutionClient for BitmexExecutionClient {
         self.start_ws_stream()?;
         self.refresh_account_state().await?;
 
-        self.connected = true;
-        self.core.set_connected(true);
+        self.core.set_connected();
         log::info!("Connected: client_id={}", self.core.client_id);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !self.connected {
+        if self.core.is_disconnected() {
             return Ok(());
         }
 
@@ -405,8 +398,7 @@ impl ExecutionClient for BitmexExecutionClient {
         }
 
         self.abort_pending_tasks();
-        self.connected = false;
-        self.core.set_connected(false);
+        self.core.set_disconnected();
         log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
     }

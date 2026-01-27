@@ -113,9 +113,6 @@ pub struct BinanceFuturesExecutionClient {
     handler_signal: Arc<AtomicBool>,
     ws_task: Mutex<Option<JoinHandle<()>>>,
     keepalive_task: Mutex<Option<JoinHandle<()>>>,
-    started: bool,
-    connected: AtomicBool,
-    instruments_initialized: AtomicBool,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
     is_hedge_mode: AtomicBool,
 }
@@ -186,9 +183,6 @@ impl BinanceFuturesExecutionClient {
             handler_signal: Arc::new(AtomicBool::new(false)),
             ws_task: Mutex::new(None),
             keepalive_task: Mutex::new(None),
-            started: false,
-            connected: AtomicBool::new(false),
-            instruments_initialized: AtomicBool::new(false),
             pending_tasks: Mutex::new(Vec::new()),
             is_hedge_mode: AtomicBool::new(false),
         })
@@ -628,7 +622,7 @@ impl BinanceFuturesExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for BinanceFuturesExecutionClient {
     fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Acquire)
+        self.core.is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -652,7 +646,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        if self.connected.load(Ordering::Acquire) {
+        if self.core.is_connected() {
             return Ok(());
         }
 
@@ -668,7 +662,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         log::info!("Hedge mode (dual side position): {is_hedge_mode}");
 
         // Load instruments if not already done
-        let _instruments = if self.instruments_initialized.load(Ordering::Acquire) {
+        let _instruments = if self.core.instruments_initialized() {
             Vec::new()
         } else {
             let instruments = self
@@ -683,7 +677,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                 log::info!("Loaded {} Futures instruments", instruments.len());
             }
 
-            self.instruments_initialized.store(true, Ordering::Release);
+            self.core.set_instruments_initialized();
             instruments
         };
 
@@ -851,13 +845,13 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
         self.await_account_registered(30.0).await?;
 
-        self.connected.store(true, Ordering::Release);
+        self.core.set_connected();
         log::info!("Connected: client_id={}", self.core.client_id);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !self.connected.load(Ordering::Acquire) {
+        if self.core.is_disconnected() {
             return Ok(());
         }
 
@@ -892,7 +886,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
         self.abort_pending_tasks();
 
-        self.connected.store(false, Ordering::Release);
+        self.core.set_disconnected();
         log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
     }
@@ -963,12 +957,12 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        if self.started {
+        if self.core.is_started() {
             return Ok(());
         }
 
         self.emitter.set_sender(get_exec_event_sender());
-        self.started = true;
+        self.core.set_started();
 
         let http_client = self.http_client.clone();
 
@@ -998,12 +992,12 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        if !self.started {
+        if self.core.is_stopped() {
             return Ok(());
         }
 
-        self.started = false;
-        self.connected.store(false, Ordering::Release);
+        self.core.set_stopped();
+        self.core.set_disconnected();
         self.abort_pending_tasks();
         log::info!("Stopped: client_id={}", self.core.client_id);
         Ok(())

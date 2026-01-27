@@ -17,10 +17,7 @@
 
 use std::{
     future::Future,
-    sync::{
-        Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
@@ -71,9 +68,6 @@ pub struct AxExecutionClient {
     emitter: ExecutionEventEmitter,
     http_client: AxHttpClient,
     ws_orders: AxOrdersWebSocketClient,
-    started: bool,
-    connected: AtomicBool,
-    instruments_initialized: AtomicBool,
     ws_stream_handle: Option<JoinHandle<()>>,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -116,9 +110,6 @@ impl AxExecutionClient {
             emitter,
             http_client,
             ws_orders,
-            started: false,
-            connected: AtomicBool::new(false),
-            instruments_initialized: AtomicBool::new(false),
             ws_stream_handle: None,
             pending_tasks: Mutex::new(Vec::new()),
         })
@@ -417,7 +408,7 @@ impl AxExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for AxExecutionClient {
     fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Acquire)
+        self.core.is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -441,11 +432,11 @@ impl ExecutionClient for AxExecutionClient {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        if self.connected.load(Ordering::Acquire) {
+        if self.core.is_connected() {
             return Ok(());
         }
 
-        if !self.instruments_initialized.load(Ordering::Acquire) {
+        if !self.core.instruments_initialized() {
             let instruments = self
                 .http_client
                 .request_instruments(None, None)
@@ -462,7 +453,7 @@ impl ExecutionClient for AxExecutionClient {
                     self.ws_orders.cache_instrument(instrument);
                 }
             }
-            self.instruments_initialized.store(true, Ordering::Release);
+            self.core.set_instruments_initialized();
         }
 
         let token = self.authenticate().await?;
@@ -498,13 +489,13 @@ impl ExecutionClient for AxExecutionClient {
 
         self.await_account_registered(30.0).await?;
 
-        self.connected.store(true, Ordering::Release);
+        self.core.set_connected();
         log::info!("Connected: client_id={}", self.core.client_id);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !self.connected.load(Ordering::Acquire) {
+        if self.core.is_disconnected() {
             return Ok(());
         }
 
@@ -517,7 +508,7 @@ impl ExecutionClient for AxExecutionClient {
             handle.abort();
         }
 
-        self.connected.store(false, Ordering::Release);
+        self.core.set_disconnected();
         log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
     }
@@ -547,12 +538,12 @@ impl ExecutionClient for AxExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        if self.started {
+        if self.core.is_started() {
             return Ok(());
         }
 
         self.emitter.set_sender(get_exec_event_sender());
-        self.started = true;
+        self.core.set_started();
         log::info!(
             "Started: client_id={}, account_id={}, is_sandbox={}",
             self.core.client_id,
@@ -563,12 +554,12 @@ impl ExecutionClient for AxExecutionClient {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        if !self.started {
+        if self.core.is_stopped() {
             return Ok(());
         }
 
-        self.started = false;
-        self.connected.store(false, Ordering::Release);
+        self.core.set_stopped();
+        self.core.set_disconnected();
         if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }

@@ -17,10 +17,7 @@
 
 use std::{
     future::Future,
-    sync::{
-        Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
@@ -74,9 +71,6 @@ pub struct BinanceSpotExecutionClient {
     config: BinanceExecClientConfig,
     emitter: ExecutionEventEmitter,
     http_client: BinanceSpotHttpClient,
-    started: bool,
-    connected: AtomicBool,
-    instruments_initialized: AtomicBool,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
@@ -126,9 +120,6 @@ impl BinanceSpotExecutionClient {
             config,
             emitter,
             http_client,
-            started: false,
-            connected: AtomicBool::new(false),
-            instruments_initialized: AtomicBool::new(false),
             pending_tasks: Mutex::new(Vec::new()),
         })
     }
@@ -362,7 +353,7 @@ impl BinanceSpotExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for BinanceSpotExecutionClient {
     fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Acquire)
+        self.core.is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -386,12 +377,12 @@ impl ExecutionClient for BinanceSpotExecutionClient {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        if self.connected.load(Ordering::Acquire) {
+        if self.core.is_connected() {
             return Ok(());
         }
 
         // Load instruments if not already done
-        if !self.instruments_initialized.load(Ordering::Acquire) {
+        if !self.core.instruments_initialized() {
             let instruments = self
                 .http_client
                 .request_instruments()
@@ -405,7 +396,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                 self.http_client.cache_instruments(instruments);
             }
 
-            self.instruments_initialized.store(true, Ordering::Release);
+            self.core.set_instruments_initialized();
         }
 
         // Request initial account state
@@ -426,19 +417,19 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         // Wait for account to be registered in cache before completing connect
         self.await_account_registered(30.0).await?;
 
-        self.connected.store(true, Ordering::Release);
+        self.core.set_connected();
         log::info!("Connected: client_id={}", self.core.client_id);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !self.connected.load(Ordering::Acquire) {
+        if self.core.is_disconnected() {
             return Ok(());
         }
 
         self.abort_pending_tasks();
 
-        self.connected.store(false, Ordering::Release);
+        self.core.set_disconnected();
         log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
     }
@@ -491,12 +482,12 @@ impl ExecutionClient for BinanceSpotExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        if self.started {
+        if self.core.is_started() {
             return Ok(());
         }
 
         self.emitter.set_sender(get_exec_event_sender());
-        self.started = true;
+        self.core.set_started();
 
         // Spawn instrument bootstrap task
         let http_client = self.http_client.clone();
@@ -529,12 +520,12 @@ impl ExecutionClient for BinanceSpotExecutionClient {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        if !self.started {
+        if self.core.is_stopped() {
             return Ok(());
         }
 
-        self.started = false;
-        self.connected.store(false, Ordering::Release);
+        self.core.set_stopped();
+        self.core.set_disconnected();
         self.abort_pending_tasks();
         log::info!("Stopped: client_id={}", self.core.client_id);
         Ok(())

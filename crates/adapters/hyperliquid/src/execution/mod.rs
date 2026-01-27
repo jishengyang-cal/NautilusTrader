@@ -70,9 +70,6 @@ pub struct HyperliquidExecutionClient {
     emitter: ExecutionEventEmitter,
     http_client: HyperliquidHttpClient,
     ws_client: HyperliquidWebSocketClient,
-    started: bool,
-    connected: bool,
-    instruments_initialized: bool,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
     ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -204,16 +201,13 @@ impl HyperliquidExecutionClient {
             emitter,
             http_client,
             ws_client,
-            started: false,
-            connected: false,
-            instruments_initialized: false,
             pending_tasks: Mutex::new(Vec::new()),
             ws_stream_handle: Mutex::new(None),
         })
     }
 
     async fn ensure_instruments_initialized_async(&mut self) -> anyhow::Result<()> {
-        if self.instruments_initialized {
+        if self.core.instruments_initialized() {
             return Ok(());
         }
 
@@ -235,12 +229,12 @@ impl HyperliquidExecutionClient {
             }
         }
 
-        self.instruments_initialized = true;
+        self.core.set_instruments_initialized();
         Ok(())
     }
 
     fn ensure_instruments_initialized(&mut self) -> anyhow::Result<()> {
-        if self.instruments_initialized {
+        if self.core.instruments_initialized() {
             return Ok(());
         }
 
@@ -333,7 +327,7 @@ impl HyperliquidExecutionClient {
 #[async_trait(?Send)]
 impl ExecutionClient for HyperliquidExecutionClient {
     fn is_connected(&self) -> bool {
-        self.connected
+        self.core.is_connected()
     }
 
     fn client_id(&self) -> ClientId {
@@ -369,7 +363,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
     }
 
     fn start(&mut self) -> anyhow::Result<()> {
-        if self.started {
+        if self.core.is_started() {
             return Ok(());
         }
 
@@ -394,8 +388,8 @@ impl ExecutionClient for HyperliquidExecutionClient {
             log::warn!("Failed to initialize account state: {e}");
         }
 
-        self.connected = true;
-        self.started = true;
+        self.core.set_connected();
+        self.core.set_started();
 
         // Start WebSocket stream for execution updates
         if let Err(e) = get_runtime().block_on(self.start_ws_stream()) {
@@ -405,8 +399,9 @@ impl ExecutionClient for HyperliquidExecutionClient {
         log::info!("Hyperliquid execution client started");
         Ok(())
     }
+
     fn stop(&mut self) -> anyhow::Result<()> {
-        if !self.started {
+        if self.core.is_stopped() {
             return Ok(());
         }
 
@@ -421,7 +416,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         self.abort_pending_tasks();
 
         // Disconnect WebSocket
-        if self.connected {
+        if self.core.is_connected() {
             let runtime = get_runtime();
             runtime.block_on(async {
                 if let Err(e) = self.ws_client.disconnect().await {
@@ -430,8 +425,8 @@ impl ExecutionClient for HyperliquidExecutionClient {
             });
         }
 
-        self.connected = false;
-        self.started = false;
+        self.core.set_disconnected();
+        self.core.set_stopped();
 
         log::info!("Hyperliquid execution client stopped");
         Ok(())
@@ -832,7 +827,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        if self.connected {
+        if self.core.is_connected() {
             return Ok(());
         }
 
@@ -853,8 +848,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         // Initialize account state
         self.refresh_account_state().await?;
 
-        self.connected = true;
-        self.core.set_connected(true);
+        self.core.set_connected();
 
         // Start WebSocket stream for execution updates
         if let Err(e) = self.start_ws_stream().await {
@@ -866,7 +860,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
     }
 
     async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if !self.connected {
+        if self.core.is_disconnected() {
             return Ok(());
         }
 
@@ -878,8 +872,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         // Abort any pending tasks
         self.abort_pending_tasks();
 
-        self.connected = false;
-        self.core.set_connected(false);
+        self.core.set_disconnected();
 
         log::info!("Disconnected: client_id={}", self.core.client_id);
         Ok(())
