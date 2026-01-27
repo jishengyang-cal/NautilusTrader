@@ -62,10 +62,12 @@ from nautilus_trader.model.enums import LiquiditySide
 from nautilus_trader.model.events.order import OrderAccepted
 from nautilus_trader.model.events.order import OrderCanceled
 from nautilus_trader.model.events.order import OrderFilled
+from nautilus_trader.model.events.order import OrderInitialized
 from nautilus_trader.model.events.order import OrderPendingUpdate
 from nautilus_trader.model.events.order import OrderRejected
 from nautilus_trader.model.events.order import OrderSubmitted
 from nautilus_trader.model.events.order import OrderUpdated
+from nautilus_trader.model.events.position import PositionOpened
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import StrategyId
@@ -487,8 +489,12 @@ async def test_request_account_state(exec_client, cache, account_id):
 
 @pytest.mark.asyncio
 async def test_check_account_currency(exec_client):
-    # Arrange, Act, Assert
+    # Arrange, Act
     await exec_client._check_account_currency()
+
+    # Assert - verify base currency matches account details
+    assert exec_client.base_currency is not None
+    assert exec_client.base_currency.code == "GBP"
 
 
 @pytest.mark.asyncio
@@ -511,9 +517,14 @@ async def test_order_stream_full_image(exec_client, setup_order_state, events):
     fills = [event for event in events if isinstance(event, OrderFilled)]
     assert len(fills) == 4
 
+    # Verify fills have expected venue_order_ids from the FULL_IMAGE data
+    venue_order_ids = {str(f.venue_order_id) for f in fills}
+    expected_ids = {"175706685825", "175706685826", "175706685827", "175706685828"}
+    assert venue_order_ids == expected_ids
+
 
 @pytest.mark.asyncio
-async def test_order_stream_empty_image(exec_client, events):
+async def test_order_stream_empty_image(exec_client, events, cache):
     # Arrange
     order_change_message = BetfairStreaming.ocm_EMPTY_IMAGE()
 
@@ -523,8 +534,9 @@ async def test_order_stream_empty_image(exec_client, events):
     )
     await asyncio.sleep(0)
 
-    # Assert
+    # Assert - empty image produces no events and no orders in cache
     assert len(events) == 0
+    assert len(cache.orders()) == 0
 
 
 @pytest.mark.asyncio
@@ -554,8 +566,19 @@ async def test_order_stream_new_full_image(exec_client, setup_order_state, cache
     # Act
     exec_client.handle_order_stream_update(raw)
     await asyncio.sleep(0)
-    # Expect 5 events: OrderInitialized, OrderSubmitted, OrderAccepted, OrderFilled, PositionOpened
+
+    # Assert - verify event types and order in expected sequence
     assert len(events) == 5
+    assert isinstance(events[0], OrderInitialized)
+    assert isinstance(events[1], OrderSubmitted)
+    assert isinstance(events[2], OrderAccepted)
+    assert isinstance(events[3], OrderFilled)
+    assert isinstance(events[4], PositionOpened)
+
+    # Verify fill details
+    fill = events[3]
+    assert fill.last_px == betfair_float_to_price(12.0)
+    assert fill.last_qty == betfair_float_to_quantity(4.75)
 
 
 @pytest.mark.asyncio
@@ -563,6 +586,7 @@ async def test_order_stream_sub_image(exec_client, setup_order_state, events):
     # Arrange
     order_change_message = BetfairStreaming.ocm_SUB_IMAGE()
     await setup_order_state(order_change_message=order_change_message)
+    events.clear()  # Clear setup events to isolate test
 
     # Act
     exec_client.handle_order_stream_update(
@@ -570,15 +594,16 @@ async def test_order_stream_sub_image(exec_client, setup_order_state, events):
     )
     await asyncio.sleep(0)
 
-    # Assert
+    # Assert - sub image with no changes produces no new events
     assert len(events) == 0
 
 
 @pytest.mark.asyncio
-async def test_order_stream_update(exec_client, setup_order_state, events):
+async def test_order_stream_update(exec_client, setup_order_state, events, cache):
     # Arrange
     order_change_message = BetfairStreaming.ocm_UPDATE()
     await setup_order_state(order_change_message=order_change_message)
+    events.clear()  # Clear setup events to isolate test
 
     # Act
     exec_client.handle_order_stream_update(
@@ -586,9 +611,14 @@ async def test_order_stream_update(exec_client, setup_order_state, events):
     )
     await asyncio.sleep(0)
 
-    # Assert
-    # Expect 4 events: OrderInitialized, OrderSubmitted, OrderAccepted, OrderUpdated
-    assert len(events) == 4
+    # Assert - OCM_UPDATE has status=EC so produces OrderCanceled
+    assert len(events) == 1
+    cancel_event = events[0]
+    assert isinstance(cancel_event, OrderCanceled)
+
+    # Verify order exists in cache
+    orders = cache.orders()
+    assert len(orders) == 1
 
 
 @pytest.mark.asyncio
@@ -852,31 +882,43 @@ async def test_various_betfair_order_fill_scenarios(
     update = BetfairStreaming.ocm_filled_different_price()
     await setup_order_state(update)
 
-    # Act
+    # Act - use market/selection IDs matching the setup data
     for raw in updates:
         order_change_message = BetfairStreaming.generate_order_change_message(
             price=price,
             size=size,
             side=side,
             status=status,
+            market_id="1.189731772",
+            selection_id=6023845,
             **raw,
         )
         exec_client.handle_order_stream_update(msgspec.json.encode(order_change_message))
         await asyncio.sleep(0)
 
-    # Assert
-    for msg, _, last_qty in zip(fill_events, updates, last_qtys, strict=False):
+    # Assert - verify exact number of fills matches expected
+    assert len(fill_events) == len(last_qtys), (
+        f"Expected {len(last_qtys)} fills, received {len(fill_events)}"
+    )
+    for msg, last_qty in zip(fill_events, last_qtys, strict=True):
         assert isinstance(msg, OrderFilled)
         assert msg.last_qty == last_qty
 
 
 @pytest.mark.asyncio
 async def test_order_filled_avp_update(exec_client, setup_order_state):
+    """
+    Test that order updates with AVP (average price) changes don't cause errors.
+
+    This is a smoke test - verifies no exceptions when processing updates with
+    different prices but same matched size (no incremental fill).
+
+    """
     # Arrange
     update = BetfairStreaming.ocm_filled_different_price()
     await setup_order_state(update)
 
-    # Act
+    # Act - send updates with different prices but same sm (no new fill)
     order_change_message = BetfairStreaming.generate_order_change_message(
         price=1.50,
         size=20,
@@ -884,6 +926,8 @@ async def test_order_filled_avp_update(exec_client, setup_order_state):
         status="E",
         avp=1.50,
         sm=10,
+        market_id="1.189731772",
+        selection_id=6023845,
     )
     exec_client.handle_order_stream_update(msgspec.json.encode(order_change_message))
     await asyncio.sleep(0)
@@ -895,9 +939,13 @@ async def test_order_filled_avp_update(exec_client, setup_order_state):
         status="E",
         avp=1.50,
         sm=10,
+        market_id="1.189731772",
+        selection_id=6023845,
     )
     exec_client.handle_order_stream_update(msgspec.json.encode(order_change_message))
     await asyncio.sleep(0)
+
+    # Assert - no exception thrown (smoke test)
 
 
 @pytest.mark.asyncio
@@ -973,6 +1021,7 @@ async def test_check_cache_against_order_image_passes(
     exec_client,
     venue_order_id,
     setup_order_state_fills,
+    cache,
 ):
     # Arrange
     ocm = BetfairStreaming.generate_order_change_message(
@@ -988,8 +1037,13 @@ async def test_check_cache_against_order_image_passes(
     )
     await setup_order_state_fills(order_change_message=ocm)
 
-    # Act, Assert
+    # Act
     exec_client.check_cache_against_order_image(ocm)
+
+    # Assert - verify order exists in cache with expected venue_order_id
+    orders = cache.orders()
+    assert len(orders) == 1
+    assert orders[0].venue_order_id == venue_order_id
 
 
 @pytest.mark.asyncio
@@ -1166,8 +1220,15 @@ async def test_reconcile_execution_mass_status(exec_client, exec_engine):
         BetfairResponses.list_current_orders_execution_complete(),
     )
 
-    # Act, Assert
+    # Act
     mass_status = await exec_client.generate_mass_status()
+
+    # Assert - verify mass status contains expected reports
+    assert mass_status is not None
+    assert len(mass_status.order_reports) == 3
+    assert len(mass_status.fill_reports) == 2
+
+    # Verify reconciliation completes without error
     exec_engine._reconcile_execution_mass_status(mass_status)
 
 
@@ -4211,3 +4272,167 @@ def test_known_order_found_on_fast_path(
 
     # Assert - found immediately via cache lookup
     assert result == client_order_id
+
+
+@pytest.mark.asyncio
+async def test_submit_order_skips_acceptance_when_already_terminal(
+    exec_client: BetfairExecutionClient,
+    instrument,
+    cache,
+    monkeypatch,
+):
+    """
+    Test that order acceptance is skipped when order is already in terminal state.
+
+    This handles the IOC race condition where stream delivers cancel/lapse before HTTP
+    response arrives with acceptance.
+
+    """
+    order = TestExecStubs.limit_order(instrument=instrument)
+    cache.add_instrument(instrument)
+    cache.add_order(order)
+
+    # Mock HTTP response with success
+    place_result = BetfairResponses.betting_place_order_success()
+    mock_betfair_request(exec_client._client, place_result)
+
+    accepted_calls = []
+    original_generate_accepted = exec_client.generate_order_accepted
+
+    def capture_accepted(*args, **kwargs):
+        accepted_calls.append((args, kwargs))
+        return original_generate_accepted(*args, **kwargs)
+
+    monkeypatch.setattr(exec_client, "generate_order_accepted", capture_accepted)
+
+    # Simulate stream processing terminal state before HTTP response completes
+    exec_client._terminal_orders.add(order.client_order_id.value)
+
+    command = TestCommandStubs.submit_order_command(order=order)
+
+    # Act
+    await exec_client._submit_order(command)
+
+    # Assert - no acceptance generated (order already terminal)
+    assert len(accepted_calls) == 0
+
+    # Assert - venue_order_id still cached for future stream resolution
+    cached_venue_order_id = cache.venue_order_id(order.client_order_id)
+    assert cached_venue_order_id is not None
+    assert str(cached_venue_order_id) == "228302937743"  # From betting_place_order_success
+
+
+@pytest.mark.asyncio
+async def test_handle_order_stream_update_filters_markets(
+    exec_client: BetfairExecutionClient,
+    cache,
+    monkeypatch,
+):
+    """
+    Test that order stream updates are filtered by market ID when filter is set.
+    """
+    # Add instrument for the market in the OCM - proves filter is the reason for skipping
+    filtered_market_instrument = betting_instrument(
+        market_id="1.180737206",
+        selection_id=19924831,
+    )
+    cache.add_instrument(filtered_market_instrument)
+
+    # Set up filter to only include a different market
+    exec_client._stream_market_ids_filter = {"1.999999"}
+
+    process_calls = []
+
+    def capture_process(unmatched_order, instr):
+        process_calls.append((unmatched_order, instr))
+
+    monkeypatch.setattr(exec_client, "_process_order_update", capture_process)
+
+    ocm = OCM(
+        id=1,
+        clk="1",
+        pt=0,
+        oc=[
+            OrderMarketChange(
+                id="1.180737206",  # Not in filter, but instrument exists in cache
+                orc=[
+                    OrderRunnerChange(
+                        id=19924831,
+                        hc=None,
+                        uo=[
+                            BFOrder(
+                                id="12345",
+                                p=1.50,
+                                s=10.0,
+                                side="B",
+                                status="E",
+                                pt="L",
+                                ot="L",
+                                pd=1234567890000,
+                                sm=0,
+                                sr=10.0,
+                                sl=0,
+                                sc=0,
+                                sv=0,
+                                rac="",
+                                rc="REG_GBE",
+                                rfo=None,
+                                rfs=None,
+                            ),
+                        ],
+                        ml=[],
+                        mb=[],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    # Act
+    await exec_client._handle_order_stream_update(ocm)
+
+    # Assert - _process_order_update was never called (market was filtered out, not missing instrument)
+    assert len(process_calls) == 0
+
+
+def test_stream_market_ids_filter_none_when_no_config(
+    exec_client: BetfairExecutionClient,
+):
+    """
+    Test that stream market filter is None when stream_market_ids_filter not configured.
+    """
+    assert exec_client._stream_market_ids_filter is None
+
+
+def test_check_cache_against_order_image_filters_markets(
+    exec_client: BetfairExecutionClient,
+    cache,
+):
+    """
+    Test that check_cache_against_order_image filters by market ID.
+    """
+    exec_client._stream_market_ids_filter = {"1.123456"}
+
+    ocm = OCM(
+        id=1,
+        clk="1",
+        pt=0,
+        oc=[
+            OrderMarketChange(
+                id="1.999999",  # Not in filter
+                orc=[
+                    OrderRunnerChange(
+                        id=456,
+                        hc=None,
+                        full_image=True,
+                        uo=[],
+                        mb=[MatchedOrder(price=2.0, size=10.0)],
+                        ml=[],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    # Act - should complete without checking the filtered market
+    exec_client.check_cache_against_order_image(ocm)

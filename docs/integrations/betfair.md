@@ -84,8 +84,8 @@ Betfair operates as a betting exchange with unique characteristics compared to t
 
 ### Time in force options
 
-| Time in force | Supported | Notes                               |
-|---------------|-----------|-------------------------------------|
+| Time in force | Supported | Notes                                  |
+|---------------|-----------|----------------------------------------|
 | `GTC`         | -         | Betting exchange uses different model. |
 | `GTD`         | -         | Betting exchange uses different model. |
 | `FOK`         | -         | Betting exchange uses different model. |
@@ -137,7 +137,31 @@ Betfair operates as a betting exchange with unique characteristics compared to t
 ## Order stream fill handling
 
 The execution client processes order updates from the Betfair Exchange Streaming API.
-When `ignore_external_orders=True`, the client "silently skips" (no warning logs) orders and fills not found in cache:
+Two configuration options control how updates are filtered:
+
+- **`stream_market_ids_filter`**: Filters at the market level (early exit, silent skip).
+- **`ignore_external_orders`**: Filters at the order level (controls warning vs debug logging).
+
+Note that `stream_market_ids_filter` is independent of reconciliation scope (`reconcile_market_ids_only`).
+Stream filtering affects live updates only; reconciliation uses its own market filter.
+
+```mermaid
+flowchart TD
+    A[Stream update arrives] --> B{Market in<br/>stream_market_ids_filter?}
+    B -->|No filter set| C{Instrument loaded?}
+    B -->|Yes| C
+    B -->|No| D[Skip silently]
+    C -->|No| E[Warning: Instrument not loaded]
+    C -->|Yes| F{Known order?<br/>rfo or cache}
+    F -->|Yes| G[Process order update]
+    F -->|No| H{ignore_external_orders?}
+    H -->|True| I[Debug log, skip]
+    H -->|False| J[Warning log, skip]
+```
+
+The same `stream_market_ids_filter` is also applied during full-image reconciliation in `check_cache_against_order_image`.
+
+When `ignore_external_orders=True`, the client silently skips orders and fills not found in cache:
 
 | Scenario                       | Description                                         |
 |--------------------------------|-----------------------------------------------------|
@@ -146,8 +170,8 @@ When `ignore_external_orders=True`, the client "silently skips" (no warning logs
 | Unknown fill in full image     | Fill does not match any known order during sync.    |
 
 :::info
-Enable `ignore_external_orders` for multi-node setups where other nodes control their own orders.
-When disabled (the default), these scenarios log warnings.
+For multi-node setups sharing a Betfair account, set both `stream_market_ids_filter` (your markets only)
+and `ignore_external_orders=True` to avoid warnings about orders managed by other nodes.
 :::
 
 ## Configuration
@@ -179,9 +203,15 @@ When disabled (the default), these scenarios log warnings.
 | `instrument_config`          | `None`   | Optional `BetfairInstrumentProviderConfig` to scope reconciliation. |
 | `calculate_account_state`    | `True`   | Calculate account state locally from events when `True`. |
 | `request_account_state_secs` | `300`    | Interval (seconds) to poll Betfair for account state (`0` disables). |
-| `reconcile_market_ids_only`  | `False`  | When `True`, reconciliation requests only cover configured market IDs. |
+| `reconcile_market_ids_only`  | `False`  | When `True`, reconciliation only covers `instrument_config.market_ids` (no effect if unset). |
+| `stream_market_ids_filter`   | `None`   | List of market IDs to process from stream; others are silently skipped. |
 | `ignore_external_orders`     | `False`  | When `True`, ignore stream orders missing from the local cache. |
 | `proxy_url`                  | `None`   | Optional proxy URL for HTTP requests. |
+
+:::warning
+If you set `stream_market_ids_filter`, ensure it includes all markets you trade. Orders placed on
+markets excluded from this filter will miss live fill and cancel updates from the stream.
+:::
 
 Here is a minimal example showing how to configure a live `TradingNode` with Betfair clients:
 

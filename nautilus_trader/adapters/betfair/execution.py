@@ -164,6 +164,14 @@ class BetfairExecutionClient(LiveExecutionClient):
         self._log.info(f"{config.account_currency=}", LogColor.BLUE)
         self._log.info(f"{config.calculate_account_state=}", LogColor.BLUE)
         self._log.info(f"{config.request_account_state_secs=}", LogColor.BLUE)
+        self._log.info(f"{config.reconcile_market_ids_only=}", LogColor.BLUE)
+        self._log.info(f"{config.stream_market_ids_filter=}", LogColor.BLUE)
+        self._log.info(f"{config.ignore_external_orders=}", LogColor.BLUE)
+
+        # Include filter for order stream updates (None = process all markets)
+        self._stream_market_ids_filter: set[str] | None = (
+            set(config.stream_market_ids_filter) if config.stream_market_ids_filter else None
+        )
 
         # Clients
         self._client: BetfairHttpClient = client
@@ -731,16 +739,15 @@ class BetfairExecutionClient(LiveExecutionClient):
                     f"Matching venue_order_id: {venue_order_id} to client_order_id: {client_order_id}",
                 )
 
-                # Skip acceptance if stream already processed fills (SUBMITTED -> FILLED is valid)
-                existing_venue_order_id = self._cache.venue_order_id(client_order_id)
-                if existing_venue_order_id is not None:
-                    self._log.debug(
-                        f"Stream already cached {existing_venue_order_id!r} for {client_order_id!r}, "
-                        f"skipping acceptance",
-                    )
-                    return
+                # Check before caching so the cache check in _should_skip works correctly
+                skip_acceptance = self._should_skip_order_acceptance(client_order_id)
 
+                # Always cache venue_order_id for stream resolution, even if skipping acceptance
                 self._cache.add_venue_order_id(client_order_id, venue_order_id)
+
+                if skip_acceptance:
+                    continue
+
                 self.generate_order_accepted(
                     command.strategy_id,
                     command.instrument_id,
@@ -1078,6 +1085,21 @@ class BetfairExecutionClient(LiveExecutionClient):
 
             self.cancel_order(command)
 
+    def _should_skip_order_acceptance(self, client_order_id: ClientOrderId) -> bool:
+        if client_order_id.value in self._terminal_orders:
+            self._log.debug(f"Order {client_order_id!r} already terminal, skipping acceptance")
+            return True
+
+        existing_venue_order_id = self._cache.venue_order_id(client_order_id)
+        if existing_venue_order_id is not None:
+            self._log.debug(
+                f"Stream already cached {existing_venue_order_id!r} for {client_order_id!r}, "
+                f"skipping acceptance",
+            )
+            return True
+
+        return False
+
     def _resolve_client_order_id(
         self,
         unmatched_order: UnmatchedOrder,
@@ -1140,6 +1162,9 @@ class BetfairExecutionClient(LiveExecutionClient):
     async def _handle_order_stream_update(self, order_change_message: OCM) -> None:
         for market in order_change_message.oc or []:
             if market.orc is None:
+                continue
+
+            if self._stream_market_ids_filter and market.id not in self._stream_market_ids_filter:
                 continue
 
             for selection in market.orc:
@@ -1214,6 +1239,9 @@ class BetfairExecutionClient(LiveExecutionClient):
 
     def check_cache_against_order_image(self, order_change_message: OCM) -> None:
         for market in order_change_message.oc or []:
+            if self._stream_market_ids_filter and market.id not in self._stream_market_ids_filter:
+                continue
+
             for selection in market.orc or []:
                 instrument_id = betfair_instrument_id(
                     market_id=market.id,
