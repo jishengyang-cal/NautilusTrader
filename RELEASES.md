@@ -10,6 +10,8 @@ This will be the final release with support for the dYdX v3 (legacy) API. Future
 - Added tracing subscriber for external Rust library logs (`use_tracing=True` in `LoggingConfig`, filter with `RUST_LOG` env var)
 - Added `use_market_order_acks` venue config option to generate `OrderAccepted` events for market orders before filling (mimics behavior of venues like Binance)
 - Added `oto_trigger_mode` venue config option to control whether OTO child orders activate on partial fills (PARTIAL) or only after full fill (FULL) (default PARTIAL) (#3454), thanks @godnight10061
+- Added `request_funding_rates` and `FundingRateUpdate` Arrow serialization (#3467), thanks @dxwil
+- Added Polymarket data loader event-level API support (#3484), thanks @jsemldonado
 - Improved tearsheet with dynamic Nautilus version and refined run info table (#3396), thanks @KaulSe
 
 ### Breaking Changes

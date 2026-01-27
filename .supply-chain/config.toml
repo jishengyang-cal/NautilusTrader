@@ -151,11 +151,11 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-core]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-dyn-abi]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-eip2124]]
@@ -179,7 +179,7 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-json-abi]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-json-rpc]]
@@ -195,7 +195,7 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-primitives]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-provider]]
@@ -235,23 +235,23 @@ version = "1.5.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-sol-macro]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-sol-macro-expander]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-sol-macro-input]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-sol-type-parser]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-sol-types]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-transport]]
@@ -595,15 +595,15 @@ version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap]]
-version = "4.5.54"
+version = "4.5.55"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap_builder]]
-version = "4.5.54"
+version = "4.5.55"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap_derive]]
-version = "4.5.49"
+version = "4.5.55"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap_lex]]
@@ -799,7 +799,7 @@ version = "2.10.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.databento]]
-version = "0.39.0"
+version = "0.40.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion]]
@@ -927,11 +927,11 @@ version = "52.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn]]
-version = "0.47.0"
+version = "0.48.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn-macros]]
-version = "0.47.0"
+version = "0.48.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.deranged]]
@@ -1219,7 +1219,7 @@ version = "0.1.19"
 criteria = "safe-to-deploy"
 
 [[exemptions.hypersync-client]]
-version = "0.23.0"
+version = "1.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.hypersync-format]]
@@ -2187,7 +2187,7 @@ version = "0.1.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.siphasher]]
-version = "1.0.1"
+version = "1.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.slab]]
@@ -2275,7 +2275,7 @@ version = "2.0.114"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn-solidity]]
-version = "1.5.2"
+version = "1.5.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.sync_wrapper]]
