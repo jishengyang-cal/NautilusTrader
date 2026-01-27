@@ -61,11 +61,20 @@ use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
 
 use crate::{
-    common::{consts::DYDX_VENUE, instrument_cache::InstrumentCache, parse::extract_raw_symbol},
+    common::{
+        consts::DYDX_VENUE, enums::DydxCandleResolution, instrument_cache::InstrumentCache,
+        parse::extract_raw_symbol,
+    },
     config::DydxDataClientConfig,
-    http::client::DydxHttpClient,
+    http::{
+        client::DydxHttpClient,
+        models::{Candle, OrderbookResponse},
+    },
     types::DydxOraclePrice,
-    websocket::client::DydxWebSocketClient,
+    websocket::{
+        client::DydxWebSocketClient, enums::NautilusWsMessage, handler::HandlerCommand,
+        messages::DydxOraclePriceMarket,
+    },
 };
 
 /// Groups WebSocket message handling dependencies.
@@ -540,11 +549,7 @@ impl DataClient for DydxDataClient {
         self.spawn_ws(
             async move {
                 // Register bar type in handler BEFORE subscribing to avoid race condition
-                if let Err(e) =
-                    ws.send_command(crate::websocket::handler::HandlerCommand::RegisterBarType {
-                        topic,
-                        bar_type,
-                    })
+                if let Err(e) = ws.send_command(HandlerCommand::RegisterBarType { topic, bar_type })
                 {
                     anyhow::bail!("Failed to register bar type: {e}");
                 }
@@ -677,9 +682,7 @@ impl DataClient for DydxDataClient {
         let topic = format!("{ticker}/{resolution}");
         self.bar_type_mappings.remove(&topic);
 
-        if let Err(e) =
-            ws.send_command(crate::websocket::handler::HandlerCommand::UnregisterBarType { topic })
-        {
+        if let Err(e) = ws.send_command(HandlerCommand::UnregisterBarType { topic }) {
             log::warn!("Failed to unregister bar type: {e}");
         }
 
@@ -1051,13 +1054,13 @@ impl DataClient for DydxDataClient {
 
         // Parse resolution string to DydxCandleResolution enum
         let resolution_enum = match resolution {
-            "1MIN" => crate::common::enums::DydxCandleResolution::OneMinute,
-            "5MINS" => crate::common::enums::DydxCandleResolution::FiveMinutes,
-            "15MINS" => crate::common::enums::DydxCandleResolution::FifteenMinutes,
-            "30MINS" => crate::common::enums::DydxCandleResolution::ThirtyMinutes,
-            "1HOUR" => crate::common::enums::DydxCandleResolution::OneHour,
-            "4HOURS" => crate::common::enums::DydxCandleResolution::FourHours,
-            "1DAY" => crate::common::enums::DydxCandleResolution::OneDay,
+            "1MIN" => DydxCandleResolution::OneMinute,
+            "5MINS" => DydxCandleResolution::FiveMinutes,
+            "15MINS" => DydxCandleResolution::FifteenMinutes,
+            "30MINS" => DydxCandleResolution::ThirtyMinutes,
+            "1HOUR" => DydxCandleResolution::OneHour,
+            "4HOURS" => DydxCandleResolution::FourHours,
+            "1DAY" => DydxCandleResolution::OneDay,
             _ => {
                 anyhow::bail!("Unsupported resolution: {resolution}");
             }
@@ -1484,7 +1487,7 @@ impl DydxDataClient {
     /// Converts the REST API orderbook format into Nautilus deltas with CLEAR + ADD actions.
     fn parse_orderbook_snapshot(
         instrument_id: InstrumentId,
-        snapshot: &crate::http::models::OrderbookResponse,
+        snapshot: &OrderbookResponse,
         instrument: &InstrumentAny,
     ) -> anyhow::Result<OrderBookDeltas> {
         let ts_init = get_atomic_clock_realtime().get_time_ns();
@@ -1601,7 +1604,7 @@ impl DydxDataClient {
     /// candle start time to `ts_init` with `ts_event` at the end of the bar
     /// interval.
     fn candle_to_bar(
-        candle: &crate::http::models::Candle,
+        candle: &Candle,
         bar_type: BarType,
         price_precision: u8,
         size_precision: u8,
@@ -1636,15 +1639,12 @@ impl DydxDataClient {
         ))
     }
 
-    fn handle_ws_message(
-        message: crate::websocket::enums::NautilusWsMessage,
-        ctx: &WsMessageContext,
-    ) {
+    fn handle_ws_message(message: NautilusWsMessage, ctx: &WsMessageContext) {
         match message {
-            crate::websocket::enums::NautilusWsMessage::Data(payloads) => {
+            NautilusWsMessage::Data(payloads) => {
                 Self::handle_data_message(payloads, &ctx.data_sender, &ctx.incomplete_bars);
             }
-            crate::websocket::enums::NautilusWsMessage::Deltas(deltas) => {
+            NautilusWsMessage::Deltas(deltas) => {
                 Self::handle_deltas_message(
                     *deltas,
                     &ctx.data_sender,
@@ -1653,13 +1653,13 @@ impl DydxDataClient {
                     &ctx.instrument_cache,
                 );
             }
-            crate::websocket::enums::NautilusWsMessage::OraclePrices(oracle_prices) => {
+            NautilusWsMessage::OraclePrices(oracle_prices) => {
                 Self::handle_oracle_prices(oracle_prices, &ctx.instrument_cache, &ctx.data_sender);
             }
-            crate::websocket::enums::NautilusWsMessage::Error(err) => {
+            NautilusWsMessage::Error(err) => {
                 log::error!("dYdX WS error: {err}");
             }
-            crate::websocket::enums::NautilusWsMessage::Reconnected => {
+            NautilusWsMessage::Reconnected => {
                 log::info!("dYdX WS reconnected - re-subscribing to active subscriptions");
 
                 let total_subs = ctx.active_orderbook_subs.len()
@@ -1720,12 +1720,10 @@ impl DydxDataClient {
                     // Re-register bar type with handler
                     let ticker = extract_raw_symbol(instrument_id.symbol.as_str());
                     let topic = format!("{ticker}/{resolution}");
-                    if let Err(e) = ctx.ws_client.send_command(
-                        crate::websocket::handler::HandlerCommand::RegisterBarType {
-                            topic,
-                            bar_type,
-                        },
-                    ) {
+                    if let Err(e) = ctx
+                        .ws_client
+                        .send_command(HandlerCommand::RegisterBarType { topic, bar_type })
+                    {
                         log::warn!(
                             "Failed to re-register bar type for {instrument_id} ({resolution}): {e}"
                         );
@@ -1748,17 +1746,17 @@ impl DydxDataClient {
 
                 log::info!("Completed re-subscription requests after reconnection");
             }
-            crate::websocket::enums::NautilusWsMessage::BlockHeight { .. } => {
+            NautilusWsMessage::BlockHeight { .. } => {
                 log::debug!(
                     "Ignoring block height message on dYdX data client (handled by execution adapter)"
                 );
             }
-            crate::websocket::enums::NautilusWsMessage::Order(_)
-            | crate::websocket::enums::NautilusWsMessage::Fill(_)
-            | crate::websocket::enums::NautilusWsMessage::Position(_)
-            | crate::websocket::enums::NautilusWsMessage::AccountState(_)
-            | crate::websocket::enums::NautilusWsMessage::SubaccountSubscribed(_)
-            | crate::websocket::enums::NautilusWsMessage::SubaccountsChannelData(_) => {
+            NautilusWsMessage::Order(_)
+            | NautilusWsMessage::Fill(_)
+            | NautilusWsMessage::Position(_)
+            | NautilusWsMessage::AccountState(_)
+            | NautilusWsMessage::SubaccountSubscribed(_)
+            | NautilusWsMessage::SubaccountsChannelData(_) => {
                 log::debug!(
                     "Ignoring execution/subaccount message on dYdX data client (handled by execution adapter)"
                 );
@@ -2086,10 +2084,7 @@ impl DydxDataClient {
     }
 
     fn handle_oracle_prices(
-        oracle_prices: std::collections::HashMap<
-            String,
-            crate::websocket::messages::DydxOraclePriceMarket,
-        >,
+        oracle_prices: std::collections::HashMap<String, DydxOraclePriceMarket>,
         instrument_cache: &Arc<InstrumentCache>,
         data_sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
     ) {
@@ -2191,7 +2186,13 @@ mod tests {
     use tokio::net::{TcpListener, TcpStream};
 
     use super::*;
-    use crate::http::models::{Candle, CandlesResponse};
+    use crate::{
+        common::enums::DydxTradeType,
+        http::models::{
+            CandlesResponse, OrderbookLevel, Trade, TradesResponse as DydxTradesResponse,
+        },
+        websocket::error::DydxWebSocketError,
+    };
 
     fn setup_test_env() {
         // Initialize data event sender for tests
@@ -2461,7 +2462,7 @@ mod tests {
         );
         let deltas = OrderBookDeltas::new(instrument_id, vec![bid_delta, ask_delta]);
 
-        let message = crate::websocket::enums::NautilusWsMessage::Deltas(Box::new(deltas));
+        let message = NautilusWsMessage::Deltas(Box::new(deltas));
 
         let incomplete_bars = Arc::new(DashMap::new());
         let ctx = WsMessageContext {
@@ -2525,14 +2526,9 @@ mod tests {
             incomplete_bars,
         };
 
-        let err = crate::websocket::error::DydxWebSocketError::from_message(
-            "malformed WebSocket payload".to_string(),
-        );
+        let err = DydxWebSocketError::from_message("malformed WebSocket payload".to_string());
 
-        DydxDataClient::handle_ws_message(
-            crate::websocket::enums::NautilusWsMessage::Error(err),
-            &ctx,
-        );
+        DydxDataClient::handle_ws_message(NautilusWsMessage::Error(err), &ctx);
     }
 
     #[tokio::test]
@@ -2580,10 +2576,10 @@ mod tests {
 
         // Prepare a simple candles response served by a local Axum HTTP server.
         let now = Utc::now();
-        let candle = crate::http::models::Candle {
+        let candle = Candle {
             started_at: now - chrono::Duration::minutes(1),
             ticker: Ustr::from("BTC-USD"),
-            resolution: crate::common::enums::DydxCandleResolution::OneMinute,
+            resolution: DydxCandleResolution::OneMinute,
             open: dec!(100.0),
             high: dec!(101.0),
             low: dec!(99.0),
@@ -2593,7 +2589,7 @@ mod tests {
             trades: 10,
             starting_open_interest: dec!(1000.0),
         };
-        let candles_response = crate::http::models::CandlesResponse {
+        let candles_response = CandlesResponse {
             candles: vec![candle],
         };
         let state = CandlesTestState {
@@ -2656,12 +2652,12 @@ mod tests {
 
     #[derive(Clone)]
     struct OrderbookTestState {
-        snapshot: Arc<crate::http::models::OrderbookResponse>,
+        snapshot: Arc<OrderbookResponse>,
     }
 
     #[derive(Clone)]
     struct TradesTestState {
-        response: Arc<crate::http::models::TradesResponse>,
+        response: Arc<DydxTradesResponse>,
         last_ticker: Arc<tokio::sync::Mutex<Option<String>>>,
         #[allow(clippy::option_option)]
         // Tracks: None=not called, Some(None)=called without limit, Some(Some)=called with limit
@@ -2670,14 +2666,14 @@ mod tests {
 
     #[derive(Clone)]
     struct CandlesTestState {
-        response: Arc<crate::http::models::CandlesResponse>,
+        response: Arc<CandlesResponse>,
     }
 
     async fn start_orderbook_test_server(state: OrderbookTestState) -> SocketAddr {
         async fn handle_orderbook(
             Path(_ticker): Path<String>,
             State(state): State<OrderbookTestState>,
-        ) -> Json<crate::http::models::OrderbookResponse> {
+        ) -> Json<OrderbookResponse> {
             Json((*state.snapshot).clone())
         }
 
@@ -2704,7 +2700,7 @@ mod tests {
             Path(ticker): Path<String>,
             Query(params): Query<HashMap<String, String>>,
             State(state): State<TradesTestState>,
-        ) -> Json<crate::http::models::TradesResponse> {
+        ) -> Json<DydxTradesResponse> {
             {
                 let mut last_ticker = state.last_ticker.lock().await;
                 *last_ticker = Some(ticker);
@@ -2744,7 +2740,7 @@ mod tests {
             Path(_ticker): Path<String>,
             Query(_params): Query<HashMap<String, String>>,
             State(state): State<CandlesTestState>,
-        ) -> Json<crate::http::models::CandlesResponse> {
+        ) -> Json<CandlesResponse> {
             Json((*state.response).clone())
         }
 
@@ -2812,7 +2808,7 @@ mod tests {
         let candle = Candle {
             started_at: now,
             ticker: Ustr::from("BTC-USD"),
-            resolution: crate::common::enums::DydxCandleResolution::OneMinute,
+            resolution: DydxCandleResolution::OneMinute,
             open: dec!(123456789.123456),
             high: dec!(987654321.987654),  // high is max
             low: dec!(123456.789),         // low is min
@@ -2857,7 +2853,7 @@ mod tests {
         let candle = Candle {
             started_at: now,
             ticker: Ustr::from("BTC-USD"),
-            resolution: crate::common::enums::DydxCandleResolution::OneDay,
+            resolution: DydxCandleResolution::OneDay,
             open: Decimal::from(1),
             high: Decimal::from(1),
             low: Decimal::from(1),
@@ -2908,7 +2904,7 @@ mod tests {
         let candle_past = Candle {
             started_at: now - chrono::Duration::minutes(2),
             ticker: Ustr::from("BTC-USD"),
-            resolution: crate::common::enums::DydxCandleResolution::OneMinute,
+            resolution: DydxCandleResolution::OneMinute,
             open: Decimal::from(1),
             high: Decimal::from(2),
             low: Decimal::from(1),
@@ -3009,12 +3005,12 @@ mod tests {
         set_data_event_sender(sender);
 
         // Prepare a static orderbook snapshot served by a local Axum HTTP server.
-        let snapshot = crate::http::models::OrderbookResponse {
-            bids: vec![crate::http::models::OrderbookLevel {
+        let snapshot = OrderbookResponse {
+            bids: vec![OrderbookLevel {
                 price: dec!(100.0),
                 size: dec!(1.0),
             }],
-            asks: vec![crate::http::models::OrderbookLevel {
+            asks: vec![OrderbookLevel {
                 price: dec!(101.0),
                 size: dec!(2.0),
             }],
@@ -4352,17 +4348,17 @@ mod tests {
 
         let created_at = Utc::now();
 
-        let http_trade = crate::http::models::Trade {
+        let http_trade = Trade {
             id: "trade-1".to_string(),
             side: OrderSide::Buy,
             size: dec!(1.5),
             price: dec!(100.25),
             created_at,
             created_at_height: 1,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: vec![http_trade],
         };
 
@@ -4451,7 +4447,7 @@ mod tests {
         let (sender, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
         set_data_event_sender(sender);
 
-        let trades_response = crate::http::models::TradesResponse { trades: vec![] };
+        let trades_response = DydxTradesResponse { trades: vec![] };
 
         let state = TradesTestState {
             response: Arc::new(trades_response),
@@ -4523,35 +4519,35 @@ mod tests {
         set_data_event_sender(sender);
 
         let now = Utc::now();
-        let trade_before = crate::http::models::Trade {
+        let trade_before = Trade {
             id: "before".to_string(),
             side: OrderSide::Buy,
             size: dec!(1.0),
             price: dec!(100.0),
             created_at: now - chrono::Duration::seconds(60),
             created_at_height: 1,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
-        let trade_inside = crate::http::models::Trade {
+        let trade_inside = Trade {
             id: "inside".to_string(),
             side: OrderSide::Sell,
             size: dec!(2.0),
             price: dec!(101.0),
             created_at: now,
             created_at_height: 2,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
-        let trade_after = crate::http::models::Trade {
+        let trade_after = Trade {
             id: "after".to_string(),
             side: OrderSide::Buy,
             size: dec!(3.0),
             price: dec!(102.0),
             created_at: now + chrono::Duration::seconds(60),
             created_at_height: 3,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: vec![trade_before, trade_inside.clone(), trade_after],
         };
 
@@ -4629,7 +4625,7 @@ mod tests {
         let (sender, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
         set_data_event_sender(sender);
 
-        let trades_response = crate::http::models::TradesResponse { trades: vec![] };
+        let trades_response = DydxTradesResponse { trades: vec![] };
 
         let state = TradesTestState {
             response: Arc::new(trades_response),
@@ -4692,17 +4688,17 @@ mod tests {
         set_data_event_sender(sender);
 
         let created_at = Utc::now();
-        let http_trade = crate::http::models::Trade {
+        let http_trade = Trade {
             id: "format-test".to_string(),
             side: OrderSide::Sell,
             size: dec!(5.0),
             price: dec!(200.0),
             created_at,
             created_at_height: 100,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: vec![http_trade],
         };
 
@@ -4812,7 +4808,7 @@ mod tests {
         let (sender, _rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
         set_data_event_sender(sender);
 
-        let trades_response = crate::http::models::TradesResponse { trades: vec![] };
+        let trades_response = DydxTradesResponse { trades: vec![] };
 
         let state = TradesTestState {
             response: Arc::new(trades_response),
@@ -6961,27 +6957,27 @@ mod tests {
 
         let created_at = Utc::now();
         let http_trades = vec![
-            crate::http::models::Trade {
+            Trade {
                 id: "trade-1".to_string(),
                 side: OrderSide::Buy,
                 size: dec!(1.0),
                 price: dec!(100.0),
                 created_at,
                 created_at_height: 100,
-                trade_type: crate::common::enums::DydxTradeType::Limit,
+                trade_type: DydxTradeType::Limit,
             },
-            crate::http::models::Trade {
+            Trade {
                 id: "trade-2".to_string(),
                 side: OrderSide::Sell,
                 size: dec!(2.0),
                 price: dec!(101.0),
                 created_at: created_at + chrono::Duration::seconds(1),
                 created_at_height: 101,
-                trade_type: crate::common::enums::DydxTradeType::Limit,
+                trade_type: DydxTradeType::Limit,
             },
         ];
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: http_trades,
         };
 
@@ -7052,17 +7048,17 @@ mod tests {
         set_data_event_sender(sender);
 
         let created_at = Utc::now();
-        let http_trade = crate::http::models::Trade {
+        let http_trade = Trade {
             id: "instrument-id-test".to_string(),
             side: OrderSide::Buy,
             size: dec!(1.0),
             price: dec!(100.0),
             created_at,
             created_at_height: 100,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: vec![http_trade],
         };
 
@@ -7139,36 +7135,36 @@ mod tests {
 
         let base_time = Utc::now();
         let http_trades = vec![
-            crate::http::models::Trade {
+            Trade {
                 id: "trade-oldest".to_string(),
                 side: OrderSide::Buy,
                 size: dec!(1.0),
                 price: dec!(100.0),
                 created_at: base_time,
                 created_at_height: 100,
-                trade_type: crate::common::enums::DydxTradeType::Limit,
+                trade_type: DydxTradeType::Limit,
             },
-            crate::http::models::Trade {
+            Trade {
                 id: "trade-middle".to_string(),
                 side: OrderSide::Sell,
                 size: dec!(2.0),
                 price: dec!(101.0),
                 created_at: base_time + chrono::Duration::seconds(1),
                 created_at_height: 101,
-                trade_type: crate::common::enums::DydxTradeType::Limit,
+                trade_type: DydxTradeType::Limit,
             },
-            crate::http::models::Trade {
+            Trade {
                 id: "trade-newest".to_string(),
                 side: OrderSide::Buy,
                 size: dec!(3.0),
                 price: dec!(102.0),
                 created_at: base_time + chrono::Duration::seconds(2),
                 created_at_height: 102,
-                trade_type: crate::common::enums::DydxTradeType::Limit,
+                trade_type: DydxTradeType::Limit,
             },
         ];
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: http_trades,
         };
 
@@ -7252,17 +7248,17 @@ mod tests {
         set_data_event_sender(sender);
 
         let created_at = Utc::now();
-        let http_trade = crate::http::models::Trade {
+        let http_trade = Trade {
             id: "field-test".to_string(),
             side: OrderSide::Buy,
             size: dec!(5.5),
             price: dec!(12345.67),
             created_at,
             created_at_height: 999,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: vec![http_trade],
         };
 
@@ -7359,17 +7355,17 @@ mod tests {
         set_data_event_sender(sender);
 
         let created_at = Utc::now();
-        let http_trade = crate::http::models::Trade {
+        let http_trade = Trade {
             id: "metadata-test".to_string(),
             side: OrderSide::Buy,
             size: dec!(1.0),
             price: dec!(100.0),
             created_at,
             created_at_height: 100,
-            trade_type: crate::common::enums::DydxTradeType::Limit,
+            trade_type: DydxTradeType::Limit,
         };
 
-        let trades_response = crate::http::models::TradesResponse {
+        let trades_response = DydxTradesResponse {
             trades: vec![http_trade],
         };
 

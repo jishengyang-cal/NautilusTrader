@@ -817,8 +817,10 @@ use nautilus_model::{
     types::{Money, Price, Quantity},
 };
 
-use super::models::{Fill, Order, PerpetualPosition};
-use crate::common::enums::{DydxLiquidity, DydxOrderStatus};
+use super::models::{Fill, Order, PerpetualPosition, Subaccount};
+use crate::common::enums::{DydxConditionType, DydxLiquidity, DydxOrderStatus};
+#[cfg(test)]
+use crate::common::enums::{DydxFillType, DydxPositionStatus, DydxTickerType};
 
 /// Map dYdX order status to Nautilus OrderStatus.
 fn parse_order_status(status: &DydxOrderStatus) -> OrderStatus {
@@ -914,9 +916,9 @@ pub fn parse_order_status_report(
 
         if let Some(condition_type) = order.condition_type {
             let trigger_type = match condition_type {
-                crate::common::enums::DydxConditionType::StopLoss => TriggerType::LastPrice,
-                crate::common::enums::DydxConditionType::TakeProfit => TriggerType::LastPrice,
-                crate::common::enums::DydxConditionType::Unspecified => TriggerType::Default,
+                DydxConditionType::StopLoss => TriggerType::LastPrice,
+                DydxConditionType::TakeProfit => TriggerType::LastPrice,
+                DydxConditionType::Unspecified => TriggerType::Default,
             };
             report = report.with_trigger_type(trigger_type);
         }
@@ -1212,7 +1214,7 @@ pub fn parse_account_state(
 ///
 /// Returns an error if balance fields cannot be parsed.
 pub fn parse_http_account_state(
-    subaccount: &crate::http::models::Subaccount,
+    subaccount: &Subaccount,
     account_id: AccountId,
     instruments: &std::collections::HashMap<InstrumentId, InstrumentAny>,
     oracle_prices: &std::collections::HashMap<InstrumentId, Decimal>,
@@ -1482,7 +1484,7 @@ mod reconciliation_tests {
             created_at_height: Some(1000),
             client_metadata: 0,
             trigger_price: Some(dec!(49000.0)),
-            condition_type: Some(crate::common::enums::DydxConditionType::StopLoss),
+            condition_type: Some(DydxConditionType::StopLoss),
             conditional_order_trigger_subticks: Some(490000),
             execution: None,
             updated_at: Some(Utc::now()),
@@ -1511,9 +1513,9 @@ mod reconciliation_tests {
             id: "fill789".to_string(),
             side: OrderSide::Buy,
             liquidity: DydxLiquidity::Taker,
-            fill_type: crate::common::enums::DydxFillType::Limit,
+            fill_type: DydxFillType::Limit,
             market: Ustr::from("BTC-USD"),
-            market_type: crate::common::enums::DydxTickerType::Perpetual,
+            market_type: DydxTickerType::Perpetual,
             price: dec!(50100.0),
             size: dec!(1.0),
             fee: dec!(-5.01),
@@ -1542,7 +1544,7 @@ mod reconciliation_tests {
 
         let position = PerpetualPosition {
             market: Ustr::from("BTC-USD"),
-            status: crate::common::enums::DydxPositionStatus::Open,
+            status: DydxPositionStatus::Open,
             side: OrderSide::Buy,
             size: dec!(2.5),
             max_size: dec!(3.0),
@@ -1576,7 +1578,7 @@ mod reconciliation_tests {
 
         let position = PerpetualPosition {
             market: Ustr::from("BTC-USD"),
-            status: crate::common::enums::DydxPositionStatus::Open,
+            status: DydxPositionStatus::Open,
             side: OrderSide::Sell,
             size: dec!(-1.5),
             max_size: dec!(1.5),
@@ -1608,7 +1610,7 @@ mod reconciliation_tests {
 
         let position = PerpetualPosition {
             market: Ustr::from("BTC-USD"),
-            status: crate::common::enums::DydxPositionStatus::Closed,
+            status: DydxPositionStatus::Closed,
             side: OrderSide::Buy,
             size: dec!(0.0),
             max_size: dec!(2.0),
@@ -1736,7 +1738,7 @@ mod reconciliation_tests {
         // Position 1: Long position
         let long_position = PerpetualPosition {
             market: Ustr::from("BTC-USD"),
-            status: crate::common::enums::DydxPositionStatus::Open,
+            status: DydxPositionStatus::Open,
             side: OrderSide::Buy,
             size: dec!(1.5),
             max_size: dec!(1.5),
@@ -1761,7 +1763,7 @@ mod reconciliation_tests {
         // Position 2: Short position (should be handled separately if from different market)
         let short_position = PerpetualPosition {
             market: Ustr::from("BTC-USD"),
-            status: crate::common::enums::DydxPositionStatus::Open,
+            status: DydxPositionStatus::Open,
             side: OrderSide::Sell,
             size: dec!(-2.0),
             max_size: dec!(2.0),
@@ -1795,9 +1797,9 @@ mod reconciliation_tests {
             id: "fill-zero-fee".to_string(),
             side: OrderSide::Sell,
             liquidity: DydxLiquidity::Maker,
-            fill_type: crate::common::enums::DydxFillType::Limit,
+            fill_type: DydxFillType::Limit,
             market: Ustr::from("BTC-USD"),
-            market_type: crate::common::enums::DydxTickerType::Perpetual,
+            market_type: DydxTickerType::Perpetual,
             price: dec!(50000.0),
             size: dec!(0.1),
             fee: dec!(0.0), // Zero fee (e.g., fee rebate or promotional period)
@@ -1825,9 +1827,9 @@ mod reconciliation_tests {
             id: "fill-maker-rebate".to_string(),
             side: OrderSide::Buy,
             liquidity: DydxLiquidity::Maker,
-            fill_type: crate::common::enums::DydxFillType::Limit,
+            fill_type: DydxFillType::Limit,
             market: Ustr::from("BTC-USD"),
-            market_type: crate::common::enums::DydxTickerType::Perpetual,
+            market_type: DydxTickerType::Perpetual,
             price: dec!(50000.0),
             size: dec!(1.0),
             fee: dec!(-2.5), // Negative fee = rebate

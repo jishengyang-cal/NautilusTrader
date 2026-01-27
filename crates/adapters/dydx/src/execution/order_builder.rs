@@ -44,7 +44,9 @@ use super::{
     },
 };
 use crate::{
-    common::parse::{order_side_to_proto, time_in_force_to_proto_with_post_only},
+    common::parse::{
+        nanos_to_secs_i64, order_side_to_proto, time_in_force_to_proto_with_post_only,
+    },
     error::DydxError,
     grpc::{OrderBuilder, OrderGoodUntil, OrderMarketParams, SHORT_TERM_ORDER_MAXIMUM_LIFETIME},
     http::client::DydxHttpClient,
@@ -115,7 +117,7 @@ impl OrderMessageBuilder {
         &self,
         order_expire_time_ns: Option<nautilus_core::UnixNanos>,
     ) -> Option<i64> {
-        order_expire_time_ns.map(crate::common::parse::nanos_to_secs_i64)
+        order_expire_time_ns.map(nanos_to_secs_i64)
     }
 
     /// Determines the order lifetime for given parameters.

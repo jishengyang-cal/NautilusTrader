@@ -98,9 +98,16 @@ use crate::{
     grpc::{DydxGrpcClient, SHORT_TERM_ORDER_MAXIMUM_LIFETIME, types::ChainId},
     http::{
         client::DydxHttpClient,
-        parse::{parse_http_account_state, parse_position_status_report},
+        parse::{
+            parse_account_state, parse_fill_report, parse_http_account_state,
+            parse_order_status_report, parse_position_status_report,
+        },
     },
-    websocket::{client::DydxWebSocketClient, enums::NautilusWsMessage},
+    websocket::{
+        client::DydxWebSocketClient,
+        enums::NautilusWsMessage,
+        parse::{parse_ws_fill_report, parse_ws_order_report, parse_ws_position_report},
+    },
 };
 
 pub mod block_time;
@@ -2553,7 +2560,7 @@ impl ExecutionClient for DydxExecutionClient {
                                 let ts_init = clock.get_time_ns();
                                 let ts_event = ts_init;
 
-                                match crate::http::parse::parse_account_state(
+                                match parse_account_state(
                                     &msg.contents.subaccount,
                                     account_id,
                                     &inst_map,
@@ -2584,7 +2591,7 @@ impl ExecutionClient for DydxExecutionClient {
                                     );
 
                                     for (market, ws_position) in positions {
-                                        match crate::websocket::parse::parse_ws_position_report(
+                                        match parse_ws_position_report(
                                             ws_position,
                                             &instrument_cache,
                                             account_id,
@@ -2626,7 +2633,7 @@ impl ExecutionClient for DydxExecutionClient {
                                             ws_order.status,
                                             ws_order.client_id
                                         );
-                                        match crate::websocket::parse::parse_ws_order_report(
+                                        match parse_ws_order_report(
                                             ws_order,
                                             &instrument_cache,
                                             &order_contexts,
@@ -2656,7 +2663,7 @@ impl ExecutionClient for DydxExecutionClient {
                                 // Process fills
                                 if let Some(ref fills) = data.contents.fills {
                                     for ws_fill in fills {
-                                        match crate::websocket::parse::parse_ws_fill_report(
+                                        match parse_ws_fill_report(
                                             ws_fill,
                                             &instrument_cache,
                                             account_id,
@@ -2818,13 +2825,8 @@ impl ExecutionClient for DydxExecutionClient {
             None => return Ok(None),
         };
 
-        let report = crate::http::parse::parse_order_status_report(
-            order,
-            &instrument,
-            self.core.account_id,
-            ts_init,
-        )
-        .context("failed to parse order status report")?;
+        let report = parse_order_status_report(order, &instrument, self.core.account_id, ts_init)
+            .context("failed to parse order status report")?;
 
         if let Some(client_order_id) = cmd.client_order_id
             && report.client_order_id != Some(client_order_id)
@@ -2879,18 +2881,15 @@ impl ExecutionClient for DydxExecutionClient {
                 continue;
             }
 
-            let report = match crate::http::parse::parse_order_status_report(
-                &order,
-                &instrument,
-                self.core.account_id,
-                ts_init,
-            ) {
-                Ok(r) => r,
-                Err(e) => {
-                    log::warn!("Failed to parse order status report: {e}");
-                    continue;
-                }
-            };
+            let report =
+                match parse_order_status_report(&order, &instrument, self.core.account_id, ts_init)
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log::warn!("Failed to parse order status report: {e}");
+                        continue;
+                    }
+                };
 
             reports.push(report);
         }
@@ -2945,12 +2944,8 @@ impl ExecutionClient for DydxExecutionClient {
                 continue;
             }
 
-            let report = match crate::http::parse::parse_fill_report(
-                &fill,
-                &instrument,
-                self.core.account_id,
-                ts_init,
-            ) {
+            let report = match parse_fill_report(&fill, &instrument, self.core.account_id, ts_init)
+            {
                 Ok(r) => r,
                 Err(e) => {
                     log::warn!("Failed to parse fill report: {e}");
@@ -2998,7 +2993,7 @@ impl ExecutionClient for DydxExecutionClient {
                 continue;
             }
 
-            let report = match crate::http::parse::parse_position_status_report(
+            let report = match parse_position_status_report(
                 perp_position,
                 &instrument,
                 self.core.account_id,
@@ -3059,12 +3054,7 @@ impl ExecutionClient for DydxExecutionClient {
                 }
             };
 
-            match crate::http::parse::parse_order_status_report(
-                &order,
-                &instrument,
-                self.core.account_id,
-                ts_init,
-            ) {
+            match parse_order_status_report(&order, &instrument, self.core.account_id, ts_init) {
                 Ok(r) => order_reports.push(r),
                 Err(e) => {
                     log::warn!("Failed to parse order status report: {e}");
@@ -3108,12 +3098,7 @@ impl ExecutionClient for DydxExecutionClient {
                 }
             };
 
-            match crate::http::parse::parse_fill_report(
-                &fill,
-                &instrument,
-                self.core.account_id,
-                ts_init,
-            ) {
+            match parse_fill_report(&fill, &instrument, self.core.account_id, ts_init) {
                 Ok(r) => fill_reports.push(r),
                 Err(e) => {
                     log::warn!("Failed to parse fill report: {e}");
