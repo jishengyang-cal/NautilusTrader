@@ -161,12 +161,37 @@ pub struct AxMdUnsubscribeCandles {
 /// - <https://docs.sandbox.x.architect.co/api-reference/marketdata/md-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxMdHeartbeat {
-    /// Message type (always "h").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
     pub tn: i64,
+}
+
+/// Incoming market data WebSocket message.
+///
+/// Deserializes directly from JSON using the "t" field as discriminator.
+#[derive(Clone, Debug)]
+pub enum AxMdMessage {
+    BookL1(AxMdBookL1),
+    BookL2(AxMdBookL2),
+    BookL3(AxMdBookL3),
+    TickerOrTrade(AxMdTickerOrTrade),
+    Candle(AxMdCandle),
+    Heartbeat(AxMdHeartbeat),
+    Error(AxWsError),
+}
+
+/// Ticker or trade message from market data WebSocket.
+///
+/// Both share the same "s"/"t" message type but have different fields.
+/// Ticker has OHLCV fields, trade does not.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AxMdTickerOrTrade {
+    /// Ticker/statistics message (has OHLCV fields).
+    Ticker(AxMdTicker),
+    /// Trade message (no OHLCV fields).
+    Trade(AxMdTrade),
 }
 
 /// Ticker/statistics message from market data WebSocket.
@@ -175,8 +200,6 @@ pub struct AxMdHeartbeat {
 /// - <https://docs.sandbox.x.architect.co/api-reference/marketdata/md-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxMdTicker {
-    /// Message type (always "s").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -206,14 +229,10 @@ pub struct AxMdTicker {
 
 /// Trade message from market data WebSocket.
 ///
-/// Note: Uses same "s" message type as ticker but with different fields.
-///
 /// # References
 /// - <https://docs.sandbox.x.architect.co/api-reference/marketdata/md-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxMdTrade {
-    /// Message type (always "s").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -230,14 +249,55 @@ pub struct AxMdTrade {
     pub d: Option<AxOrderSide>,
 }
 
+impl<'de> Deserialize<'de> for AxMdMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let t = value
+            .get("t")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("t"))?;
+
+        match t {
+            "1" => serde_json::from_value(value)
+                .map(AxMdMessage::BookL1)
+                .map_err(D::Error::custom),
+            "2" => serde_json::from_value(value)
+                .map(AxMdMessage::BookL2)
+                .map_err(D::Error::custom),
+            "3" => serde_json::from_value(value)
+                .map(AxMdMessage::BookL3)
+                .map_err(D::Error::custom),
+            "s" | "t" => serde_json::from_value(value)
+                .map(AxMdMessage::TickerOrTrade)
+                .map_err(D::Error::custom),
+            "c" => serde_json::from_value(value)
+                .map(AxMdMessage::Candle)
+                .map_err(D::Error::custom),
+            "h" => serde_json::from_value(value)
+                .map(AxMdMessage::Heartbeat)
+                .map_err(D::Error::custom),
+            "e" => serde_json::from_value::<AxWsErrorResponse>(value)
+                .map(|resp| Self::Error(resp.into()))
+                .map_err(D::Error::custom),
+            other => Err(D::Error::unknown_variant(
+                other,
+                &["h", "s", "t", "c", "1", "2", "3", "e"],
+            )),
+        }
+    }
+}
+
 /// Candle/OHLCV message from market data WebSocket.
 ///
 /// # References
 /// - <https://docs.sandbox.x.architect.co/api-reference/marketdata/md-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxMdCandle {
-    /// Message type (always "c").
-    pub t: String,
     /// Instrument symbol.
     pub symbol: Ustr,
     /// Candle timestamp (Unix epoch).
@@ -292,8 +352,6 @@ pub struct AxBookLevelL3 {
 /// - <https://docs.sandbox.x.architect.co/api-reference/marketdata/md-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxMdBookL1 {
-    /// Message type (always "1").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -312,8 +370,6 @@ pub struct AxMdBookL1 {
 /// - <https://docs.sandbox.x.architect.co/api-reference/marketdata/md-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxMdBookL2 {
-    /// Message type (always "2").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -332,8 +388,6 @@ pub struct AxMdBookL2 {
 /// - <https://docs.sandbox.x.architect.co/api-reference/marketdata/md-ws>
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AxMdBookL3 {
-    /// Message type (always "3").
-    pub t: String,
     /// Timestamp (Unix epoch seconds).
     pub ts: i64,
     /// Transaction number.
@@ -1057,8 +1111,8 @@ mod tests {
     #[rstest]
     fn test_load_md_heartbeat_from_file() {
         let json = include_str!("../../test_data/ws_md_heartbeat.json");
-        let msg: AxMdHeartbeat = serde_json::from_str(json).unwrap();
-        assert_eq!(msg.t, "h");
+        let msg: AxMdMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, AxMdMessage::Heartbeat(_)));
     }
 
     #[rstest]

@@ -306,11 +306,9 @@ pub fn parse_order_status_report(
 
     report = report.with_price(price);
 
-    // Calculate average price if there are fills
-    if order.xq > 0 {
-        let avg_px = price.as_f64();
-        report = report.with_avg_px(avg_px)?;
-    }
+    // We don't set avg_px here since the order endpoint only provides the
+    // limit price, not actual fill prices. True average would need to be
+    // calculated from fill reports.
 
     Ok(report)
 }

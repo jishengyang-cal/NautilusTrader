@@ -874,9 +874,15 @@ fn dispatch_ws_message(message: AxOrdersWsMessage, emitter: &ExecutionEventEmitt
             }
             NautilusExecWsMessage::OrderStatusReports(reports) => {
                 log::debug!("Order status reports: {}", reports.len());
+                for report in reports {
+                    emitter.send_order_status_report(report);
+                }
             }
             NautilusExecWsMessage::FillReports(reports) => {
                 log::debug!("Fill reports: {}", reports.len());
+                for report in reports {
+                    emitter.send_fill_report(report);
+                }
             }
         },
         AxOrdersWsMessage::PlaceOrderResponse(resp) => {

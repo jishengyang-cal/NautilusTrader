@@ -46,7 +46,10 @@ use ustr::Ustr;
 
 use super::handler::{FeedHandler, HandlerCommand, WsOrderInfo};
 use crate::{
-    common::enums::{AxOrderSide, AxOrderType, AxTimeInForce},
+    common::{
+        enums::{AxOrderSide, AxOrderType, AxTimeInForce},
+        parse::quantity_to_contracts,
+    },
     websocket::messages::{AxOrdersWsMessage, AxWsPlaceOrder, OrderMetadata},
 };
 
@@ -615,8 +618,8 @@ impl AxOrdersWebSocketClient {
             AxOrdersWsClientError::ClientError(format!("Invalid order side: {order_side:?}"))
         })?;
 
-        // AX uses i64 contracts directly (not minor units)
-        let qty_contracts = quantity.as_f64() as i64;
+        let qty_contracts = quantity_to_contracts(quantity)
+            .map_err(|e| AxOrdersWsClientError::ClientError(e.to_string()))?;
 
         // Store order metadata for event correlation
         let metadata = OrderMetadata {
