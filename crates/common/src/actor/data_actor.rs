@@ -497,13 +497,16 @@ pub trait DataActor:
         Ok(())
     }
 
-    /// Actions to be performed when receiving historical trades.
+    /// Actions to be performed when receiving historical funding rates.
     ///
     /// # Errors
     ///
-    /// Returns an error if handling the historical trades fails.
+    /// Returns an error if handling the historical funding rates fails.
     #[allow(unused_variables)]
-    fn on_historical_funding_rates(&mut self, trades: &[FundingRateUpdate]) -> anyhow::Result<()> {
+    fn on_historical_funding_rates(
+        &mut self,
+        funding_rates: &[FundingRateUpdate],
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -1892,7 +1895,7 @@ pub trait DataActor:
             get_actor_unchecked::<Self>(&actor_id).handle_funding_rates_response(resp);
         });
 
-        DataActorCore::request_trades(
+        DataActorCore::request_funding_rates(
             self,
             instrument_id,
             start,
@@ -3765,7 +3768,7 @@ impl DataActorCore {
         Ok(request_id)
     }
 
-    /// Helper method for requesting trades.
+    /// Helper method for requesting funding rates.
     ///
     /// # Errors
     ///

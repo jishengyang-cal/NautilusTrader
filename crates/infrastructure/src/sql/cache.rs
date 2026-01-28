@@ -743,15 +743,15 @@ impl CacheDatabaseAdapter for PostgresCacheDatabase {
         Ok(rx.recv()?)
     }
 
-    fn add_funding_rate(&self, funding_rate: &FundingRateUpdate) -> anyhow::Result<()> {
-        todo!()
+    fn add_funding_rate(&self, _funding_rate: &FundingRateUpdate) -> anyhow::Result<()> {
+        anyhow::bail!("add_funding_rate not implemented for PostgreSQL cache adapter")
     }
 
     fn load_funding_rates(
         &self,
-        instrument_id: &InstrumentId,
+        _instrument_id: &InstrumentId,
     ) -> anyhow::Result<Vec<FundingRateUpdate>> {
-        todo!()
+        anyhow::bail!("load_funding_rates not implemented for PostgreSQL cache adapter")
     }
 
     fn add_bar(&self, bar: &Bar) -> anyhow::Result<()> {

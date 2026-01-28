@@ -3522,7 +3522,7 @@ cdef class Actor(Component):
         Parameters
         ----------
         instrument_id : InstrumentId
-            The tick instrument ID for the request.
+            The instrument ID for the request.
         start : datetime
             The start datetime (UTC) of request time range.
             Should be left-inclusive (start <= value), but inclusiveness is not currently guaranteed.
@@ -3531,7 +3531,7 @@ cdef class Actor(Component):
             If `None` then will be replaced with the current UTC time.
             Should be right-inclusive (value <= end), but inclusiveness is not currently guaranteed.
         limit : int, optional
-            The limit on the amount of trade ticks received.
+            The limit on the amount of funding rates received.
         client_id : ClientId, optional
             The specific client ID for the command.
             If ``None`` then will be inferred from the venue in the instrument ID.
