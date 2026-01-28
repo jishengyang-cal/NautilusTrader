@@ -60,7 +60,8 @@ This will be the final release with support for the dYdX v3 (legacy) API. Future
 - Fixed Betfair stream batch handling and modify/cancel edge cases
 - Fixed Binance Spot WebSocket subscription acknowledgment parsing (#3382), thanks @Johnkhk
 - Fixed Binance Futures instrument parsing for margin requirements (#3420), thanks @linimin
-- Fixed Binance algo order quantity `AttributeError` on _mem access
+- Fixed Binance algo order quantity `AttributeError` on `_mem` access
+- Fixed Binance `cancel_all_orders` to route futures algo orders through correct cancel endpoint
 - Fixed Bybit demo trading by using HTTP REST API for order operations (Bybit demo does not support WebSocket Trade API)
 - Fixed Bybit HOUR bars not triggering on_bar (#3474), thanks for reporting @88z
 - Fixed Databento `databento_data` to fetch definitions for full date range (#3414), thanks @Johnkhk
@@ -108,6 +109,7 @@ This will be the final release with support for the dYdX v3 (legacy) API. Future
 - Refactored dYdX v4 execution client in Rust (#3477), thanks @filipmacek
 - Refactored Kraken spot quotes to use dedicated Ticker channel
 - Refactored Polymarket WebSocket to multi-client pool pattern
+- Improved `cancel_all_orders` to include inflight orders
 - Improved pnl FX conversions in portfolio (#3335), thanks @faysou
 - Improved live timers to use `BTreeMap` for storage (#3392), thanks @faysou
 - Improved checks before writing data in catalog._write_chunk (#3411), thanks @faysou
