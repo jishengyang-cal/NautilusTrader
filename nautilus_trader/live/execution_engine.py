@@ -3524,11 +3524,11 @@ class LiveExecutionEngine(ExecutionEngine):
         if client_order_id is None:
             return
 
-        ts_event = event.ts_event
-        if ts_event == 0:
-            ts_event = self._clock.timestamp_ns()
-
-        self._order_local_activity_ns[client_order_id] = ts_event
+        # Use receipt time (current clock time) instead of venue time (ts_event)
+        # to accurately track when we last processed activity for this order.
+        # This avoids race conditions where network/queue latency makes events
+        # appear "old" even though they just arrived.
+        self._order_local_activity_ns[client_order_id] = self._clock.timestamp_ns()
 
     def _find_matching_cached_order(
         self,

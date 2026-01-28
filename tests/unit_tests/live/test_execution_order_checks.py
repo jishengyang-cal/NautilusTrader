@@ -3174,15 +3174,13 @@ async def test_reconcile_order_reports_proceeds_after_threshold_exceeded(
     """
     exec_engine = exec_engine_open_check_custom_threshold
 
-    # Arrange - create order with OLD activity (older than threshold)
+    # Arrange - create order and process events
     order = TestExecStubs.limit_order(instrument=AUDUSD_SIM)
     cache.add_order(order)
 
-    # Use old timestamp (well past the 200ms threshold)
     current_ns = exec_engine._clock.timestamp_ns()
-    old_ts = current_ns - 500_000_000  # 500ms ago, well past the 200ms threshold
 
-    submitted = TestEventStubs.order_submitted(order, account_id=account_id, ts_event=old_ts)
+    submitted = TestEventStubs.order_submitted(order, account_id=account_id, ts_event=current_ns)
     order.apply(submitted)
     exec_engine.process(submitted)
 
@@ -3190,11 +3188,15 @@ async def test_reconcile_order_reports_proceeds_after_threshold_exceeded(
         order,
         account_id=account_id,
         venue_order_id=VenueOrderId("V-1"),
-        ts_event=old_ts,
+        ts_event=current_ns,
     )
     order.apply(accepted)
     exec_engine.process(accepted)
     cache.update_order(order)
+
+    # Directly set old activity timestamp since LiveClock cannot be advanced
+    old_ts = current_ns - 500_000_000
+    exec_engine._order_local_activity_ns[order.client_order_id] = old_ts
 
     # Create venue report showing partial fill
     report = OrderStatusReport(
