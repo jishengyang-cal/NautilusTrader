@@ -288,6 +288,7 @@ impl KrakenSpotWebSocketClient {
                                     "book" => Some(KrakenWsChannel::Book),
                                     "trade" => Some(KrakenWsChannel::Trade),
                                     "ticker" => Some(KrakenWsChannel::Ticker),
+                                    "quotes" => Some(KrakenWsChannel::Ticker),
                                     "ohlc" => Some(KrakenWsChannel::Ohlc),
                                     _ => None,
                                 };
@@ -310,8 +311,8 @@ impl KrakenSpotWebSocketClient {
                                     (parts[1], None)
                                 };
 
-                                // Ticker uses event_trigger: "bbo" for quotes
-                                let event_trigger = if channel_str == "ticker" {
+                                // Quotes use event_trigger: "bbo", raw ticker does not
+                                let event_trigger = if channel_str == "quotes" {
                                     Some("bbo".to_string())
                                 } else {
                                     None
@@ -895,7 +896,7 @@ impl KrakenSpotWebSocketClient {
     /// best bid/offer changes.
     pub async fn subscribe_quotes(&self, instrument_id: InstrumentId) -> Result<(), KrakenWsError> {
         let symbol = instrument_id.symbol.inner();
-        let key = format!("ticker:{symbol}");
+        let key = format!("quotes:{symbol}");
 
         if !self.subscriptions.add_reference(&key) {
             return Ok(());
@@ -1000,7 +1001,7 @@ impl KrakenSpotWebSocketClient {
         instrument_id: InstrumentId,
     ) -> Result<(), KrakenWsError> {
         let symbol = instrument_id.symbol.inner();
-        let key = format!("ticker:{symbol}");
+        let key = format!("quotes:{symbol}");
 
         if !self.subscriptions.remove_reference(&key) {
             return Ok(());
