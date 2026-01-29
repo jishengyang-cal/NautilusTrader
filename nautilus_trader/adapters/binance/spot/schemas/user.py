@@ -183,6 +183,9 @@ class BinanceSpotOrderUpdateData(msgspec.Struct, kw_only=True):
             else None
         )
 
+        filled_qty_decimal = Decimal(self.z)
+        avg_px = Decimal(self.Z) / filled_qty_decimal if filled_qty_decimal > 0 else None
+
         return OrderStatusReport(
             account_id=account_id,
             instrument_id=instrument_id,
@@ -200,7 +203,7 @@ class BinanceSpotOrderUpdateData(msgspec.Struct, kw_only=True):
             quantity=Quantity.from_str(self.q),
             filled_qty=Quantity.from_str(self.z),
             display_qty=display_qty,
-            avg_px=None,
+            avg_px=avg_px,
             post_only=post_only,
             reduce_only=False,
             report_id=UUID4(),
