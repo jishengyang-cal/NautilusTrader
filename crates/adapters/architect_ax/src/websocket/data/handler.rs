@@ -564,8 +564,28 @@ impl FeedHandler {
                 Some(vec![NautilusDataWsMessage::Heartbeat])
             }
             AxMdMessage::Error(error) => {
-                log::error!("Received error from exchange: {}", error.message);
+                // Subscription state messages are benign (e.g. duplicate subscribe/unsubscribe)
+                if error.message.contains("already subscribed")
+                    || error.message.contains("not subscribed")
+                {
+                    log::warn!("Subscription state: {}", error.message);
+                } else {
+                    log::error!("Received error from exchange: {}", error.message);
+                }
                 Some(vec![NautilusDataWsMessage::Error(error)])
+            }
+            AxMdMessage::SubscriptionResponse(response) => {
+                // Log subscription confirmations at debug level
+                if let Some(symbol) = &response.result.subscribed {
+                    log::debug!("Subscription confirmed for symbol: {symbol}");
+                } else if let Some(candle) = &response.result.subscribed_candle {
+                    log::debug!("Candle subscription confirmed: {candle}");
+                } else if let Some(symbol) = &response.result.unsubscribed {
+                    log::debug!("Unsubscription confirmed for symbol: {symbol}");
+                } else if let Some(candle) = &response.result.unsubscribed_candle {
+                    log::debug!("Candle unsubscription confirmed: {candle}");
+                }
+                None
             }
         }
     }

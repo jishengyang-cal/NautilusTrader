@@ -178,7 +178,63 @@ pub enum AxMdMessage {
     TickerOrTrade(AxMdTickerOrTrade),
     Candle(AxMdCandle),
     Heartbeat(AxMdHeartbeat),
+    /// Subscription response (success or already subscribed).
+    SubscriptionResponse(AxMdSubscriptionResponse),
     Error(AxWsError),
+}
+
+/// Subscription response from market data WebSocket.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxMdSubscriptionResponse {
+    /// Request ID for correlation.
+    pub rid: i64,
+    /// Result payload (contains subscribed symbol or candle info).
+    pub result: AxMdSubscriptionResult,
+}
+
+/// Result payload for subscription response.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxMdSubscriptionResult {
+    /// Subscribed symbol (for regular subscriptions).
+    #[serde(default)]
+    pub subscribed: Option<String>,
+    /// Subscribed candle info (for candle subscriptions).
+    #[serde(default)]
+    pub subscribed_candle: Option<String>,
+    /// Unsubscribed symbol (for unsubscription responses).
+    #[serde(default)]
+    pub unsubscribed: Option<String>,
+    /// Unsubscribed candle info (for candle unsubscription responses).
+    #[serde(default)]
+    pub unsubscribed_candle: Option<String>,
+}
+
+/// Error response from market data WebSocket with nested error object.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxMdErrorResponse {
+    /// Request ID for correlation.
+    pub rid: Option<i64>,
+    /// Nested error object containing code and message.
+    pub error: AxMdErrorInner,
+}
+
+/// Inner error object for market data WebSocket errors.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AxMdErrorInner {
+    /// Error code.
+    pub code: i32,
+    /// Error message.
+    pub message: String,
+}
+
+impl From<AxMdErrorResponse> for AxWsError {
+    fn from(resp: AxMdErrorResponse) -> Self {
+        Self {
+            code: Some(resp.error.code.to_string()),
+            message: resp.error.message,
+            request_id: resp.rid,
+        }
+    }
 }
 
 /// Ticker or trade message from market data WebSocket.
@@ -210,7 +266,7 @@ pub struct AxMdTicker {
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub p: Decimal,
     /// Last quantity.
-    pub q: i64,
+    pub q: u64,
     /// Open price (24h).
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub o: Decimal,
@@ -221,7 +277,7 @@ pub struct AxMdTicker {
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub h: Decimal,
     /// Volume (24h).
-    pub v: i64,
+    pub v: u64,
     /// Open interest.
     #[serde(default)]
     pub oi: Option<i64>,
@@ -243,7 +299,7 @@ pub struct AxMdTrade {
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub p: Decimal,
     /// Trade quantity.
-    pub q: i64,
+    pub q: u64,
     /// Trade direction: "B" (buy) or "S" (sell). Optional for some message types.
     #[serde(default)]
     pub d: Option<AxOrderSide>,
@@ -257,6 +313,22 @@ impl<'de> Deserialize<'de> for AxMdMessage {
         use serde::de::Error;
 
         let value = serde_json::Value::deserialize(deserializer)?;
+
+        // Handle subscription response messages (have "result" field)
+        if value.get("result").is_some() {
+            return serde_json::from_value(value)
+                .map(AxMdMessage::SubscriptionResponse)
+                .map_err(D::Error::custom);
+        }
+
+        // Handle error response messages (have "error" field but no "t")
+        if value.get("error").is_some() && value.get("t").is_none() {
+            return serde_json::from_value::<AxMdErrorResponse>(value)
+                .map(|resp| Self::Error(resp.into()))
+                .map_err(D::Error::custom);
+        }
+
+        // Handle data messages (have "t" field)
         let t = value
             .get("t")
             .and_then(|v| v.as_str())
@@ -315,11 +387,11 @@ pub struct AxMdCandle {
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub close: Decimal,
     /// Total volume.
-    pub volume: i64,
+    pub volume: u64,
     /// Buy volume.
-    pub buy_volume: i64,
+    pub buy_volume: u64,
     /// Sell volume.
-    pub sell_volume: i64,
+    pub sell_volume: u64,
     /// Candle width/interval.
     pub width: AxCandleWidth,
 }
@@ -331,7 +403,7 @@ pub struct AxBookLevel {
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub p: Decimal,
     /// Quantity at this level.
-    pub q: i64,
+    pub q: u64,
 }
 
 /// Price level entry with individual order breakdown (L3).
@@ -341,9 +413,9 @@ pub struct AxBookLevelL3 {
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub p: Decimal,
     /// Total quantity at this level.
-    pub q: i64,
+    pub q: u64,
     /// Individual order quantities at this price.
-    pub o: Vec<i64>,
+    pub o: Vec<u64>,
 }
 
 /// Level 1 order book update (best bid/ask).
@@ -415,7 +487,7 @@ pub struct AxWsPlaceOrder {
     /// Order side: "B" (buy) or "S" (sell).
     pub d: AxOrderSide,
     /// Order quantity.
-    pub q: i64,
+    pub q: u64,
     /// Order price (limit price).
     #[serde(
         serialize_with = "serialize_decimal_as_str",
@@ -572,11 +644,11 @@ pub struct AxWsOrder {
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub p: Decimal,
     /// Order quantity.
-    pub q: i64,
+    pub q: u64,
     /// Executed quantity.
-    pub xq: i64,
+    pub xq: u64,
     /// Remaining quantity.
-    pub rq: i64,
+    pub rq: u64,
     /// Order status.
     pub o: AxOrderStatus,
     /// Order side.
@@ -630,7 +702,7 @@ pub struct AxWsTradeExecution {
     /// Instrument symbol.
     pub s: Ustr,
     /// Executed quantity.
-    pub q: i64,
+    pub q: u64,
     /// Execution price.
     #[serde(deserialize_with = "deserialize_decimal_or_zero")]
     pub p: Decimal,

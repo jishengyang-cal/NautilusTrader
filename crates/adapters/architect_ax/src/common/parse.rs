@@ -68,7 +68,7 @@ pub fn map_bar_spec_to_candle_width(spec: &BarSpecification) -> anyhow::Result<A
 /// Returns an error if:
 /// - The quantity represents a fractional number of contracts.
 /// - The quantity is zero.
-pub fn quantity_to_contracts(quantity: Quantity) -> anyhow::Result<i64> {
+pub fn quantity_to_contracts(quantity: Quantity) -> anyhow::Result<u64> {
     let raw = quantity.raw;
     let scale = 10_u64.pow(FIXED_PRECISION as u32) as QuantityRaw;
 
@@ -80,7 +80,7 @@ pub fn quantity_to_contracts(quantity: Quantity) -> anyhow::Result<i64> {
         );
     }
 
-    let contracts = (raw / scale) as i64;
+    let contracts = (raw / scale) as u64;
     if contracts == 0 {
         anyhow::bail!("Order quantity must be at least 1 contract");
     }

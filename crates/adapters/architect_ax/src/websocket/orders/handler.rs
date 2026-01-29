@@ -688,8 +688,8 @@ impl FeedHandler {
 
         let ts_event = UnixNanos::from(event_ts as u64 * 1_000_000_000);
 
-        // AX uses i64 contracts directly - use instrument precision from metadata
-        let last_qty = Quantity::new(execution.q.abs() as f64, metadata.size_precision);
+        // AX uses u64 contracts - use instrument precision from metadata
+        let last_qty = Quantity::new(execution.q as f64, metadata.size_precision);
         let last_px = Price::from_decimal_dp(execution.p, metadata.price_precision).ok()?;
 
         let order_side = match order.d {
