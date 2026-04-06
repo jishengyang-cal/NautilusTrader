@@ -97,7 +97,15 @@ repos:
       - id: zizmor
         name: zizmor (security)
         description: Scans GitHub Actions workflows for security misconfigurations
-        args: ["--no-online-audits", "--min-severity", "medium", "--config", ".zizmor.yml", ".github/"]
+        args:
+          [
+            "--no-online-audits",
+            "--min-severity",
+            "medium",
+            "--config",
+            ".zizmor.yml",
+            ".github/",
+          ]
         pass_filenames: false
 
   ##############################################################################
@@ -290,7 +298,7 @@ repos:
         types: [python]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.8
+    rev: v0.15.9
     hooks:
       - id: ruff
         name: ruff
@@ -313,15 +321,18 @@ repos:
       - id: docformatter
         language_version: python3.13 # Pin to 3.13 due to incompatibility with 3.14
         additional_dependencies: [tomli]
-        args: [
-          "--wrap-summaries", "88",
-          "--wrap-descriptions", "88",
-          "--make-summary-multi-line",
-          "--pre-summary-newline",
-          "--blank",
-          "--recursive",
-          "--in-place",
-        ]
+        args:
+          [
+            "--wrap-summaries",
+            "88",
+            "--wrap-descriptions",
+            "88",
+            "--make-summary-multi-line",
+            "--pre-summary-newline",
+            "--blank",
+            "--recursive",
+            "--in-place",
+          ]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.20.0
@@ -329,18 +340,16 @@ repos:
       - id: mypy
         language_version: python3.13 # Pin to 3.13 due to incompatibility with 3.14
         exclude: (^python/|^nautilus_trader/.*\.pyi$|^docs/(getting_started|tutorials)/)
-        args: [
-          "--config", "pyproject.toml",
-          "--allow-incomplete-defs",
-        ]
-        additional_dependencies: [
-          msgspec,
-          types-frozendict,
-          types-pytz,
-          types-redis,
-          types-requests,
-          types-toml,
-        ]
+        args: ["--config", "pyproject.toml", "--allow-incomplete-defs"]
+        additional_dependencies:
+          [
+            msgspec,
+            types-frozendict,
+            types-pytz,
+            types-redis,
+            types-requests,
+            types-toml,
+          ]
 
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.11.3 # Must match [tool.uv] required-version in pyproject.toml
