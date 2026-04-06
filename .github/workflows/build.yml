@@ -8,11 +8,12 @@ on:
   push:
     branches: [master, nightly, develop, test-ci, test-pre-commit]
   pull_request:
-    branches: ['*']
+    branches-ignore: [master, nightly]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
+  # yamllint disable-line rule:line-length
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.ref_name, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Fork PRs cannot access repo/org variables so allow lists are empty;
