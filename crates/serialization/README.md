@@ -47,7 +47,7 @@ To build with Cap'n Proto serialization enabled:
 cargo build -p nautilus-serialization --features capnp
 ```
 
-The Cap'n Proto compiler is required. See the [Environment Setup](../../docs/developer_guide/environment_setup.md#capn-proto) guide for installation instructions. The required version is specified in the `capnp-version` file in the repository root.
+The Cap'n Proto compiler is required. See the [Environment Setup](../../docs/developer_guide/environment_setup.md#capn-proto) guide for installation instructions. The required version is specified in `tools.toml` in the repository root.
 
 ## Cap'n Proto schemas
 

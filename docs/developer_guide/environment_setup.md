@@ -10,7 +10,7 @@ NautilusTrader uses increasingly more [Rust](https://www.rust-lang.org), so Rust
 ([installation guide](https://www.rust-lang.org/tools/install)).
 
 [Cap'n Proto](https://capnproto.org/) is required for serialization schema compilation. The required
-version is specified in the `capnp-version` file in the repository root. Ubuntu's default package
+version is specified in `tools.toml` in the repository root. Ubuntu's default package
 is typically too old, so you may need to install from source (see below).
 
 :::info
@@ -147,7 +147,7 @@ make build-debug
 ## Cap'n Proto
 
 [Cap'n Proto](https://capnproto.org/) is required for serialization schema compilation.
-The required version is defined in the `capnp-version` file in the repository root.
+The required version is defined in `tools.toml` in the repository root.
 
 Install the correct version for your platform:
 
@@ -160,7 +160,7 @@ brew install capnp
 ```
 
 ```bash tab="Linux (source)"
-CAPNP_VERSION=$(cat capnp-version)
+CAPNP_VERSION=$(bash scripts/tool-version.sh capnp)
 cd ~
 wget https://capnproto.org/capnproto-c++-${CAPNP_VERSION}.tar.gz
 tar xzf capnproto-c++-${CAPNP_VERSION}.tar.gz
@@ -175,7 +175,7 @@ sudo ldconfig
 choco install capnproto
 ```
 
-Verify the installed version matches `capnp-version`:
+Verify the installed version matches `tools.toml`:
 
 ```bash
 capnp --version

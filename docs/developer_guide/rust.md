@@ -1225,7 +1225,7 @@ This feature is opt-in to avoid requiring the Cap'n Proto compiler for standard 
 ### Installing Cap'n Proto
 
 Install the Cap'n Proto compiler before working with schemas. The required version is
-specified in the `capnp-version` file in the repository root.
+specified in `tools.toml` in the repository root.
 
 See the [Environment Setup](environment_setup.md#capn-proto) guide for detailed installation
 instructions for each platform.
@@ -1237,7 +1237,7 @@ Ubuntu's default `capnproto` package is too old. Linux users must install from s
 Verify installation:
 
 ```bash
-capnp --version  # Should match the version in capnp-version
+capnp --version  # Should match the version in tools.toml
 ```
 
 ### Schema development workflow

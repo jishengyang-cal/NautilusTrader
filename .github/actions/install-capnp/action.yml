@@ -25,10 +25,10 @@ runs:
       shell: bash
       run: echo "release=$(lsb_release -rs)" >> "$GITHUB_OUTPUT"
 
-    - name: Get capnp version from capnp-version
+    - name: Get capnp version from tools.toml
       shell: bash
       run: |
-        echo "CAPNP_VERSION=$(cat capnp-version)" >> $GITHUB_ENV
+        echo "CAPNP_VERSION=$(bash scripts/tool-version.sh capnp)" >> $GITHUB_ENV
 
     - name: Cache Cap'n Proto (Linux)
       if: runner.os == 'Linux'

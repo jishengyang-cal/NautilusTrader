@@ -24,14 +24,8 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Read required version from capnp-version file
-CAPNP_VERSION_FILE="${PROJECT_ROOT}/capnp-version"
-if [[ -f "$CAPNP_VERSION_FILE" ]]; then
-  REQUIRED_VERSION=$(cat "$CAPNP_VERSION_FILE" | tr -d '[:space:]')
-else
-  echo -e "${RED}Error: capnp-version file not found at $CAPNP_VERSION_FILE${NC}"
-  exit 1
-fi
+# Read required version from tools.toml (single source of truth)
+REQUIRED_VERSION="$(bash "$SCRIPT_DIR/tool-version.sh" capnp)"
 
 echo -e "${YELLOW}Regenerating Cap'n Proto schemas...${NC}"
 
@@ -50,7 +44,7 @@ fi
 INSTALLED_VERSION=$(capnp --version | awk '{print $NF}')
 if [[ "$INSTALLED_VERSION" != "$REQUIRED_VERSION" ]]; then
   echo -e "${RED}Error: capnp version mismatch${NC}"
-  echo "  Required: ${REQUIRED_VERSION} (from capnp-version)"
+  echo "  Required: ${REQUIRED_VERSION} (from tools.toml)"
   echo "  Installed: ${INSTALLED_VERSION}"
   echo "Please install the correct version using: ./scripts/install-capnp.sh"
   exit 1

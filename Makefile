@@ -431,10 +431,15 @@ check-vet-installed:  #-- Verify cargo-vet is installed
 	fi
 
 .PHONY: check-osv-scanner-installed
-check-osv-scanner-installed:  #-- Verify osv-scanner is installed
+check-osv-scanner-installed:  #-- Verify osv-scanner is installed and version matches tools.toml
 	@if ! osv-scanner --version >/dev/null 2>&1; then \
 		echo "osv-scanner is not installed. See https://google.github.io/osv-scanner/installation/"; \
 		exit 1; \
+	fi
+	@EXPECTED=$$(bash scripts/tool-version.sh osv-scanner); \
+	INSTALLED=$$(osv-scanner --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$INSTALLED" != "$$EXPECTED" ]; then \
+		printf "$(YELLOW)osv-scanner version mismatch: installed %s, expected %s (from tools.toml)$(RESET)\n" "$$INSTALLED" "$$EXPECTED"; \
 	fi
 
 # Testing tool checks
