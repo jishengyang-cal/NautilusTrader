@@ -242,7 +242,7 @@ format:  #-- Format Rust (with nightly) and Python code
 
 .PHONY: pre-commit
 pre-commit:  #-- Run all pre-commit hooks on all files
-	uv run --active --no-sync pre-commit run --all-files
+	prek run --all-files
 
 # The check-code target uses CARGO_FEATURES which is controlled by the HYPERSYNC flag.
 # By default, hypersync is excluded to speed up checks. Override with: make check-code HYPERSYNC=true

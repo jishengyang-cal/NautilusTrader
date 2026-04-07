@@ -84,7 +84,7 @@ jobs:
           build-type: "pre-commit"
 
       - name: Run pre-commit
-        run: pre-commit run --all-files
+        run: prek run --all-files
 
       - name: Verify capnp schemas are up-to-date
         run: make check-capnp-schemas

@@ -180,12 +180,6 @@ runs:
       run: |
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-    - name: Get pre-commit version
-      if: inputs.build-type == 'pre-commit'
-      shell: bash
-      run: |
-        echo "PRE_COMMIT_VERSION=$(bash scripts/pre-commit-version.sh)" >> $GITHUB_ENV
-
     - name: Get cache scope and uv lock hash
       shell: bash
       env:
@@ -212,20 +206,14 @@ runs:
         )
         PY
 
-    # Keep this exact-keyed since site-packages is an installed environment, not a download cache
-    - name: Cache Python site-packages
-      if: inputs.build-type == 'pre-commit'
-      id: cached-site-packages
-      # https://github.com/actions/cache
-      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
-      with:
-        path: ~/.local/lib/python${{ inputs.python-version }}/site-packages
-        key: ${{ env.CACHE_SCOPE }}-site-packages-pre-commit-${{ env.PRE_COMMIT_VERSION }}
-
-    - name: Install pre-commit
+    - name: Install prek
       if: inputs.build-type == 'pre-commit'
       shell: bash
-      run: pip install pre-commit==${{ env.PRE_COMMIT_VERSION }}
+      env:
+        PREK_VERSION: "0.3.8"
+      run: |
+        curl --proto '=https' --tlsv1.2 -LsSf \
+          "https://github.com/j178/prek/releases/download/v${PREK_VERSION}/prek-installer.sh" | sh
 
     # > --------------------------------------------------
     # > UV
@@ -259,16 +247,16 @@ runs:
           ${{ env.CACHE_SCOPE }}-uv-${{ env.UV_VERSION }}-
 
     # > --------------------------------------------------
-    # > pre-commit
-    - name: Cached pre-commit
+    # > prek (pre-commit hook environments)
+    - name: Cached pre-commit environments
       if: inputs.build-type == 'pre-commit' && runner.os != 'macOS'
       # Skip on macOS: hashFiles() broken in composite actions after Nov 20 runner update
       # See: https://github.com/actions/runner/issues/3765
-      id: cached-pre-commit
+      id: cached-prek
       # https://github.com/actions/cache
       uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
-        path: ~/.cache/pre-commit
-        key: ${{ env.CACHE_SCOPE }}-pre-commit-${{ env.PRE_COMMIT_VERSION }}-${{ env.PRE_COMMIT_CONFIG_HASH }}
+        path: ~/.cache/prek
+        key: ${{ env.CACHE_SCOPE }}-prek-${{ env.PRE_COMMIT_CONFIG_HASH }}
         restore-keys: |
-          ${{ env.CACHE_SCOPE }}-pre-commit-${{ env.PRE_COMMIT_VERSION }}-
+          ${{ env.CACHE_SCOPE }}-prek-

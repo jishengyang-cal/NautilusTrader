@@ -89,10 +89,9 @@ dev = [
   "cython==3.2.4", # Pinned to 3.2.4 for stability
   "jupytext>=1.19.1,<2.0.0",
   "setuptools>=82",
-  "mypy==1.20.0,<2.0.0", # Pinned to 1.20.0 (keep in line with pre-commit)
+  "mypy==1.20.0,<2.0.0", # Pinned to 1.20.0 (keep in line with .pre-commit-config.yaml)
   "pandas-stubs>=2.3.3,<3.0.0",
-  "pre-commit>=4.5.1,<5.0.0",
-  "ruff==0.15.9", # Pinned to 0.15.9 (keep in line with pre-commit)
+  "ruff==0.15.9", # Pinned to 0.15.9 (keep in line with .pre-commit-config.yaml)
   "types-pytz>=2026.1,<2027.0",
   "types-toml>=0.10.2,<1.0.0",
 ]

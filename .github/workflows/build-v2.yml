@@ -77,7 +77,7 @@ jobs:
           build-type: "pre-commit"
 
       - name: Run pre-commit
-        run: pre-commit run --all-files
+        run: prek run --all-files
 
   rust-tests:
     if: needs.plan.outputs.run-rust-tests == 'true'

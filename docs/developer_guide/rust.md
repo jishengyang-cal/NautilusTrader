@@ -1201,10 +1201,10 @@ rustup update       # Update to latest stable Rust
 rustup show         # Verify correct toolchain is active
 ```
 
-If pre-commit passes locally but fails in CI, clear the pre-commit cache and re-run:
+If pre-commit passes locally but fails in CI, clear the prek cache and re-run:
 
 ```bash
-pre-commit clean    # Clear cached environments
+prek clean    # Clear cached environments
 make pre-commit     # Re-run all checks
 ```
 

@@ -4,7 +4,7 @@ For development we recommend using the PyCharm *Professional* edition IDE, as it
 
 [uv](https://docs.astral.sh/uv) is the preferred tool for handling all Python virtual environments and dependencies.
 
-[pre-commit](https://pre-commit.com/) is used to automatically run various checks, auto-formatters and linting tools at commit.
+[prek](https://github.com/j178/prek) is used to automatically run various pre-commit checks, auto-formatters and linting tools at commit.
 
 NautilusTrader uses increasingly more [Rust](https://www.rust-lang.org), so Rust should be installed on your system as well
 ([installation guide](https://www.rust-lang.org/tools/install)).
@@ -46,7 +46,7 @@ make install-debug
 Set up the pre-commit hook which will then run automatically at commit:
 
 ```bash
-pre-commit install
+prek install
 ```
 
 Before opening a pull-request run the formatting and lint suite locally so that CI passes on the

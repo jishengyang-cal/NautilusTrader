@@ -16,11 +16,11 @@ To contribute, follow these steps:
 
 2. Once everyone is aligned, fork the `develop` branch and ensure your fork is up-to-date by regularly merging any upstream changes.
 
-3. Install and configure [pre-commit](https://pre-commit.com/) on your local machine to automatically run code checks, formatters, and linters before each commit.
-   You can install pre-commit with:
+3. Install [prek](https://github.com/j178/prek) on your local machine to automatically run pre-commit checks, formatters, and linters before each commit.
+   You can install prek with:
     ```bash
-    pip install pre-commit
-    pre-commit install
+    brew install prek  # or: cargo install prek
+    prek install
     ```
 
 4. Open a pull request (PR) on the `develop` branch with a summary comment and reference to any relevant GitHub issue(s).
