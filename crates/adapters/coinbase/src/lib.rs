@@ -50,11 +50,12 @@
 pub mod common;
 pub mod config;
 pub mod http;
+pub mod websocket;
 
 #[cfg(feature = "python")]
 pub mod python;
 
 pub use crate::{
     config::{CoinbaseDataClientConfig, CoinbaseExecClientConfig},
-    http::client::CoinbaseHttpClient,
+    http::client::{CoinbaseHttpClient, CoinbaseRawHttpClient},
 };

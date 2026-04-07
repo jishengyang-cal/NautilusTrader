@@ -31,7 +31,7 @@ use rust_decimal::Decimal;
 use crate::{
     common::{
         consts::COINBASE_VENUE,
-        enums::{CoinbaseOrderSide, CoinbaseProductType},
+        enums::{CoinbaseContractExpiryType, CoinbaseOrderSide, CoinbaseProductType},
     },
     http::models::{BookLevel, Candle, PriceBook, Product, Trade},
 };
@@ -311,18 +311,39 @@ pub fn parse_instrument(product: &Product, ts_init: UnixNanos) -> anyhow::Result
     match product.product_type {
         CoinbaseProductType::Spot => parse_spot_instrument(product, ts_init),
         CoinbaseProductType::Future => {
-            // Coinbase sets perpetual_details on both perps and dated futures,
-            // so check display_name for the "Perpetual" or "PERP" indicator
-            let is_perpetual =
-                product.display_name.contains("PERP") || product.display_name.contains("Perpetual");
-
-            if is_perpetual {
+            if is_perpetual_product(product) {
                 parse_perpetual_instrument(product, ts_init)
             } else {
                 parse_future_instrument(product, ts_init)
             }
         }
+        CoinbaseProductType::Unknown => {
+            anyhow::bail!("Unknown product type for '{}'", product.product_id)
+        }
     }
+}
+
+/// Determines whether a futures product is a perpetual contract.
+///
+/// Coinbase returns `contract_expiry_type: "EXPIRING"` for both perpetuals
+/// and dated futures, so the `CoinbaseContractExpiryType::Perpetual` variant
+/// alone is not sufficient. We check three signals in order:
+///
+/// 1. `contract_expiry_type == Perpetual` (forward compat if Coinbase fixes the API)
+/// 2. Non-empty `funding_rate` in `future_product_details` (structural signal:
+///    only perpetuals have ongoing funding)
+/// 3. `display_name` contains "PERP" or "Perpetual" (heuristic fallback)
+fn is_perpetual_product(product: &Product) -> bool {
+    if let Some(details) = &product.future_product_details {
+        if details.contract_expiry_type == CoinbaseContractExpiryType::Perpetual {
+            return true;
+        }
+
+        if !details.funding_rate.is_empty() {
+            return true;
+        }
+    }
+    product.display_name.contains("PERP") || product.display_name.contains("Perpetual")
 }
 
 /// Parses a Coinbase trade into a `TradeTick`.

@@ -56,6 +56,8 @@ impl CoinbaseEnvironment {
 pub enum CoinbaseProductType {
     Spot,
     Future,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Coinbase order side.
@@ -184,6 +186,19 @@ pub enum CoinbaseLiquidityIndicator {
     Unknown,
 }
 
+/// Coinbase stop order direction.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display, EnumString, AsRefStr,
+)]
+pub enum CoinbaseStopDirection {
+    #[serde(rename = "STOP_DIRECTION_STOP_DOWN")]
+    #[strum(serialize = "STOP_DIRECTION_STOP_DOWN")]
+    StopDown,
+    #[serde(rename = "STOP_DIRECTION_STOP_UP")]
+    #[strum(serialize = "STOP_DIRECTION_STOP_UP")]
+    StopUp,
+}
+
 /// Coinbase candle granularity for historical data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display, EnumString)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -219,6 +234,7 @@ pub enum CoinbaseWsChannel {
 
 impl CoinbaseWsChannel {
     /// Returns true if this channel requires authentication.
+    #[must_use]
     pub fn requires_auth(&self) -> bool {
         matches!(self, Self::User | Self::FuturesBalanceSummary)
     }

@@ -15,12 +15,18 @@
 
 //! Provides the HTTP client for the Coinbase Advanced Trade REST API.
 //!
-//! This module implements [`CoinbaseHttpClient`] for sending authenticated and public requests
-//! to Coinbase endpoints. Each request generates a fresh ES256 JWT for authentication.
+//! Two-layer architecture:
+//! - [`CoinbaseRawHttpClient`]: low-level endpoint methods, JWT auth, rate limiting.
+//! - [`CoinbaseHttpClient`]: domain wrapper with instrument caching and Nautilus type conversions.
 
-use std::{collections::HashMap, num::NonZeroU32};
+use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
 
-use nautilus_core::consts::NAUTILUS_USER_AGENT;
+use nautilus_core::{
+    AtomicMap, UnixNanos,
+    consts::NAUTILUS_USER_AGENT,
+    time::{AtomicTime, get_atomic_clock_realtime},
+};
+use nautilus_model::{identifiers::InstrumentId, instruments::InstrumentAny};
 use nautilus_network::{
     http::{HttpClient, HttpClientError, HttpResponse, Method, USER_AGENT},
     ratelimiter::quota::Quota,
@@ -36,30 +42,23 @@ use crate::{
 
 // Coinbase Advanced Trade rate limit: 30 requests per second
 fn default_quota() -> Option<Quota> {
-    Quota::per_second(NonZeroU32::new(30).unwrap())
+    Quota::per_second(NonZeroU32::new(30).unwrap()) // Infallible: 30 is non-zero
 }
 
-/// Provides an HTTP client for the Coinbase Advanced Trade REST API.
+/// Provides a raw HTTP client for low-level Coinbase Advanced Trade REST API operations.
 ///
 /// Handles JWT authentication, request construction, and response parsing.
+/// Each request generates a fresh ES256 JWT for authentication.
 #[derive(Debug, Clone)]
-#[cfg_attr(
-    feature = "python",
-    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.coinbase", from_py_object)
-)]
-#[cfg_attr(
-    feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.coinbase")
-)]
-pub struct CoinbaseHttpClient {
+pub struct CoinbaseRawHttpClient {
     client: HttpClient,
     credential: Option<CoinbaseCredential>,
     base_url: String,
     environment: CoinbaseEnvironment,
 }
 
-impl CoinbaseHttpClient {
-    /// Creates a new [`CoinbaseHttpClient`] for public endpoints only.
+impl CoinbaseRawHttpClient {
+    /// Creates a new [`CoinbaseRawHttpClient`] for public endpoints only.
     ///
     /// # Errors
     ///
@@ -84,7 +83,7 @@ impl CoinbaseHttpClient {
         })
     }
 
-    /// Creates a new [`CoinbaseHttpClient`] with credentials for authenticated requests.
+    /// Creates a new [`CoinbaseRawHttpClient`] with credentials for authenticated requests.
     ///
     /// # Errors
     ///
@@ -122,7 +121,7 @@ impl CoinbaseHttpClient {
             .map_err(|e| Error::auth(format!("Failed to create HTTP client: {e}")))
     }
 
-    /// Creates a new [`CoinbaseHttpClient`] with explicit credentials.
+    /// Creates a new [`CoinbaseRawHttpClient`] with explicit credentials.
     ///
     /// # Errors
     ///
@@ -190,6 +189,21 @@ impl CoinbaseHttpClient {
             "Authorization".to_string(),
             format!("Bearer {jwt}"),
         )]))
+    }
+
+    fn parse_response(&self, response: &HttpResponse) -> Result<Value> {
+        if !response.status.is_success() {
+            return Err(Error::from_http_status(
+                response.status.as_u16(),
+                &response.body,
+            ));
+        }
+
+        if response.body.is_empty() {
+            return Ok(Value::Null);
+        }
+
+        serde_json::from_slice(&response.body).map_err(Error::Serde)
     }
 
     /// Sends a GET request to a public endpoint (no auth required).
@@ -287,21 +301,6 @@ impl CoinbaseHttpClient {
         self.parse_response(&response)
     }
 
-    fn parse_response(&self, response: &HttpResponse) -> Result<Value> {
-        if !response.status.is_success() {
-            return Err(Error::from_http_status(
-                response.status.as_u16(),
-                &response.body,
-            ));
-        }
-
-        if response.body.is_empty() {
-            return Ok(Value::Null);
-        }
-
-        serde_json::from_slice(&response.body).map_err(Error::Serde)
-    }
-
     /// Gets all available products.
     pub async fn get_products(&self) -> Result<Value> {
         self.get_public("/products").await
@@ -394,6 +393,222 @@ impl CoinbaseHttpClient {
     }
 }
 
+/// Provides a domain-level HTTP client for the Coinbase Advanced Trade API.
+///
+/// Wraps [`CoinbaseRawHttpClient`] in an `Arc` and adds instrument caching
+/// and Nautilus type conversions. This is the primary HTTP interface for the
+/// data and execution clients.
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.coinbase", from_py_object)
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.coinbase")
+)]
+pub struct CoinbaseHttpClient {
+    pub(crate) inner: Arc<CoinbaseRawHttpClient>,
+    clock: &'static AtomicTime,
+    instruments: Arc<AtomicMap<InstrumentId, InstrumentAny>>,
+}
+
+impl Default for CoinbaseHttpClient {
+    fn default() -> Self {
+        Self::new(CoinbaseEnvironment::Live, 10, None)
+            .expect("Failed to create default Coinbase HTTP client")
+    }
+}
+
+impl CoinbaseHttpClient {
+    /// Creates a new [`CoinbaseHttpClient`] for public endpoints only.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be created.
+    pub fn new(
+        environment: CoinbaseEnvironment,
+        timeout_secs: u64,
+        proxy_url: Option<String>,
+    ) -> std::result::Result<Self, HttpClientError> {
+        let raw = CoinbaseRawHttpClient::new(environment, timeout_secs, proxy_url)?;
+        Ok(Self::from_raw(raw))
+    }
+
+    /// Creates a new [`CoinbaseHttpClient`] with credentials for authenticated requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be created.
+    pub fn with_credentials(
+        credential: CoinbaseCredential,
+        environment: CoinbaseEnvironment,
+        timeout_secs: u64,
+        proxy_url: Option<String>,
+    ) -> std::result::Result<Self, HttpClientError> {
+        let raw = CoinbaseRawHttpClient::with_credentials(
+            credential,
+            environment,
+            timeout_secs,
+            proxy_url,
+        )?;
+        Ok(Self::from_raw(raw))
+    }
+
+    /// Creates an authenticated client from environment variables.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Auth`] if required environment variables are not set.
+    pub fn from_env(environment: CoinbaseEnvironment) -> Result<Self> {
+        let raw = CoinbaseRawHttpClient::from_env(environment)?;
+        Ok(Self::from_raw(raw))
+    }
+
+    /// Creates a new [`CoinbaseHttpClient`] with explicit credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Auth`] if credentials are invalid.
+    pub fn from_credentials(
+        api_key: &str,
+        api_secret: &str,
+        environment: CoinbaseEnvironment,
+        timeout_secs: u64,
+        proxy_url: Option<String>,
+    ) -> Result<Self> {
+        let raw = CoinbaseRawHttpClient::from_credentials(
+            api_key,
+            api_secret,
+            environment,
+            timeout_secs,
+            proxy_url,
+        )?;
+        Ok(Self::from_raw(raw))
+    }
+
+    fn from_raw(raw: CoinbaseRawHttpClient) -> Self {
+        Self {
+            inner: Arc::new(raw),
+            clock: get_atomic_clock_realtime(),
+            instruments: Arc::new(AtomicMap::new()),
+        }
+    }
+
+    /// Overrides the base REST URL (for testing with mock servers).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the inner `Arc` has multiple references.
+    pub fn set_base_url(&mut self, url: String) {
+        Arc::get_mut(&mut self.inner)
+            .expect("cannot override URL: Arc has multiple references")
+            .set_base_url(url);
+    }
+
+    /// Returns the configured environment.
+    #[must_use]
+    pub fn environment(&self) -> CoinbaseEnvironment {
+        self.inner.environment()
+    }
+
+    /// Returns true if this client has credentials for authenticated requests.
+    #[must_use]
+    pub fn is_authenticated(&self) -> bool {
+        self.inner.is_authenticated()
+    }
+
+    /// Returns a reference to the instrument cache.
+    #[must_use]
+    pub fn instruments(&self) -> &Arc<AtomicMap<InstrumentId, InstrumentAny>> {
+        &self.instruments
+    }
+
+    /// Returns the current timestamp from the atomic clock.
+    #[must_use]
+    pub fn ts_now(&self) -> UnixNanos {
+        self.clock.get_time_ns()
+    }
+
+    /// Gets all available products.
+    pub async fn get_products(&self) -> Result<Value> {
+        self.inner.get_products().await
+    }
+
+    /// Gets a specific product by ID.
+    pub async fn get_product(&self, product_id: &str) -> Result<Value> {
+        self.inner.get_product(product_id).await
+    }
+
+    /// Gets candles for a product.
+    pub async fn get_candles(
+        &self,
+        product_id: &str,
+        start: &str,
+        end: &str,
+        granularity: &str,
+    ) -> Result<Value> {
+        self.inner
+            .get_candles(product_id, start, end, granularity)
+            .await
+    }
+
+    /// Gets market trades for a product.
+    pub async fn get_market_trades(&self, product_id: &str, limit: u32) -> Result<Value> {
+        self.inner.get_market_trades(product_id, limit).await
+    }
+
+    /// Gets best bid/ask for one or more products.
+    pub async fn get_best_bid_ask(&self, product_ids: &[&str]) -> Result<Value> {
+        self.inner.get_best_bid_ask(product_ids).await
+    }
+
+    /// Gets the product order book.
+    pub async fn get_product_book(&self, product_id: &str, limit: Option<u32>) -> Result<Value> {
+        self.inner.get_product_book(product_id, limit).await
+    }
+
+    /// Gets all accounts.
+    pub async fn get_accounts(&self) -> Result<Value> {
+        self.inner.get_accounts().await
+    }
+
+    /// Gets a specific account by UUID.
+    pub async fn get_account(&self, account_id: &str) -> Result<Value> {
+        self.inner.get_account(account_id).await
+    }
+
+    /// Creates a new order.
+    pub async fn create_order(&self, order: &Value) -> Result<Value> {
+        self.inner.create_order(order).await
+    }
+
+    /// Cancels orders by order IDs.
+    pub async fn cancel_orders(&self, order_ids: &[String]) -> Result<Value> {
+        self.inner.cancel_orders(order_ids).await
+    }
+
+    /// Gets historical orders.
+    pub async fn get_orders(&self, query: &str) -> Result<Value> {
+        self.inner.get_orders(query).await
+    }
+
+    /// Gets a specific order by ID.
+    pub async fn get_order(&self, order_id: &str) -> Result<Value> {
+        self.inner.get_order(order_id).await
+    }
+
+    /// Gets fills (trade executions).
+    pub async fn get_fills(&self, query: &str) -> Result<Value> {
+        self.inner.get_fills(query).await
+    }
+
+    /// Gets fee transaction summary.
+    pub async fn get_transaction_summary(&self) -> Result<Value> {
+        self.inner.get_transaction_summary().await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -401,35 +616,35 @@ mod tests {
     use super::*;
 
     #[rstest]
-    fn test_client_construction_live() {
-        let client = CoinbaseHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
+    fn test_raw_client_construction_live() {
+        let client = CoinbaseRawHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
         assert_eq!(client.environment(), CoinbaseEnvironment::Live);
         assert!(!client.is_authenticated());
     }
 
     #[rstest]
-    fn test_client_construction_sandbox() {
-        let client = CoinbaseHttpClient::new(CoinbaseEnvironment::Sandbox, 10, None).unwrap();
+    fn test_raw_client_construction_sandbox() {
+        let client = CoinbaseRawHttpClient::new(CoinbaseEnvironment::Sandbox, 10, None).unwrap();
         assert_eq!(client.environment(), CoinbaseEnvironment::Sandbox);
     }
 
     #[rstest]
-    fn test_build_url() {
-        let client = CoinbaseHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
+    fn test_raw_build_url() {
+        let client = CoinbaseRawHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
         let url = client.build_url("/products");
         assert_eq!(url, "https://api.coinbase.com/api/v3/brokerage/products");
     }
 
     #[rstest]
-    fn test_build_jwt_uri_live() {
-        let client = CoinbaseHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
+    fn test_raw_build_jwt_uri_live() {
+        let client = CoinbaseRawHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
         let uri = client.build_jwt_uri("GET", "/accounts");
         assert_eq!(uri, "GET api.coinbase.com/api/v3/brokerage/accounts");
     }
 
     #[rstest]
-    fn test_build_jwt_uri_sandbox() {
-        let client = CoinbaseHttpClient::new(CoinbaseEnvironment::Sandbox, 10, None).unwrap();
+    fn test_raw_build_jwt_uri_sandbox() {
+        let client = CoinbaseRawHttpClient::new(CoinbaseEnvironment::Sandbox, 10, None).unwrap();
         let uri = client.build_jwt_uri("GET", "/accounts");
         assert_eq!(
             uri,
@@ -438,18 +653,46 @@ mod tests {
     }
 
     #[rstest]
-    fn test_build_jwt_uri_custom_base_url() {
-        let mut client = CoinbaseHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
+    fn test_raw_build_jwt_uri_custom_base_url() {
+        let mut client = CoinbaseRawHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
         client.set_base_url("http://localhost:8080".to_string());
         let uri = client.build_jwt_uri("POST", "/orders");
         assert_eq!(uri, "POST localhost:8080/api/v3/brokerage/orders");
     }
 
     #[rstest]
-    fn test_auth_headers_without_credentials() {
-        let client = CoinbaseHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
+    fn test_raw_auth_headers_without_credentials() {
+        let client = CoinbaseRawHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
         let result = client.auth_headers("GET", "/accounts");
         assert!(result.is_err());
         assert!(result.unwrap_err().is_auth_error());
+    }
+
+    #[rstest]
+    fn test_domain_client_construction() {
+        let client = CoinbaseHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
+        assert_eq!(client.environment(), CoinbaseEnvironment::Live);
+        assert!(!client.is_authenticated());
+    }
+
+    #[rstest]
+    fn test_domain_client_default() {
+        let client = CoinbaseHttpClient::default();
+        assert_eq!(client.environment(), CoinbaseEnvironment::Live);
+    }
+
+    #[rstest]
+    fn test_domain_client_instruments_cache_empty() {
+        let client = CoinbaseHttpClient::default();
+        assert!(client.instruments().is_empty());
+    }
+
+    #[rstest]
+    fn test_domain_client_set_base_url() {
+        let mut client = CoinbaseHttpClient::new(CoinbaseEnvironment::Live, 10, None).unwrap();
+        client.set_base_url("http://localhost:9090".to_string());
+        // Verify via raw client's build_url
+        let url = client.inner.build_url("/test");
+        assert!(url.starts_with("http://localhost:9090"));
     }
 }

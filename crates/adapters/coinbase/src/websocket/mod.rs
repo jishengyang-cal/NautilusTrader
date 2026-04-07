@@ -13,9 +13,9 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-pub mod client;
 pub mod error;
-pub mod models;
+pub mod messages;
 pub mod parse;
 
-pub use client::{CoinbaseHttpClient, CoinbaseRawHttpClient};
+pub use error::CoinbaseWsError;
+pub use messages::{CoinbaseWsMessage, CoinbaseWsSubscription};

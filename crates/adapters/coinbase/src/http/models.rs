@@ -21,6 +21,7 @@ use ustr::Ustr;
 use crate::common::enums::{
     CoinbaseContractExpiryType, CoinbaseFuturesAssetType, CoinbaseLiquidityIndicator,
     CoinbaseOrderSide, CoinbaseProductStatus, CoinbaseProductType, CoinbaseProductVenue,
+    CoinbaseStopDirection,
 };
 
 /// Response wrapper for listing products.
@@ -231,7 +232,7 @@ pub struct BestBidAskResponse {
 /// Best bid/ask for a single product.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BestBidAsk {
-    pub product_id: String,
+    pub product_id: Ustr,
     pub bids: Vec<BookLevel>,
     pub asks: Vec<BookLevel>,
     #[serde(default)]
@@ -302,6 +303,12 @@ pub struct CreateOrderRequest {
 }
 
 /// Order configuration for different order types.
+///
+/// Uses `#[serde(untagged)]` because Coinbase wraps each order type in a
+/// uniquely-named key (e.g. `market_market_ioc`, `limit_limit_gtc`), which
+/// serde matches by attempting each variant in declaration order. Error
+/// messages on deserialization failure are opaque; prefer constructing
+/// variants directly rather than deserializing from untrusted JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OrderConfiguration {
@@ -384,7 +391,7 @@ pub struct StopLimitGtcParams {
     pub base_size: String,
     pub limit_price: String,
     pub stop_price: String,
-    pub stop_direction: String,
+    pub stop_direction: CoinbaseStopDirection,
 }
 
 /// Stop-limit GTD order.
@@ -399,7 +406,7 @@ pub struct StopLimitGtdParams {
     pub base_size: String,
     pub limit_price: String,
     pub stop_price: String,
-    pub stop_direction: String,
+    pub stop_direction: CoinbaseStopDirection,
     pub end_time: String,
 }
 
