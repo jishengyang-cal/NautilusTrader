@@ -61,7 +61,7 @@ use nautilus_model::{
         VenueOrderId,
     },
     instruments::{Instrument, InstrumentAny},
-    orders::{Order, OrderAny},
+    orders::{Order, OrderAny, TRIGGERABLE_ORDER_TYPES},
     position::Position,
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::Quantity,
@@ -2154,8 +2154,10 @@ impl ExecutionManager {
 
         match report.order_status {
             OrderStatus::Canceled => {
-                // Generate Triggered event if ts_triggered is set (matching Python behavior)
-                if report.ts_triggered.is_some() && order.status() != OrderStatus::Triggered {
+                if report.ts_triggered.is_some()
+                    && order.status() != OrderStatus::Triggered
+                    && TRIGGERABLE_ORDER_TYPES.contains(&order.order_type())
+                {
                     events.push(create_reconciliation_triggered(order, report, ts_now));
                 }
 
@@ -2174,8 +2176,10 @@ impl ExecutionManager {
                 }
             }
             OrderStatus::Expired => {
-                // Generate Triggered event if ts_triggered is set (matching Python behavior)
-                if report.ts_triggered.is_some() && order.status() != OrderStatus::Triggered {
+                if report.ts_triggered.is_some()
+                    && order.status() != OrderStatus::Triggered
+                    && TRIGGERABLE_ORDER_TYPES.contains(&order.order_type())
+                {
                     events.push(create_reconciliation_triggered(order, report, ts_now));
                 }
 

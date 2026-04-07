@@ -314,6 +314,48 @@ class TestLiveExecutionReconciliation:
         assert self.cache.orders()[0].status == OrderStatus.TRIGGERED
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "order_type",
+        [OrderType.STOP_MARKET, OrderType.MARKET_IF_TOUCHED],
+    )
+    async def test_reconcile_state_no_cached_with_triggered_market_style_stop_skips_triggered(
+        self,
+        order_type,
+    ):
+        # Arrange
+        report = OrderStatusReport(
+            account_id=self.account_id,
+            instrument_id=AUDUSD_SIM.id,
+            client_order_id=ClientOrderId("O-123456"),
+            venue_order_id=VenueOrderId("1"),
+            order_side=OrderSide.BUY,
+            order_type=order_type,
+            time_in_force=TimeInForce.GTC,
+            order_status=OrderStatus.TRIGGERED,
+            trigger_price=Price.from_str("1.00000"),
+            trigger_type=TriggerType.LAST_PRICE,
+            quantity=Quantity.from_int(10_000),
+            filled_qty=Quantity.from_int(0),
+            report_id=UUID4(),
+            ts_accepted=1_000_000_000,
+            ts_triggered=2_000_000_000,
+            ts_last=2_000_000_000,
+            ts_init=3_000_000_000,
+        )
+
+        self.client.add_order_status_report(report)
+
+        # Act
+        result = await self.exec_engine.reconcile_execution_state()
+
+        # Assert
+        assert result
+        assert len(self.cache.orders()) == 1
+        order = self.cache.orders()[0]
+        assert order.order_type == order_type
+        assert order.status == OrderStatus.ACCEPTED
+
+    @pytest.mark.asyncio
     async def test_reconcile_state_no_cached_with_filled_order_and_no_trades(self):
         # Arrange
         report = OrderStatusReport(

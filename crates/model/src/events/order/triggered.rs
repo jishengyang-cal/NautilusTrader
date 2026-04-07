@@ -36,7 +36,7 @@ use crate::{
 
 /// Represents an event where an order has triggered.
 ///
-/// Applicable to `StopLimit` orders only.
+/// Applicable to `StopLimit`, `TrailingStopLimit`, and `LimitIfTouched` orders.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Builder)]
 #[serde(tag = "type")]

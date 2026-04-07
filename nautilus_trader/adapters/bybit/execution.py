@@ -1805,13 +1805,18 @@ class BybitExecutionClient(LiveExecutionClient):
             )
             self._order_filled_qty.pop(report.client_order_id, None)
         elif report.order_status == OrderStatus.TRIGGERED:
-            self.generate_order_triggered(
-                strategy_id=order.strategy_id,
-                instrument_id=report.instrument_id,
-                client_order_id=report.client_order_id,
-                venue_order_id=report.venue_order_id,
-                ts_event=report.ts_last,
-            )
+            if order.order_type in (
+                OrderType.STOP_LIMIT,
+                OrderType.TRAILING_STOP_LIMIT,
+                OrderType.LIMIT_IF_TOUCHED,
+            ):
+                self.generate_order_triggered(
+                    strategy_id=order.strategy_id,
+                    instrument_id=report.instrument_id,
+                    client_order_id=report.client_order_id,
+                    venue_order_id=report.venue_order_id,
+                    ts_event=report.ts_last,
+                )
         else:
             # Fills should be handled from FillReports
             self._log.debug(f"Received unhandled OrderStatusReport: {report}")

@@ -44,7 +44,7 @@ use nautilus_model::{
     accounts::{AccountAny, MarginAccount},
     enums::{
         AccountType, LiquiditySide, OmsType, OrderSide, OrderStatus, OrderType,
-        PositionSideSpecified, TimeInForce,
+        PositionSideSpecified, TimeInForce, TriggerType,
     },
     events::{
         OrderEventAny, OrderFilled, OrderPendingCancel, OrderPendingUpdate,
@@ -665,14 +665,18 @@ async fn test_triggered_event_generated_before_canceled() {
 
     ctx.add_instrument(test_instrument());
 
-    // Create and cache an accepted order
-    let mut order = create_submitted_order(
-        "O-TRIG-CANCEL",
-        instrument_id,
-        OrderSide::Buy,
-        "1.0",
-        "3000.00",
-    );
+    // Create and cache an accepted StopLimit order (must be triggerable)
+    let mut order = OrderTestBuilder::new(OrderType::StopLimit)
+        .client_order_id(client_order_id)
+        .instrument_id(instrument_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.0"))
+        .price(Price::from("3000.00"))
+        .trigger_price(Price::from("3100.00"))
+        .trigger_type(TriggerType::LastPrice)
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    order.apply(submitted).unwrap();
     let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
     order.apply(accepted).unwrap();
     ctx.add_order(order);

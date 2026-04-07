@@ -9,6 +9,7 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
+- Fixed `OrderTriggered` ValueError on market-style stop orders (#3812), thanks for reporting @jindrichsirucek
 
 ### Internal Improvements
 

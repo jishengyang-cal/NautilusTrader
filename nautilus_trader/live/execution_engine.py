@@ -3505,6 +3505,17 @@ class LiveExecutionEngine(ExecutionEngine):
         self._handle_event_with_tracking(accepted)
 
     def _generate_order_triggered(self, order: Order, report: OrderStatusReport) -> None:
+        if order.order_type not in (
+            OrderType.STOP_LIMIT,
+            OrderType.TRAILING_STOP_LIMIT,
+            OrderType.LIMIT_IF_TOUCHED,
+        ):
+            self._log.debug(
+                f"Skipping OrderTriggered for {order.type_string()} order "
+                f"{order.client_order_id!r}: market-style stops have no TRIGGERED state",
+            )
+            return
+
         triggered = create_order_triggered_event(
             trader_id=self.trader_id,
             order=order,

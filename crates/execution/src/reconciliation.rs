@@ -30,7 +30,7 @@ use nautilus_model::{
     },
     identifiers::{AccountId, InstrumentId, TradeId, VenueOrderId},
     instruments::{Instrument, InstrumentAny},
-    orders::{Order, OrderAny},
+    orders::{Order, OrderAny, TRIGGERABLE_ORDER_TYPES},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{Money, Price, Quantity},
 };
@@ -1252,7 +1252,18 @@ pub fn reconcile_order_report(
         OrderStatus::Rejected => {
             create_reconciliation_rejected(order, report.cancel_reason.as_deref(), ts_now)
         }
-        OrderStatus::Triggered => Some(create_reconciliation_triggered(order, report, ts_now)),
+        OrderStatus::Triggered => {
+            if TRIGGERABLE_ORDER_TYPES.contains(&order.order_type()) {
+                Some(create_reconciliation_triggered(order, report, ts_now))
+            } else {
+                log::debug!(
+                    "Skipping OrderTriggered for {} order {}: market-style stops have no TRIGGERED state",
+                    order.order_type(),
+                    order.client_order_id(),
+                );
+                None
+            }
+        }
         OrderStatus::Canceled => Some(create_reconciliation_canceled(order, report, ts_now)),
         OrderStatus::Expired => Some(create_reconciliation_expired(order, report, ts_now)),
 

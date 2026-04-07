@@ -34,6 +34,7 @@ use nautilus_model::{
     },
     identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, VenueOrderId},
     instruments::{Instrument, InstrumentAny},
+    orders::TRIGGERABLE_ORDER_TYPES,
     types::{Money, Price, Quantity},
 };
 use rust_decimal::Decimal;
@@ -319,6 +320,15 @@ fn dispatch_order_update(
                     log::debug!("Skipping stale Triggered for {client_order_id} (already filled)");
                     return;
                 }
+
+                if !TRIGGERABLE_ORDER_TYPES.contains(&identity.order_type) {
+                    log::debug!(
+                        "Skipping OrderTriggered for {} order {client_order_id}: market-style stops have no TRIGGERED state",
+                        identity.order_type,
+                    );
+                    return;
+                }
+
                 ensure_accepted_emitted(
                     client_order_id,
                     account_id,

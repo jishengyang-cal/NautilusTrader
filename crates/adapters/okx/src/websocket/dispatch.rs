@@ -36,6 +36,7 @@ use nautilus_model::{
         AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, VenueOrderId,
     },
     instruments::{Instrument, InstrumentAny},
+    orders::TRIGGERABLE_ORDER_TYPES,
     reports::FillReport,
     types::{Currency, Money, Quantity},
 };
@@ -669,6 +670,16 @@ fn dispatch_parsed_order_event(
                 log::debug!("Skipping stale Triggered for {client_order_id} (already filled)");
                 return;
             }
+
+            if !TRIGGERABLE_ORDER_TYPES.contains(&identity.order_type) {
+                log::debug!(
+                    "Skipping OrderTriggered for {} order {client_order_id}: market-style stops have no TRIGGERED state",
+                    identity.order_type,
+                );
+                state.insert_triggered(client_order_id);
+                return;
+            }
+
             ensure_accepted_emitted(
                 client_order_id,
                 account_id,
