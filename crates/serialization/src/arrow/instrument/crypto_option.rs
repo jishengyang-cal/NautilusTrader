@@ -484,6 +484,7 @@ pub fn decode_crypto_option_batch(
                 .downcast_ref::<BinaryArray>()
                 .ok_or_else(|| EncodingError::ParseError("info", format!("row {i}: invalid type")))?
                 .value(i);
+
             match serde_json::from_slice::<Params>(info_bytes) {
                 Ok(info_dict) => Some(info_dict),
                 Err(e) => {

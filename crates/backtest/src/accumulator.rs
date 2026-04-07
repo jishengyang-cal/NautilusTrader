@@ -373,6 +373,7 @@ mod tests {
             }
 
             let mut count = 0;
+
             while let Some(handler) = accumulator.pop_next_at_or_before(100.into()) {
                 assert_eq!(handler.event.ts_event.as_u64(), 100);
                 count += 1;

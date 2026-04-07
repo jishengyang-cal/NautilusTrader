@@ -137,11 +137,13 @@ impl PyStreamingFeatherWriter {
                         object_store::path::Path::from(path.trim_start_matches('/').to_string());
                     let mut stream = store_ref.list(Some(&prefix));
                     let mut to_delete = Vec::new();
+
                     while let Some(result) = futures::StreamExt::next(&mut stream).await {
                         if let Ok(meta) = result {
                             to_delete.push(meta.location);
                         }
                     }
+
                     for path in to_delete {
                         let _ = store_ref.delete(&path).await;
                     }

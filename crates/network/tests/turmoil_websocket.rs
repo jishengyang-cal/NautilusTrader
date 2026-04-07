@@ -192,6 +192,7 @@ fn test_turmoil_real_websocket_reconnection(mut websocket_config: WebSocketConfi
 
         // Check we received messages
         let mut received_second = false;
+
         while let Ok(msg) = rx.try_recv() {
             if matches!(msg, Message::Text(ref text) if text.as_str() == "second_msg") {
                 received_second = true;
@@ -254,6 +255,7 @@ fn test_turmoil_real_websocket_network_partition(mut websocket_config: WebSocket
 
         // Check we received messages
         let mut received_after = false;
+
         while let Ok(msg) = rx.try_recv() {
             if matches!(msg, Message::Text(ref text) if text.as_str() == "after_partition") {
                 received_after = true;

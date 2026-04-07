@@ -1441,6 +1441,7 @@ type WsInjector = Arc<tokio::sync::broadcast::Sender<String>>;
 
 async fn handle_ws_injectable_connection(mut socket: WebSocket, injector: WsInjector) {
     let mut rx = injector.subscribe();
+
     loop {
         tokio::select! {
             msg = socket.recv() => {

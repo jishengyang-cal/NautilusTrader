@@ -223,6 +223,7 @@ impl PyBitmexWebSocketClient {
         let cache = Arc::clone(&self.instruments_cache);
         {
             let mut initial: AHashMap<Ustr, InstrumentAny> = AHashMap::new();
+
             for inst_py in instruments {
                 let inst = pyobject_to_instrument_any(py, inst_py)?;
                 initial.insert(inst.symbol().inner(), inst);

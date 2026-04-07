@@ -879,6 +879,7 @@ mod tests {
         // This ensures deterministic behavior - we know exactly what the final state should be
         for i in 0..20 {
             let state_clone = Arc::clone(&state);
+
             let handle = tokio::spawn(async move {
                 let topic = format!("tickers.SYMBOL{i}");
                 // Add 2 references
@@ -918,6 +919,7 @@ mod tests {
         // Spawn 10 tasks all adding 10 references to the same topic
         for _ in 0..10 {
             let state_clone = Arc::clone(&state);
+
             let handle = tokio::spawn(async move {
                 for _ in 0..10 {
                     state_clone.add_reference(topic);
@@ -1089,6 +1091,7 @@ mod tests {
         assert_eq!(state.len(), special_topics.len());
 
         let all_topics = state.all_topics();
+
         for topic in &special_topics {
             assert!(
                 all_topics.contains(&(*topic).to_string()),
@@ -1265,6 +1268,7 @@ mod tests {
         // Spawn 50 tasks doing random interleaved operations
         for i in 0..50 {
             let state_clone = Arc::clone(&state);
+
             let handle = tokio::spawn(async move {
                 let topic1 = format!("channel.SYMBOL{i}");
                 let topic2 = format!("channel.SYMBOL{}", i + 100);
@@ -1764,6 +1768,7 @@ mod tests {
 
         for i in 0..100 {
             let state_clone = Arc::clone(&state);
+
             let handle = tokio::spawn(async move {
                 let topic = format!("rapid.SYMBOL{}", i % 10); // 10 unique topics, lots of contention
 
@@ -1800,6 +1805,7 @@ mod tests {
 
         for i in 0..30 {
             let state_clone = Arc::clone(&state);
+
             let handle = tokio::spawn(async move {
                 let topic = format!("failure.SYMBOL{i}"); // Unique topic per task
 

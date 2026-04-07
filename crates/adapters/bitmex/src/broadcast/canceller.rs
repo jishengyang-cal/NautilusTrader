@@ -628,6 +628,7 @@ impl CancelBroadcaster {
         }
 
         let mut handles = Vec::new();
+
         for transport in healthy_transports {
             let handle = get_runtime().spawn(async move {
                 let client_id = transport.client_id.clone();
@@ -726,6 +727,7 @@ impl CancelBroadcaster {
         }
 
         let mut handles = Vec::new();
+
         for transport in healthy_transports {
             let handle = get_runtime().spawn(async move {
                 let client_id = transport.client_id.clone();

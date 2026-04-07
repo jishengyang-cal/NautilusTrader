@@ -1626,6 +1626,7 @@ class TestBacktestCommandSettling:
 
         timestamps = pd.date_range(start="2020-01-01", periods=3, freq="1min")
         quotes = []
+
         for i, ts in enumerate(timestamps):
             bid = 0.70000 + (i * 0.00001)
             quote = QuoteTick(
@@ -1737,6 +1738,7 @@ class TestBacktestCommandSettling:
 
         timestamps = pd.date_range(start="2020-01-01", periods=3, freq="1min")
         quotes = []
+
         for i, ts in enumerate(timestamps):
             bid = 0.70000 + (i * 0.00001)
             quote = QuoteTick(
@@ -1841,6 +1843,7 @@ class TestBacktestCommandSettling:
         # Data spans timer time so the timer fires between data points
         timestamps = pd.date_range(start="2020-01-01", periods=3, freq="1min")
         quotes = []
+
         for ts in timestamps:
             quote = QuoteTick(
                 instrument_id=instrument.id,
@@ -1864,6 +1867,7 @@ class TestBacktestCommandSettling:
         assert len(strategy.orders_submitted) == 2
 
         timer_ts = pd.Timestamp("2020-01-01 00:00:30", tz="UTC").value
+
         for order in strategy.orders_submitted:
             cached = engine.cache.order(order.client_order_id)
             assert cached.is_closed
@@ -2093,6 +2097,7 @@ def run_backtest(test_callback=None, with_data=True, log_path=None):
 
     # Create and write custom data to catalog (every minute between 10:00 and 10:05)
     custom_data_list = []
+
     for minute in range(6):  # 0, 1, 2, 3, 4, 5 (10:00 to 10:05)
         timestamp_str = f"2024-05-09T10:0{minute}:00"
         ts_nanos = dt_to_unix_nanos(time_object_to_dt(timestamp_str))

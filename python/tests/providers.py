@@ -181,6 +181,7 @@ class TestDataProvider:
         base_ns = 1_546_383_600_000_000_000  # 2019-01-02 00:00:00 UTC
 
         ticks = []
+
         for i in range(count):
             ts = base_ns + i * 1_000_000_000
             bid = 109.500 + 0.500 * math.sin(i / 500.0)
@@ -209,6 +210,7 @@ class TestDataProvider:
         base_ns = 1_546_383_600_000_000_000
 
         ticks = []
+
         for i in range(count):
             ts = base_ns + i * 1_000_000_000
             bid = 0.71000 + 0.00500 * math.sin(i / 300.0)

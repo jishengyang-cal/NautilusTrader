@@ -231,6 +231,7 @@ impl BinanceFuturesWsTradingClient {
             .map_err(|e| BinanceFuturesWsApiError::HandlerUnavailable(e.to_string()))?;
 
         let cancellation_token = self.cancellation_token.clone();
+
         let handle = get_runtime().spawn(async move {
             tokio::select! {
                 () = cancellation_token.cancelled() => {

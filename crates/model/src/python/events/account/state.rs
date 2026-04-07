@@ -176,6 +176,7 @@ impl AccountState {
         dict.set_item("info", PyDict::new(py))?;
         dict.set_item("ts_event", self.ts_event.as_u64())?;
         dict.set_item("ts_init", self.ts_init.as_u64())?;
+
         match self.base_currency {
             Some(base_currency) => {
                 dict.set_item("base_currency", base_currency.code.to_string())?;

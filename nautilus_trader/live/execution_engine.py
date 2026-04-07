@@ -870,6 +870,7 @@ class LiveExecutionEngine(ExecutionEngine):
         # Build mapping: instrument_id -> venue report
         venue_positions: dict[InstrumentId, PositionStatusReport] = {}
         failed_venues: set[Venue | None] = set()
+
         for client, reports_or_exception in zip(clients, position_reports_all, strict=True):
             if isinstance(reports_or_exception, Exception):
                 failed_venues.add(client.venue)
@@ -1191,6 +1192,7 @@ class LiveExecutionEngine(ExecutionEngine):
 
         venue_fills: list[FillReport] = []
         had_fill_query_errors = False
+
         for fills_or_exception in fill_reports_all:
             if isinstance(fills_or_exception, Exception):
                 had_fill_query_errors = True
@@ -1203,6 +1205,7 @@ class LiveExecutionEngine(ExecutionEngine):
             venue_fills.extend(fills)
 
         cached_fill_trade_ids: set[TradeId] = set()
+
         for order in self._cache.orders(instrument_id=instrument_id):
             for event in order.events:
                 if isinstance(event, OrderFilled):
@@ -1257,6 +1260,7 @@ class LiveExecutionEngine(ExecutionEngine):
             for trade_id, ts_cached in self._recent_fills_cache.items()
             if ts_now - ts_cached > ttl_ns
         ]
+
         for trade_id in expired_trade_ids:
             self._recent_fills_cache.pop(trade_id, None)
 
@@ -1755,6 +1759,7 @@ class LiveExecutionEngine(ExecutionEngine):
                     self._log.info(f"Awaiting {len(report_tasks)} position reports for {client_id}")
 
                     position_results: list[bool] = []
+
                     for task_result_or_exception in await asyncio.gather(
                         *report_tasks,
                         return_exceptions=True,
@@ -1935,6 +1940,7 @@ class LiveExecutionEngine(ExecutionEngine):
         final_fills = dict(mass_status._fill_reports)
 
         reconciliation_instruments: list[Instrument] = []
+
         for instrument_id, position_reports in mass_status.position_reports.items():
             # Skip hedge mode instruments (have venue_position_id) as partial-window
             # adjustment assumes a single net position per instrument

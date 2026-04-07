@@ -1204,6 +1204,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                     Ok(results) => {
                         for (i, result) in results.iter().enumerate() {
                             let cancel = &chunk[i];
+
                             match result {
                                 BatchCancelResult::Success(success) => {
                                     let venue_order_id =
@@ -1470,6 +1471,7 @@ fn dispatch_ws_trading_message(
             );
             let http_client = http_client.clone();
             let emitter = emitter.clone();
+
             get_runtime().spawn(async move {
                 match http_client.request_account_state(account_id).await {
                     Ok(state) => emitter.send_account_state(state),

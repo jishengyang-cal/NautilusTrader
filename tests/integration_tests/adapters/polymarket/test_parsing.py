@@ -71,6 +71,7 @@ def test_parse_instruments() -> None:
 
     # Act
     instruments: list[BinaryOption] = []
+
     for market_info in response["data"]:
         for token_info in market_info["tokens"]:
             token_id = token_info["token_id"]
@@ -860,6 +861,7 @@ def test_parse_empty_book_snapshot_in_backtest_engine():
 
     # Act - parse and add data (should skip empty snapshots)
     deltas = []
+
     for msg in raw_data:
         snapshot = msgspec.json.decode(msgspec.json.encode(msg), type=PolymarketBookSnapshot)
         ob_snapshot = snapshot.parse_to_snapshot(instrument=instrument, ts_init=0)

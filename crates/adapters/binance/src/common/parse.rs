@@ -315,6 +315,7 @@ fn sbe_mantissa_precision(mantissa: i64, exponent: i8) -> u8 {
     }
     let mut m = mantissa.abs();
     let mut trailing_zeros: i8 = 0;
+
     while m > 0 && m % 10 == 0 {
         m /= 10;
         trailing_zeros += 1;

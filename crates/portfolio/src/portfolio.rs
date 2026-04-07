@@ -836,6 +836,7 @@ impl Portfolio {
                 .into_iter()
                 .cloned()
                 .collect();
+
             for position in &all_positions_open {
                 instruments.insert(position.instrument_id);
             }

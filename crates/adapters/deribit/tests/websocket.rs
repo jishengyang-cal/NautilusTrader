@@ -294,6 +294,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<TestServerState>) {
                                 params.get("channels").and_then(|c| c.as_array())
                         {
                             let mut unsubscribed = Vec::new();
+
                             for channel in channels {
                                 if let Some(channel_str) = channel.as_str() {
                                     state
@@ -529,6 +530,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<TestServerState>) {
                                 params.get("channels").and_then(|c| c.as_array())
                         {
                             let mut unsubscribed = Vec::new();
+
                             for channel in channels {
                                 if let Some(channel_str) = channel.as_str() {
                                     state

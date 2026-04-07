@@ -280,6 +280,7 @@ impl AsyncRunner {
     /// not extracted.
     pub fn flush_pending_data(&mut self) {
         let mut total = 0;
+
         loop {
             let mut progressed = false;
 
@@ -288,6 +289,7 @@ impl AsyncRunner {
                 progressed = true;
                 total += 1;
             }
+
             while let Ok(cmd) = self.channels.data_cmd_rx.try_recv() {
                 Self::handle_data_command(cmd);
                 progressed = true;
@@ -677,8 +679,10 @@ mod tests {
 
         // Spawn multiple concurrent senders
         let mut handles = vec![];
+
         for _ in 0..5 {
             let tx_clone = data_evt_tx.clone();
+
             let handle = tokio::spawn(async move {
                 for _ in 0..20 {
                     let quote = test_quote();

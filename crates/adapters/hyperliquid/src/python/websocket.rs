@@ -215,6 +215,7 @@ impl HyperliquidWebSocketClient {
                                                         order_report.venue_order_id,
                                                         order_report.order_status
                                                     );
+
                                                     match Py::new(py, order_report) {
                                                         Ok(py_obj) => {
                                                             call_python_threadsafe(py, &call_soon, &callback, py_obj.into_any());
@@ -232,6 +233,7 @@ impl HyperliquidWebSocketClient {
                                                         fill_report.last_qty,
                                                         fill_report.last_px
                                                     );
+
                                                     match Py::new(py, fill_report) {
                                                         Ok(py_obj) => {
                                                             call_python_threadsafe(py, &call_soon, &callback, py_obj.into_any());
@@ -272,6 +274,7 @@ impl HyperliquidWebSocketClient {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let start = std::time::Instant::now();
+
             loop {
                 if client.is_active() {
                     return Ok(());

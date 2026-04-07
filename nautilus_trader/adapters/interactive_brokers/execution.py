@@ -333,6 +333,7 @@ class InteractiveBrokersExecutionClient(LiveExecutionClient):
 
             # Collect unique spread instrument IDs not yet in the provider
             spread_ids: set[InstrumentId] = set()
+
             for order in cached_orders:
                 instrument_id = order.instrument_id
 

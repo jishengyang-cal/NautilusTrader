@@ -64,6 +64,7 @@ impl TokenBalance {
 impl Display for TokenBalance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let quantity = self.as_quantity().unwrap_or_default();
+
         match &self.amount_usd {
             Some(usd) => write!(
                 f,

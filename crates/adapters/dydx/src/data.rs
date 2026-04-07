@@ -346,6 +346,7 @@ impl DataClient for DydxDataClient {
             .context("failed to subscribe to markets channel")?;
 
         let seen_tickers: Arc<AtomicSet<Ustr>> = Arc::new(AtomicSet::new());
+
         for instrument in self.instrument_cache.all_instruments() {
             let id = instrument.id();
             let ticker = extract_raw_symbol(id.symbol.as_str());

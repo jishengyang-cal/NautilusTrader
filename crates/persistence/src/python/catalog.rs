@@ -1370,6 +1370,7 @@ impl PyParquetDataCatalog {
         use_ts_event_for_ts_init: bool,
     ) -> PyResult<()> {
         let subdir = subdirectory.unwrap_or("backtest");
+
         match self.inner.convert_stream_to_data(
             instance_id,
             data_cls,
@@ -1414,6 +1415,7 @@ impl PyParquetDataCatalog {
             .map_err(|e| PyIOError::new_err(format!("Failed to query custom data: {e}")))?;
 
         let mut python_objects = Vec::new();
+
         for item in data {
             let py_obj: Py<PyAny> = match item {
                 Data::Custom(custom) => Py::new(py, custom.clone())?.into_any(),

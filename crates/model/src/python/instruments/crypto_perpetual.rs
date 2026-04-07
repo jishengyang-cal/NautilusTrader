@@ -271,6 +271,7 @@ impl CryptoPerpetual {
         // Convert HashMap<String, serde_json::Value> back to Python dict
         if let Some(ref info_map) = self.info {
             let py_dict = PyDict::new(py);
+
             for (key, value) in info_map {
                 // Convert serde_json::Value back to Python object via JSON
                 let json_str = serde_json::to_string(value).map_err(to_pyvalue_err)?;
@@ -314,6 +315,7 @@ impl CryptoPerpetual {
         // Serialize info dict
         if let Some(ref info_map) = self.info {
             let info_dict = PyDict::new(py);
+
             for (key, value) in info_map {
                 let json_str = serde_json::to_string(value).map_err(to_pyvalue_err)?;
                 let py_value =
@@ -332,22 +334,27 @@ impl CryptoPerpetual {
             Some(value) => dict.set_item("max_quantity", value.to_string())?,
             None => dict.set_item("max_quantity", py.None())?,
         }
+
         match self.min_quantity {
             Some(value) => dict.set_item("min_quantity", value.to_string())?,
             None => dict.set_item("min_quantity", py.None())?,
         }
+
         match self.max_notional {
             Some(value) => dict.set_item("max_notional", value.to_string())?,
             None => dict.set_item("max_notional", py.None())?,
         }
+
         match self.min_notional {
             Some(value) => dict.set_item("min_notional", value.to_string())?,
             None => dict.set_item("min_notional", py.None())?,
         }
+
         match self.max_price {
             Some(value) => dict.set_item("max_price", value.to_string())?,
             None => dict.set_item("max_price", py.None())?,
         }
+
         match self.min_price {
             Some(value) => dict.set_item("min_price", value.to_string())?,
             None => dict.set_item("min_price", py.None())?,

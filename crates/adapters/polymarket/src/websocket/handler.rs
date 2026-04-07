@@ -175,6 +175,7 @@ impl FeedHandler {
             assets_ids: asset_ids.to_vec(),
             operation: "unsubscribe",
         };
+
         match serde_json::to_string(&req) {
             Ok(payload) => {
                 if let Err(e) = client.send_text(payload, None).await {

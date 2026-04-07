@@ -410,6 +410,7 @@ def _resolve_signature_params(
 
     """
     params: list[tuple[str, str | None]] = []
+
     for raw_param in _split_signature_params(params_str):
         param = raw_param.strip()
         if not param or param == "*":
@@ -449,6 +450,7 @@ def _split_signature_params(params_str: str) -> list[str]:
     params: list[str] = []
     depth = 0
     current: list[str] = []
+
     for ch in params_str:
         if ch in "(<[":
             depth += 1
@@ -1315,6 +1317,7 @@ def fix_stub_header(content: str) -> str:
 
     # Find where the header ends (first non-comment, non-empty line)
     header_end = 0
+
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
@@ -1688,6 +1691,7 @@ def _split_params(params_str: str) -> list[str]:
     parts: list[str] = []
     depth = 0
     start = 0
+
     for i, ch in enumerate(params_str):
         if ch in "([":
             depth += 1
@@ -1714,6 +1718,7 @@ def _is_optional_param(param: str) -> bool:
         return True
     # Check for `| None` only at bracket depth 0
     depth = 0
+
     for i, ch in enumerate(type_part):
         if ch in "([":
             depth += 1
@@ -1729,6 +1734,7 @@ def _has_default(param: str) -> bool:
     Check if a parameter has a default value (respecting brackets).
     """
     depth = 0
+
     for ch in param:
         if ch in "([":
             depth += 1
@@ -1744,6 +1750,7 @@ def _find_matching_paren(line: str, start: int) -> int:
     Return the index of the closing paren matching the open paren at *start*.
     """
     depth = 0
+
     for i in range(start, len(line)):
         if line[i] == "(":
             depth += 1
@@ -1771,6 +1778,7 @@ def _fix_optional_defaults_in_line(line: str) -> str:
         return line
 
     changed = False
+
     for i in range(len(params) - 1, -1, -1):
         p = params[i]
         if _has_default(p):
@@ -1802,6 +1810,7 @@ def add_optional_defaults(content: str) -> str:
     """
     lines = content.split("\n")
     result = []
+
     for line in lines:
         if "def " in line and ("Optional" in line or "| None" in line):
             result.append(_fix_optional_defaults_in_line(line))
@@ -1874,6 +1883,7 @@ def _build_defaults_lookup(
     accounting for pyclass name renames.
     """
     all_defaults: dict[tuple[str | None, str], dict[str, str]] = {}
+
     for rust_class, fixup in class_fixups.items():
         python_class = fixup.python_name or rust_class
         for method_name, defaults in fixup.signature_defaults.items():
@@ -1990,6 +2000,7 @@ def add_missing_model_imports(content: str) -> str:
     }
 
     missing_imports = []
+
     for name in sorted(MODEL_EXPORTS):
         if name in defined_names:
             continue

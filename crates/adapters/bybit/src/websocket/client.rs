@@ -506,6 +506,7 @@ impl BybitWebSocketClient {
                         let confirmed_topics: Vec<String> = {
                             let confirmed = subscriptions.confirmed();
                             let mut topics = Vec::new();
+
                             for entry in confirmed.iter() {
                                 let (channel, symbols) = entry.pair();
                                 for symbol in symbols {
@@ -524,6 +525,7 @@ impl BybitWebSocketClient {
                                 "Marking confirmed subscriptions as pending for replay: count={}",
                                 confirmed_topics.len()
                             );
+
                             for topic in confirmed_topics {
                                 subscriptions.mark_failure(&topic);
                             }
@@ -1295,6 +1297,7 @@ impl BybitWebSocketClient {
         }
 
         let mut req_ids = Vec::new();
+
         for chunk in orders.chunks(BATCH_PROCESSING_LIMIT) {
             let req_id = self.batch_place_orders_chunk(chunk.to_vec()).await?;
             req_ids.push(req_id);
@@ -1392,6 +1395,7 @@ impl BybitWebSocketClient {
         }
 
         let mut req_ids = Vec::new();
+
         for chunk in orders.chunks(BATCH_PROCESSING_LIMIT) {
             let req_id = self.batch_amend_orders_chunk(chunk.to_vec()).await?;
             req_ids.push(req_id);
@@ -1440,6 +1444,7 @@ impl BybitWebSocketClient {
         }
 
         let mut req_ids = Vec::new();
+
         for chunk in orders.chunks(BATCH_PROCESSING_LIMIT) {
             let req_id = self.batch_cancel_orders_chunk(chunk.to_vec()).await?;
             req_ids.push(req_id);

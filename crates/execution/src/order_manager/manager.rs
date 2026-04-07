@@ -675,6 +675,7 @@ mod tests {
             OrderEventAny::Filled(_) => panic!("Should not match"),
             _ => {}
         }
+
         match accepted {
             OrderEventAny::Rejected(_) => panic!("Should not match"),
             OrderEventAny::Canceled(_) => panic!("Should not match"),

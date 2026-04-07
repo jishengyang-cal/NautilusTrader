@@ -743,6 +743,7 @@ impl BlockchainDataClient {
 
                 let pool_identifier =
                     PoolIdentifier::Address(Ustr::from(&pool_address.to_string()));
+
                 match core_client.get_pool(&pool_identifier) {
                     Ok(pool) => {
                         let pool = pool.clone();

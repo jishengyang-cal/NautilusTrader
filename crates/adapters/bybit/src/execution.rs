@@ -255,6 +255,7 @@ impl BybitExecutionClient {
         if is_post_only {
             return BybitTimeInForce::PostOnly;
         }
+
         match tif {
             TimeInForce::Gtc => BybitTimeInForce::Gtc,
             TimeInForce::Ioc => BybitTimeInForce::Ioc,
@@ -372,6 +373,7 @@ impl ExecutionClient for BybitExecutionClient {
 
         if !self.core.instruments_initialized() {
             let mut all_instruments = Vec::new();
+
             for product_type in &product_types {
                 let instruments = self
                     .http_client
@@ -416,6 +418,7 @@ impl ExecutionClient for BybitExecutionClient {
             let instruments = Arc::clone(&self.instruments_cache);
             let state = Arc::clone(&self.dispatch_state);
             let clock = self.clock;
+
             let handle = get_runtime().spawn(async move {
                 pin_mut!(stream);
                 while let Some(message) = stream.next().await {
@@ -447,6 +450,7 @@ impl ExecutionClient for BybitExecutionClient {
                 let instruments = Arc::clone(&self.instruments_cache);
                 let state = Arc::clone(&self.dispatch_state);
                 let clock = self.clock;
+
                 let handle = get_runtime().spawn(async move {
                     pin_mut!(stream);
                     while let Some(message) = stream.next().await {
@@ -586,6 +590,7 @@ impl ExecutionClient for BybitExecutionClient {
 
         get_runtime().spawn(async move {
             let mut all_instruments = Vec::new();
+
             for product_type in product_types {
                 match http_client.request_instruments(product_type, None).await {
                     Ok(instruments) => {

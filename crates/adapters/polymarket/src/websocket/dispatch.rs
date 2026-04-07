@@ -933,6 +933,7 @@ mod tests {
         let reemitted_cancel = receiver
             .try_recv()
             .expect("Expected re-emitted cancel report");
+
         match &reemitted_cancel {
             ExecutionEvent::Report(ExecutionReport::Order(r)) => {
                 assert_eq!(r.order_status, OrderStatus::Canceled);

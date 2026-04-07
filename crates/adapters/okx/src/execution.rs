@@ -386,6 +386,7 @@ impl OKXExecutionClient {
             let offset_type = trailing_offset_type.ok_or_else(|| {
                 anyhow::anyhow!("TrailingStopMarket requires trailing_offset_type")
             })?;
+
             match offset_type {
                 TrailingOffsetType::BasisPoints => {
                     // Convert basis points to ratio (e.g., 100 bps = 0.01)
@@ -870,6 +871,7 @@ impl ExecutionClient for OKXExecutionClient {
             let account_id = self.core.account_id;
             let instruments = self.ws_private.instruments_snapshot();
             let clock = self.clock;
+
             let handle = get_runtime().spawn(async move {
                 let mut fee_cache: AHashMap<Ustr, Money> = AHashMap::new();
                 let mut filled_qty_cache: AHashMap<Ustr, Quantity> = AHashMap::new();
@@ -906,6 +908,7 @@ impl ExecutionClient for OKXExecutionClient {
             let account_id = self.core.account_id;
             let instruments = self.ws_business.instruments_snapshot();
             let clock = self.clock;
+
             let handle = get_runtime().spawn(async move {
                 let mut fee_cache: AHashMap<Ustr, Money> = AHashMap::new();
                 let mut filled_qty_cache: AHashMap<Ustr, Quantity> = AHashMap::new();

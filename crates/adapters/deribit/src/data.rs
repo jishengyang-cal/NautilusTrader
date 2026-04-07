@@ -262,6 +262,7 @@ impl DeribitDataClient {
                     "Received {} funding rate update(s) from WebSocket",
                     funding_rates.len()
                 );
+
                 for funding_rate in funding_rates {
                     log::debug!("Sending funding rate: {funding_rate:?}");
                     if let Err(e) = sender.send(DataEvent::FundingRate(funding_rate)) {
@@ -372,6 +373,7 @@ impl DataClient for DeribitDataClient {
 
         // Cancel running stream tasks before replacing the token
         self.cancellation_token.cancel();
+
         for handle in self.tasks.drain(..) {
             handle.abort();
         }
@@ -407,6 +409,7 @@ impl DataClient for DeribitDataClient {
         };
 
         let mut all_instruments = Vec::new();
+
         for product_type in &product_types {
             let fetched = self
                 .http_client
@@ -1272,6 +1275,7 @@ impl DataClient for DeribitDataClient {
 
         get_runtime().spawn(async move {
             let mut all_instruments = Vec::new();
+
             for product_type in &product_types {
                 log::debug!(
                     "Requesting instruments for currency=ANY, product_type={product_type:?}"

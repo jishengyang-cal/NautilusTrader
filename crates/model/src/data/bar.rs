@@ -235,6 +235,7 @@ pub fn get_time_bar_start(
             }
 
             let months_step = step as u32;
+
             while start_time <= now {
                 start_time =
                     add_n_months(start_time, months_step).expect("Failed to add months in loop");

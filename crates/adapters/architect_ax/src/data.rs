@@ -241,9 +241,11 @@ impl AxDataClient {
 
     fn abort_all_tasks(&mut self) {
         self.cancellation_token.cancel();
+
         for task in self.tasks.drain(..) {
             task.abort();
         }
+
         for (_, task) in self.funding_rate_tasks.drain() {
             task.abort();
         }

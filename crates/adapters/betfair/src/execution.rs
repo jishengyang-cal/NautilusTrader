@@ -756,6 +756,7 @@ impl ExecutionClient for BetfairExecutionClient {
         let keep_alive_client = Arc::clone(&self.http_client);
         let keep_alive_stream = Arc::clone(self.stream_client.as_ref().unwrap());
         let keep_alive_app_key = self.credential.app_key().to_string();
+
         self.keep_alive_handle = Some(get_runtime().spawn(async move {
             let interval = tokio::time::Duration::from_secs(KEEP_ALIVE_INTERVAL_SECS);
             loop {
@@ -794,6 +795,7 @@ impl ExecutionClient for BetfairExecutionClient {
                 let interval = tokio::time::Duration::from_secs(interval_secs);
                 loop {
                     tokio::time::sleep(interval).await;
+
                     match acct_client
                         .send_accounts::<AccountFundsResponse, _>(
                             "AccountAPING/v1.0/getAccountFunds",
@@ -803,6 +805,7 @@ impl ExecutionClient for BetfairExecutionClient {
                     {
                         Ok(funds) => {
                             let ts_init = acct_clock.get_time_ns();
+
                             match parse_account_state(
                                 &funds,
                                 acct_id,
@@ -827,6 +830,7 @@ impl ExecutionClient for BetfairExecutionClient {
         let reconnect_clock = self.clock;
         let reconnect_acct_id = self.core.account_id;
         let reconnect_currency = self.currency;
+
         self.reconnect_handle = Some(get_runtime().spawn(async move {
             while reconnect_rx.recv().await.is_some() {
                 log::info!("Handling execution stream reconnection");
@@ -859,6 +863,7 @@ impl ExecutionClient for BetfairExecutionClient {
                 {
                     Ok(funds) => {
                         let ts_init = reconnect_clock.get_time_ns();
+
                         match parse_account_state(
                             &funds,
                             reconnect_acct_id,
@@ -1801,6 +1806,7 @@ impl ExecutionClient for BetfairExecutionClient {
                 Ok(r) => r,
                 Err(e) => {
                     let ts_event = clock.get_time_ns();
+
                     for (strategy_id, instr_id, client_oid, venue_oid) in &cancel_data {
                         emitter.emit_order_cancel_rejected_event(
                             *strategy_id,
@@ -1822,6 +1828,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
                 if report.instruction_reports.is_none() {
                     let ts_event = clock.get_time_ns();
+
                     for (strategy_id, instr_id, client_oid, venue_oid) in &cancel_data {
                         emitter.emit_order_cancel_rejected_event(
                             *strategy_id,
@@ -2033,6 +2040,7 @@ impl ExecutionClient for BetfairExecutionClient {
                     }
 
                     let ts_event = clock.get_time_ns();
+
                     for (client_oid, strategy_id, _) in &order_snapshots {
                         emitter.emit_order_rejected_event(
                             *strategy_id,
@@ -2054,6 +2062,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
                 if report.instruction_reports.is_none() {
                     let ts_event = clock.get_time_ns();
+
                     for (client_oid, strategy_id, _) in &order_snapshots {
                         emitter.emit_order_rejected_event(
                             *strategy_id,

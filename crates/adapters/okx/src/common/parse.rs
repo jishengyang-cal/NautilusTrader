@@ -1277,6 +1277,7 @@ pub fn okx_bar_type_from_timeframe(
 /// Converts OKX WebSocket channel to bar specification if it's a candle channel.
 pub fn okx_channel_to_bar_spec(channel: &OKXWsChannel) -> Option<BarSpecification> {
     use OKXWsChannel::*;
+
     match channel {
         Candle1Second | MarkPriceCandle1Second => Some(BAR_SPEC_1_SECOND_LAST),
         Candle1Minute | MarkPriceCandle1Minute => Some(BAR_SPEC_1_MINUTE_LAST),

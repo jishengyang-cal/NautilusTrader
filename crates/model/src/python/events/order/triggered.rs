@@ -157,6 +157,7 @@ impl OrderTriggered {
             Some(venue_order_id) => dict.set_item("venue_order_id", venue_order_id.to_string())?,
             None => dict.set_item("venue_order_id", "None")?,
         }
+
         match self.account_id {
             Some(account_id) => dict.set_item("account_id", account_id.to_string())?,
             None => dict.set_item("account_id", "None")?,

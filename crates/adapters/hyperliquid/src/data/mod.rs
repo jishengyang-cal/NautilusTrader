@@ -802,6 +802,7 @@ impl DataClient for HyperliquidDataClient {
                     }
 
                     let bids_len = bids.len();
+
                     for (i, level) in asks.iter().enumerate() {
                         let px: f64 = match level.px.parse() {
                             Ok(v) => v,

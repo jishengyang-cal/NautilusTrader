@@ -1153,6 +1153,7 @@ binance,BTCUSDT,1640995203000000,1640995203100000,trade4,sell,49999.123,3.0";
             assert_eq!(first.bid_counts[i], 1);
             assert_eq!(first.ask_counts[i], 1);
         }
+
         for i in 5..10 {
             assert_eq!(first.bid_counts[i], 0);
             assert_eq!(first.ask_counts[i], 0);

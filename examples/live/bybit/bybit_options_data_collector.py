@@ -212,6 +212,7 @@ class BybitOptionsDataCollector(Strategy):
 
         # Group by expiry and subscribe
         expiry_groups: dict[str, list[Instrument]] = {}
+
         for option in options:
             # Convert expiration_ns to a readable date format for grouping
             from nautilus_trader.core.datetime import unix_nanos_to_dt
@@ -381,6 +382,7 @@ class BybitOptionsDataCollector(Strategy):
         Get expiry groups for logging summary.
         """
         expiry_groups = {}
+
         for instrument_id in self.discovered_options:
             symbol = str(instrument_id.symbol)
             parts = symbol.split("-")

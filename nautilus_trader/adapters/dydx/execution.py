@@ -723,6 +723,7 @@ class DydxExecutionClient(LiveExecutionClient):
         # Collect all open orders into batch list
         assert self._encoder is not None
         batch = []
+
         for order in open_orders:
             client_order_id_u32, _ = self._encoder.encode(str(order.client_order_id))
             if client_order_id_u32 not in self._order_contexts:
@@ -756,6 +757,7 @@ class DydxExecutionClient(LiveExecutionClient):
         # Collect all orders into batch list
         assert self._encoder is not None
         batch = []
+
         for cancel in command.cancels:
             order = self._cache.order(cancel.client_order_id)
             if order is None:

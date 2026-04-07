@@ -1466,6 +1466,7 @@ impl PoolProfiler {
                 .tick_spacing
                 .expect("Pool tick spacing must be set"),
         );
+
         for tick in snapshot.ticks {
             self.tick_map.restore_tick(tick);
         }

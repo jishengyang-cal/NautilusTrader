@@ -518,6 +518,7 @@ def show_rustanalyzer_settings() -> None:
 
     # Set environment variables
     settings: dict[str, object] = {}
+
     for key in [
         "rust-analyzer.check.extraEnv",
         "rust-analyzer.runnables.extraEnv",

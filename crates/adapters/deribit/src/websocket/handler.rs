@@ -1608,6 +1608,7 @@ impl DeribitWsFeedHandler {
                                                 book_msg.instrument_name,
                                                 book_msg.change_id,
                                             );
+
                                             match parse_book_msg(&book_msg, instrument, ts_init) {
                                                 Ok(deltas) => {
                                                     return Some(NautilusWsMessage::Deltas(deltas));

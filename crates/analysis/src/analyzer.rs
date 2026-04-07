@@ -542,6 +542,7 @@ impl PortfolioAnalyzer {
         entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         let mut output = Vec::new();
+
         for (k, v) in entries {
             let padding = max_length.saturating_sub(k.len()) + 1;
             output.push(format!("{}: {}{:.2}", k, " ".repeat(padding), v));
@@ -576,6 +577,7 @@ impl PortfolioAnalyzer {
         entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         let mut output = Vec::new();
+
         for (k, v) in entries {
             let padding = if max_length > k.len() {
                 max_length - k.len() + 1
@@ -616,6 +618,7 @@ impl PortfolioAnalyzer {
         entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
         let mut output = Vec::new();
+
         for (k, v) in entries {
             let padding = max_length - k.len() + 1;
             output.push(format!("{}: {}{}", k, " ".repeat(padding), v));

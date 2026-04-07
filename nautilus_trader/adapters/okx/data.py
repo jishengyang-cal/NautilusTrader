@@ -499,6 +499,7 @@ class OKXDataClient(LiveMarketDataClient):
                 family,
             )
             instruments = []
+
             for pyo3_instrument in pyo3_instruments:
                 self._cache_instrument(pyo3_instrument)  # type: ignore[arg-type]
                 instrument = transform_instrument_from_pyo3(pyo3_instrument)

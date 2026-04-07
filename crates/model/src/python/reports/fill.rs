@@ -219,6 +219,7 @@ impl FillReport {
             Some(id) => dict.set_item("client_order_id", id.to_string())?,
             None => dict.set_item("client_order_id", py.None())?,
         }
+
         match &self.venue_position_id {
             Some(id) => dict.set_item("venue_position_id", id.to_string())?,
             None => dict.set_item("venue_position_id", py.None())?,

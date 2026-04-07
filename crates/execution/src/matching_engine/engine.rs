@@ -1098,6 +1098,7 @@ impl OrderMatchingEngine {
             self.check_price_precision(order.price.precision, "bid price")?;
             self.check_size_precision(order.size.precision, "bid size")?;
         }
+
         for order in &depth.asks {
             if order.side == OrderSide::NoOrderSide || !order.size.is_positive() {
                 continue;
@@ -2097,6 +2098,7 @@ impl OrderMatchingEngine {
             .into_iter()
             .cloned()
             .collect::<Vec<OrderAny>>();
+
         for order in open_orders {
             if command.order_side != OrderSide::NoOrderSide
                 && command.order_side != order.order_side()
@@ -2595,6 +2597,7 @@ impl OrderMatchingEngine {
                 MatchAction::TriggerStop(id) => self.trigger_stop_order(id),
             }
         }
+
         for action in self.core.iterate_asks() {
             match action {
                 MatchAction::FillLimit(id) => self.fill_limit_order(id),
@@ -2986,6 +2989,7 @@ impl OrderMatchingEngine {
                             } else {
                                 order_price
                             };
+
                             for fill in &mut fills {
                                 let last_px = fill.0;
                                 if last_px < order_price {
@@ -3008,6 +3012,7 @@ impl OrderMatchingEngine {
                             } else {
                                 order_price
                             };
+
                             for fill in &mut fills {
                                 let last_px = fill.0;
                                 if last_px > order_price {

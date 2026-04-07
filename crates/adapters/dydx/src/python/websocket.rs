@@ -189,6 +189,7 @@ impl DydxWebSocketClient {
         let call_soon = loop_.getattr(py, "call_soon_threadsafe")?;
 
         let mut instruments_any = Vec::new();
+
         for inst in instruments {
             let inst_any = pyobject_to_instrument_any(py, inst)?;
             instruments_any.push(inst_any);
@@ -861,6 +862,7 @@ impl DydxWebSocketClient {
     #[pyo3(name = "cache_instruments")]
     fn py_cache_instruments(&self, instruments: Vec<Py<PyAny>>, py: Python<'_>) -> PyResult<()> {
         let mut instruments_any = Vec::new();
+
         for inst in instruments {
             let inst_any = pyobject_to_instrument_any(py, inst)?;
             instruments_any.push(inst_any);

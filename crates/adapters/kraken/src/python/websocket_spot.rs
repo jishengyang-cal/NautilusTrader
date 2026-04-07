@@ -180,6 +180,7 @@ impl KrakenSpotWebSocketClient {
         let call_soon: Py<PyAny> = loop_.getattr(py, "call_soon_threadsafe")?;
 
         let instruments_map = Arc::new(AtomicMap::<InstrumentId, InstrumentAny>::new());
+
         for inst in instruments {
             let inst_any = pyobject_to_instrument_any(py, inst)?;
             instruments_map.insert(inst_any.id(), inst_any);

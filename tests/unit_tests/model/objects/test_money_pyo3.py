@@ -247,6 +247,7 @@ class TestMoney:
             (Decimal("-99.99"), USD),
             (Decimal("100.12345678"), USDT),
         ]
+
         for decimal_val, currency in test_values:
             money_from_decimal = Money.from_decimal(decimal_val, currency)
             money_from_str = Money.from_str(f"{decimal_val} {currency.code}")

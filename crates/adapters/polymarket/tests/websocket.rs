@@ -144,6 +144,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<TestServerState>, is_us
 
                     if let Some(ids) = payload.get("assets_ids").and_then(Value::as_array) {
                         let mut assets = state.subscribed_assets.lock().await;
+
                         match payload.get("operation").and_then(Value::as_str) {
                             Some("unsubscribe") => {
                                 for id in ids {

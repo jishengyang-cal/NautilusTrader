@@ -1359,6 +1359,7 @@ fn handle_trade(
     callback: &Py<PyAny>,
 ) {
     let ts_init = clock.get_time_ns();
+
     for trade in &msg.data {
         let Some(instrument) = resolve_instrument(&trade.s, product_type, instruments) else {
             continue;
@@ -1401,6 +1402,7 @@ fn handle_kline(
     };
 
     let ts_init = clock.get_time_ns();
+
     for kline in &msg.data {
         if !kline.confirm {
             continue;
@@ -1553,6 +1555,7 @@ fn handle_account_order(
     callback: &Py<PyAny>,
 ) {
     let ts_init = clock.get_time_ns();
+
     for order in &msg.data {
         let symbol = make_bybit_symbol(order.symbol, order.category);
         let Some(instrument) = instruments.get_cloned(&symbol) else {
@@ -1579,6 +1582,7 @@ fn handle_account_execution(
     callback: &Py<PyAny>,
 ) {
     let ts_init = clock.get_time_ns();
+
     for exec in &msg.data {
         let symbol = make_bybit_symbol(exec.symbol, exec.category);
         let Some(instrument) = instruments.get_cloned(&symbol) else {
@@ -1626,6 +1630,7 @@ fn handle_account_position(
     callback: &Py<PyAny>,
 ) {
     let ts_init = clock.get_time_ns();
+
     for position in &msg.data {
         let symbol = make_bybit_symbol(position.symbol, position.category);
         let Some(instrument) = instruments.get_cloned(&symbol) else {

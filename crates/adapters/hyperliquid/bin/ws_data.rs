@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pin!(sigint);
 
     let mut message_count = 0;
+
     loop {
         tokio::select! {
             Some(message) = client.next_event() => {

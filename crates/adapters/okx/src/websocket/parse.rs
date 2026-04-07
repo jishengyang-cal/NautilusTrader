@@ -6348,6 +6348,7 @@ mod tests {
         subs.insert(call_id);
 
         let mut results = Vec::new();
+
         for msg in &msgs {
             let inst_id_str = format!("{}.OKX", msg.inst_id);
             let instrument_id = InstrumentId::from(inst_id_str.as_str());
@@ -6368,6 +6369,7 @@ mod tests {
         subs.insert(put_id);
 
         let mut results = Vec::new();
+
         for msg in &msgs {
             let inst_id_str = format!("{}.OKX", msg.inst_id);
             let instrument_id = InstrumentId::from(inst_id_str.as_str());
@@ -6397,6 +6399,7 @@ mod tests {
         let subs: AHashSet<InstrumentId> = AHashSet::new();
 
         let mut results = Vec::new();
+
         for msg in &msgs {
             let inst_id_str = format!("{}.OKX", msg.inst_id);
             let instrument_id = InstrumentId::from(inst_id_str.as_str());

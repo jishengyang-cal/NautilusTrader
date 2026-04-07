@@ -509,6 +509,7 @@ class NautilusKernel:
 
         if config.catalogs:
             catalog_name_index = 0
+
             for catalog_config in config.catalogs:
                 catalog = catalog_config.as_catalog()
                 used_catalog_name = catalog_config.name
@@ -1393,6 +1394,7 @@ class NautilusKernel:
     async def _check_engines_disconnected(self) -> bool:
         seconds = self._config.timeout_disconnection
         timeout: timedelta = self._clock.utc_now() + timedelta(seconds=seconds)
+
         while True:
             await asyncio.sleep(0)
 
@@ -1415,6 +1417,7 @@ class NautilusKernel:
         # Thus any delay here will be due to blocking network I/O.
         seconds = self._config.timeout_portfolio
         timeout: timedelta = self._clock.utc_now() + timedelta(seconds=seconds)
+
         while True:
             await asyncio.sleep(0)
 

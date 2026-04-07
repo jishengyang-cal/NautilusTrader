@@ -561,6 +561,7 @@ mod tests {
         let catalogues: Vec<MarketCatalogue> = serde_json::from_str(&data).unwrap();
 
         let mut total = 0;
+
         for cat in &catalogues {
             let instruments =
                 parse_market_catalogue(cat, Currency::GBP(), UnixNanos::default(), None).unwrap();

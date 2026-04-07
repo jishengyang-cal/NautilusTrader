@@ -111,6 +111,7 @@ impl FakeRelativeClock {
 
         let mut prev = self.now.load(Ordering::Acquire);
         let mut next = prev + by;
+
         while let Err(e) =
             self.now
                 .compare_exchange_weak(prev, next, Ordering::Release, Ordering::Relaxed)
@@ -184,6 +185,7 @@ mod test {
         let threads = std::iter::repeat_n((), 10)
             .map(move |()| {
                 let clock = Arc::clone(&clock);
+
                 thread::spawn(move || {
                     for _ in 0..1_000_000 {
                         let now = clock.now();
@@ -193,6 +195,7 @@ mod test {
                 })
             })
             .collect::<Vec<_>>();
+
         for t in threads {
             t.join().unwrap();
         }

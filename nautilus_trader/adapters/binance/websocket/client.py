@@ -183,6 +183,7 @@ class BinanceWebSocketClient:
 
         # Group streams by client (using existing assignments or creating new ones)
         client_streams: dict[int, list[str]] = {}
+
         for stream in self._streams:
             client_id = self._get_client_for_stream(stream)
             if client_id == -1:

@@ -942,6 +942,7 @@ async fn test_exec_client_submit_order_list_demo() {
     client.submit_order_list(&cmd).unwrap();
 
     let mut submitted_count = 0;
+
     for _ in 0..2 {
         let event = tokio::time::timeout(Duration::from_secs(5), rx.recv())
             .await
@@ -1122,6 +1123,7 @@ async fn test_exec_client_submit_order_list_denies_all_on_invalid_leg() {
 
     // Both orders should be denied (not just the invalid one)
     let mut denied_count = 0;
+
     for _ in 0..2 {
         match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
             Ok(Some(ExecutionEvent::Order(ref event)))

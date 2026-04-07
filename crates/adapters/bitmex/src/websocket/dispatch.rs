@@ -265,6 +265,7 @@ pub fn dispatch_ws_message(
             }
             BitmexTableMessage::Margin { data, .. } => {
                 state.margin_subscribed.store(true, Ordering::Relaxed);
+
                 for margin_msg in data {
                     let acct_state = parse_margin_account_state(&margin_msg, ts_init);
                     emitter.send_account_state(acct_state);

@@ -198,6 +198,7 @@ pub fn get_tick_at_sqrt_ratio(sqrt_price_x96: U160) -> i32 {
 
     // 14 iterations to compute the fractional part
     let mut decimals = U256::ZERO;
+
     for i in (50..=63).rev() {
         r = (r * r) >> 127;
         let f = r >> 128;

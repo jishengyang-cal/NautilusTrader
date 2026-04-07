@@ -96,6 +96,7 @@ pub fn check_valid_string_ascii<T: AsRef<str>>(s: T, param: &str) -> anyhow::Res
 
     // Ensure string is only traversed once
     let mut has_non_whitespace = false;
+
     for c in s.chars() {
         if !c.is_whitespace() {
             has_non_whitespace = true;

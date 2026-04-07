@@ -166,12 +166,14 @@ impl PolymarketGammaRawHttpClient {
 fn parse_markets_to_instruments(markets: &[GammaMarket], ts_init: UnixNanos) -> Vec<InstrumentAny> {
     let mut instruments = Vec::new();
     let mut skipped_empty = 0u32;
+
     for market in markets {
         // Markets without CLOB token IDs are not tradeable (resolved, pending, etc.)
         if market.clob_token_ids.is_empty() {
             skipped_empty += 1;
             continue;
         }
+
         match parse_gamma_market(market) {
             Ok(defs) => {
                 for def in defs {
@@ -332,6 +334,7 @@ impl PolymarketGammaHttpClient {
                     slug: Some(slug.clone()),
                     ..Default::default()
                 };
+
                 match inner.get_gamma_markets(params).await {
                     Ok(markets) => Some((slug, markets)),
                     Err(e) => {

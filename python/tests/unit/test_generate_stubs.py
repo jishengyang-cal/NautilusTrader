@@ -665,6 +665,7 @@ def _parse_stub_enum_variants(stub_root: Path) -> dict[str, list[str]]:
 
     for pyi in sorted(stub_root.rglob("*.pyi")):
         current_enum: str | None = None
+
         for line in pyi.read_text().splitlines():
             class_match = STUB_ENUM_CLASS_RE.match(line)
             if class_match:
@@ -717,6 +718,7 @@ def test_stub_enum_variants_match_runtime():
     runtime_enums = _collect_runtime_enum_variants(STUB_ROOT)
 
     mismatches: list[str] = []
+
     for name, runtime_members in sorted(runtime_enums.items()):
         expected_runtime_members = runtime_members
 

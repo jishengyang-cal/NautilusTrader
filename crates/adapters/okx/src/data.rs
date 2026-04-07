@@ -253,6 +253,7 @@ impl OKXDataClient {
                     return;
                 };
                 let ts_init = clock.get_time_ns();
+
                 match parse_book_msg_vec(
                     data,
                     &instrument.id(),
@@ -279,6 +280,7 @@ impl OKXDataClient {
                 // its own inst_id that we resolve per-message.
                 if matches!(channel, OKXWsChannel::OptionSummary) {
                     let ts_init = clock.get_time_ns();
+
                     match serde_json::from_value::<Vec<OKXOptionSummaryMsg>>(data) {
                         Ok(msgs) => {
                             let subs = option_greeks_subs.load();
@@ -292,6 +294,7 @@ impl OKXDataClient {
                                 if !subs.contains(&instrument_id) {
                                     continue;
                                 }
+
                                 match parse_option_summary_greeks(msg, &instrument_id, ts_init) {
                                     Ok(greeks) => {
                                         if let Err(e) =
@@ -339,6 +342,7 @@ impl OKXDataClient {
                             log::warn!("No cached instrument for index ticker symbol: {sym}");
                             continue;
                         };
+
                         match parse_index_price_msg_vec(
                             data.clone(),
                             &instrument.id(),
@@ -749,6 +753,7 @@ impl DataClient for OKXDataClient {
             let greeks_subs = self.option_greeks_subs.clone();
             let cancel = self.cancellation_token.clone();
             let clock = self.clock;
+
             let handle = get_runtime().spawn(async move {
                 let mut instruments_by_symbol: AHashMap<Ustr, InstrumentAny> = insts
                     .load()
@@ -758,6 +763,7 @@ impl DataClient for OKXDataClient {
                 let mut quote_cache = QuoteCache::new();
                 let mut funding_cache: AHashMap<Ustr, (Ustr, u64)> = AHashMap::new();
                 pin_mut!(stream);
+
                 loop {
                     tokio::select! {
                         Some(message) = stream.next() => {
@@ -810,6 +816,7 @@ impl DataClient for OKXDataClient {
             let greeks_subs = self.option_greeks_subs.clone();
             let cancel = self.cancellation_token.clone();
             let clock = self.clock;
+
             let handle = get_runtime().spawn(async move {
                 let mut instruments_by_symbol: AHashMap<Ustr, InstrumentAny> = insts
                     .load()
@@ -819,6 +826,7 @@ impl DataClient for OKXDataClient {
                 let mut quote_cache = QuoteCache::new();
                 let mut funding_cache: AHashMap<Ustr, (Ustr, u64)> = AHashMap::new();
                 pin_mut!(stream);
+
                 loop {
                     tokio::select! {
                         Some(message) = stream.next() => {

@@ -139,6 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "   Open positions: {}",
             subaccount.subaccount.open_perpetual_positions.len()
         );
+
         for pos in subaccount
             .subaccount
             .open_perpetual_positions

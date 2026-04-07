@@ -628,6 +628,7 @@ async fn test_block_height_concurrent_access() {
 
     for i in 1..=10 {
         let bh = Arc::clone(&block_height);
+
         let handle = task::spawn(async move {
             let new_height = 1000 + i * 100;
             bh.store(new_height, Ordering::Relaxed);

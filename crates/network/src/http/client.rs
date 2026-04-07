@@ -81,6 +81,7 @@ impl HttpClient {
 
         // Build default headers
         let mut header_map = HeaderMap::new();
+
         for (key, value) in headers {
             let header_name = HeaderName::from_str(&key)
                 .map_err(|e| HttpClientError::Error(format!("Invalid header name '{key}': {e}")))?;

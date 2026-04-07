@@ -106,6 +106,7 @@ async fn test_data_client_emits_instruments_on_connect() {
     client.connect().await.unwrap();
 
     let mut instrument_count = 0;
+
     while let Ok(event) = rx.try_recv() {
         if matches!(event, DataEvent::Instrument(_)) {
             instrument_count += 1;
@@ -276,6 +277,7 @@ async fn test_mcm_handler_emits_book_deltas() {
     let (mut client, mut rx) = create_test_data_client(addr, stream_port);
 
     let mcm_fixture = load_fixture("stream/mcm_UPDATE.json");
+
     let server = tokio::spawn(async move {
         let (_reader, mut write_half) = accept_and_auth(&listener).await;
 
@@ -319,6 +321,7 @@ async fn test_mcm_handler_emits_trades() {
     let (mut client, mut rx) = create_test_data_client(addr, stream_port);
 
     let mcm_fixture = load_fixture("stream/mcm_UPDATE_tv.json");
+
     let server = tokio::spawn(async move {
         let (_reader, mut write_half) = accept_and_auth(&listener).await;
 
@@ -340,6 +343,7 @@ async fn test_mcm_handler_emits_trades() {
     while rx.try_recv().is_ok() {}
 
     let mut found_trade = false;
+
     for _ in 0..10 {
         match tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {
             Ok(Some(DataEvent::Data(Data::Trade(_)))) => {
@@ -365,6 +369,7 @@ async fn test_data_client_handles_heartbeat_gracefully() {
     let (mut client, mut rx) = create_test_data_client(addr, stream_port);
 
     let heartbeat_fixture = load_fixture("stream/mcm_HEARTBEAT.json");
+
     let server = tokio::spawn(async move {
         let (_reader, mut write_half) = accept_and_auth(&listener).await;
 
@@ -382,6 +387,7 @@ async fn test_data_client_handles_heartbeat_gracefully() {
     });
 
     client.connect().await.unwrap();
+
     while rx.try_recv().is_ok() {}
 
     // Heartbeats should not produce data events
@@ -403,6 +409,7 @@ async fn test_data_client_emits_instrument_status_on_market_definition() {
     let (mut client, mut rx) = create_test_data_client(addr, stream_port);
 
     let md_fixture = load_fixture("stream/mcm_UPDATE_md.json");
+
     let server = tokio::spawn(async move {
         let (_reader, mut write_half) = accept_and_auth(&listener).await;
 
@@ -426,9 +433,11 @@ async fn test_data_client_emits_instrument_status_on_market_definition() {
     });
 
     client.connect().await.unwrap();
+
     while rx.try_recv().is_ok() {}
 
     let mut found_status = false;
+
     for _ in 0..20 {
         match tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {
             Ok(Some(DataEvent::InstrumentStatus(_))) => {
@@ -457,6 +466,7 @@ async fn test_data_client_handles_sub_image_snapshot() {
     let (mut client, mut rx) = create_test_data_client(addr, stream_port);
 
     let sub_image_fixture = load_fixture("stream/mcm_SUB_IMAGE.json");
+
     let server = tokio::spawn(async move {
         let (_reader, mut write_half) = accept_and_auth(&listener).await;
 
@@ -474,10 +484,12 @@ async fn test_data_client_handles_sub_image_snapshot() {
     });
 
     client.connect().await.unwrap();
+
     while rx.try_recv().is_ok() {}
 
     let mut found_deltas = false;
     let mut found_instrument = false;
+
     for _ in 0..30 {
         match tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {
             Ok(Some(DataEvent::Data(Data::Deltas(_)))) => {

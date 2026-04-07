@@ -690,6 +690,7 @@ impl ParquetDataCatalog {
         // Group instruments by concrete type and instrument_id so mixed InstrumentAny
         // inputs are written as separate parquet batches with stable ordering.
         let mut by_type_and_id: BTreeMap<(String, String), Vec<InstrumentAny>> = BTreeMap::new();
+
         for instrument in instruments {
             let instrument_type = Self::instrument_type_name(&instrument).to_string();
             let instrument_id = Instrument::id(&instrument).to_string();
@@ -838,6 +839,7 @@ impl ParquetDataCatalog {
         })?;
 
         let mut instrument_files = Vec::new();
+
         for object in list_result {
             let path_str = object.location.to_string();
             if !path_str.ends_with(".parquet") {
@@ -1307,6 +1309,7 @@ impl ParquetDataCatalog {
             if let Some(ids) = identifiers {
                 let path_components = extract_path_components(&path_str);
                 let mut matches = false;
+
                 for id in ids {
                     if path_components.iter().any(|c| c.contains(id)) {
                         matches = true;
@@ -2523,6 +2526,7 @@ impl ParquetDataCatalog {
         })?;
 
         let mut intervals = Vec::new();
+
         for object in list_result {
             let path_str = object.location.to_string();
             if path_str.ends_with(".parquet")
@@ -3391,6 +3395,7 @@ impl ParquetDataCatalog {
 
         // Read all batches
         let mut batches = Vec::new();
+
         for batch_result in reader {
             let batch = batch_result.map_err(|e| anyhow::anyhow!("Failed to read batch: {e}"))?;
             batches.push(batch);
@@ -3444,6 +3449,7 @@ impl ParquetDataCatalog {
 
         // Process each batch
         let mut all_data = Vec::new();
+
         for mut batch in batches {
             // Handle ts_event/ts_init replacement if requested
             if use_ts_event_for_ts_init {

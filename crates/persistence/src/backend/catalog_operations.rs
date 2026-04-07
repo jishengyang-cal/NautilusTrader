@@ -1144,6 +1144,7 @@ impl ParquetDataCatalog {
         for operation in operations_to_execute {
             // Reset the session before each operation
             self.reset_session();
+
             match operation.operation_type.as_str() {
                 "split_before" => {
                     // Query custom data before the deletion range and write it
@@ -1274,6 +1275,7 @@ impl ParquetDataCatalog {
         let used_end = end.map(|e| e.as_u64());
 
         let mut filtered_intervals = Vec::new();
+
         for &(interval_start, interval_end) in intervals {
             // Check if interval overlaps with the specified range
             if (used_start.is_none() || used_start.unwrap() <= interval_end)
@@ -1742,6 +1744,7 @@ impl ParquetDataCatalog {
 
             // Find leaf directories (directories with files but no subdirectories)
             let mut leaf_dirs = Vec::new();
+
             for dir in &directories {
                 let has_files = files_in_dirs
                     .get(dir)
@@ -1989,6 +1992,7 @@ impl ParquetDataCatalog {
             // Reset the session before each operation to ensure fresh data is loaded
             // This clears any cached table registrations that might interfere with file operations
             self.reset_session();
+
             match operation.operation_type.as_str() {
                 "split_before" => {
                     // Query data before the deletion range and write it

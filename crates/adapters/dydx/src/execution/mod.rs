@@ -135,6 +135,7 @@ fn apply_avg_px_from_fills(order_reports: &mut [OrderStatusReport], fill_reports
         entry.0 += fill.last_px.as_decimal() * qty;
         entry.1 += qty;
     }
+
     for report in order_reports {
         if let Some((notional, total_qty)) = totals.get(&report.venue_order_id)
             && !total_qty.is_zero()
@@ -1415,6 +1416,7 @@ impl ExecutionClient for DydxExecutionClient {
             log::warn!("Cannot submit order list: {reason}");
             // Reject all orders in the list
             let ts_event = self.clock.get_time_ns();
+
             for order in &orders {
                 self.emitter.emit_order_rejected_event(
                     order.strategy_id(),
@@ -1435,6 +1437,7 @@ impl ExecutionClient for DydxExecutionClient {
                 log::error!("Failed to get execution components for batch: {e}");
                 // Reject all orders in the list
                 let ts_event = self.clock.get_time_ns();
+
                 for order in &orders {
                     self.emitter.emit_order_rejected_event(
                         order.strategy_id(),
@@ -1601,6 +1604,7 @@ impl ExecutionClient for DydxExecutionClient {
             );
 
             let order_count = order_params.len();
+
             let handle = get_runtime().spawn(async move {
                 // Build and broadcast all orders concurrently -- no sequence coordination needed.
                 // Short-term orders use cached sequence (not incremented) via broadcast_short_term.
@@ -1692,6 +1696,7 @@ impl ExecutionClient for DydxExecutionClient {
                         log::error!("{error_msg}");
                         // Send OrderRejected for all orders
                         let ts_event = clock.get_time_ns();
+
                         for (client_order_id, instrument_id, strategy_id) in order_info {
                             emitter.emit_order_rejected_event(
                                 strategy_id,
@@ -1718,6 +1723,7 @@ impl ExecutionClient for DydxExecutionClient {
 
                     // Send OrderRejected for all orders in the batch
                     let ts_event = clock.get_time_ns();
+
                     for (client_order_id, instrument_id, strategy_id) in order_info {
                         emitter.emit_order_rejected_event(
                             strategy_id,
@@ -1906,6 +1912,7 @@ impl ExecutionClient for DydxExecutionClient {
                     .broadcast_with_retry(&tx_manager, vec![cancel_msg], &cancel_op)
                     .await
             };
+
             match result {
                 Ok(_) => {
                     log::debug!("Successfully cancelled order: {client_order_id}");
@@ -1989,6 +1996,7 @@ impl ExecutionClient for DydxExecutionClient {
         // Collect (instrument_id, client_id, order_flags) tuples for cancel
         // Use stored order_flags from order context to ensure correct cancellation
         let mut orders_to_cancel = Vec::new();
+
         for (client_order_id, _time_in_force, _expire_time) in &order_data {
             let Some(encoded) = self.encoder.get(client_order_id) else {
                 log::warn!("Cannot cancel order {client_order_id}: not found in encoder");
@@ -2626,6 +2634,7 @@ impl ExecutionClient for DydxExecutionClient {
         // Parse order reports
         let mut order_reports = Vec::new();
         let mut orders_filtered = 0usize;
+
         for order in orders_response {
             let instrument = match self.get_instrument_by_clob_pair_id(order.clob_pair_id) {
                 Some(inst) => inst,
@@ -2666,6 +2675,7 @@ impl ExecutionClient for DydxExecutionClient {
 
         // Parse position reports
         let mut position_reports = Vec::new();
+
         for (market_ticker, perp_position) in
             &subaccount_response.subaccount.open_perpetual_positions
         {
@@ -2690,6 +2700,7 @@ impl ExecutionClient for DydxExecutionClient {
         // Parse fill reports
         let mut fill_reports = Vec::new();
         let mut fills_filtered = 0usize;
+
         for fill in fills_response.fills {
             let instrument = match self.get_instrument_by_market(&fill.market) {
                 Some(inst) => inst,

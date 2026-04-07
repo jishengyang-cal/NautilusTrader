@@ -266,6 +266,7 @@ class HyperliquidDataClient(LiveMarketDataClient):
 
     async def _request_instruments(self, request: RequestInstruments) -> None:
         instruments = []
+
         for instrument_id in request.instrument_ids:
             instrument = self.instrument_provider.find(instrument_id)
             if instrument:

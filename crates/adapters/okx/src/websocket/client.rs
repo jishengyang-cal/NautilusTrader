@@ -610,6 +610,7 @@ impl OKXWebSocketClient {
                             let confirmed_topics_vec: Vec<String> = {
                                 let confirmed = subscriptions_state.confirmed();
                                 let mut topics = Vec::new();
+
                                 for entry in confirmed.iter() {
                                     let channel = entry.key();
                                     for symbol in entry.value() {
@@ -2480,6 +2481,7 @@ impl OKXWebSocketClient {
         )>,
     ) -> Result<(), OKXWsError> {
         let mut args: Vec<Value> = Vec::with_capacity(orders.len());
+
         for (
             inst_type,
             inst_id,
@@ -2994,6 +2996,7 @@ mod tests {
             .request_id_counter
             .load(std::sync::atomic::Ordering::SeqCst);
         let mut ids = Vec::new();
+
         for _ in 0..10 {
             let id = client
                 .request_id_counter

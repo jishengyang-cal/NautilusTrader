@@ -734,6 +734,7 @@ impl ExecutionClient for SandboxExecutionClient {
         }
 
         let account_id = self.core.borrow().account_id;
+
         for order in &orders {
             if order.is_closed() {
                 continue;

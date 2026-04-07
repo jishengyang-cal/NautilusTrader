@@ -271,6 +271,7 @@ class AxExecutionClient(LiveExecutionClient):
             pyo3_reports = await self._http_client.request_order_status_reports(
                 self.pyo3_account_id,
             )
+
             for pyo3_report in pyo3_reports:
                 report = OrderStatusReport.from_pyo3(pyo3_report)
                 self._log.debug(f"Received {report}", LogColor.MAGENTA)
@@ -297,6 +298,7 @@ class AxExecutionClient(LiveExecutionClient):
             pyo3_reports = await self._http_client.request_fill_reports(
                 self.pyo3_account_id,
             )
+
             for pyo3_report in pyo3_reports:
                 report = FillReport.from_pyo3(pyo3_report)
                 self._log.debug(f"Received {report}", LogColor.MAGENTA)
@@ -319,6 +321,7 @@ class AxExecutionClient(LiveExecutionClient):
             pyo3_reports = await self._http_client.request_position_reports(
                 self.pyo3_account_id,
             )
+
             for pyo3_report in pyo3_reports:
                 report = PositionStatusReport.from_pyo3(pyo3_report)
                 self._log.info(

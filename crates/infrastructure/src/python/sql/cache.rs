@@ -92,6 +92,7 @@ impl PostgresCacheDatabase {
             let result = DatabaseQueries::load_instrument(&self.pool, &instrument_id)
                 .await
                 .unwrap();
+
             match result {
                 Some(instrument) => {
                     let py_object = instrument_any_to_pyobject(py, instrument)?;
@@ -107,6 +108,7 @@ impl PostgresCacheDatabase {
         get_runtime().block_on(async {
             let result = DatabaseQueries::load_instruments(&self.pool).await.unwrap();
             let mut instruments = Vec::new();
+
             for instrument in result {
                 let py_object = instrument_any_to_pyobject(py, instrument)?;
                 instruments.push(py_object);
@@ -125,6 +127,7 @@ impl PostgresCacheDatabase {
             let result = DatabaseQueries::load_order(&self.pool, &client_order_id)
                 .await
                 .unwrap();
+
             match result {
                 Some(order) => {
                     let py_object = order_any_to_pyobject(py, order)?;
@@ -141,6 +144,7 @@ impl PostgresCacheDatabase {
             let result = DatabaseQueries::load_account(&self.pool, &account_id)
                 .await
                 .unwrap();
+
             match result {
                 Some(account) => {
                     let py_object = account_any_to_pyobject(py, account)?;
@@ -158,6 +162,7 @@ impl PostgresCacheDatabase {
                 .await
                 .unwrap();
             let mut quotes = Vec::new();
+
             for quote in result {
                 let py_object = quote.into_py_any(py)?;
                 quotes.push(py_object);
@@ -173,6 +178,7 @@ impl PostgresCacheDatabase {
                 .await
                 .unwrap();
             let mut trades = Vec::new();
+
             for trade in result {
                 let py_object = trade.into_py_any(py)?;
                 trades.push(py_object);
@@ -188,6 +194,7 @@ impl PostgresCacheDatabase {
                 .await
                 .unwrap();
             let mut bars = Vec::new();
+
             for bar in result {
                 let py_object = bar.into_py_any(py)?;
                 bars.push(py_object);

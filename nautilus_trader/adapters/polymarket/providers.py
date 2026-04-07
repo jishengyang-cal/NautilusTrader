@@ -157,6 +157,7 @@ class PolymarketInstrumentProvider(InstrumentProvider):
 
     def _load_instruments_from_event(self, event: dict[str, Any]) -> int:
         count = 0
+
         for market in event.get("markets", []):
             condition_id = market.get("conditionId")
             if not condition_id:

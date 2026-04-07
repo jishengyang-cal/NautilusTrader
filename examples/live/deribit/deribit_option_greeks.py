@@ -55,6 +55,7 @@ class OptionGreeksTester(Actor):
 
         # Filter for CALL options on the target underlying
         call_options = []
+
         for inst in instruments:
             symbol = str(inst.id.symbol)
             if not symbol.startswith(f"{self._underlying}-"):
@@ -74,6 +75,7 @@ class OptionGreeksTester(Actor):
         to_subscribe = call_options[: self._max_subscriptions]
 
         client_id = ClientId(DERIBIT)
+
         for inst in to_subscribe:
             self.log.info(f"Subscribing to greeks: {inst.id}")
             self.subscribe_option_greeks(inst.id, client_id=client_id)

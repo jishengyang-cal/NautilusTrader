@@ -1256,6 +1256,7 @@ impl BinanceFuturesHttpClient {
                     .inner
                     .get("exchangeInfo", None::<&()>, false, false)
                     .await?;
+
                 for symbol in info.symbols {
                     self.instruments
                         .insert(symbol.symbol, BinanceFuturesInstrument::UsdM(symbol));
@@ -1266,6 +1267,7 @@ impl BinanceFuturesHttpClient {
                     .inner
                     .get("exchangeInfo", None::<&()>, false, false)
                     .await?;
+
                 for symbol in info.symbols {
                     self.instruments
                         .insert(symbol.symbol, BinanceFuturesInstrument::CoinM(symbol));
@@ -1301,6 +1303,7 @@ impl BinanceFuturesHttpClient {
                     .inner
                     .get("exchangeInfo", None::<&()>, false, false)
                     .await?;
+
                 for symbol in &info.symbols {
                     statuses.insert(symbol.symbol, MarketStatusAction::from(symbol.status));
                 }
@@ -1310,6 +1313,7 @@ impl BinanceFuturesHttpClient {
                     .inner
                     .get("exchangeInfo", None::<&()>, false, false)
                     .await?;
+
                 for symbol in &info.symbols {
                     let action = symbol
                         .contract_status

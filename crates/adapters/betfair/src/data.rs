@@ -260,6 +260,7 @@ impl BetfairDataClient {
                                             m.insert(inst.id(), inst.clone());
                                         }
                                     });
+
                                     for inst in new_instruments {
                                         if let Err(e) =
                                             data_sender.send(DataEvent::Instrument(inst))
@@ -307,6 +308,7 @@ impl BetfairDataClient {
 
                                 if let Some(trades) = &rc.trd {
                                     let mut volumes = traded_volumes.lock().unwrap();
+
                                     for pv in trades {
                                         if pv.volume == Decimal::ZERO {
                                             continue;
@@ -694,6 +696,7 @@ impl DataClient for BetfairDataClient {
         let keep_alive_stream = Arc::clone(self.stream_client.as_ref().unwrap());
         let keep_alive_race_stream = self.race_stream_client.as_ref().map(Arc::clone);
         let keep_alive_app_key = self.credential.app_key().to_string();
+
         self.keep_alive_handle = Some(get_runtime().spawn(async move {
             let interval = tokio::time::Duration::from_secs(KEEP_ALIVE_INTERVAL_SECS);
             loop {
@@ -730,6 +733,7 @@ impl DataClient for BetfairDataClient {
         let reconnect_stream = Arc::clone(self.stream_client.as_ref().unwrap());
         let reconnect_race_stream = self.race_stream_client.as_ref().map(Arc::clone);
         let reconnect_app_key = self.credential.app_key().to_string();
+
         self.reconnect_handle = Some(get_runtime().spawn(async move {
             while reconnect_rx.recv().await.is_some() {
                 log::info!("Handling data stream reconnection");

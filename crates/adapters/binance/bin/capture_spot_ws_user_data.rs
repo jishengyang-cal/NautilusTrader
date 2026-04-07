@@ -305,6 +305,7 @@ async fn main() -> anyhow::Result<()> {
     if !early_frames.is_empty() {
         println!("Processing {} early binary frames...", early_frames.len());
     }
+
     for data in early_frames {
         capture_binary_frame(&data, &output_root, &mut counts, &mut fixtures)?;
     }

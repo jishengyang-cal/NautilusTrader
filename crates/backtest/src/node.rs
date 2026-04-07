@@ -291,6 +291,7 @@ fn validate_configs(configs: &[BacktestRunConfig]) -> anyhow::Result<()> {
     );
 
     let mut seen_ids = AHashSet::new();
+
     for config in configs {
         anyhow::ensure!(
             seen_ids.insert(config.id()),
@@ -411,6 +412,7 @@ fn stream_chunks<I: Iterator<Item = Data>>(
     }
 
     let mut next_start = config.start();
+
     loop {
         let chunk = take_aligned_chunk(&mut iter, chunk_size);
         if chunk.is_empty() {
@@ -463,6 +465,7 @@ fn take_aligned_chunk<I: Iterator<Item = Data>>(
 
 fn load_and_merge_data(config: &BacktestRunConfig) -> anyhow::Result<Vec<Data>> {
     let mut all_data = Vec::new();
+
     for data_config in config.data() {
         let data = load_data(data_config, config.start(), config.end())?;
         if data.is_empty() {

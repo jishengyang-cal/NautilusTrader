@@ -337,6 +337,7 @@ class SpotSwapQuoter(Strategy):
                 instrument_id=self.config.spot_instrument_id,
                 strategy_id=self.id,
             )
+
             for position in spot_positions:
                 if position.side == PositionSide.SHORT:
                     # SHORT positions require BUY to close

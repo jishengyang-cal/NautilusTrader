@@ -1335,6 +1335,7 @@ impl KrakenFuturesHttpClient {
             .await?;
 
         let mut bars = Vec::new();
+
         for candle in response.candles {
             let ohlc = OhlcData {
                 time: candle.time / 1000,
@@ -2271,6 +2272,7 @@ impl KrakenFuturesHttpClient {
                             .batch_status
                             .first()
                             .map_or("Unknown error", |s| s.status.as_str());
+
                         for _ in 0..chunk.len() {
                             batch_statuses.push(FuturesSendStatus {
                                 order_id: None,

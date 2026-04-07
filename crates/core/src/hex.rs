@@ -113,6 +113,7 @@ pub fn decode_array<const N: usize>(data: impl AsRef<[u8]>) -> Result<[u8; N], D
         });
     }
     let mut out = [0u8; N];
+
     for (i, pair) in hex.chunks_exact(2).enumerate() {
         let hi = DECODE_NIBBLE[pair[0] as usize];
         let lo = DECODE_NIBBLE[pair[1] as usize];

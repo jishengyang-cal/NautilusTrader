@@ -1505,6 +1505,7 @@ impl DataEngine {
 
         // Remove instrument from interval tracking, and drop empty intervals
         let mut to_remove = Vec::new();
+
         for (interval, set) in &mut self.book_intervals {
             if set.remove(&cmd.instrument_id) && set.is_empty() {
                 to_remove.push(*interval);

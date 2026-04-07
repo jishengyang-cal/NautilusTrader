@@ -489,6 +489,7 @@ impl FeatherWriter {
     /// its current buffer size and file path.
     pub fn get_current_file_info(&self) -> HashMap<String, (u64, String)> {
         let mut info = HashMap::new();
+
         for (path, buffer) in &self.writers {
             let key = match &path.instrument_id {
                 Some(id) => format!("{}:{}", path.type_str, id),

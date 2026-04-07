@@ -230,6 +230,7 @@ impl HyperliquidWebSocketClient {
                     "Resubscribing to {} active subscriptions after reconnection",
                     topics.len()
                 );
+
                 for topic in topics {
                     match subscription_from_topic(&topic) {
                         Ok(subscription) => {
@@ -247,6 +248,7 @@ impl HyperliquidWebSocketClient {
                     }
                 }
             };
+
             loop {
                 match handler.next().await {
                     Some(NautilusWsMessage::Reconnected) => {
@@ -352,6 +354,7 @@ impl HyperliquidWebSocketClient {
     /// - Spot uses @{pair_index} format (e.g., "@107") or slash format for PURR
     pub fn cache_instruments(&mut self, instruments: Vec<InstrumentAny>) {
         let mut map = AHashMap::new();
+
         for inst in instruments {
             let coin = inst.raw_symbol().inner();
             map.insert(coin, inst);

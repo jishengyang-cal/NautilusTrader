@@ -318,6 +318,7 @@ impl SocketClient {
                     let fallback_interval = Duration::from_millis(100);
 
                     log::debug!("Waiting for client to become ACTIVE before sending (2s)...");
+
                     match tokio::time::timeout(timeout, async {
                         loop {
                             let notified = state_notify.notified();

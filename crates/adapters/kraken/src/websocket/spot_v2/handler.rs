@@ -462,6 +462,7 @@ mod tests {
             result.is_some(),
             "Ticker message should pass with quotes subscription"
         );
+
         match result.unwrap() {
             KrakenSpotWsMessage::Ticker(data) => {
                 assert!(!data.is_empty(), "Should have ticker data");
@@ -500,6 +501,7 @@ mod tests {
             result.is_some(),
             "Ticker message should pass with ticker: subscription"
         );
+
         match result.unwrap() {
             KrakenSpotWsMessage::Ticker(data) => {
                 assert!(!data.is_empty(), "Should have ticker data");
@@ -552,6 +554,7 @@ mod tests {
             result.is_some(),
             "Book message should pass with book subscription"
         );
+
         match result.unwrap() {
             KrakenSpotWsMessage::Book { data, is_snapshot } => {
                 assert!(!data.is_empty());

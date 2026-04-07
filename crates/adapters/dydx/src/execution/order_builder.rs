@@ -490,6 +490,7 @@ impl OrderMessageBuilder {
     ) -> Result<Any, DydxError> {
         // Group client_ids by clob_pair_id
         let mut clob_groups: HashMap<u32, Vec<u32>> = HashMap::new();
+
         for (instrument_id, client_order_id) in orders {
             let market_params = self.get_market_params(*instrument_id)?;
             clob_groups

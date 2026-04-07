@@ -2214,6 +2214,7 @@ impl<'a> FromCapnp<'a> for OrderBookDepth10 {
         // Convert bids (BookLevel list to BookOrder array)
         let bids_reader = reader.get_bids()?;
         let mut bids = [NULL_ORDER; 10];
+
         for (i, level_reader) in bids_reader.iter().enumerate().take(10) {
             let price_reader = level_reader.get_price()?;
             let price = Price::from_capnp(price_reader)?;
@@ -2227,6 +2228,7 @@ impl<'a> FromCapnp<'a> for OrderBookDepth10 {
         // Convert asks (BookLevel list to BookOrder array)
         let asks_reader = reader.get_asks()?;
         let mut asks = [NULL_ORDER; 10];
+
         for (i, level_reader) in asks_reader.iter().enumerate().take(10) {
             let price_reader = level_reader.get_price()?;
             let price = Price::from_capnp(price_reader)?;

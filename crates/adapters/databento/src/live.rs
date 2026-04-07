@@ -335,6 +335,7 @@ impl DatabentoFeedHandler {
                 "Processing {} buffered commands",
                 self.buffered_commands.len()
             );
+
             for cmd in self.buffered_commands.drain(..) {
                 match cmd {
                     HandlerCommand::Subscribe(sub) => {
@@ -361,6 +362,7 @@ impl DatabentoFeedHandler {
                 "Resubscribing to {} subscriptions",
                 self.subscriptions.len()
             );
+
             for sub in self.subscriptions.clone() {
                 client.subscribe(sub).await?;
             }

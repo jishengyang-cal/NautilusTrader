@@ -933,6 +933,7 @@ fn create_config_instance<'py>(
 
     // Convert config dict to Python dict
     let py_dict = PyDict::new(py);
+
     for (key, value) in config {
         let json_str = serde_json::to_string(value)
             .map_err(|e| anyhow::anyhow!("Failed to serialize config value: {e}"))?;

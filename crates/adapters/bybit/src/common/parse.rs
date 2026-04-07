@@ -695,6 +695,7 @@ pub fn parse_orderbook(
     for level in &result.b {
         push_level(level, OrderSide::Buy)?;
     }
+
     for level in &result.a {
         push_level(level, OrderSide::Sell)?;
     }
@@ -1295,6 +1296,7 @@ pub fn trigger_direction(
     if !is_stop_order {
         return None;
     }
+
     match (order_type, order_side) {
         (OrderType::StopMarket | OrderType::StopLimit, OrderSide::Buy) => {
             Some(BybitTriggerDirection::RisesTo)
@@ -1327,6 +1329,7 @@ pub fn map_time_in_force(
     if post_only == Some(true) {
         return Ok(Some(BybitTimeInForce::PostOnly));
     }
+
     match time_in_force {
         Some(TimeInForce::Gtc) => Ok(Some(BybitTimeInForce::Gtc)),
         Some(TimeInForce::Ioc) => Ok(Some(BybitTimeInForce::Ioc)),

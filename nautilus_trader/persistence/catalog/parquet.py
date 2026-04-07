@@ -1701,6 +1701,7 @@ class ParquetDataCatalog(BaseDataCatalog):
         # Gather data (chunks are either PyCapsule for built-in types
         # or list for custom data types returned as pyo3 CustomData)
         data = []
+
         for chunk in result:
             if isinstance(chunk, list):
                 for item in chunk:

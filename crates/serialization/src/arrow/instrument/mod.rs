@@ -99,6 +99,7 @@ impl EncodeToRecordBatch for InstrumentAny {
         }
 
         let mut by_type: HashMap<String, Vec<&Self>> = HashMap::new();
+
         for instrument in data {
             let type_name = match instrument {
                 Self::Cfd(_) => "Cfd",

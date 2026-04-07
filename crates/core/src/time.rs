@@ -305,6 +305,7 @@ impl AtomicTime {
         // This method guarantees strict consistency but may incur a performance cost under
         // high contention due to retries in the `compare_exchange` loop.
         let now = nanos_since_unix_epoch();
+
         loop {
             // Acquire to observe the latest stored value
             let last = self.load(Ordering::Acquire);

@@ -439,6 +439,7 @@ async fn test_subscribe_after_close_returns_error() {
                     r#"{"op":"connection","connectionId":"sc-err"}"#,
                 )
                 .await;
+
                 loop {
                     let line = read_line(&mut reader).await;
                     if line.is_empty() {

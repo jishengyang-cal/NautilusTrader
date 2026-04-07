@@ -180,60 +180,72 @@ impl OrderInitialized {
             Some(price) => dict.set_item("price", price.to_string())?,
             None => dict.set_item("price", py.None())?,
         }
+
         match self.trigger_price {
             Some(trigger_price) => dict.set_item("trigger_price", trigger_price.to_string())?,
             None => dict.set_item("trigger_price", py.None())?,
         }
+
         match self.trigger_type {
             Some(trigger_type) => dict.set_item("trigger_type", trigger_type.to_string())?,
             None => dict.set_item("trigger_type", py.None())?,
         }
+
         match self.limit_offset {
             Some(limit_offset) => dict.set_item("limit_offset", limit_offset.to_string())?,
             None => dict.set_item("limit_offset", py.None())?,
         }
+
         match self.trailing_offset {
             Some(trailing_offset) => {
                 dict.set_item("trailing_offset", trailing_offset.to_string())?;
             }
             None => dict.set_item("trailing_offset", py.None())?,
         }
+
         match self.trailing_offset_type {
             Some(trailing_offset_type) => {
                 dict.set_item("trailing_offset_type", trailing_offset_type.to_string())?;
             }
             None => dict.set_item("trailing_offset_type", py.None())?,
         }
+
         match self.expire_time {
             Some(expire_time) => dict.set_item("expire_time", expire_time.as_u64())?,
             None => dict.set_item("expire_time", py.None())?,
         }
+
         match self.display_qty {
             Some(display_qty) => dict.set_item("display_qty", display_qty.to_string())?,
             None => dict.set_item("display_qty", py.None())?,
         }
+
         match self.emulation_trigger {
             Some(emulation_trigger) => {
                 dict.set_item("emulation_trigger", emulation_trigger.to_string())?;
             }
             None => dict.set_item("emulation_trigger", py.None())?,
         }
+
         match self.trigger_instrument_id {
             Some(trigger_instrument_id) => {
                 dict.set_item("trigger_instrument_id", trigger_instrument_id.to_string())?;
             }
             None => dict.set_item("trigger_instrument_id", py.None())?,
         }
+
         match self.contingency_type {
             Some(contingency_type) => {
                 dict.set_item("contingency_type", contingency_type.to_string())?;
             }
             None => dict.set_item("contingency_type", py.None())?,
         }
+
         match self.order_list_id {
             Some(order_list_id) => dict.set_item("order_list_id", order_list_id.to_string())?,
             None => dict.set_item("order_list_id", py.None())?,
         }
+
         match &self.linked_order_ids {
             Some(linked_order_ids) => {
                 let py_linked_order_ids = PyList::empty(py);
@@ -244,18 +256,21 @@ impl OrderInitialized {
             }
             None => dict.set_item("linked_order_ids", py.None())?,
         }
+
         match self.parent_order_id {
             Some(parent_order_id) => {
                 dict.set_item("parent_order_id", parent_order_id.to_string())?;
             }
             None => dict.set_item("parent_order_id", py.None())?,
         }
+
         match self.exec_algorithm_id {
             Some(exec_algorithm_id) => {
                 dict.set_item("exec_algorithm_id", exec_algorithm_id.to_string())?;
             }
             None => dict.set_item("exec_algorithm_id", py.None())?,
         }
+
         match &self.exec_algorithm_params {
             Some(exec_algorithm_params) => {
                 let py_exec_algorithm_params = PyDict::new(py);
@@ -266,10 +281,12 @@ impl OrderInitialized {
             }
             None => dict.set_item("exec_algorithm_params", py.None())?,
         }
+
         match self.exec_spawn_id {
             Some(exec_spawn_id) => dict.set_item("exec_spawn_id", exec_spawn_id.to_string())?,
             None => dict.set_item("exec_spawn_id", py.None())?,
         }
+
         match &self.tags {
             Some(tags) => dict.set_item(
                 "tags",

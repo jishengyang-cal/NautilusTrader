@@ -571,6 +571,7 @@ class OKXExecutionClient(LiveExecutionClient):
         pyo3_instrument_id: nautilus_pyo3.InstrumentId,
     ) -> OrderStatusReport | None:
         fallback_ids: list[ClientOrderId] = []
+
         for candidate in (
             canonical_requested_id,
             self._exchange_client_order_id(command.client_order_id),
@@ -580,6 +581,7 @@ class OKXExecutionClient(LiveExecutionClient):
                 fallback_ids.append(candidate)
 
         algo_ids: set[str] = set()
+
         for candidate in fallback_ids:
             candidate_report = await self._fetch_algo_order_status_report(
                 candidate,
@@ -659,6 +661,7 @@ class OKXExecutionClient(LiveExecutionClient):
                 instrument_id=pyo3_instrument_id,
                 algo_id=algo_id,
             )
+
             for algo_report in algo_reports:
                 algo_report = self._hydrate_zero_quantity_algo_report(algo_report)
                 report = OrderStatusReport.from_pyo3(algo_report)
@@ -1118,6 +1121,7 @@ class OKXExecutionClient(LiveExecutionClient):
             self._clear_attached_oco_binding(
                 parent_order.client_order_id if "parent_order" in locals() else None,
             )
+
             for order in order_list.orders:
                 self.generate_order_rejected(
                     strategy_id=order.strategy_id,
@@ -1276,6 +1280,7 @@ class OKXExecutionClient(LiveExecutionClient):
 
         sl_order: Order | None = None
         tp_order: Order | None = None
+
         for child_order in child_orders:
             self._validate_attached_bracket_child(
                 parent_order=parent_order,
@@ -2262,6 +2267,7 @@ class OKXExecutionClient(LiveExecutionClient):
             return [venue_report]
 
         reports: list[OrderStatusReport] = []
+
         for child_client_order_id in child_client_order_ids:
             child_order = self._cache.order(child_client_order_id)
             if child_order is None or not self._is_conditional_order(child_order):

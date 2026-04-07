@@ -173,6 +173,7 @@ async fn test_exec_client_emits_account_state_on_connect() {
 
     // The connect flow calls request_account_state and emits via the channel
     let mut found_account = false;
+
     while let Ok(event) = rx.try_recv() {
         if matches!(event, ExecutionEvent::Account(_)) {
             found_account = true;

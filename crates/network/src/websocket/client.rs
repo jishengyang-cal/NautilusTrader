@@ -294,6 +294,7 @@ impl WebSocketClientInner {
         let req_headers = request.headers_mut();
 
         let mut header_names: Vec<HeaderName> = Vec::new();
+
         for (key, val) in headers {
             let header_value = HeaderValue::from_str(&val)?;
             let header_name: HeaderName = key.parse()?;
@@ -331,6 +332,7 @@ impl WebSocketClientInner {
         let req_headers = request.headers_mut();
 
         let mut header_names: Vec<HeaderName> = Vec::new();
+
         for (key, val) in headers {
             let header_value = HeaderValue::from_str(&val)?;
             let header_name: HeaderName = key.parse()?;
@@ -1761,6 +1763,7 @@ mod tests {
         let client = Arc::new(setup_test_client(server.port).await);
 
         let mut handles = vec![];
+
         for i in 0..10 {
             let client = client.clone();
             handles.push(task::spawn(async move {
@@ -2715,6 +2718,7 @@ mod rust_tests {
         let server = task::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut ws = accept_async(stream).await.unwrap();
+
             for _ in 0..10 {
                 sleep(Duration::from_millis(200)).await;
 

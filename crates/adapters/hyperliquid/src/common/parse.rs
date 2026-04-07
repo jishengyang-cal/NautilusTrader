@@ -110,22 +110,27 @@ pub fn make_fill_trade_id(
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
+
     for b in oid.to_le_bytes() {
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
+
     for &b in px.as_bytes() {
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
+
     for &b in sz.as_bytes() {
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
+
     for b in time.to_le_bytes() {
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
+
     for &b in start_position.as_bytes() {
         h ^= b as u64;
         h = h.wrapping_mul(0x0100_0000_01b3);
@@ -606,6 +611,7 @@ pub fn extract_inner_errors(response: &HyperliquidExchangeResponse) -> Vec<Optio
     let Ok(data) = serde_json::from_value::<HyperliquidExecResponseData>(response.clone()) else {
         return Vec::new();
     };
+
     match data {
         HyperliquidExecResponseData::Order { data } => data
             .statuses

@@ -412,6 +412,7 @@ impl BookLadder {
         // Rebuild cache from remaining level (necessary for L1 where
         // all orders use the same order_id and remove_level would corrupt cache)
         self.cache.clear();
+
         for (book_price, level) in &self.levels {
             for order_id in level.orders.keys() {
                 self.cache.insert(*order_id, *book_price);
@@ -1766,6 +1767,7 @@ mod tests {
         );
 
         let mut snapshot_ladder = BookLadder::new(OrderSideSpecified::Buy, BookType::L1_MBP);
+
         for (i, price_str) in prices.iter().enumerate() {
             let order = BookOrder {
                 side: OrderSide::Buy,

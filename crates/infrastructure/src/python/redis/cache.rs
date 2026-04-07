@@ -79,6 +79,7 @@ impl RedisCacheDatabase {
         let result = get_runtime().block_on(async {
             DatabaseQueries::load_all(&self.con, self.get_encoding(), self.get_trader_key()).await
         });
+
         match result {
             Ok(cache_map) => Python::attach(|py| {
                 let dict = PyDict::new(py);

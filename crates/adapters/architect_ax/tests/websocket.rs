@@ -123,6 +123,7 @@ async fn handle_md_socket(mut socket: WebSocket, state: TestServerState) {
     }
 
     let state_clone = state.clone();
+
     let heartbeat_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {

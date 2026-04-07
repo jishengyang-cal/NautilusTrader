@@ -559,6 +559,7 @@ impl BinanceFuturesDataClient {
                     buffers.rcu(|m| {
                         taken = Vec::new();
                         should_return = false;
+
                         match m.get_mut(&instrument_id) {
                             Some(buffer) if buffer.epoch == epoch => {
                                 taken = std::mem::take(&mut buffer.updates);
@@ -644,6 +645,7 @@ impl BinanceFuturesDataClient {
                         buffers.rcu(|m| {
                             taken = Vec::new();
                             should_break = false;
+
                             match m.get_mut(&instrument_id) {
                                 Some(buffer) if buffer.epoch == epoch => {
                                     if buffer.updates.is_empty() {
@@ -945,6 +947,7 @@ impl DataClient for BinanceFuturesDataClient {
 
         let handle = get_runtime().spawn(async move {
             pin_mut!(stream);
+
             loop {
                 tokio::select! {
                     Some(message) = stream.next() => {
@@ -999,6 +1002,7 @@ impl DataClient for BinanceFuturesDataClient {
                                         .collect();
 
                                     let mut new_statuses = AHashMap::new();
+
                                     for (raw_symbol, action) in &symbol_statuses {
                                         if let Some(&id) = raw_to_id.get(raw_symbol) {
                                             new_statuses.insert(id, *action);

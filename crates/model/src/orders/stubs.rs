@@ -532,6 +532,7 @@ impl TestOrdersGenerator {
 
     pub fn build(&self) -> Vec<OrderAny> {
         let mut orders = Vec::new();
+
         for (venue, total_instruments) in &self.venue_instruments {
             for i in 0..*total_instruments {
                 let instrument_id = InstrumentId::from(format!("SYMBOL-{i}.{venue}"));
@@ -553,6 +554,7 @@ pub fn create_order_list_sample(
     // Create Limit orders list from order generator with spec:
     // x venues * x instruments * x orders per instrument
     let mut order_generator = TestOrdersGenerator::new(OrderType::Limit);
+
     for i in 0..total_venues {
         let venue = Venue::from(format!("VENUE-{i}"));
         order_generator.add_venue_and_total_instruments(venue, total_instruments);

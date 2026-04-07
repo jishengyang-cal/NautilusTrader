@@ -2294,6 +2294,7 @@ impl BybitHttpClient {
 
         // Query each order to get full details after cancellation
         let mut reports = Vec::new();
+
         for (instrument_id, (client_order_id, venue_order_id)) in instrument_ids
             .iter()
             .zip(client_order_ids.iter().zip(venue_order_ids.iter()))
@@ -2390,6 +2391,7 @@ impl BybitHttpClient {
         let ts_init = self.generate_ts_init();
 
         let mut reports = Vec::new();
+
         for order in order_response.result.list {
             if let Ok(report) = parse_order_status_report(&order, &instrument, account_id, ts_init)
             {
@@ -2675,6 +2677,7 @@ impl BybitHttpClient {
         let Ok(params) = fee_params.build() else {
             return Ok(AHashMap::new());
         };
+
         match self.inner.get_fee_rate(&params).await {
             Ok(response) => Ok(response
                 .result
@@ -2705,6 +2708,7 @@ impl BybitHttpClient {
         let Ok(params) = fee_params.build() else {
             return Ok(AHashMap::new());
         };
+
         match self.inner.get_fee_rate(&params).await {
             Ok(response) => Ok(response
                 .result
@@ -2805,6 +2809,7 @@ impl BybitHttpClient {
                 BybitProductType::Spot => {
                     let response: BybitCursorListResponse<BybitInstrumentSpot> =
                         self.inner.get_instruments(&params).await?;
+
                     for def in &response.result.list {
                         let symbol = make_bybit_symbol(def.symbol, product_type);
                         let id = InstrumentId::new(Symbol::from(symbol), *BYBIT_VENUE);
@@ -2815,6 +2820,7 @@ impl BybitHttpClient {
                 BybitProductType::Linear => {
                     let response: BybitCursorListResponse<BybitInstrumentLinear> =
                         self.inner.get_instruments(&params).await?;
+
                     for def in &response.result.list {
                         let symbol = make_bybit_symbol(def.symbol, product_type);
                         let id = InstrumentId::new(Symbol::from(symbol), *BYBIT_VENUE);
@@ -2825,6 +2831,7 @@ impl BybitHttpClient {
                 BybitProductType::Inverse => {
                     let response: BybitCursorListResponse<BybitInstrumentInverse> =
                         self.inner.get_instruments(&params).await?;
+
                     for def in &response.result.list {
                         let symbol = make_bybit_symbol(def.symbol, product_type);
                         let id = InstrumentId::new(Symbol::from(symbol), *BYBIT_VENUE);
@@ -2835,6 +2842,7 @@ impl BybitHttpClient {
                 BybitProductType::Option => {
                     let response: BybitCursorListResponse<BybitInstrumentOption> =
                         self.inner.get_instruments(&params).await?;
+
                     for def in &response.result.list {
                         let symbol = make_bybit_symbol(def.symbol, product_type);
                         let id = InstrumentId::new(Symbol::from(symbol), *BYBIT_VENUE);
@@ -3758,6 +3766,7 @@ impl BybitHttpClient {
         let ts_init = self.generate_ts_init();
 
         let mut reports = Vec::new();
+
         for order in all_collected_orders {
             if let Some(ref instrument_id) = instrument_id {
                 let instrument = self.instrument_from_cache(&instrument_id.symbol)?;

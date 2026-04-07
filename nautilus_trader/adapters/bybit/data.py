@@ -606,6 +606,7 @@ class BybitDataClient(LiveMarketDataClient):
 
                 # Accumulate statuses from all product types before diffing
                 all_statuses: dict[InstrumentId, MarketStatusAction] = {}
+
                 for product_type in self._product_types:
                     try:
                         new_statuses = await self._http_client.request_instrument_statuses(

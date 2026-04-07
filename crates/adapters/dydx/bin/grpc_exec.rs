@@ -644,6 +644,7 @@ async fn test_duplicate_cancel(
     log::info!("First cancel succeeded");
 
     tokio::time::sleep(Duration::from_secs(1)).await;
+
     match cancel_order_by_client_id(
         grpc, account, http, address, client_id, "BTC-USD", is_mainnet,
     )
@@ -719,6 +720,7 @@ async fn test_batch_cancel(
 
     // Place 5 orders on BTC
     let mut client_ids = Vec::new();
+
     for i in 0..5 {
         let client_id = generate_client_id();
         client_ids.push(client_id);

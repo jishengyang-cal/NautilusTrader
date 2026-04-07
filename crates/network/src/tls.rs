@@ -190,6 +190,7 @@ pub fn create_tls_config_from_certs_dir(
         && !all_certs.is_empty()
     {
         let mut matched = None;
+
         for i in 0..all_certs.len() {
             let test_config = rustls::ClientConfig::builder()
                 .with_root_certificates(rustls::RootCertStore::empty())

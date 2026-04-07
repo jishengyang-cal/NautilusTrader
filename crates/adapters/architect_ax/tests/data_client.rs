@@ -319,6 +319,7 @@ async fn test_data_client_emits_trade_tick_via_channel() {
 
     // Collect events - mock server sends book then trade
     let mut found_trade = false;
+
     for _ in 0..5 {
         let result = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
         match result {
@@ -386,6 +387,7 @@ async fn test_data_client_emits_instruments_on_connect() {
     wait_for_connection(&state).await;
 
     let mut instrument_count = 0;
+
     while let Ok(event) = rx.try_recv() {
         if matches!(event, DataEvent::Instrument(_)) {
             instrument_count += 1;

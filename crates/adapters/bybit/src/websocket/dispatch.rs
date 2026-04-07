@@ -166,6 +166,7 @@ pub fn dispatch_ws_message(
     match message {
         BybitWsMessage::AccountOrder(msg) => {
             let ts_init = clock.get_time_ns();
+
             for order in &msg.data {
                 let symbol = make_bybit_symbol(order.symbol, order.category);
                 let Some(instrument) = instruments.get(&symbol) else {
@@ -177,6 +178,7 @@ pub fn dispatch_ws_message(
         }
         BybitWsMessage::AccountExecution(msg) => {
             let ts_init = clock.get_time_ns();
+
             for exec in &msg.data {
                 let symbol = make_bybit_symbol(exec.symbol, exec.category);
                 let Some(instrument) = instruments.get(&symbol) else {
@@ -193,6 +195,7 @@ pub fn dispatch_ws_message(
                     log::warn!("Failed to parse wallet creation_time, using ts_init: {e}");
                     ts_init
                 });
+
             for wallet in &msg.data {
                 match parse_ws_account_state(wallet, account_id, ts_event, ts_init) {
                     Ok(state) => emitter.send_account_state(state),
@@ -202,12 +205,14 @@ pub fn dispatch_ws_message(
         }
         BybitWsMessage::AccountPosition(msg) => {
             let ts_init = clock.get_time_ns();
+
             for position in &msg.data {
                 let symbol = make_bybit_symbol(position.symbol, position.category);
                 let Some(instrument) = instruments.get(&symbol) else {
                     log::warn!("No instrument for position update: {symbol}");
                     continue;
                 };
+
                 match parse_ws_position_status_report(position, account_id, instrument, ts_init) {
                     Ok(report) => emitter.send_position_report(report),
                     Err(e) => log::error!("Failed to parse position status report: {e}"),

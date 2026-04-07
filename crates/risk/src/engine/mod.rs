@@ -203,6 +203,7 @@ impl RiskEngine {
                         );
 
                         let timestamp = clock.borrow().timestamp_ns();
+
                         for order in &orders {
                             if order.status() == OrderStatus::Initialized {
                                 let denied = OrderEventAny::Denied(OrderDenied::new(
@@ -933,6 +934,7 @@ impl RiskEngine {
         let mut cum_notional_sell: Option<Money> = None;
         let mut cum_margin_required: Option<Money> = None;
         let mut base_currency: Option<Currency> = None;
+
         for order in orders {
             // Determine last price based on order type
             last_px = match order {
@@ -1714,6 +1716,7 @@ impl RiskEngine {
                             &submit_order_list.order_list.client_order_ids,
                             &submit_order_list,
                         );
+
                         for order in &orders {
                             if order.is_buy() && self.portfolio.is_net_long(&instrument.id()) {
                                 self.deny_order_list(

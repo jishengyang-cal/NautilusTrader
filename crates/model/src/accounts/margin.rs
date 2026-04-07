@@ -323,6 +323,7 @@ impl MarginAccount {
         };
 
         let mut total_margin: MoneyRaw = 0;
+
         for margin in self.margins.values() {
             if margin.currency == currency {
                 total_margin = total_margin

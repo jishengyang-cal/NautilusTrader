@@ -513,6 +513,7 @@ async fn test_data_client_emits_instruments_on_connect() {
     client.connect().await.unwrap();
 
     let mut instrument_count = 0;
+
     while let Ok(event) = rx.try_recv() {
         if matches!(event, DataEvent::Instrument(_)) {
             instrument_count += 1;
@@ -723,6 +724,7 @@ async fn test_data_client_request_instruments() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let request = RequestInstruments::new(
@@ -763,6 +765,7 @@ async fn test_data_client_request_instrument() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTC-USD-PERP.HYPERLIQUID");
@@ -804,6 +807,7 @@ async fn test_data_client_request_book_snapshot() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTC-USD-PERP.HYPERLIQUID");
@@ -849,6 +853,7 @@ async fn test_data_client_request_book_snapshot_with_depth() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTC-USD-PERP.HYPERLIQUID");

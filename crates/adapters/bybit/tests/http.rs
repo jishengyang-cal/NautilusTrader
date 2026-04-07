@@ -1117,6 +1117,7 @@ async fn test_rate_limiting_returns_error() {
 
     // Make multiple requests to trigger rate limit (mock server limits after 5)
     let mut last_error = None;
+
     for _ in 0..10 {
         match client
             .get_open_orders(
@@ -1491,6 +1492,7 @@ async fn test_request_order_status_reports_requires_settle_coin_for_linear() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -1536,6 +1538,7 @@ async fn test_order_deduplication_by_order_id() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -1595,6 +1598,7 @@ async fn test_request_order_status_reports_linear_queries_all_settle_coins() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -1660,6 +1664,7 @@ async fn test_request_order_status_reports_respects_limit_across_settle_coins() 
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -1724,6 +1729,7 @@ async fn test_request_order_status_reports_stops_before_next_coin() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -1789,6 +1795,7 @@ async fn test_request_order_status_reports_combines_orders_from_each_settle_coin
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2455,6 +2462,7 @@ async fn test_request_bars_continues_pagination_when_first_page_only_partial() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2527,6 +2535,7 @@ async fn test_submit_order_stop_market_with_trigger_price() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2609,6 +2618,7 @@ async fn test_submit_order_stop_limit_with_trigger_price_and_limit_price() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2693,6 +2703,7 @@ async fn test_submit_order_market_if_touched_trigger_direction() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2761,6 +2772,7 @@ async fn test_submit_order_post_only() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2827,6 +2839,7 @@ async fn test_submit_order_spot_market_base_quantity() {
         .request_instruments(BybitProductType::Spot, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2898,6 +2911,7 @@ async fn test_submit_order_spot_market_quote_quantity() {
         .request_instruments(BybitProductType::Spot, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -2969,6 +2983,7 @@ async fn test_submit_order_linear_does_not_send_market_unit() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -3037,6 +3052,7 @@ async fn test_submit_order_limit_if_touched_trigger_direction() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }
@@ -3281,6 +3297,7 @@ async fn test_request_order_status_reports_tp_sl_orders() {
         .request_instruments(BybitProductType::Linear, None)
         .await
         .unwrap();
+
     for instrument in instruments {
         client.cache_instrument(instrument);
     }

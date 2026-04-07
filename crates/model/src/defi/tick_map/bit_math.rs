@@ -44,6 +44,7 @@ mod tests {
             let x = U256::ONE << i;
             assert_eq!(most_significant_bit(x), i);
         }
+
         for i in 1..=255 {
             let x = (U256::ONE << i) - U256::ONE;
             assert_eq!(most_significant_bit(x), i - 1);
@@ -57,6 +58,7 @@ mod tests {
             let x = U256::ONE << i;
             assert_eq!(least_significant_bit(x), i);
         }
+
         for i in 1..=255 {
             let x = (U256::ONE << i) - U256::ONE;
             assert_eq!(least_significant_bit(x), 0);

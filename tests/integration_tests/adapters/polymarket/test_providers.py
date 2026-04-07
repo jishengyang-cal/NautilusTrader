@@ -395,6 +395,7 @@ async def test_gamma_markets_deduplicates_condition_ids(mock_clob_client, live_c
 
     # Create 60 instrument pairs (both YES and NO tokens from same market)
     instrument_ids = []
+
     for i in range(60):
         condition_id = f"0x{'1' * 63}{i:x}"
         yes_token_id = f"1{i:063d}"

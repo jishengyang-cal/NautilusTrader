@@ -309,6 +309,7 @@ impl OKXWebSocketClient {
         let call_soon: Py<PyAny> = loop_.getattr(py, "call_soon_threadsafe")?;
 
         let mut instruments_any = Vec::new();
+
         for inst in instruments {
             let inst_any = pyobject_to_instrument_any(py, inst)?;
             instruments_any.push(inst_any);
@@ -1439,6 +1440,7 @@ fn handle_book_data(
         return;
     };
     let ts_init = clock.get_time_ns();
+
     match parse_book_msg_vec(
         data,
         &instrument.id(),
@@ -1472,6 +1474,7 @@ fn handle_channel_data(
 ) {
     if matches!(channel, OKXWsChannel::OptionSummary) {
         let ts_init = clock.get_time_ns();
+
         match serde_json::from_value::<Vec<OKXOptionSummaryMsg>>(data) {
             Ok(msgs) => {
                 for msg in &msgs {
@@ -1482,6 +1485,7 @@ fn handle_channel_data(
                     if !option_greeks_subs.contains(&instrument_id) {
                         continue;
                     }
+
                     match parse_option_summary_greeks(msg, &instrument_id, ts_init) {
                         Ok(greeks) => {
                             Python::attach(|py| match greeks.into_py_any(py) {
@@ -1637,6 +1641,7 @@ fn handle_instruments(
     callback: &Py<PyAny>,
 ) {
     let ts_init = clock.get_time_ns();
+
     for okx_inst in okx_instruments {
         let inst_key = Ustr::from(&okx_inst.inst_id);
         let (margin_init, margin_maint, maker_fee, taker_fee) =
@@ -1688,6 +1693,7 @@ fn handle_orders(
     callback: &Py<PyAny>,
 ) {
     let ts_init = clock.get_time_ns();
+
     match parse_order_msg_vec(
         order_msgs,
         account_id,
@@ -1754,6 +1760,7 @@ fn handle_positions(
 ) {
     if let Ok(positions) = serde_json::from_value::<Vec<OKXPosition>>(data) {
         let ts_init = clock.get_time_ns();
+
         for position in positions {
             let inst_key = Ustr::from(&position.inst_id);
             if let Some(instrument) = instruments_by_symbol.get(&inst_key) {

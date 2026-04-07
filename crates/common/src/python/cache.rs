@@ -293,6 +293,7 @@ impl PyCache {
     fn py_instruments(&self, py: Python, venue: Option<Venue>) -> PyResult<Vec<Py<PyAny>>> {
         let cache = self.0.borrow();
         let mut py_instruments = Vec::new();
+
         match venue {
             Some(venue) => {
                 for instrument in cache.instruments(&venue, None) {

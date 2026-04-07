@@ -782,6 +782,7 @@ impl BacktestEngine {
 
         let analyzer = self.build_analyzer(&cache, &positions);
         let mut stats_pnls = AHashMap::new();
+
         for currency in analyzer.currencies() {
             if let Ok(pnls) = analyzer.get_performance_stats_pnls(Some(currency), None) {
                 stats_pnls.insert(currency.code.to_string(), pnls);
@@ -846,6 +847,7 @@ impl BacktestEngine {
                     AccountAny::Cash(cash) => cash,
                     AccountAny::Betting(betting) => betting,
                 };
+
                 for (currency, money) in account_ref.starting_balances() {
                     analyzer
                         .account_balances_starting
@@ -853,6 +855,7 @@ impl BacktestEngine {
                         .and_modify(|existing| *existing = *existing + money)
                         .or_insert(money);
                 }
+
                 for (currency, money) in account_ref.balances_total() {
                     analyzer
                         .account_balances
@@ -1152,6 +1155,7 @@ impl BacktestEngine {
                     AccountAny::Cash(cash) => cash,
                     AccountAny::Betting(betting) => betting,
                 };
+
                 for balance in account_ref.starting_balances().values() {
                     log::info!("  {balance}");
                 }
@@ -1323,6 +1327,7 @@ fn log_portfolio_performance(analyzer: &PortfolioAnalyzer) {
 
     log::info!(" Returns Statistics");
     log_info!("-----------------------------------------------------------------", color = LogColor::Cyan);
+
     for line in &analyzer.get_stats_returns_formatted() {
         log::info!("{line}");
     }
@@ -1330,6 +1335,7 @@ fn log_portfolio_performance(analyzer: &PortfolioAnalyzer) {
 
     log::info!(" General Statistics");
     log_info!("-----------------------------------------------------------------", color = LogColor::Cyan);
+
     for line in &analyzer.get_stats_general_formatted() {
         log::info!("{line}");
     }

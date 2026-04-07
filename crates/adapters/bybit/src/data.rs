@@ -243,6 +243,7 @@ impl BybitDataClient {
 
                         // Accumulate statuses from all product types before diffing
                         let mut all_statuses = AHashMap::new();
+
                         for &pt in &product_types {
                             match http.request_instrument_statuses(pt).await {
                                 Ok(new_statuses) => {
@@ -358,6 +359,7 @@ fn handle_ws_message(
                 if !trade_subs.contains(&instrument_id) {
                     continue;
                 }
+
                 match parse_ws_trade_tick(trade, instrument, ts_init) {
                     Ok(tick) => send_data(data_sender, Data::Trade(tick)),
                     Err(e) => log::error!("Failed to parse trade tick: {e}"),
@@ -379,10 +381,12 @@ fn handle_ws_message(
                 log::warn!("No bar type cached for kline topic: {topic_key}");
                 return;
             };
+
             for kline in &msg.data {
                 if !kline.confirm {
                     continue;
                 }
+
                 match parse_ws_kline_bar(kline, instrument, bar_type, true, ts_init) {
                     Ok(bar) => send_data(data_sender, Data::Bar(bar)),
                     Err(e) => log::error!("Failed to parse kline bar: {e}"),
@@ -622,6 +626,7 @@ impl DataClient for BybitDataClient {
         };
 
         let mut all_instruments = Vec::new();
+
         for product_type in &product_types {
             let fetched = self
                 .http_client
@@ -650,6 +655,7 @@ impl DataClient for BybitDataClient {
         {
             // Collect all statuses first (without holding the lock across await)
             let mut collected_statuses = Vec::new();
+
             for product_type in &product_types {
                 match self
                     .http_client
@@ -667,6 +673,7 @@ impl DataClient for BybitDataClient {
 
             let inst_guard = self.instruments.load();
             let mut status_map = AHashMap::new();
+
             for statuses in collected_statuses {
                 for (id, action) in statuses {
                     if inst_guard.contains_key(&id) {
@@ -719,11 +726,13 @@ impl DataClient for BybitDataClient {
             let instruments = Arc::clone(&instruments_by_symbol);
             let clock = self.clock;
             let cancel = self.cancellation_token.clone();
+
             let handle = get_runtime().spawn(async move {
                 let mut quote_cache: AHashMap<InstrumentId, QuoteTick> = AHashMap::new();
                 let mut funding_cache: AHashMap<Ustr, FundingCacheEntry> = AHashMap::new();
 
                 pin_mut!(stream);
+
                 loop {
                     tokio::select! {
                         Some(message) = stream.next() => {
@@ -1747,6 +1756,7 @@ impl DataClient for BybitDataClient {
                     base_coin: None,
                     exp_date: None,
                 };
+
                 match http_client.request_option_tickers_raw_with_params(&params).await {
                     Ok(tickers) => {
                         let ts = clock.get_time_ns();

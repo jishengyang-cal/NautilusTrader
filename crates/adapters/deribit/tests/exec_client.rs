@@ -221,6 +221,7 @@ async fn handle_socket(mut socket: WebSocket, state: TestServerState) {
                                 params.get("channels").and_then(|c| c.as_array())
                         {
                             let mut subscribed_channels = Vec::new();
+
                             for channel in channels {
                                 if let Some(channel_str) = channel.as_str() {
                                     state
@@ -262,6 +263,7 @@ async fn handle_socket(mut socket: WebSocket, state: TestServerState) {
                                 params.get("channels").and_then(|c| c.as_array())
                         {
                             let mut unsubscribed = Vec::new();
+
                             for channel in channels {
                                 if let Some(channel_str) = channel.as_str() {
                                     unsubscribed.push(channel_str.to_string());
@@ -506,6 +508,7 @@ async fn test_exec_client_connect_emits_account_state() {
     .await;
 
     let mut found_account_state = false;
+
     while let Ok(event) = rx.try_recv() {
         if matches!(event, ExecutionEvent::Account(_)) {
             found_account_state = true;

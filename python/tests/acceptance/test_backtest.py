@@ -184,6 +184,7 @@ def test_run_with_synthetic_quotes(audusd_engine):
     base_ns = 1_000_000_000_000_000_000
 
     ticks = []
+
     for i in range(3000):
         ts = base_ns + i * 1_000_000_000
         bid = 0.71000 + 0.00500 * math.sin(i / 300.0)
@@ -219,6 +220,7 @@ def test_run_with_synthetic_trades(ethusdt_engine):
     base_ns = 1_000_000_000_000_000_000
 
     ticks = []
+
     for i in range(5000):
         ts = base_ns + i * 500_000_000
         price = 1500.00 + 50.0 * math.sin(i / 200.0)

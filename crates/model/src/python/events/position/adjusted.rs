@@ -179,16 +179,19 @@ impl PositionAdjusted {
         dict.set_item("position_id", self.position_id.to_string())?;
         dict.set_item("account_id", self.account_id.to_string())?;
         dict.set_item("adjustment_type", self.adjustment_type.to_string())?;
+
         match self.quantity_change {
             Some(quantity_change) => {
                 dict.set_item("quantity_change", quantity_change.to_string())?;
             }
             None => dict.set_item("quantity_change", py.None())?,
         }
+
         match self.pnl_change {
             Some(pnl_change) => dict.set_item("pnl_change", pnl_change.to_string())?,
             None => dict.set_item("pnl_change", py.None())?,
         }
+
         match self.reason {
             Some(reason) => dict.set_item("reason", reason.to_string())?,
             None => dict.set_item("reason", py.None())?,

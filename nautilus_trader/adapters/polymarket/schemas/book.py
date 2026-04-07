@@ -192,6 +192,7 @@ class PolymarketQuotes(msgspec.Struct, tag="price_change", tag_field="event_type
         ts_init: int,
     ) -> OrderBookDeltas:
         deltas: list[OrderBookDelta] = []
+
         for change in self.price_changes:
             order = BookOrder(
                 side=OrderSide.BUY if change.side == PolymarketOrderSide.BUY else OrderSide.SELL,
@@ -219,6 +220,7 @@ class PolymarketQuotes(msgspec.Struct, tag="price_change", tag_field="event_type
         ts_init: int,
     ) -> list[QuoteTick]:
         quotes: list[QuoteTick] = []
+
         for change in self.price_changes:
             if change.side == PolymarketOrderSide.BUY:
                 ask_price = last_quote.ask_price

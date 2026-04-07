@@ -147,6 +147,7 @@ class Strat_oca_test(Strategy):
 
         # Find the stop order to modify
         stop_order = None
+
         for order in list_orders_for_instrument:
             if order.is_open and order.order_type == OrderType.STOP_MARKET:
                 stop_order = order

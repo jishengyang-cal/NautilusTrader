@@ -244,6 +244,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
     async def _update_instruments(self, interval_mins: int) -> None:
         while True:
             retries = 0
+
             while True:
                 try:
                     self._log.debug(
@@ -947,6 +948,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
                 return  # Control message response
 
             handled = False
+
             for handler in self._ws_handlers:
                 if handler in wrapper.stream:
                     self._ws_handlers[handler](raw)

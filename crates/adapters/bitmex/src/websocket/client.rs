@@ -361,6 +361,7 @@ impl BitmexWebSocketClient {
                                 "Marking confirmed subscriptions as pending for replay: count={}",
                                 confirmed_topics.len()
                             );
+
                             for topic in confirmed_topics {
                                 subscriptions.mark_failure(&topic);
                             }
@@ -1263,6 +1264,7 @@ mod tests {
 
         // Test the actual reconnection topic building logic
         let mut topics_to_restore = Vec::new();
+
         for entry in subs.iter() {
             let (channel, symbols) = entry.pair();
             for symbol in symbols {
@@ -1369,6 +1371,7 @@ mod tests {
 
         // Build restoration topics after unsubscribe
         let mut topics_to_restore = Vec::new();
+
         for entry in subs.iter() {
             let (channel, symbols) = entry.pair();
             for symbol in symbols {

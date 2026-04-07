@@ -477,6 +477,7 @@ class DeribitDataClient(LiveMarketDataClient):
         try:
             pyo3_instruments = await self._http_client.request_instruments(currency, product_type)
             instruments = []
+
             for pyo3_instrument in pyo3_instruments:
                 self._cache_instrument(pyo3_instrument)
                 instrument = transform_instrument_from_pyo3(pyo3_instrument)

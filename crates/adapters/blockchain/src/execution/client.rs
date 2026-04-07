@@ -172,6 +172,7 @@ impl BlockchainExecutionClient {
                 .clone()
                 .into_iter()
                 .collect();
+
             for token in tokens {
                 if let Ok(token_balance) = self.fetch_token_balance(&token).await {
                     log::info!("Adding token balance to the wallet: {token_balance}");

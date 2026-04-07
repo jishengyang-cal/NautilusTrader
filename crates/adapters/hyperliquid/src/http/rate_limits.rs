@@ -55,6 +55,7 @@ impl WeightedLimiter {
     /// Acquire `weight` tokens, sleeping until available.
     pub async fn acquire(&self, weight: u32) {
         let need = weight as f64;
+
         loop {
             let mut st = self.state.lock().await;
             Self::refill_locked(&mut st, self.refill_per_sec, self.capacity);

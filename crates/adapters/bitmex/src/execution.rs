@@ -243,6 +243,7 @@ impl BitmexExecutionClient {
             .pending_tasks
             .lock()
             .expect("pending task lock poisoned");
+
         for handle in guard.drain(..) {
             handle.abort();
         }
@@ -1083,6 +1084,7 @@ impl ExecutionClient for BitmexExecutionClient {
                             dispatch_state.tombstone_order(cid);
                         }
                     }
+
                     for report in reports {
                         emitter.send_order_status_report(report);
                     }
@@ -1136,6 +1138,7 @@ impl ExecutionClient for BitmexExecutionClient {
                             dispatch_state.tombstone_order(cid);
                         }
                     }
+
                     for report in reports {
                         emitter.send_order_status_report(report);
                     }

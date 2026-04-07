@@ -573,6 +573,7 @@ class KrakenDataClient(LiveMarketDataClient):
             all_pyo3_instruments.extend(pyo3_instruments)
 
         instruments = []
+
         for pyo3_instrument in all_pyo3_instruments:
             if isinstance(pyo3_instrument, KRAKEN_INSTRUMENT_TYPES):
                 self._cache_instrument(pyo3_instrument)

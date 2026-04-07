@@ -349,6 +349,7 @@ impl DataClient for BinanceSpotDataClient {
 
         let handle = get_runtime().spawn(async move {
             pin_mut!(stream);
+
             loop {
                 tokio::select! {
                     Some(message) = stream.next() => {

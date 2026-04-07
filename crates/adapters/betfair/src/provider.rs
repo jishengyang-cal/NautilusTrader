@@ -507,6 +507,7 @@ impl InstrumentProvider for BetfairInstrumentProvider {
         for catalogue in &catalogues {
             let instruments =
                 parse_market_catalogue(catalogue, self.currency, ts_init, self.min_notional)?;
+
             for inst in instruments {
                 self.store.add(inst);
             }

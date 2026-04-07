@@ -973,6 +973,7 @@ impl LiveNode {
                         log::debug!("Residual exec command: {cmd:?}");
                         residual_events += 1;
                     }
+
                     match &cmd {
                         TradingCommand::SubmitOrder(submit) => {
                             self.exec_manager.register_inflight(submit.client_order_id);
@@ -1091,18 +1092,22 @@ impl LiveNode {
             AsyncRunner::handle_time_event(handler);
             drained += 1;
         }
+
         while let Ok(cmd) = data_cmd_rx.try_recv() {
             AsyncRunner::handle_data_command(cmd);
             drained += 1;
         }
+
         while let Ok(evt) = data_evt_rx.try_recv() {
             AsyncRunner::handle_data_event(evt);
             drained += 1;
         }
+
         while let Ok(cmd) = exec_cmd_rx.try_recv() {
             AsyncRunner::handle_exec_command(cmd);
             drained += 1;
         }
+
         while let Ok(evt) = exec_evt_rx.try_recv() {
             AsyncRunner::handle_exec_event(evt);
             drained += 1;

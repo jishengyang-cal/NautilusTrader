@@ -1066,6 +1066,7 @@ pub fn decode_record(
             Some(ts_init),
             include_trades,
         )?;
+
         match result {
             (Some(delta), None) => (Some(Data::Delta(delta)), None),
             (None, Some(trade)) => (Some(Data::Trade(trade)), None),

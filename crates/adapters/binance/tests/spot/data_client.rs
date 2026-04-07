@@ -502,6 +502,7 @@ async fn test_subscribe_trades() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
@@ -549,6 +550,7 @@ async fn test_subscribe_quotes() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
@@ -596,6 +598,7 @@ async fn test_subscribe_book_deltas() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
@@ -646,6 +649,7 @@ async fn test_unsubscribe_trades() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
@@ -671,6 +675,7 @@ async fn test_unsubscribe_trades() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     // Unsubscribe (should not error)
@@ -709,6 +714,7 @@ async fn test_unsubscribe_quotes() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
@@ -734,6 +740,7 @@ async fn test_unsubscribe_quotes() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     // Unsubscribe (should not error)
@@ -816,6 +823,7 @@ async fn test_subscribe_trades_and_quotes_simultaneously() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");

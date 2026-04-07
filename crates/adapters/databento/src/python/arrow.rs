@@ -90,6 +90,7 @@ pub fn py_databento_imbalance_from_arrow_record_batch_bytes(
     let reader = StreamReader::try_new(cursor, None).map_err(to_pyruntime_err)?;
 
     let mut results = Vec::new();
+
     for batch_result in reader {
         let batch = batch_result.map_err(to_pyruntime_err)?;
         let metadata = batch.schema().metadata().clone();
@@ -131,6 +132,7 @@ pub fn py_databento_statistics_from_arrow_record_batch_bytes(
     let reader = StreamReader::try_new(cursor, None).map_err(to_pyruntime_err)?;
 
     let mut results = Vec::new();
+
     for batch_result in reader {
         let batch = batch_result.map_err(to_pyruntime_err)?;
         let metadata = batch.schema().metadata().clone();

@@ -905,6 +905,7 @@ impl ExecutionEngine {
             let ts_now = self.clock.borrow().timestamp_ns();
             let events =
                 generate_reconciliation_order_events(&order, report, instrument.as_ref(), ts_now);
+
             for event in &events {
                 self.handle_event(event);
             }
@@ -1321,6 +1322,7 @@ impl ExecutionEngine {
                         .cache
                         .borrow()
                         .orders_for_ids(&cmd.order_list.client_order_ids, cmd);
+
                     for order in &orders {
                         self.deny_order(order, &reason);
                     }
@@ -1442,6 +1444,7 @@ impl ExecutionEngine {
 
         if self.config.manage_own_order_books {
             let mut own_book = self.get_or_init_own_order_book(&cmd.instrument_id);
+
             for order in &orders {
                 if should_handle_own_book_order(order) {
                     own_book.add(order.to_own_book_order());
@@ -1816,6 +1819,7 @@ impl ExecutionEngine {
                 && pos.is_open()
             {
                 let position_id = pos.id;
+
                 for client_order_id in order.linked_order_ids().unwrap_or_default() {
                     let mut cache = self.cache.borrow_mut();
                     let contingent_order = cache.mut_order(client_order_id);

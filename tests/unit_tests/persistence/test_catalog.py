@@ -768,6 +768,7 @@ class TestConsolidateDataByPeriod:
         Create test quote ticks with specified timestamps.
         """
         quotes = []
+
         for ts in timestamps:
             quote = TestDataStubs.quote_tick(
                 instrument=(
@@ -1264,6 +1265,7 @@ class TestConsolidateDataByPeriod:
 
         # Create bars with incrementing values to easily verify preservation
         test_data = []
+
         for i in range(10):
             timestamp = base_time + (i * 3600_000_000_000)  # Every hour
             # Use TestDataStubs.bar_5decimal and modify the timestamp
@@ -1474,6 +1476,7 @@ def test_consolidate_catalog_by_period(catalog: ParquetDataCatalog) -> None:
     # Get initial file count
     leaf_dirs = catalog._find_leaf_data_directories()
     initial_file_count = 0
+
     for directory in leaf_dirs:
         files = catalog.fs.glob(f"{directory}/*.parquet")
         initial_file_count += len(files)
@@ -1487,6 +1490,7 @@ def test_consolidate_catalog_by_period(catalog: ParquetDataCatalog) -> None:
     # Assert - method should complete without error
     # Note: Since all quotes have the same timestamp, they should be consolidated
     final_file_count = 0
+
     for directory in leaf_dirs:
         files = catalog.fs.glob(f"{directory}/*.parquet")
         final_file_count += len(files)

@@ -195,6 +195,7 @@ impl OptionChainManager {
         // Always store prototype as first element for bootstrap cloning
         let mut handlers = Vec::with_capacity(instrument_ids.len() + 1);
         handlers.push(quote_handler.clone());
+
         for instrument_id in instrument_ids {
             let topic = switchboard::get_quotes_topic(*instrument_id);
             msgbus::subscribe_quotes(topic.into(), quote_handler.clone(), Some(priority));
@@ -218,6 +219,7 @@ impl OptionChainManager {
         // Always store prototype as first element for bootstrap cloning
         let mut handlers = Vec::with_capacity(instrument_ids.len() + 1);
         handlers.push(greeks_handler.clone());
+
         for instrument_id in instrument_ids {
             let topic = switchboard::get_option_greeks_topic(*instrument_id);
             msgbus::subscribe_option_greeks(topic.into(), greeks_handler.clone(), Some(priority));
@@ -690,6 +692,7 @@ impl OptionChainManager {
         for &id in &action.add {
             self.push_subscribe_commands(id);
         }
+
         for &id in &action.remove {
             self.push_unsubscribe_commands(id);
         }
@@ -863,6 +866,7 @@ mod tests {
 
         let strikes = [45000, 47500, 50000, 52500, 55000];
         let mut instruments = HashMap::new();
+
         for s in &strikes {
             let strike = Price::from(&s.to_string());
             let call_id = InstrumentId::from(&format!("BTC-20240101-{s}-C.DERIBIT"));

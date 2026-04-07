@@ -109,6 +109,7 @@ impl TieredTickScheme {
         if tiers.is_empty() {
             anyhow::bail!("tiers must not be empty");
         }
+
         for (i, &(start, stop, step)) in tiers.iter().enumerate() {
             if start.is_nan() || stop.is_nan() || step.is_nan() {
                 anyhow::bail!("tier {i}: values must not be NaN");
@@ -169,6 +170,7 @@ impl TieredTickScheme {
         max_ticks_per_tier: usize,
     ) -> anyhow::Result<Vec<PriceRaw>> {
         let mut all_ticks = Vec::new();
+
         for &(start, stop, step) in tiers {
             let effective_stop = if stop.is_infinite() {
                 start + ((max_ticks_per_tier + 1) as f64) * step
@@ -841,6 +843,7 @@ mod tests {
         fn prop_tiered_ask_monotonic_in_n(value in 1.0f64..10_000.0) {
             let scheme = TieredTickScheme::topix100();
             let mut prev: Option<Price> = None;
+
             for n in 0..5 {
                 if let Some(ask) = scheme.next_ask_price(value, n, 4) {
                     if let Some(p) = prev {

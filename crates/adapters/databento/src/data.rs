@@ -294,6 +294,7 @@ impl DatabentoDataClient {
         // Spawn message processing task with cancellation support
         let msg_handle = get_runtime().spawn(async move {
             let mut msg_rx = msg_rx;
+
             loop {
                 tokio::select! {
                     msg = msg_rx.recv() => {

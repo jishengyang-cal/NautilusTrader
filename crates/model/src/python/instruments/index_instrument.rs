@@ -150,6 +150,7 @@ impl IndexInstrument {
     fn py_info(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         if let Some(ref info_map) = self.info {
             let py_dict = PyDict::new(py);
+
             for (key, value) in info_map {
                 let json_str = serde_json::to_string(value).map_err(to_pyvalue_err)?;
                 let py_value =
@@ -184,6 +185,7 @@ impl IndexInstrument {
 
         if let Some(ref info_map) = self.info {
             let info_dict = PyDict::new(py);
+
             for (key, value) in info_map {
                 let json_str = serde_json::to_string(value).map_err(to_pyvalue_err)?;
                 let py_value =

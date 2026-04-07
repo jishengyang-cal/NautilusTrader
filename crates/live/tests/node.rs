@@ -340,6 +340,7 @@ mod serial_tests {
 
         // Must stop after node enters Running (stop flag is cleared on Running transition)
         let stop_handle = handle.clone();
+
         tokio::spawn(async move {
             wait_until_async(
                 || async { stop_handle.is_running() },
@@ -382,6 +383,7 @@ mod serial_tests {
 
         // Spawn task to stop after node enters Running state
         let stop_handle = handle.clone();
+
         tokio::spawn(async move {
             wait_until_async(
                 || async { stop_handle.is_running() },
@@ -413,6 +415,7 @@ mod serial_tests {
         let handle = node.handle();
 
         let stop_handle = handle.clone();
+
         tokio::spawn(async move {
             wait_until_async(
                 || async { stop_handle.is_running() },

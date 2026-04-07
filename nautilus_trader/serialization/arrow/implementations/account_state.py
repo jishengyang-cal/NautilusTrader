@@ -132,6 +132,7 @@ def _deserialize(values: list[Any]) -> AccountState:
 
 def deserialize(data: pa.RecordBatch) -> list[AccountState]:
     account_states = []
+
     for event_id in data.column("event_id").unique().to_pylist():
         event = data.filter(pa.compute.equal(data["event_id"], event_id))
         account = _deserialize(values=event.to_pylist())

@@ -438,6 +438,7 @@ async fn test_data_client_subscribe_trades() {
         Duration::from_secs(5),
     )
     .await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT-LINEAR.BYBIT");
@@ -663,6 +664,7 @@ async fn test_data_client_request_book_snapshot() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT-LINEAR.BYBIT");
@@ -702,6 +704,7 @@ async fn test_data_client_request_funding_rates() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT-LINEAR.BYBIT");
@@ -815,6 +818,7 @@ async fn test_data_client_request_instruments() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let request = RequestInstruments::new(
@@ -854,6 +858,7 @@ async fn test_data_client_request_instrument() {
 
     // Drain instrument events from connect
     tokio::time::sleep(Duration::from_millis(500)).await;
+
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTCUSDT-LINEAR.BYBIT");

@@ -228,6 +228,7 @@ pub fn dispatch_ws_message(
         }
         OKXWsMessage::Account(data) => {
             let ts_init = clock.get_time_ns();
+
             match serde_json::from_value::<Vec<OKXAccount>>(data) {
                 Ok(accounts) => {
                     for account in &accounts {
@@ -244,6 +245,7 @@ pub fn dispatch_ws_message(
         }
         OKXWsMessage::Positions(data) => {
             let ts_init = clock.get_time_ns();
+
             match serde_json::from_value::<Vec<OKXPosition>>(data) {
                 Ok(positions) => {
                     for position in positions {
@@ -253,6 +255,7 @@ pub fn dispatch_ws_message(
                         };
                         let instrument_id = instrument.id();
                         let size_precision = instrument.size_precision();
+
                         match crate::common::parse::parse_position_status_report(
                             &position,
                             account_id,
@@ -397,6 +400,7 @@ pub fn dispatch_ws_message(
 
             if let Some(client_order_id) = client_order_id {
                 let ts_init = clock.get_time_ns();
+
                 match op {
                     Some(
                         OKXWsOperation::Order

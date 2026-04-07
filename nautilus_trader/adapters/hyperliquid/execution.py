@@ -229,6 +229,7 @@ class HyperliquidExecutionClient(LiveExecutionClient):
             return
 
         count = 0
+
         for order in orders:
             if order.is_closed:
                 continue
@@ -335,6 +336,7 @@ class HyperliquidExecutionClient(LiveExecutionClient):
             )
 
             reports = []
+
             for pyo3_report in pyo3_reports:
                 report = OrderStatusReport.from_pyo3(pyo3_report)
 
@@ -367,6 +369,7 @@ class HyperliquidExecutionClient(LiveExecutionClient):
             pyo3_reports = await self._client.request_fill_reports(instrument_id=instrument_id)
 
             reports = []
+
             for pyo3_report in pyo3_reports:
                 report = FillReport.from_pyo3(pyo3_report)
 

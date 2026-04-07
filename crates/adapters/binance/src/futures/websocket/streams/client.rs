@@ -374,6 +374,7 @@ impl BinanceFuturesWebSocketClient {
                         "Handler not available for pool slot {slot_idx}: {e}"
                     ))
                 })?;
+
             for stream in batch {
                 slots[*slot_idx].streams.retain(|s| s != stream);
             }
@@ -488,6 +489,7 @@ impl BinanceFuturesWebSocketClient {
 
         // Convert raw Message frames to Vec<u8> for the JSON handler
         let (bytes_tx, bytes_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+
         let bytes_task = get_runtime().spawn(async move {
             let mut raw_rx = raw_rx;
             while let Some(msg) = raw_rx.recv().await {

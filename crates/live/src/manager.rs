@@ -2350,6 +2350,7 @@ impl ExecutionManager {
             match report.order_status {
                 OrderStatus::Canceled | OrderStatus::Expired => {
                     let terminal_event = order_events.pop();
+
                     for fill in sorted_fills {
                         if let Some(fill_event) =
                             self.create_order_fill(&cached_order, fill, instrument)
@@ -2372,6 +2373,7 @@ impl ExecutionManager {
                     }
 
                     let mut real_fill_total = Decimal::ZERO;
+
                     for fill in &sorted_fills {
                         if let Some(fill_event) =
                             self.create_order_fill(&cached_order, fill, instrument)
@@ -2431,6 +2433,7 @@ impl ExecutionManager {
         let mut final_fills: IndexMap<VenueOrderId, Vec<FillReport>> = mass_status.fill_reports();
 
         let mut instruments_to_adjust = Vec::new();
+
         for (instrument_id, position_reports) in mass_status.position_reports() {
             if !self.should_reconcile_instrument(&instrument_id) {
                 log::debug!(
@@ -2486,6 +2489,7 @@ impl ExecutionManager {
                     for (venue_order_id, order) in result.orders {
                         final_orders.insert(venue_order_id, order);
                     }
+
                     for (venue_order_id, fills) in result.fills {
                         final_fills.insert(venue_order_id, fills);
                     }

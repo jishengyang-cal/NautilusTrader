@@ -700,6 +700,7 @@ impl SubmitBroadcaster {
         );
 
         let mut handles = Vec::new();
+
         for transport in healthy_transports {
             // All transports use the same client_order_id. If multiple succeed,
             // BitMEX rejects duplicates with "duplicate clOrdID" (expected rejection).

@@ -293,6 +293,7 @@ pub fn parse_orderbook_deltas(
     for level in &depth.b {
         push_level(level, OrderSide::Buy)?;
     }
+
     for level in &depth.a {
         push_level(level, OrderSide::Sell)?;
     }

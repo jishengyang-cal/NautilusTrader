@@ -242,6 +242,7 @@ impl BitmexDataClient {
                         if !data.is_empty() {
                             let parsed =
                                 parse_book_msg_vec(data, action, instruments_by_symbol, ts_init);
+
                             for d in parsed {
                                 Self::send_data(sender, d);
                             }
@@ -280,6 +281,7 @@ impl BitmexDataClient {
                                 instruments_by_symbol,
                                 ts_init,
                             );
+
                             for d in parsed {
                                 Self::send_data(sender, d);
                             }
@@ -293,6 +295,7 @@ impl BitmexDataClient {
                                 instruments_by_symbol,
                                 ts_init,
                             );
+
                             for d in parsed {
                                 Self::send_data(sender, d);
                             }
@@ -306,6 +309,7 @@ impl BitmexDataClient {
                                 instruments_by_symbol,
                                 ts_init,
                             );
+
                             for d in parsed {
                                 Self::send_data(sender, d);
                             }
@@ -319,6 +323,7 @@ impl BitmexDataClient {
                                 instruments_by_symbol,
                                 ts_init,
                             );
+
                             for d in parsed {
                                 Self::send_data(sender, d);
                             }
@@ -418,6 +423,7 @@ impl BitmexDataClient {
                         m.insert(inst.id(), inst.clone());
                     }
                 });
+
                 for (symbol, inst) in &temp_cache {
                     instruments_by_symbol.insert(*symbol, inst.clone());
                 }
@@ -550,6 +556,7 @@ impl BitmexDataClient {
 
         let handle = get_runtime().spawn(async move {
             let http_client = http_client;
+
             loop {
                 let sleep = tokio::time::sleep(interval);
                 tokio::pin!(sleep);

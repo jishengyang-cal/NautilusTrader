@@ -651,6 +651,7 @@ counter = Counter()
 
         // Send messages that increment the count
         sleep(Duration::from_secs(2)).await;
+
         for _ in 0..N {
             client.send_bytes(b"ping".to_vec(), None).await.unwrap();
             success_count += 1;

@@ -68,6 +68,7 @@ class OptionChainTester(Actor):
         # Filter out already-expired options
         now_ns = self.clock.timestamp_ns()
         options = []
+
         for inst in instruments:
             if str(inst.id.venue) != BYBIT:
                 continue

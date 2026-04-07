@@ -665,6 +665,7 @@ impl DeribitWebSocketClient {
                                     let auth_tracker = auth_tracker.clone();
                                     let cmd_tx = cmd_tx.clone();
                                     let cancel = retry_cancel.clone();
+
                                     get_runtime().spawn(async move {
                                         tokio::select! {
                                             () = tokio::time::sleep(Duration::from_secs(delay_secs)) => {}

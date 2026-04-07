@@ -1257,9 +1257,11 @@ pub trait Strategy: DataActor {
         for order in &open_orders {
             instruments.insert(order.instrument_id());
         }
+
         for order in &inflight_orders {
             instruments.insert(order.instrument_id());
         }
+
         for position in &open_positions {
             instruments.insert(position.instrument_id);
         }

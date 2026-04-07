@@ -227,6 +227,7 @@ impl DeribitWebSocketClient {
         let call_soon: Py<PyAny> = loop_.getattr(py, "call_soon_threadsafe")?;
 
         let mut instruments_any = Vec::new();
+
         for inst in instruments {
             let inst_any = pyobject_to_instrument_any(py, inst)?;
             instruments_any.push(inst_any);

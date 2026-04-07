@@ -843,6 +843,7 @@ class BitmexExecutionClient(LiveExecutionClient):
             orders_open: list[Order] = self._cache.orders_open(
                 instrument_id=command.instrument_id,
             )
+
             for open_order in orders_open:
                 if open_order.is_closed:
                     continue

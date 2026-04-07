@@ -307,6 +307,7 @@ impl HyperliquidExecutionClient {
         if let Some(addr) = &self.config.account_address {
             return Ok(addr.clone());
         }
+
         match &self.config.vault_address {
             Some(vault) => Ok(vault.clone()),
             None => self.get_user_address(),
@@ -644,12 +645,14 @@ impl ExecutionClient for HyperliquidExecutionClient {
                 grouping: HyperliquidExecGrouping::Na,
                 builder,
             };
+
             match http_client.post_action_exec(&action).await {
                 Ok(response) => {
                     if response.is_ok() {
                         let inner_errors = extract_inner_errors(&response);
                         if inner_errors.iter().any(|e| e.is_some()) {
                             let ts = clock.get_time_ns();
+
                             for (i, error) in inner_errors.iter().enumerate() {
                                 if let Some(error_msg) = error {
                                     if let Some(order) = valid_orders.get(i) {
@@ -675,6 +678,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
                         for order in &valid_orders {
                             emitter.emit_order_rejected(order, &error_msg, ts, false);
                         }
+
                         for cloid_hex in &cloid_hexes {
                             ws_client.remove_cloid_mapping(cloid_hex);
                         }

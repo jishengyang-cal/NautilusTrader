@@ -224,6 +224,7 @@ impl ExecutionClient for BacktestExecutionClient {
 
         // Buffer events for deferred processing
         let mut queued = self.queued_events.borrow_mut();
+
         for order in &orders {
             let event = self.factory.generate_order_submitted(order, ts_init);
             queued.push(event);

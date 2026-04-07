@@ -96,6 +96,7 @@ def build_markets_query(filters: dict[str, Any] | None = None) -> dict[str, Any]
         "tag_id",
         "related_tags",
     )
+
     for key in passthrough_keys:
         if key in filters and filters[key] is not None:
             params[key] = filters[key]
@@ -283,6 +284,7 @@ async def list_markets(
 
     """
     results: list[dict[str, Any]] = []
+
     async for market in iter_markets(
         http_client=http_client,
         filters=filters,

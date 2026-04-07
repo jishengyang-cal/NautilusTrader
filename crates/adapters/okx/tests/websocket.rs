@@ -738,6 +738,7 @@ async fn test_reconnection_retries_failed_subscriptions() {
             let events = state.subscription_events().await;
             let mut trade_count = 0;
             let mut has_success = false;
+
             for (_, _, ok) in events
                 .iter()
                 .filter(|(key, _, _)| key.starts_with("trades"))
@@ -1002,6 +1003,7 @@ async fn test_subscription_restoration_tracking() {
         loop {
             let events = state.subscription_events().await;
             let mut restored = HashSet::new();
+
             for (key, _, ok) in &events {
                 if *ok {
                     restored.insert(key.clone());

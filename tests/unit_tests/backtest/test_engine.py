@@ -1040,6 +1040,7 @@ class TestBacktestEngineStreaming:
         def sparse_generator():
             # Create data with increasing gaps between items
             ts = start_ts
+
             for i in range(count):
                 yield [
                     MyData(
@@ -1360,6 +1361,7 @@ class TestBacktestEngineStreaming:
                     base_ts = start_ts + (
                         chunk * chunk_size * 3_600_000_000_000
                     )  # 1 hour per chunk
+
                     for i in range(chunk_size):
                         chunk_data.append(
                             MyData(

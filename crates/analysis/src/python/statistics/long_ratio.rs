@@ -55,6 +55,7 @@ impl LongRatio {
         // Extract entry side from each Cython Position object
         // OrderSide.Buy has value 1 in both Cython and Rust
         let mut longs = 0;
+
         for position in &positions {
             let entry = position.getattr(py, "entry")?;
             let entry_value: u8 = entry.extract(py)?;

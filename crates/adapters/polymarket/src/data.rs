@@ -432,6 +432,7 @@ impl PolymarketDataClient {
                     if ctx.active_quote_subs.contains(&instrument_id) {
                         // Clone and drop guard before emit to avoid DashMap deadlock
                         let last_quote = ctx.last_quotes.get(&instrument_id).map(|r| *r);
+
                         match parse_quote_from_price_change(
                             change,
                             instrument_id,
@@ -466,6 +467,7 @@ impl PolymarketDataClient {
 
                 if ctx.active_trade_subs.contains(&instrument_id) {
                     let ts_init = ctx.clock.get_time_ns();
+
                     match parse_trade_tick(
                         &trade,
                         instrument_id,
@@ -528,6 +530,7 @@ impl PolymarketDataClient {
                 let instruments = ctx.instruments.load();
                 if let Some(existing) = instruments.get(&meta.instrument_id) {
                     let ts_init = ctx.clock.get_time_ns();
+
                     match rebuild_instrument_with_tick_size(
                         existing,
                         &change.new_tick_size,
@@ -756,6 +759,7 @@ impl DataClient for PolymarketDataClient {
         log::debug!("Resetting Polymarket data client: {}", self.client_id);
         self.is_connected.store(false, Ordering::Relaxed);
         self.cancellation_token = CancellationToken::new();
+
         for handle in self.tasks.drain(..) {
             handle.abort();
         }

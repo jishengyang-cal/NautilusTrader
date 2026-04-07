@@ -50,6 +50,7 @@ impl Cloid {
         }
 
         let mut bytes = [0u8; 16];
+
         for i in 0..16 {
             let byte_str = &without_prefix[i * 2..i * 2 + 2];
             bytes[i] = u8::from_str_radix(byte_str, 16)

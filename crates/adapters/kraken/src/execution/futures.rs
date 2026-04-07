@@ -996,6 +996,7 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
                 }
                 Err(e) => {
                     let ts_event = clock.get_time_ns();
+
                     for (strategy_id, instrument_id, client_order_id) in &order_meta {
                         let error_msg = format!("submit_order_list batch error: {e}");
                         emitter.emit_order_rejected_event(

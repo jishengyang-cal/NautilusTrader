@@ -656,6 +656,7 @@ async fn test_http_get_instruments_handles_rate_limit_error() {
         OKXRawHttpClient::new(Some(base_url.clone()), 60, 0, 1000, 10_000, false, None).unwrap();
 
     let mut last_error = None;
+
     for _ in 0..5 {
         match client.get_instruments(params.clone()).await {
             Ok(_) => {}
@@ -1094,6 +1095,7 @@ async fn test_request_trades_range_mode_pagination() {
 
                     let data = if let Some(after_id) = after_trade_id {
                         let mut trades = Vec::new();
+
                         for i in 0..100 {
                             let trade_id = after_id - i - 1;
                             if trade_id <= 0 {
@@ -1232,6 +1234,7 @@ async fn test_request_bars_range_mode_pagination() {
 
                     let data = if let Some(a) = after {
                         let mut bars = Vec::new();
+
                         for i in 0..10 {
                             let ts = a - ((i + 1) * 60_000);
 
@@ -1275,6 +1278,7 @@ async fn test_request_bars_range_mode_pagination() {
 
                     let data = if let Some(a) = after {
                         let mut bars = Vec::new();
+
                         for i in 0..50 {
                             let ts = a - ((i + 1) * 60_000);
 
@@ -1510,6 +1514,7 @@ async fn test_request_trades_overlapping_pages_chronological_order() {
 
     // Verify no duplicate trade IDs (should deduplicate overlapping trade ID 1008)
     let mut seen_ids = std::collections::HashSet::new();
+
     for trade in &trades {
         assert!(
             seen_ids.insert(trade.trade_id),
@@ -1662,6 +1667,7 @@ async fn test_request_trades_historical_with_filtered_pages() {
                             vec![]
                         } else {
                             let mut trades = Vec::new();
+
                             for i in 0..100 {
                                 let trade_id = after_id - i - 1;
                                 if trade_id < 3102 {

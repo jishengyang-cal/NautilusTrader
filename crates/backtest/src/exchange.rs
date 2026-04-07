@@ -978,6 +978,7 @@ impl SimulatedExchange {
             } else {
                 panic!("Execution client should be initialized");
             };
+
             match command {
                 TradingCommand::SubmitOrder(command) => {
                     let mut order = self

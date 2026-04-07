@@ -70,6 +70,7 @@ impl ImportableExecAlgorithmConfig {
     #[getter]
     fn config(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         let py_dict = PyDict::new(py);
+
         for (key, value) in &self.config {
             let json_str = serde_json::to_string(value).map_err(to_pyvalue_err)?;
             let py_value = PyModule::import(py, "json")?.call_method("loads", (json_str,), None)?;

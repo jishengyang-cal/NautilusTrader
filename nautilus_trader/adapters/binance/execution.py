@@ -570,6 +570,7 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
         end_ms: int | None,
     ) -> list[OrderStatusReport]:
         reports: list[OrderStatusReport] = []
+
         for order in binance_orders:
             if start_ms is not None and order.time < start_ms:
                 continue  # Filter start on the Nautilus side
@@ -623,6 +624,7 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
 
         # Parse all Binance trades
         reports: list[FillReport] = []
+
         for trade in binance_trades:
             if trade.symbol is None:
                 self._log.warning(f"No symbol for trade {trade}")

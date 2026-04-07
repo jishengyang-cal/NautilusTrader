@@ -327,6 +327,7 @@ impl PolymarketExecutionClient {
                         {
                             let http = http_client.clone();
                             let emit = emitter.clone();
+
                             get_runtime().spawn(async move {
                                 match fetch_and_emit_account_state(
                                     &http, &emit, clock, signature_type,
@@ -622,6 +623,7 @@ impl PolymarketExecutionClient {
             .cache()
             .instrument(&order.instrument_id())
             .cloned();
+
         match instrument {
             Some(i) => Some(i),
             None => {
@@ -944,6 +946,7 @@ impl ExecutionClient for PolymarketExecutionClient {
         }
 
         let mut venue_to_order: Vec<(String, OrderAny)> = Vec::new();
+
         for c in &cmd.cancels {
             if let Some(order) = self.core.cache().order(&c.client_order_id)
                 && let Some(vid) = order.venue_order_id()
@@ -1353,6 +1356,7 @@ fn handle_order_response(
                         .remove(&venue_order_id)
                     {
                         let mut has_filled = false;
+
                         for report in &buffered {
                             if report.order_status == OrderStatus::Filled {
                                 has_filled = true;

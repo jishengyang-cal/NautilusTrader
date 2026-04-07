@@ -259,6 +259,7 @@ impl KrakenSpotDataClient {
                         log::warn!("No instrument for symbol: {}", ticker.symbol);
                         continue;
                     };
+
                     match parse_quote_tick(ticker, &instrument, ts_init) {
                         Ok(quote) => {
                             if let Err(e) = sender.send(DataEvent::Data(Data::Quote(quote))) {
@@ -277,6 +278,7 @@ impl KrakenSpotDataClient {
                         log::warn!("No instrument for symbol: {}", trade.symbol);
                         continue;
                     };
+
                     match parse_trade_tick(trade, &instrument, ts_init) {
                         Ok(tick) => {
                             if let Err(e) = sender.send(DataEvent::Data(Data::Trade(tick))) {
@@ -320,6 +322,7 @@ impl KrakenSpotDataClient {
                     log::error!("OHLC buffer lock poisoned");
                     return;
                 };
+
                 for ohlc in &ohlc_data {
                     let Some(instrument) =
                         Self::lookup_instrument(instruments, ohlc.symbol.as_str())
@@ -327,6 +330,7 @@ impl KrakenSpotDataClient {
                         log::warn!("No instrument for symbol: {}", ohlc.symbol);
                         continue;
                     };
+
                     match parse_ws_bar(ohlc, &instrument, ts_init) {
                         Ok(new_bar) => {
                             let key: (Ustr, u32) = (ohlc.symbol, ohlc.interval);

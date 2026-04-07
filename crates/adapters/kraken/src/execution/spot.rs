@@ -481,6 +481,7 @@ impl KrakenSpotExecutionClient {
         match msg {
             KrakenSpotWsMessage::Execution(executions) => {
                 let ts_init = clock.get_time_ns();
+
                 for exec in &executions {
                     let symbol = match &exec.symbol {
                         Some(s) => s.as_str(),

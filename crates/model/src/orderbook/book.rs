@@ -718,6 +718,7 @@ impl OrderBook {
         let ts_event = self.ts_last;
 
         let mut order_id = 1_u64;
+
         for (price, quantity) in bids_map {
             if quantity <= Decimal::ZERO {
                 continue;

@@ -434,6 +434,7 @@ impl MarketOrder {
             || dict.set_item("exec_algorithm_id", py.None()),
             |x| dict.set_item("exec_algorithm_id", x.to_string()),
         )?;
+
         match &self.exec_algorithm_params {
             Some(exec_algorithm_params) => {
                 let py_exec_algorithm_params = PyDict::new(py);

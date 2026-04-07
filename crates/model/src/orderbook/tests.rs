@@ -693,6 +693,7 @@ fn test_book_apply_depth_all_levels(stub_depth10: OrderBookDepth10) {
         Price::from("91.0"),
         Price::from("90.0"),
     ];
+
     for (i, level) in bid_levels.iter().enumerate() {
         assert_eq!(
             level.price.value, expected_bid_prices[i],
@@ -714,6 +715,7 @@ fn test_book_apply_depth_all_levels(stub_depth10: OrderBookDepth10) {
         Price::from("108.0"),
         Price::from("109.0"),
     ];
+
     for (i, level) in ask_levels.iter().enumerate() {
         assert_eq!(
             level.price.value, expected_ask_prices[i],
@@ -726,6 +728,7 @@ fn test_book_apply_depth_all_levels(stub_depth10: OrderBookDepth10) {
     let expected_sizes = [
         100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0,
     ];
+
     for (i, level) in bid_levels.iter().enumerate() {
         assert_eq!(
             level.size(),
@@ -733,6 +736,7 @@ fn test_book_apply_depth_all_levels(stub_depth10: OrderBookDepth10) {
             "Bid level {i} size mismatch"
         );
     }
+
     for (i, level) in ask_levels.iter().enumerate() {
         assert_eq!(
             level.size(),
@@ -882,6 +886,7 @@ fn test_book_apply_depth_partial_snapshot() {
         );
         assert!(level.size() > 0.0, "No zero-size bid levels");
     }
+
     for level in &ask_levels {
         assert!(
             level.price.value > Price::from("0.0"),
@@ -1277,6 +1282,7 @@ fn test_book_group_price_levels() {
         BookOrder::new(OrderSide::Sell, Price::from("2.2"), Quantity::from(2), 5),
         BookOrder::new(OrderSide::Sell, Price::from("2.8"), Quantity::from(3), 6),
     ];
+
     for (i, order) in orders.into_iter().enumerate() {
         book.add(order, 0, i as u64, 100.into());
     }
@@ -1363,6 +1369,7 @@ fn test_book_group_price_realistic() {
             6,
         ),
     ];
+
     for (i, order) in orders.into_iter().enumerate() {
         book.add(order, 0, i as u64, 100.into());
     }
@@ -6713,6 +6720,7 @@ fn test_l1_consecutive_snapshots_clear_between() {
             0.into(),
         ));
     }
+
     for (i, price) in ["103.00", "102.00"].iter().enumerate() {
         let flags = if i == 1 {
             RecordFlag::F_SNAPSHOT as u8 | RecordFlag::F_LAST as u8
@@ -6754,6 +6762,7 @@ fn test_l1_consecutive_snapshots_clear_between() {
             1.into(),
         ));
     }
+
     for (i, price) in ["108.00", "107.00"].iter().enumerate() {
         let flags = if i == 1 {
             RecordFlag::F_SNAPSHOT as u8 | RecordFlag::F_LAST as u8

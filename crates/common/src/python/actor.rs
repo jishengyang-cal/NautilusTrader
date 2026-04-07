@@ -122,6 +122,7 @@ impl ImportableActorConfig {
     fn config(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         // Convert HashMap<String, serde_json::Value> back to Python dict
         let py_dict = PyDict::new(py);
+
         for (key, value) in &self.config {
             // Convert serde_json::Value back to Python object via JSON
             let json_str = serde_json::to_string(value).map_err(to_pyvalue_err)?;

@@ -264,6 +264,7 @@ impl OrderFilled {
             Some(position_id) => dict.set_item("position_id", position_id.to_string())?,
             None => dict.set_item("position_id", py.None())?,
         }
+
         match self.commission {
             Some(commission) => dict.set_item("commission", commission.to_string())?,
             None => dict.set_item("commission", py.None())?,

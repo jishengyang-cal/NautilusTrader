@@ -277,6 +277,7 @@ impl BetfairDataLoader {
                         for inst in &new_instruments {
                             self.instruments.insert(inst.id(), inst.clone());
                         }
+
                         for inst in new_instruments {
                             items.push(BetfairDataItem::Instrument(Box::new(inst)));
                         }

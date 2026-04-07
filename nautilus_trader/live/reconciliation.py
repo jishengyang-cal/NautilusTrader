@@ -613,6 +613,7 @@ def adjust_fills_for_partial_window(
     """
     # Register all required commission currencies
     seen_currencies: set[Currency] = set()
+
     for fill_list in mass_status.fill_reports.values():
         for fill in fill_list:
             currency = fill.commission.currency

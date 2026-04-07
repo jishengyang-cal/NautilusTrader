@@ -105,6 +105,7 @@ for instrument in SANDBOX_INSTRUMENTS:
 
 # Instantiate strategies
 strategies = {}
+
 for instrument in SANDBOX_INSTRUMENTS:
     # Configure your strategy
     strategy_config = EMACrossConfig(

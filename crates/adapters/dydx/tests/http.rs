@@ -1383,6 +1383,7 @@ async fn test_concurrent_requests() {
     let client = Arc::new(DydxRawHttpClient::new(Some(base_url), 10, None, false, None).unwrap());
 
     let mut handles = vec![];
+
     for _ in 0..5 {
         let client_clone = client.clone();
         handles.push(get_runtime().spawn(async move { client_clone.get_markets().await }));
@@ -1390,6 +1391,7 @@ async fn test_concurrent_requests() {
 
     let mut success_count = 0;
     let mut error_count = 0;
+
     for handle in handles {
         match handle.await {
             Ok(Ok(_)) => success_count += 1,
@@ -1606,8 +1608,10 @@ async fn test_mixed_success_and_error_responses() {
     let client = Arc::new(DydxRawHttpClient::new(Some(base_url), 5, None, false, None).unwrap());
 
     let mut handles = vec![];
+
     for _ in 0..10 {
         let client_clone = client.clone();
+
         handles.push(tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
             client_clone.get_time().await
@@ -1615,6 +1619,7 @@ async fn test_mixed_success_and_error_responses() {
     }
 
     let mut success_count = 0;
+
     for handle in handles {
         if let Ok(Ok(_)) = handle.await {
             success_count += 1;
@@ -1701,6 +1706,7 @@ async fn mock_candles_paginated(Query(params): Query<HashMap<String, String>>) -
         .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
 
     let mut candles = Vec::new();
+
     for i in 0..limit {
         let bar_time = end_time - ChronoDuration::minutes(i as i64);
         candles.push(generate_candle(

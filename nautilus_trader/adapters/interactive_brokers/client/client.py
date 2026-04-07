@@ -294,6 +294,7 @@ class InteractiveBrokersClient(
             self._internal_msg_queue_processor_task,
             self._msg_handler_processor_task,
         ]
+
         for task in tasks:
             if task and not task.cancelled():
                 task.cancel()

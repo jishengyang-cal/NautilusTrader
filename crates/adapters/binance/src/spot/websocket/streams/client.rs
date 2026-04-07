@@ -340,6 +340,7 @@ impl BinanceSpotWebSocketClient {
                         "Handler not available for pool slot {slot_idx}: {e}"
                     ))
                 })?;
+
             for stream in batch {
                 slots[*slot_idx].streams.retain(|s| s != stream);
             }

@@ -441,6 +441,7 @@ impl DataClient for TardisDataClient {
     fn stop(&mut self) -> anyhow::Result<()> {
         log::info!("Stopping {}", self.client_id);
         self.cancellation_token.cancel();
+
         for handle in self.tasks.drain(..) {
             handle.abort();
         }
@@ -450,6 +451,7 @@ impl DataClient for TardisDataClient {
 
     fn reset(&mut self) -> anyhow::Result<()> {
         self.cancellation_token.cancel();
+
         for handle in self.tasks.drain(..) {
             handle.abort();
         }

@@ -87,6 +87,7 @@ impl DataClientFactory for KrakenDataClientFactory {
             .clone();
 
         let client_id = ClientId::from(name);
+
         match kraken_config.product_type {
             KrakenProductType::Spot => {
                 let client = KrakenSpotDataClient::new(client_id, kraken_config)?;

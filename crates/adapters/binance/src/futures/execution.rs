@@ -919,6 +919,7 @@ impl BinanceFuturesExecutionClient {
                     margin_type: *margin_type,
                     recv_window: None,
                 };
+
                 match self.http_client.set_margin_type(&params).await {
                     Ok(_) => {
                         log::info!("Set {symbol} margin type to {margin_type:?}");
@@ -1057,6 +1058,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
             let ws_task = get_runtime().spawn(async move {
                 pin_mut!(stream);
+
                 loop {
                     tokio::select! {
                         Some(message) = stream.next() => {
@@ -1462,6 +1464,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         let ts_init = self.clock.get_time_ns();
 
         let mut reports = Vec::new();
+
         for trade in trades {
             if let Ok(report) = trade.to_fill_report(
                 self.core.account_id,
@@ -1493,6 +1496,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         let positions = self.http_client.query_positions(&params).await?;
 
         let mut reports = Vec::new();
+
         for position in positions {
             let position_amt: f64 = position.position_amt.parse().unwrap_or(0.0);
             if position_amt == 0.0 {
@@ -2093,6 +2097,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                     Ok(results) => {
                         for (i, result) in results.iter().enumerate() {
                             let cancel = &chunk[i];
+
                             match result {
                                 BatchOrderResult::Success(response) => {
                                     let venue_order_id =
@@ -2624,6 +2629,7 @@ fn dispatch_order_update(
                     Ok(fill) => emitter.send_fill_report(fill),
                     Err(e) => log::error!("Failed to parse fill report: {e}"),
                 }
+
                 match parse_futures_order_update_to_order_status(
                     msg,
                     instrument_id,

@@ -2304,6 +2304,7 @@ impl SpreadQuoteAggregator {
                 .expect("Expected TestClock in historical mode");
             test_clock.advance_time(ts_init, true)
         };
+
         for event in events {
             if event.ts_event == ts_init {
                 self.historical_event_at_ts_init = Some(event);
@@ -2318,6 +2319,7 @@ impl SpreadQuoteAggregator {
         if !self.has_update {
             return;
         }
+
         for (idx, &leg_id) in self.leg_ids.iter().enumerate() {
             let Some(tick) = self.last_quotes.get(&leg_id) else {
                 log::error!(
@@ -2401,6 +2403,7 @@ impl SpreadQuoteAggregator {
     fn create_futures_spread_prices(&self) -> (f64, f64) {
         let mut raw_ask = 0.0_f64;
         let mut raw_bid = 0.0_f64;
+
         for i in 0..self.n_legs {
             let r = self.ratios[i] as f64;
             if self.ratios[i] >= 0 {

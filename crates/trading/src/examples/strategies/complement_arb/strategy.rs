@@ -228,6 +228,7 @@ impl ComplementArb {
 
         // Group by pair key (condition ID)
         let mut groups: AHashMap<String, Vec<Entry>> = AHashMap::new();
+
         for (id, desc, outcome) in &instruments {
             if let Some(key) = Self::extract_pair_key(id) {
                 groups
@@ -966,6 +967,7 @@ impl DataActor for ComplementArb {
             .collect();
 
         let client_id = self.config.client_id;
+
         for order_id in &active_order_ids {
             let order_to_cancel = {
                 let cache = self.cache();

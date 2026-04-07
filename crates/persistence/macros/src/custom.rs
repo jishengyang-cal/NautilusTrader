@@ -94,6 +94,7 @@ fn vec_inner_type(ty: &Type) -> Option<&Type> {
     if args.len() != 1 {
         return None;
     }
+
     match &args[0] {
         syn::GenericArgument::Type(t) => Some(t),
         _ => None,
@@ -288,6 +289,7 @@ fn decode_field_rhs(
 fn encode_builder_for_field(ty: &Type, len_var: &syn::Ident) -> Option<TokenStream> {
     let (outer, inner) = type_for_macro(ty)?;
     let len = len_var;
+
     match (outer.as_str(), inner.as_str()) {
         ("Vec", "u8") => Some(quote! { let mut builder = arrow::array::BinaryBuilder::new(); }),
         ("Vec", "f64") => Some(quote! {
@@ -661,6 +663,7 @@ fn gen_encode_batch_impl(ctx: &ExpansionContext<'_>) -> TokenStream {
     let len_var = format_ident!("data_len");
     let mut col_builds = Vec::new();
     let mut col_names = Vec::new();
+
     for (ident, ty) in field_list {
         let builder = encode_builder_for_field(ty, &len_var).unwrap();
         let append = encode_field_expr(ident, ty).unwrap();
@@ -669,6 +672,7 @@ fn gen_encode_batch_impl(ctx: &ExpansionContext<'_>) -> TokenStream {
         col_names.push(col_name.clone());
         col_builds.push(quote! {
             #builder
+
             for item in data {
                 #append
             }
@@ -931,6 +935,7 @@ fn gen_pymethods_impl(ctx: &ExpansionContext<'_>) -> TokenStream {
                     batch,
                 ).map_err(nautilus_core::python::to_pyvalue_err)?;
                 let mut py_items = Vec::new();
+
                 for d in data_list {
                     if let nautilus_model::data::Data::Custom(custom) = d {
                         if let Some(m) = custom.data.as_any().downcast_ref::<#name>() {

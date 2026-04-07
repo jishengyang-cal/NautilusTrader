@@ -533,6 +533,7 @@ mod tests {
         let buffer = cursor.into_inner();
         let reader = StreamReader::try_new(Cursor::new(buffer), None).unwrap();
         let mut decoded = Vec::new();
+
         for batch_result in reader {
             let batch = batch_result.unwrap();
             let metadata = batch.schema().metadata().clone();

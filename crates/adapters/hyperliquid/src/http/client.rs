@@ -424,6 +424,7 @@ impl HyperliquidRawHttpClient {
         self.rest_limiter.acquire(base_w).await;
 
         let mut attempt = 0u32;
+
         loop {
             let response = self.http_roundtrip_info(request).await?;
 
@@ -1209,6 +1210,7 @@ impl HyperliquidHttpClient {
             }
             Err(e) => {
                 log::warn!("Failed to load allPerpMetas, falling back to meta: {e}");
+
                 match self.inner.load_perp_meta().await {
                     Ok(perp_meta) => match parse_perp_instruments(&perp_meta, 0) {
                         Ok(perp_defs) => {
@@ -1307,6 +1309,7 @@ impl HyperliquidHttpClient {
         let guard = self.asset_indices.load();
 
         let mut mapping = AHashMap::new();
+
         for (symbol, &asset_index) in guard.iter() {
             // Spot instruments: asset_index in [10_000, 100_000)
             if (SPOT_INDEX_OFFSET..BUILDER_PERP_OFFSET).contains(&asset_index) {

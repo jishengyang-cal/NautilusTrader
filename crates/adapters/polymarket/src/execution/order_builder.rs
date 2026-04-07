@@ -261,6 +261,7 @@ pub fn compute_maker_taker_amounts(
 ) -> (Decimal, Decimal) {
     let precision = tick_decimals + LOT_SIZE_SCALE;
     let qty = quantity.trunc_with_scale(LOT_SIZE_SCALE);
+
     match side {
         PolymarketOrderSide::Buy => {
             let maker_amount = to_fixed_decimal((qty * price).trunc_with_scale(precision));
@@ -292,6 +293,7 @@ pub fn compute_market_maker_taker_amounts(
 ) -> (Decimal, Decimal) {
     let precision = tick_decimals + LOT_SIZE_SCALE;
     let amt = amount.trunc_with_scale(LOT_SIZE_SCALE);
+
     match side {
         PolymarketOrderSide::Buy => {
             let maker_amount = to_fixed_decimal(amt);
