@@ -83,6 +83,7 @@ pub struct MockState {
     pub betting_methods: Arc<Mutex<Vec<String>>>,
     pub accounts_overrides: Arc<Mutex<HashMap<String, Value>>>,
     pub login_response_override: Arc<Mutex<Option<String>>>,
+    pub keep_alive_response_override: Arc<Mutex<Option<String>>>,
 }
 
 async fn handle_login(State(state): State<MockState>) -> impl IntoResponse {
@@ -101,7 +102,12 @@ async fn handle_login(State(state): State<MockState>) -> impl IntoResponse {
 
 async fn handle_keep_alive(State(state): State<MockState>) -> impl IntoResponse {
     state.keep_alive_count.fetch_add(1, Ordering::Relaxed);
-    let body = load_fixture("rest/login_success.json");
+    let body = state
+        .keep_alive_response_override
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(|| load_fixture("rest/login_success.json"));
     (
         [(axum::http::header::CONTENT_TYPE, "application/json")],
         body,

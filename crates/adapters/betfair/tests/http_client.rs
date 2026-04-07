@@ -162,6 +162,70 @@ async fn test_send_navigation_returns_parsed_response() {
     assert!(!result.is_null(), "Expected non-null navigation response");
 }
 
+/// When `keep_alive` fails (e.g. NO_SESSION), `reconnect` performs a full
+/// re-login and restores the session token.
+#[rstest]
+#[tokio::test]
+async fn test_keep_alive_failure_then_reconnect_restores_session() {
+    let (addr, state) = start_mock_http().await;
+    let client = create_test_http_client(addr);
+
+    client.connect().await.unwrap();
+    assert!(client.is_connected().await);
+
+    // Make keep_alive fail
+    *state.keep_alive_response_override.lock().unwrap() =
+        Some(r#"{"token":"","product":"","status":"FAIL","error":"NO_SESSION"}"#.to_string());
+    let ka_result = client.keep_alive().await;
+    assert!(ka_result.is_err(), "keep_alive should fail with NO_SESSION");
+
+    // Token should still exist (keep_alive failure does not clear it)
+    assert!(client.session_token().await.is_some());
+
+    // Full reconnect should restore the session
+    client.reconnect().await.unwrap();
+    assert!(client.is_connected().await);
+    assert!(client.session_token().await.is_some());
+
+    // Login should have been called twice (initial + reconnect)
+    assert_eq!(
+        state.login_count.load(std::sync::atomic::Ordering::Relaxed),
+        2
+    );
+}
+
+/// A transient keep-alive failure (e.g. malformed response) returns a non-LoginFailed
+/// error and must NOT clear the session token or trigger a re-login.
+#[rstest]
+#[tokio::test]
+async fn test_keep_alive_transient_error_preserves_session() {
+    let (addr, state) = start_mock_http().await;
+    let client = create_test_http_client(addr);
+
+    client.connect().await.unwrap();
+    let initial_token = client.session_token().await.clone();
+    assert!(initial_token.is_some());
+
+    // Return invalid JSON to simulate a transient failure (produces JsonError)
+    *state.keep_alive_response_override.lock().unwrap() = Some("not-json".to_string());
+    let ka_result = client.keep_alive().await;
+    assert!(ka_result.is_err());
+    assert!(
+        !ka_result.as_ref().unwrap_err().is_login_failed(),
+        "transient error should not be LoginFailed"
+    );
+
+    // Session token must be preserved (not cleared)
+    assert_eq!(client.session_token().await, initial_token);
+
+    // No re-login should have occurred
+    assert_eq!(
+        state.login_count.load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "transient keep-alive failure must not trigger re-login"
+    );
+}
+
 #[rstest]
 #[tokio::test]
 async fn test_send_betting_without_session_returns_error() {

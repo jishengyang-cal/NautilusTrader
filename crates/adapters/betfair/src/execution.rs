@@ -761,14 +761,25 @@ impl ExecutionClient for BetfairExecutionClient {
             loop {
                 tokio::time::sleep(interval).await;
 
-                if let Err(e) = keep_alive_client.keep_alive().await {
-                    log::warn!("Betfair execution keep-alive failed: {e}");
-                } else {
-                    if let Some(token) = keep_alive_client.session_token().await {
-                        keep_alive_stream.update_auth(&keep_alive_app_key, token);
+                match keep_alive_client.keep_alive().await {
+                    Ok(()) => {}
+                    Err(ref e) if e.is_login_failed() => {
+                        log::warn!("Betfair execution session expired, attempting re-login: {e}");
+                        if let Err(e) = keep_alive_client.reconnect().await {
+                            log::error!("Betfair execution re-login failed: {e}");
+                            continue;
+                        }
                     }
-                    log::debug!("Betfair execution session keep-alive sent");
+                    Err(e) => {
+                        log::warn!("Betfair execution keep-alive failed (transient): {e}");
+                        continue;
+                    }
                 }
+
+                if let Some(token) = keep_alive_client.session_token().await {
+                    keep_alive_stream.update_auth(&keep_alive_app_key, token);
+                }
+                log::debug!("Betfair execution session keep-alive sent");
             }
         }));
 
@@ -820,8 +831,19 @@ impl ExecutionClient for BetfairExecutionClient {
             while reconnect_rx.recv().await.is_some() {
                 log::info!("Handling execution stream reconnection");
 
-                if let Err(e) = reconnect_http.keep_alive().await {
-                    log::warn!("Failed to refresh session on reconnect: {e}");
+                match reconnect_http.keep_alive().await {
+                    Ok(()) => {}
+                    Err(ref e) if e.is_login_failed() => {
+                        log::warn!("Session expired on reconnect, attempting re-login: {e}");
+                        if let Err(e) = reconnect_http.reconnect().await {
+                            log::error!("Re-login failed on reconnect: {e}");
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Keep-alive failed on reconnect (transient): {e}");
+                        continue;
+                    }
                 }
 
                 if let Some(token) = reconnect_http.session_token().await {

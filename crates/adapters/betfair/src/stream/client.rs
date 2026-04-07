@@ -376,6 +376,7 @@ impl BetfairStreamClient {
 #[derive(Debug)]
 pub struct BetfairRaceStreamClient {
     socket: SocketClient,
+    auth_bytes_tx: watch::Sender<Bytes>,
     closed: AtomicBool,
 }
 
@@ -397,7 +398,9 @@ impl BetfairRaceStreamClient {
         race_fatal_tx: tokio::sync::mpsc::UnboundedSender<()>,
     ) -> Result<Self, BetfairStreamError> {
         let auth = Authentication::new(credential.app_key().to_string(), session_token);
-        let auth_bytes = Bytes::from(serde_json::to_vec(&auth)?);
+        let auth_bytes_vec = serde_json::to_vec(&auth)?;
+        let auth_bytes = Bytes::from(auth_bytes_vec.clone());
+        let (auth_bytes_tx, auth_bytes_rx) = watch::channel(auth_bytes.clone());
 
         let race_sub = RaceSubscription::new(1);
         let race_sub_bytes = Bytes::from(serde_json::to_vec(&race_sub)?);
@@ -443,15 +446,16 @@ impl BetfairRaceStreamClient {
             handler(data);
         });
 
-        let auth_reconnect = auth_bytes.clone();
+        let auth_bytes_reconnect = auth_bytes_rx;
         let sub_reconnect = race_sub_bytes.clone();
         let shared_tx_reconnect = Arc::clone(&shared_tx);
         let post_reconnection: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
             let Some(tx) = shared_tx_reconnect.get() else {
                 return;
             };
-            let mut combined = Vec::with_capacity(auth_reconnect.len() + 2 + sub_reconnect.len());
-            combined.extend_from_slice(&auth_reconnect);
+            let auth = auth_bytes_reconnect.borrow().clone();
+            let mut combined = Vec::with_capacity(auth.len() + 2 + sub_reconnect.len());
+            combined.extend_from_slice(&auth);
             combined.extend_from_slice(b"\r\n");
             combined.extend_from_slice(&sub_reconnect);
             let _ = tx.send(WriterCommand::Send(Bytes::from(combined)));
@@ -484,8 +488,8 @@ impl BetfairRaceStreamClient {
 
         let _ = shared_tx.set(socket.writer_tx.clone());
 
-        let mut combined = Vec::with_capacity(auth_bytes.len() + 2 + race_sub_bytes.len());
-        combined.extend_from_slice(&auth_bytes);
+        let mut combined = Vec::with_capacity(auth_bytes_vec.len() + 2 + race_sub_bytes.len());
+        combined.extend_from_slice(&auth_bytes_vec);
         combined.extend_from_slice(b"\r\n");
         combined.extend_from_slice(&race_sub_bytes);
         socket
@@ -495,6 +499,7 @@ impl BetfairRaceStreamClient {
 
         Ok(Self {
             socket,
+            auth_bytes_tx,
             closed: AtomicBool::new(false),
         })
     }
@@ -503,6 +508,15 @@ impl BetfairRaceStreamClient {
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.socket.is_active()
+    }
+
+    /// Pushes refreshed auth bytes so the next reconnection uses
+    /// the current session token instead of the one from initial connect.
+    pub fn update_auth(&self, app_key: &str, session_token: String) {
+        let auth = Authentication::new(app_key.to_string(), session_token);
+        if let Ok(bytes) = serde_json::to_vec(&auth) {
+            let _ = self.auth_bytes_tx.send(Bytes::from(bytes));
+        }
     }
 
     /// Closes the race stream connection.
