@@ -6,6 +6,7 @@ Released on TBD (UTC).
 - Added Polymarket game_id and fee_schedule to instrument info (#3811), thanks @Javdu10
 
 ### Breaking Changes
+- Replaced `is_sandbox: bool` with `environment: AxEnvironment` on `AxDataClientConfig` and `AxExecClientConfig` (Rust and Python), aligning with the Binance/Bybit/Kraken adapter pattern. Default is `Sandbox`.
 
 ### Security
 

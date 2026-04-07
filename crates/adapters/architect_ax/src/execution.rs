@@ -58,7 +58,10 @@ use ustr::Ustr;
 
 use crate::{
     common::{
-        consts::{AX_POST_ONLY_REJECT, AX_VENUE},
+        consts::{
+            AX_ACCOUNT_REGISTRATION_TIMEOUT_SECS, AX_AUTH_TOKEN_TTL_EXEC_SECS, AX_POST_ONLY_REJECT,
+            AX_VENUE,
+        },
         credential::Credential,
         enums::AxOrderSide,
         parse::{ax_timestamp_stn_to_unix_nanos, cid_to_client_order_id, quantity_to_contracts},
@@ -142,7 +145,11 @@ impl AxExecutionClient {
                 .context("API credentials not configured")?;
 
         self.http_client
-            .authenticate(credential.api_key(), credential.api_secret(), 3600)
+            .authenticate(
+                credential.api_key(),
+                credential.api_secret(),
+                AX_AUTH_TOKEN_TTL_EXEC_SECS,
+            )
             .await
             .map_err(|e| anyhow::anyhow!("Authentication failed: {e}"))
     }
@@ -483,7 +490,8 @@ impl ExecutionClient for AxExecutionClient {
         }
         self.emitter.send_account_state(account_state);
 
-        self.await_account_registered(30.0).await?;
+        self.await_account_registered(AX_ACCOUNT_REGISTRATION_TIMEOUT_SECS)
+            .await?;
 
         self.core.set_connected();
         log::info!("Connected: client_id={}", self.core.client_id);
@@ -577,10 +585,10 @@ impl ExecutionClient for AxExecutionClient {
         self.emitter.set_sender(get_exec_event_sender());
         self.core.set_started();
         log::info!(
-            "Started: client_id={}, account_id={}, is_sandbox={}",
+            "Started: client_id={}, account_id={}, environment={}",
             self.core.client_id,
             self.core.account_id,
-            self.config.is_sandbox,
+            self.config.environment,
         );
         Ok(())
     }
@@ -620,10 +628,19 @@ impl ExecutionClient for AxExecutionClient {
                 self.emitter.emit_order_denied(
                     order,
                     &format!(
-                        "Unsupported order type: {:?}. \
-                         AX supports MARKET, LIMIT and STOP_LIMIT.",
+                        "Unsupported order type: {:?}, \
+                         AX supports MARKET, LIMIT and STOP_LIMIT",
                         order.order_type(),
                     ),
+                );
+                return Ok(());
+            }
+
+            if order.time_in_force() == TimeInForce::Gtd {
+                self.emitter.emit_order_denied(
+                    order,
+                    "Unsupported time in force: GTD, \
+                     AX supports GTC, IOC, FOK, and DAY",
                 );
                 return Ok(());
             }
@@ -745,36 +762,74 @@ impl ExecutionClient for AxExecutionClient {
     }
 
     fn cancel_all_orders(&self, cmd: &CancelAllOrders) -> anyhow::Result<()> {
-        let cache = self.core.cache();
-        let open_orders = cache.orders_open(None, Some(&cmd.instrument_id), None, None, None);
+        let http_client = self.http_client.clone();
+        let emitter = self.emitter.clone();
+        let clock = self.clock;
+        let instrument_id = cmd.instrument_id;
+        let account_id = self.core.account_id;
+        let trader_id = self.core.trader_id;
 
-        if open_orders.is_empty() {
-            log::debug!("No open orders to cancel for {}", cmd.instrument_id);
-            return Ok(());
-        }
+        // Snapshot open orders so we can emit cancel events after the HTTP request
+        let open_orders: Vec<(ClientOrderId, Option<VenueOrderId>, StrategyId)> = {
+            let cache = self.core.cache();
+            cache
+                .orders_open(None, Some(&instrument_id), None, None, None)
+                .iter()
+                .map(|o| (o.client_order_id(), o.venue_order_id(), o.strategy_id()))
+                .collect()
+        };
 
-        log::debug!(
-            "Canceling {} open orders for {}",
-            open_orders.len(),
-            cmd.instrument_id
-        );
+        let caches = self.ws_orders.caches().clone();
 
-        let ts_init = self.clock.get_time_ns();
+        self.spawn_task("cancel_all_orders", async move {
+            match http_client.cancel_all_orders(instrument_id).await {
+                Ok(()) => {
+                    log::info!("Canceled all orders for {instrument_id}");
 
-        for order in open_orders {
-            let cancel_cmd = CancelOrder {
-                trader_id: cmd.trader_id,
-                client_id: cmd.client_id,
-                strategy_id: cmd.strategy_id,
-                instrument_id: order.instrument_id(),
-                client_order_id: order.client_order_id(),
-                venue_order_id: order.venue_order_id(),
-                command_id: UUID4::new(),
-                ts_init,
-                params: None,
-            };
-            self.cancel_order_internal(&cancel_cmd);
-        }
+                    // AX does not push WS cancel confirmations for HTTP-initiated
+                    // cancels, so emit OrderCanceled events locally and clean up
+                    // tracking state to prevent duplicates if WS events arrive
+                    let ts_event = clock.get_time_ns();
+
+                    for (client_order_id, venue_order_id, strategy_id) in &open_orders {
+                        let event = OrderCanceled::new(
+                            trader_id,
+                            *strategy_id,
+                            instrument_id,
+                            *client_order_id,
+                            UUID4::new(),
+                            ts_event,
+                            clock.get_time_ns(),
+                            false,
+                            *venue_order_id,
+                            Some(account_id),
+                        );
+                        emitter.send_order_event(OrderEventAny::Canceled(event));
+
+                        if let Some(voi) = venue_order_id {
+                            caches.venue_to_client_id.remove(voi);
+                        }
+                        caches.orders_metadata.remove(client_order_id);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to cancel all orders for {instrument_id}: {e}");
+                    let ts_event = clock.get_time_ns();
+
+                    for (client_order_id, venue_order_id, strategy_id) in &open_orders {
+                        emitter.emit_order_cancel_rejected_event(
+                            *strategy_id,
+                            instrument_id,
+                            *client_order_id,
+                            *venue_order_id,
+                            &format!("cancel-all-orders-error: {e}"),
+                            ts_event,
+                        );
+                    }
+                }
+            }
+            Ok(())
+        });
 
         Ok(())
     }
@@ -1038,40 +1093,30 @@ fn dispatch_order_event(
             }
         }
         AxWsOrderEvent::PartiallyFilled(msg) => {
-            if let Some(event) =
-                create_order_filled(&msg.o, &msg.xs, msg.ts, msg.tn, caches, account_id, clock)
-            {
-                emitter.send_order_event(OrderEventAny::Filled(event));
-            } else if let Some(report) = create_fill_report(
+            dispatch_fill_event(
                 &msg.o,
                 &msg.xs,
                 msg.ts,
                 msg.tn,
+                emitter,
                 caches,
                 account_id,
                 instruments,
                 clock,
-            ) {
-                emitter.send_fill_report(report);
-            }
+            );
         }
         AxWsOrderEvent::Filled(msg) => {
-            if let Some(event) =
-                create_order_filled(&msg.o, &msg.xs, msg.ts, msg.tn, caches, account_id, clock)
-            {
-                emitter.send_order_event(OrderEventAny::Filled(event));
-            } else if let Some(report) = create_fill_report(
+            dispatch_fill_event(
                 &msg.o,
                 &msg.xs,
                 msg.ts,
                 msg.tn,
+                emitter,
                 caches,
                 account_id,
                 instruments,
                 clock,
-            ) {
-                emitter.send_fill_report(report);
-            }
+            );
             cleanup_terminal_order_tracking(&msg.o, caches);
         }
         AxWsOrderEvent::Canceled(msg) => {
@@ -1190,6 +1235,34 @@ fn dispatch_order_event(
                 );
             }
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dispatch_fill_event(
+    order: &AxWsOrder,
+    execution: &AxWsTradeExecution,
+    ts: i64,
+    tn: i64,
+    emitter: &ExecutionEventEmitter,
+    caches: &OrdersCaches,
+    account_id: AccountId,
+    instruments: &AtomicMap<Ustr, InstrumentAny>,
+    clock: &'static AtomicTime,
+) {
+    if let Some(event) = create_order_filled(order, execution, ts, tn, caches, account_id, clock) {
+        emitter.send_order_event(OrderEventAny::Filled(event));
+    } else if let Some(report) = create_fill_report(
+        order,
+        execution,
+        ts,
+        tn,
+        caches,
+        account_id,
+        instruments,
+        clock,
+    ) {
+        emitter.send_fill_report(report);
     }
 }
 

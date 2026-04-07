@@ -58,6 +58,7 @@ pub struct TestServerState {
     pub pong_count: Arc<AtomicUsize>,
     pub heartbeat_count: Arc<AtomicUsize>,
     pub messages_received: Arc<tokio::sync::Mutex<Vec<serde_json::Value>>>,
+    pub cancel_all_count: Arc<AtomicUsize>,
 }
 
 impl Default for TestServerState {
@@ -73,6 +74,7 @@ impl Default for TestServerState {
             pong_count: Arc::new(AtomicUsize::new(0)),
             heartbeat_count: Arc::new(AtomicUsize::new(0)),
             messages_received: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            cancel_all_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -89,6 +91,7 @@ impl TestServerState {
         self.pong_count.store(0, Ordering::Relaxed);
         self.heartbeat_count.store(0, Ordering::Relaxed);
         self.messages_received.lock().await.clear();
+        self.cancel_all_count.store(0, Ordering::Relaxed);
     }
 
     pub async fn set_subscription_failures(&self, topics: Vec<String>) {
@@ -431,6 +434,11 @@ async fn handle_authenticate() -> Json<serde_json::Value> {
     }))
 }
 
+async fn handle_cancel_all_orders(State(state): State<TestServerState>) -> Json<serde_json::Value> {
+    state.cancel_all_count.fetch_add(1, Ordering::Relaxed);
+    Json(load_test_data("http_cancel_all_orders.json"))
+}
+
 fn create_test_router(state: TestServerState) -> Router {
     Router::new()
         // WebSocket routes
@@ -441,6 +449,7 @@ fn create_test_router(state: TestServerState) -> Router {
         .route("/instruments", get(handle_get_instruments))
         .route("/balances", get(handle_get_balances))
         .route("/positions", get(handle_get_positions))
+        .route("/cancel_all_orders", post(handle_cancel_all_orders))
         .with_state(state)
 }
 

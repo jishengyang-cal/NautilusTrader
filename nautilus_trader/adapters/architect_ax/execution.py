@@ -525,10 +525,7 @@ class AxExecutionClient(LiveExecutionClient):
             )
 
     async def _cancel_all_orders(self, command: CancelAllOrders) -> None:
-        if not self._has_credentials or self._ws_orders_client is None:
-            self._log.error("Cannot cancel orders: no API credentials configured")
-            return
-
+        # Snapshot open orders before sending the cancel request
         open_orders = self._cache.orders_open(
             venue=self.venue,
             instrument_id=command.instrument_id,
@@ -536,21 +533,29 @@ class AxExecutionClient(LiveExecutionClient):
             side=command.order_side,
         )
 
-        for order in open_orders:
-            pyo3_client_order_id = nautilus_pyo3.ClientOrderId(order.client_order_id.value)
-            pyo3_venue_order_id = (
-                nautilus_pyo3.VenueOrderId(order.venue_order_id.value)
-                if order.venue_order_id
-                else None
-            )
+        pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(
+            str(command.instrument_id),
+        )
 
-            try:
-                await self._ws_orders_client.cancel_order(
-                    client_order_id=pyo3_client_order_id,
-                    venue_order_id=pyo3_venue_order_id,
-                )
-            except Exception as e:
-                self._log.error(f"Failed to cancel order {order.client_order_id}: {e}")
+        try:
+            await self._http_client.cancel_all_orders(pyo3_instrument_id)
+        except Exception as e:
+            self._log.error(f"Failed to cancel all orders: {e}")
+            return
+
+        self._log.info(f"Canceled all orders for {command.instrument_id}")
+
+        # AX does not push WS cancel confirmations for HTTP-initiated
+        # cancels, so emit OrderCanceled events locally
+        ts_event = self._clock.timestamp_ns()
+        for order in open_orders:
+            self.generate_order_canceled(
+                strategy_id=order.strategy_id,
+                instrument_id=command.instrument_id,
+                client_order_id=order.client_order_id,
+                venue_order_id=order.venue_order_id,
+                ts_event=ts_event,
+            )
 
     async def _query_account(self, command: QueryAccount) -> None:
         try:
@@ -644,6 +649,9 @@ class AxExecutionClient(LiveExecutionClient):
             self._log.error(
                 f"Cannot process OrderCanceled: order not found for {event.client_order_id!r}",
             )
+            return
+
+        if order.is_closed:
             return
 
         self.generate_order_canceled(

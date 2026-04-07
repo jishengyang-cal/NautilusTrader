@@ -16,7 +16,10 @@
 use nautilus_model::identifiers::{AccountId, TraderId};
 use pyo3::pymethods;
 
-use crate::config::{AxDataClientConfig, AxExecClientConfig};
+use crate::{
+    common::enums::AxEnvironment,
+    config::{AxDataClientConfig, AxExecClientConfig},
+};
 
 #[pymethods]
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
@@ -24,11 +27,11 @@ impl AxDataClientConfig {
     /// Configuration for the AX Exchange live data client.
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (api_key=None, api_secret=None, is_sandbox=None, base_url_http=None, base_url_ws_public=None, base_url_ws_private=None, http_proxy_url=None, ws_proxy_url=None, http_timeout_secs=None, max_retries=None, retry_delay_initial_ms=None, retry_delay_max_ms=None, heartbeat_interval_secs=None, recv_window_ms=None, update_instruments_interval_mins=None, funding_rate_poll_interval_mins=None))]
+    #[pyo3(signature = (api_key=None, api_secret=None, environment=None, base_url_http=None, base_url_ws_public=None, base_url_ws_private=None, http_proxy_url=None, ws_proxy_url=None, http_timeout_secs=None, max_retries=None, retry_delay_initial_ms=None, retry_delay_max_ms=None, heartbeat_interval_secs=None, recv_window_ms=None, update_instruments_interval_mins=None, funding_rate_poll_interval_mins=None))]
     fn py_new(
         api_key: Option<String>,
         api_secret: Option<String>,
-        is_sandbox: Option<bool>,
+        environment: Option<AxEnvironment>,
         base_url_http: Option<String>,
         base_url_ws_public: Option<String>,
         base_url_ws_private: Option<String>,
@@ -47,7 +50,7 @@ impl AxDataClientConfig {
         Self {
             api_key,
             api_secret,
-            is_sandbox: is_sandbox.unwrap_or(default.is_sandbox),
+            environment: environment.unwrap_or(default.environment),
             base_url_http,
             base_url_ws_public,
             base_url_ws_private,
@@ -83,13 +86,13 @@ impl AxExecClientConfig {
     /// Configuration for the AX Exchange live execution client.
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (trader_id=None, account_id=None, api_key=None, api_secret=None, is_sandbox=None, base_url_http=None, base_url_orders=None, base_url_ws_private=None, http_proxy_url=None, ws_proxy_url=None, http_timeout_secs=None, max_retries=None, retry_delay_initial_ms=None, retry_delay_max_ms=None, heartbeat_interval_secs=None, recv_window_ms=None, cancel_on_disconnect=None))]
+    #[pyo3(signature = (trader_id=None, account_id=None, api_key=None, api_secret=None, environment=None, base_url_http=None, base_url_orders=None, base_url_ws_private=None, http_proxy_url=None, ws_proxy_url=None, http_timeout_secs=None, max_retries=None, retry_delay_initial_ms=None, retry_delay_max_ms=None, heartbeat_interval_secs=None, recv_window_ms=None, cancel_on_disconnect=None))]
     fn py_new(
         trader_id: Option<TraderId>,
         account_id: Option<AccountId>,
         api_key: Option<String>,
         api_secret: Option<String>,
-        is_sandbox: Option<bool>,
+        environment: Option<AxEnvironment>,
         base_url_http: Option<String>,
         base_url_orders: Option<String>,
         base_url_ws_private: Option<String>,
@@ -109,7 +112,7 @@ impl AxExecClientConfig {
             account_id: account_id.unwrap_or(default.account_id),
             api_key,
             api_secret,
-            is_sandbox: is_sandbox.unwrap_or(default.is_sandbox),
+            environment: environment.unwrap_or(default.environment),
             base_url_http,
             base_url_orders,
             base_url_ws_private,

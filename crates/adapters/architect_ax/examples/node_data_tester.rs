@@ -22,7 +22,9 @@
 //! - `AX_API_SECRET`: Your API secret
 //! - `AX_IS_SANDBOX`: Set to "true" for sandbox (default), "false" for production
 
-use nautilus_architect_ax::{config::AxDataClientConfig, factories::AxDataClientFactory};
+use nautilus_architect_ax::{
+    common::enums::AxEnvironment, config::AxDataClientConfig, factories::AxDataClientFactory,
+};
 use nautilus_common::enums::Environment;
 use nautilus_live::node::LiveNode;
 use nautilus_model::{
@@ -47,15 +49,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // InstrumentId::from("BTCUSD-PERP.AX"),
     ];
 
-    let is_sandbox = std::env::var("AX_IS_SANDBOX")
+    let ax_environment = if std::env::var("AX_IS_SANDBOX")
         .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(true);
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(true)
+    {
+        AxEnvironment::Sandbox
+    } else {
+        AxEnvironment::Production
+    };
 
     let ax_config = AxDataClientConfig {
         api_key: std::env::var("AX_API_KEY").ok(),
         api_secret: std::env::var("AX_API_SECRET").ok(),
-        is_sandbox,
+        environment: ax_environment,
         ..Default::default()
     };
 

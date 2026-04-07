@@ -22,21 +22,29 @@ mod common;
 
 use std::{cell::RefCell, net::SocketAddr, rc::Rc};
 
-use nautilus_architect_ax::{config::AxExecClientConfig, execution::AxExecutionClient};
+use nautilus_architect_ax::{
+    common::enums::AxEnvironment, config::AxExecClientConfig, execution::AxExecutionClient,
+};
 use nautilus_common::{
     cache::Cache,
     clients::ExecutionClient,
     live::runner::set_exec_event_sender,
-    messages::{ExecutionEvent, execution::QueryAccount},
+    messages::{
+        ExecutionEvent,
+        execution::{BatchCancelOrders, CancelAllOrders, CancelOrder, QueryAccount},
+    },
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::{AccountAny, MarginAccount},
-    enums::{AccountType, OmsType},
-    events::AccountState,
-    identifiers::{AccountId, ClientId, TraderId, Venue},
-    types::{AccountBalance, Money},
+    enums::{AccountType, OmsType, OrderSide, TimeInForce},
+    events::{AccountState, OrderAccepted, OrderEventAny},
+    identifiers::{
+        AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, TraderId, Venue, VenueOrderId,
+    },
+    orders::{LimitOrder, Order, OrderAny},
+    types::{AccountBalance, Money, Price, Quantity},
 };
 use rstest::rstest;
 
@@ -52,7 +60,7 @@ fn create_test_exec_config(addr: SocketAddr) -> AxExecClientConfig {
     AxExecClientConfig {
         api_key: Some("test_api_key".to_string()),
         api_secret: Some("test_api_secret".to_string()),
-        is_sandbox: true,
+        environment: AxEnvironment::Sandbox,
         base_url_http: Some(format!("http://{addr}")),
         base_url_orders: Some(format!("http://{addr}")),
         base_url_ws_private: Some(format!("ws://{addr}/orders/ws")),
@@ -118,12 +126,12 @@ async fn test_exec_config_creation() {
     let config = AxExecClientConfig {
         api_key: Some("test_api_key".to_string()),
         api_secret: Some("test_api_secret".to_string()),
-        is_sandbox: true,
+        environment: AxEnvironment::Sandbox,
         ..Default::default()
     };
 
     assert_eq!(config.api_key, Some("test_api_key".to_string()));
-    assert!(config.is_sandbox);
+    assert_eq!(config.environment, AxEnvironment::Sandbox);
     assert_eq!(config.trader_id, TraderId::from("TRADER-001"));
     assert_eq!(config.account_id, AccountId::from("AX-001"));
 }
@@ -218,7 +226,7 @@ async fn test_exec_config_url_overrides() {
 #[tokio::test]
 async fn test_exec_config_sandbox_defaults() {
     let config = AxExecClientConfig {
-        is_sandbox: true,
+        environment: AxEnvironment::Sandbox,
         ..Default::default()
     };
 
@@ -231,7 +239,7 @@ async fn test_exec_config_sandbox_defaults() {
 #[tokio::test]
 async fn test_exec_config_production_defaults() {
     let config = AxExecClientConfig {
-        is_sandbox: false,
+        environment: AxEnvironment::Production,
         ..Default::default()
     };
 
@@ -275,6 +283,166 @@ async fn test_query_account_does_not_block_within_runtime() {
         matches!(event, ExecutionEvent::Account(_)),
         "Expected Account event, was {event:?}"
     );
+
+    client.disconnect().await.expect("Failed to disconnect");
+}
+
+fn add_open_order_to_cache(
+    cache: &Rc<RefCell<Cache>>,
+    client_order_id: &str,
+    venue_order_id: &str,
+    instrument_id: InstrumentId,
+) {
+    let trader_id = TraderId::from("TESTER-001");
+    let strategy_id = StrategyId::from("S-001");
+    let coid = ClientOrderId::from(client_order_id);
+
+    let order = LimitOrder::new(
+        trader_id,
+        strategy_id,
+        instrument_id,
+        coid,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::from("50000.00"),
+        TimeInForce::Gtc,
+        None,  // expire_time
+        false, // post_only
+        false, // reduce_only
+        false, // quote_quantity
+        None,  // display_qty
+        None,  // emulation_trigger
+        None,  // trigger_instrument_id
+        None,  // contingency_type
+        None,  // order_list_id
+        None,  // linked_order_ids
+        None,  // parent_order_id
+        None,  // exec_algorithm_id
+        None,  // exec_algorithm_params
+        None,  // exec_spawn_id
+        None,  // tags
+        UUID4::new(),
+        UnixNanos::default(),
+    );
+
+    let mut order_any: OrderAny = order.into();
+
+    let accepted = OrderAccepted::new(
+        trader_id,
+        strategy_id,
+        instrument_id,
+        coid,
+        VenueOrderId::new(venue_order_id),
+        AccountId::from("AX-001"),
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        false,
+    );
+
+    order_any
+        .apply(OrderEventAny::Accepted(accepted))
+        .expect("Failed to apply accepted");
+
+    cache
+        .borrow_mut()
+        .add_order(order_any.clone(), None, None, false)
+        .unwrap();
+    cache.borrow_mut().update_order(&order_any).unwrap();
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_all_orders_uses_http_endpoint() {
+    let (addr, state) = start_test_server().await.unwrap();
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+
+    add_test_account_to_cache(&cache, AccountId::from("AX-001"));
+
+    client.start().expect("Failed to start");
+    client.connect().await.expect("Failed to connect");
+
+    let instrument_id = InstrumentId::from("EURUSD-PERP.AX");
+    add_open_order_to_cache(&cache, "O-001", "VOI-001", instrument_id);
+    add_open_order_to_cache(&cache, "O-002", "VOI-002", instrument_id);
+
+    let cmd = CancelAllOrders {
+        trader_id: TraderId::from("TESTER-001"),
+        client_id: Some(ClientId::from("AX")),
+        strategy_id: StrategyId::from("S-001"),
+        instrument_id,
+        order_side: OrderSide::NoOrderSide,
+        command_id: UUID4::new(),
+        ts_init: UnixNanos::default(),
+        params: None,
+    };
+
+    client
+        .cancel_all_orders(&cmd)
+        .expect("cancel_all_orders should not error");
+
+    // Allow spawned task to complete
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    assert_eq!(
+        state
+            .cancel_all_count
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "Expected HTTP cancel_all_orders endpoint to be called once"
+    );
+
+    let messages = state.get_messages().await;
+    let ws_cancel_count = messages
+        .iter()
+        .filter(|m| m.get("t").and_then(|v| v.as_str()) == Some("c"))
+        .count();
+    assert_eq!(ws_cancel_count, 0);
+
+    client.disconnect().await.expect("Failed to disconnect");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_batch_cancel_orders_does_not_error() {
+    let (addr, _state) = start_test_server().await.unwrap();
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+
+    add_test_account_to_cache(&cache, AccountId::from("AX-001"));
+
+    client.start().expect("Failed to start");
+    client.connect().await.expect("Failed to connect");
+
+    let instrument_id = InstrumentId::from("EURUSD-PERP.AX");
+    add_open_order_to_cache(&cache, "O-001", "VOI-001", instrument_id);
+
+    let cancels = vec![CancelOrder {
+        trader_id: TraderId::from("TESTER-001"),
+        client_id: Some(ClientId::from("AX")),
+        strategy_id: StrategyId::from("S-001"),
+        instrument_id,
+        client_order_id: ClientOrderId::from("O-001"),
+        venue_order_id: Some(VenueOrderId::new("VOI-001")),
+        command_id: UUID4::new(),
+        ts_init: UnixNanos::default(),
+        params: None,
+    }];
+
+    let cmd = BatchCancelOrders {
+        trader_id: TraderId::from("TESTER-001"),
+        client_id: Some(ClientId::from("AX")),
+        strategy_id: StrategyId::from("S-001"),
+        instrument_id,
+        cancels,
+        command_id: UUID4::new(),
+        ts_init: UnixNanos::default(),
+        params: None,
+    };
+
+    // AX has no batch cancel endpoint; delegates to individual WS cancels
+    client
+        .batch_cancel_orders(&cmd)
+        .expect("batch_cancel_orders should not error");
 
     client.disconnect().await.expect("Failed to disconnect");
 }

@@ -136,6 +136,22 @@ impl AxHttpClient {
         self.cancel_all_requests();
     }
 
+    /// Cancels all open orders for an instrument.
+    #[pyo3(name = "cancel_all_orders")]
+    pub fn py_cancel_all_orders<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .cancel_all_orders(instrument_id)
+                .await
+                .map_err(to_pyvalue_err)
+        })
+    }
+
     /// Caches a single instrument.
     ///
     /// Any existing instrument with the same symbol will be replaced.

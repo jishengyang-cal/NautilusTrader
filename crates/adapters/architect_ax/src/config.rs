@@ -37,9 +37,9 @@ pub struct AxDataClientConfig {
     pub api_key: Option<String>,
     /// Optional API secret for authenticated REST/WebSocket requests.
     pub api_secret: Option<String>,
-    /// Use sandbox environment (default: false).
+    /// Trading environment (Sandbox or Production).
     #[builder(default)]
-    pub is_sandbox: bool,
+    pub environment: AxEnvironment,
     /// Optional override for the REST base URL.
     pub base_url_http: Option<String>,
     /// Optional override for the public WebSocket URL.
@@ -98,22 +98,12 @@ impl AxDataClientConfig {
         has_key && has_secret
     }
 
-    /// Returns the resolved environment.
-    #[must_use]
-    pub fn environment(&self) -> AxEnvironment {
-        if self.is_sandbox {
-            AxEnvironment::Sandbox
-        } else {
-            AxEnvironment::Production
-        }
-    }
-
     /// Returns the REST base URL, considering overrides and environment.
     #[must_use]
     pub fn http_base_url(&self) -> String {
         self.base_url_http
             .clone()
-            .unwrap_or_else(|| self.environment().http_url().to_string())
+            .unwrap_or_else(|| self.environment.http_url().to_string())
     }
 
     /// Returns the public WebSocket URL, considering overrides and environment.
@@ -121,7 +111,7 @@ impl AxDataClientConfig {
     pub fn ws_public_url(&self) -> String {
         self.base_url_ws_public
             .clone()
-            .unwrap_or_else(|| self.environment().ws_md_url().to_string())
+            .unwrap_or_else(|| self.environment.ws_md_url().to_string())
     }
 
     /// Returns the private WebSocket URL, considering overrides and environment.
@@ -129,7 +119,7 @@ impl AxDataClientConfig {
     pub fn ws_private_url(&self) -> String {
         self.base_url_ws_private
             .clone()
-            .unwrap_or_else(|| self.environment().ws_orders_url().to_string())
+            .unwrap_or_else(|| self.environment.ws_orders_url().to_string())
     }
 }
 
@@ -157,9 +147,9 @@ pub struct AxExecClientConfig {
     pub api_key: Option<String>,
     /// API secret for authenticated requests.
     pub api_secret: Option<String>,
-    /// Use sandbox environment (default: true).
-    #[builder(default = true)]
-    pub is_sandbox: bool,
+    /// Trading environment (Sandbox or Production).
+    #[builder(default)]
+    pub environment: AxEnvironment,
     /// Optional override for the REST base URL.
     pub base_url_http: Option<String>,
     /// Optional override for the orders REST base URL.
@@ -215,22 +205,12 @@ impl AxExecClientConfig {
         has_key && has_secret
     }
 
-    /// Returns the resolved environment.
-    #[must_use]
-    pub fn environment(&self) -> AxEnvironment {
-        if self.is_sandbox {
-            AxEnvironment::Sandbox
-        } else {
-            AxEnvironment::Production
-        }
-    }
-
     /// Returns the REST base URL, considering overrides and environment.
     #[must_use]
     pub fn http_base_url(&self) -> String {
         self.base_url_http
             .clone()
-            .unwrap_or_else(|| self.environment().http_url().to_string())
+            .unwrap_or_else(|| self.environment.http_url().to_string())
     }
 
     /// Returns the orders REST base URL, considering overrides and environment.
@@ -238,7 +218,7 @@ impl AxExecClientConfig {
     pub fn orders_base_url(&self) -> String {
         self.base_url_orders
             .clone()
-            .unwrap_or_else(|| self.environment().orders_url().to_string())
+            .unwrap_or_else(|| self.environment.orders_url().to_string())
     }
 
     /// Returns the private WebSocket URL, considering overrides and environment.
@@ -246,7 +226,7 @@ impl AxExecClientConfig {
     pub fn ws_private_url(&self) -> String {
         self.base_url_ws_private
             .clone()
-            .unwrap_or_else(|| self.environment().ws_orders_url().to_string())
+            .unwrap_or_else(|| self.environment.ws_orders_url().to_string())
     }
 }
 
@@ -262,7 +242,9 @@ mod tests {
 
     #[rstest]
     fn test_data_config_sandbox_urls_match_consts() {
-        let config = AxDataClientConfig::builder().is_sandbox(true).build();
+        let config = AxDataClientConfig::builder()
+            .environment(AxEnvironment::Sandbox)
+            .build();
         assert_eq!(config.http_base_url(), AX_HTTP_SANDBOX_URL);
         assert_eq!(config.ws_public_url(), AX_WS_SANDBOX_PUBLIC_URL);
         assert_eq!(config.ws_private_url(), AX_WS_SANDBOX_PRIVATE_URL);
@@ -270,7 +252,9 @@ mod tests {
 
     #[rstest]
     fn test_data_config_production_urls_match_consts() {
-        let config = AxDataClientConfig::builder().is_sandbox(false).build();
+        let config = AxDataClientConfig::builder()
+            .environment(AxEnvironment::Production)
+            .build();
         assert_eq!(config.http_base_url(), AX_HTTP_URL);
         assert_eq!(config.ws_public_url(), AX_WS_PUBLIC_URL);
         assert_eq!(config.ws_private_url(), AX_WS_PRIVATE_URL);
@@ -290,7 +274,9 @@ mod tests {
 
     #[rstest]
     fn test_exec_config_sandbox_urls_match_consts() {
-        let config = AxExecClientConfig::builder().is_sandbox(true).build();
+        let config = AxExecClientConfig::builder()
+            .environment(AxEnvironment::Sandbox)
+            .build();
         assert_eq!(config.http_base_url(), AX_HTTP_SANDBOX_URL);
         assert_eq!(config.orders_base_url(), AX_ORDERS_SANDBOX_URL);
         assert_eq!(config.ws_private_url(), AX_WS_SANDBOX_PRIVATE_URL);
@@ -298,7 +284,9 @@ mod tests {
 
     #[rstest]
     fn test_exec_config_production_urls_match_consts() {
-        let config = AxExecClientConfig::builder().is_sandbox(false).build();
+        let config = AxExecClientConfig::builder()
+            .environment(AxEnvironment::Production)
+            .build();
         assert_eq!(config.http_base_url(), AX_HTTP_URL);
         assert_eq!(config.orders_base_url(), AX_ORDERS_URL);
         assert_eq!(config.ws_private_url(), AX_WS_PRIVATE_URL);
@@ -316,5 +304,14 @@ mod tests {
             .cancel_on_disconnect(true)
             .build();
         assert!(config.cancel_on_disconnect);
+    }
+
+    #[rstest]
+    fn test_default_environment_is_sandbox() {
+        let data = AxDataClientConfig::default();
+        assert_eq!(data.environment, AxEnvironment::Sandbox);
+
+        let exec = AxExecClientConfig::default();
+        assert_eq!(exec.environment, AxEnvironment::Sandbox);
     }
 }

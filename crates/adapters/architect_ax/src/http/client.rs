@@ -54,16 +54,15 @@ use ustr::Ustr;
 use super::{
     error::AxHttpError,
     models::{
-        AuthenticateApiKeyRequest, AxAuthenticateResponse, AxBalancesResponse,
-        AxBatchCancelOrdersResponse, AxBookResponse, AxCancelAllOrdersResponse,
-        AxCancelOrderResponse, AxCandle, AxCandleResponse, AxCandlesResponse, AxFillsResponse,
-        AxFundingRatesResponse, AxInitialMarginRequirementResponse, AxInstrument,
-        AxInstrumentsResponse, AxOpenOrdersResponse, AxOrderStatusQueryResponse, AxOrdersResponse,
-        AxPlaceOrderResponse, AxPositionsResponse, AxPreviewAggressiveLimitOrderResponse,
-        AxReplaceOrderResponse, AxRiskSnapshotResponse, AxTicker, AxTickersResponse,
-        AxTradesResponse, AxTransactionsResponse, AxWhoAmI, BatchCancelOrdersRequest,
-        CancelAllOrdersRequest, CancelOrderRequest, PlaceOrderRequest,
-        PreviewAggressiveLimitOrderRequest, ReplaceOrderRequest,
+        AuthenticateApiKeyRequest, AxAuthenticateResponse, AxBalancesResponse, AxBookResponse,
+        AxCancelAllOrdersResponse, AxCancelOrderResponse, AxCandle, AxCandleResponse,
+        AxCandlesResponse, AxFillsResponse, AxFundingRatesResponse,
+        AxInitialMarginRequirementResponse, AxInstrument, AxInstrumentsResponse,
+        AxOpenOrdersResponse, AxOrderStatusQueryResponse, AxOrdersResponse, AxPlaceOrderResponse,
+        AxPositionsResponse, AxPreviewAggressiveLimitOrderResponse, AxReplaceOrderResponse,
+        AxRiskSnapshotResponse, AxTicker, AxTickersResponse, AxTradesResponse,
+        AxTransactionsResponse, AxWhoAmI, CancelAllOrdersRequest, CancelOrderRequest,
+        PlaceOrderRequest, PreviewAggressiveLimitOrderRequest, ReplaceOrderRequest,
     },
     parse::{
         parse_account_state, parse_bar, parse_fill_report, parse_funding_rate,
@@ -694,31 +693,6 @@ impl AxRawHttpClient {
             &self.orders_base_url,
             Method::POST,
             "/cancel_all_orders",
-            None,
-            Some(body),
-            true,
-        )
-        .await
-    }
-
-    /// Cancels multiple orders by their IDs in a single batch request.
-    ///
-    /// # Endpoint
-    /// `POST /batch_cancel_orders` (orders base URL)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request fails or the response cannot be parsed.
-    pub async fn batch_cancel_orders(
-        &self,
-        request: &BatchCancelOrdersRequest,
-    ) -> Result<AxBatchCancelOrdersResponse, AxHttpError> {
-        let body = serde_json::to_vec(request)
-            .map_err(|e| AxHttpError::JsonError(format!("Failed to serialize request: {e}")))?;
-        self.send_request_to_url::<AxBatchCancelOrdersResponse, ()>(
-            &self.orders_base_url,
-            Method::POST,
-            "/batch_cancel_orders",
             None,
             Some(body),
             true,
@@ -1786,5 +1760,16 @@ impl AxHttpClient {
         }
 
         Ok(reports)
+    }
+
+    /// Cancels all open orders for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn cancel_all_orders(&self, instrument_id: InstrumentId) -> Result<(), AxHttpError> {
+        let request = CancelAllOrdersRequest::new().with_symbol(instrument_id.symbol.inner());
+        self.inner.cancel_all_orders(&request).await?;
+        Ok(())
     }
 }

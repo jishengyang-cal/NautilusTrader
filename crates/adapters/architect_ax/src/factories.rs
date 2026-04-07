@@ -30,10 +30,7 @@ use nautilus_model::{
 use nautilus_system::factories::{ClientConfig, DataClientFactory, ExecutionClientFactory};
 
 use crate::{
-    common::{
-        consts::{AX_VENUE, AX_WS_PUBLIC_URL, AX_WS_SANDBOX_PUBLIC_URL},
-        credential::Credential,
-    },
+    common::{consts::AX_VENUE, credential::Credential},
     config::{AxDataClientConfig, AxExecClientConfig},
     data::AxDataClient,
     execution::AxExecutionClient,
@@ -121,13 +118,7 @@ impl DataClientFactory for AxDataClientFactory {
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {e}"))?
         };
 
-        let ws_url = ax_config.base_url_ws_public.clone().unwrap_or_else(|| {
-            if ax_config.is_sandbox {
-                AX_WS_SANDBOX_PUBLIC_URL.to_string()
-            } else {
-                AX_WS_PUBLIC_URL.to_string()
-            }
-        });
+        let ws_url = ax_config.ws_public_url();
 
         // Token set during connect
         let ws_client =

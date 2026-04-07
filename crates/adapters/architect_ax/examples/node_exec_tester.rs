@@ -31,6 +31,7 @@
 //! - `EURUSD-PERP` (fx, qty=100, ~$1.15)
 
 use nautilus_architect_ax::{
+    common::enums::AxEnvironment,
     config::{AxDataClientConfig, AxExecClientConfig},
     factories::{AxDataClientFactory, AxExecutionClientFactory},
 };
@@ -55,20 +56,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let symbol = std::env::var("AX_SYMBOL").unwrap_or_else(|_| "XAU-PERP".to_string());
     let instrument_id = InstrumentId::from(format!("{symbol}.AX"));
 
-    let is_sandbox = std::env::var("AX_IS_SANDBOX")
+    let ax_environment = if std::env::var("AX_IS_SANDBOX")
         .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(true);
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(true)
+    {
+        AxEnvironment::Sandbox
+    } else {
+        AxEnvironment::Production
+    };
 
     let data_config = AxDataClientConfig {
-        is_sandbox,
+        environment: ax_environment,
         ..Default::default()
     };
 
     let exec_config = AxExecClientConfig {
         trader_id,
         account_id,
-        is_sandbox,
+        environment: ax_environment,
         ..Default::default()
     };
 
@@ -102,8 +108,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .client_id(client_id)
         .order_qty(order_qty)
         .open_position_on_start_qty(order_qty.as_decimal())
-        .log_data(false)
         .use_post_only(true)
+        .log_data(false)
         .build();
 
     let tester = ExecTester::new(tester_config);
