@@ -7,7 +7,7 @@ Rust-native `LiveNode`.
 
 - How complement arbitrage works on binary options and why `Yes + No = 1.0` creates
   risk-free profit opportunities.
-- How to configure the Polymarket data pipeline — startup filters, WebSocket market
+- How to configure the Polymarket data pipeline: startup filters, WebSocket market
   discovery, and instrument pairing by condition ID.
 - How the per-pair state machine manages execution risk: entry orders, partial fill
   detection, and automatic unwind.
@@ -38,7 +38,7 @@ markets across politics, sports, crypto, and current events. Several features ma
 well-suited for complement arbitrage:
 
 - **Binary option pairs**: every market has a Yes and No token sharing a condition ID.
-  These are mathematically complementary — one must resolve to $1 and the other to $0.
+  These are mathematically complementary: one must resolve to $1 and the other to $0.
 - **On-chain settlement**: CTF (Conditional Token Framework) tokens settle deterministically
   on Polygon. Holding Yes + No guarantees a $1 redemption.
 - **Deep liquidity on popular markets**: sports and political markets routinely have
@@ -69,23 +69,23 @@ You need a Polymarket account with:
 
 1. **A wallet for signing orders.** Polymarket supports three signing modes
    (configured via `signature_type` on the execution client):
-   - **`PolyGnosisSafe` (recommended)** — proxy wallet backed by a Gnosis Safe.
+   - **`PolyGnosisSafe` (recommended)**: proxy wallet backed by a Gnosis Safe.
      This is what you get when you create an account through the Polymarket web UI
      by connecting MetaMask (or any browser wallet). Two big advantages: order
      submission is **gas-free** (the Polymarket relayer pays gas) and the same
      account is visible in the Polymarket web GUI, so you can monitor positions
      and intervene manually if needed.
-   - **`PolyProxy`** — older proxy wallet variant. Use this if you have a legacy
+   - **`PolyProxy`**: older proxy wallet variant. Use this if you have a legacy
      Polymarket account that was created before the Gnosis Safe migration.
-   - **`Eoa`** — direct on-chain signing with an EOA private key. No proxy, no
-     relayer, no GUI integration — you pay gas yourself. Intended for advanced
+   - **`Eoa`**: direct on-chain signing with an EOA private key. No proxy, no
+     relayer, no GUI integration; you pay gas yourself. Intended for advanced
      users who want direct on-chain control. Most traders should not start here.
 2. **API credentials** (key, secret, passphrase) for the L2 CLOB API.
 3. **USDC.e allowance** set for the CTF Exchange contract on Polygon.
 
 For the proxy wallet modes (`PolyGnosisSafe` / `PolyProxy`), `POLYMARKET_PK` is
 the private key of the **owner** wallet (e.g. your MetaMask key) that controls
-the proxy — *not* a separate trading key — and `POLYMARKET_FUNDER` is the
+the proxy, *not* a separate trading key, and `POLYMARKET_FUNDER` is the
 on-chain address of the proxy itself (visible in the Polymarket UI under your
 profile / settings).
 
@@ -96,7 +96,7 @@ instructions, including wallet configuration, allowance scripts, and API key gen
 
 ```bash
 # Required: signer private key (hex, with or without 0x prefix).
-# In proxy modes (PolyGnosisSafe / PolyProxy) this is the *owner* wallet —
+# In proxy modes (PolyGnosisSafe / PolyProxy) this is the *owner* wallet,
 # e.g. the MetaMask private key that controls your Polymarket proxy.
 # In Eoa mode it is the trading key itself.
 export POLYMARKET_PK="0x..."
@@ -183,7 +183,7 @@ Same trigger conditions apply, using bid prices and bid sizes.
 
 #### Why execution is the hard part
 
-Detecting a complement arb is straightforward — if `yes_ask + no_ask < 1.0` after fees,
+Detecting a complement arb is straightforward. If `yes_ask + no_ask < 1.0` after fees,
 there's profit. The challenge is *capturing* that profit. Polymarket's CLOB does not
 support atomic cross-instrument orders, so the strategy must submit two independent limit
 orders (one per leg) and manage the risk that only one fills.
@@ -193,7 +193,7 @@ Without proper execution logic, three things can go wrong:
 1. **Stale arbs**: the spread closes before orders fill, resulting in no execution or
    an unfavorable fill.
 2. **Partial fills**: one leg fills but the other is rejected, expires, or gets cancelled.
-   You now hold a directional binary option position — one side resolves to $0.
+   You now hold a directional binary option position: one side resolves to $0.
 3. **Duplicate entries**: a new arb signal fires on the same pair while the previous
    attempt is still pending, doubling exposure.
 
@@ -222,21 +222,26 @@ Idle ──[arb detected]──→ PendingEntry ──[both legs fill]──→ 
 - **PendingEntry**: both leg orders submitted as GTD limit orders. Arb detection is
   suppressed for this pair to prevent duplicate entries.
 - **PartialFill**: one leg has filled but the other is still open. The strategy waits
-  for the second leg — if it also fills, the arb succeeds. If it fails, the strategy
+  for the second leg. If it also fills, the arb succeeds. If it fails, the strategy
   transitions to Unwinding.
-- **Unwinding**: one leg filled, the other failed. The strategy submits an IOC limit
-  order on the filled leg's instrument to exit the position at the current market price
-  (adjusted for `unwind_slippage_bps`). Once the unwind fills, the pair returns to Idle.
+- **Unwinding**: one or both legs partially filled, but the arb is incomplete. The
+  strategy computes the net imbalance and submits an IOC limit order to flatten only
+  the unmatched quantity (adjusted for `unwind_slippage_bps`). If both legs filled
+  equal amounts, the matched portion is treated as complete and no unwind is needed.
+  Once the unwind fills, the pair returns to Idle.
 
 #### Entry orders
 
 When an arb is detected and `live_trading` is `true`:
 
 1. **Guard checks**: no active arb on this pair, in-flight arbs < `max_concurrent_arbs`.
-2. **Both legs submitted** as limit orders at the detected ask/bid prices.
-   - `TimeInForce::Gtd` with `order_expire_secs` expiry — orders auto-cancel if not
+2. **Both legs submitted** as limit orders. When `use_post_only` is true, prices are
+   improved by one tick (buy at `ask - tick`, sell at `bid + tick`) so orders rest on the
+   book instead of immediately crossing the spread. If the improved price would breach
+   the venue's min/max bounds (Polymarket: 0.001 to 0.999), the arb is skipped.
+   - `TimeInForce::Gtd` with `order_expire_secs` expiry: orders auto-cancel if not
      filled within the window.
-   - `post_only = use_post_only` — for 0% maker fee when enabled.
+   - `post_only = use_post_only`: for 0% maker fee when enabled.
 3. **State transitions** to `PendingEntry`. Quote-driven arb detection is suppressed
    for this pair until the attempt resolves.
 
@@ -244,23 +249,25 @@ When an arb is detected and `live_trading` is `true`:
 
 If one leg fills but the other is rejected, expires, or is externally canceled:
 
-1. The filled quantity and instrument are identified from the execution tracker.
-2. An **IOC limit order** is submitted on the filled leg's instrument at the opposite
-   side (sell back what was bought, or buy back what was sold).
+1. The filled quantities on both legs are compared. The matched portion
+   (`min(yes_qty, no_qty)`) counts as a completed partial arb.
+2. If a net imbalance remains, an **IOC limit order** is submitted on the larger leg's
+   instrument at the opposite side (sell back what was bought, or buy back what was
+   sold) for only the unmatched quantity.
 3. The IOC price is set aggressively: current bid/ask widened by `unwind_slippage_bps`
    to maximize fill probability.
-4. If the unwind fills, the loss is limited to slippage + fees. If the unwind itself
-   fails (no liquidity), a critical error is logged and the position requires manual
-   intervention.
+4. If the unwind fills, the loss is limited to slippage + fees on the imbalance. If the
+   unwind itself fails (no liquidity), a critical error is logged and the position
+   requires manual intervention.
 
 #### Execution diagnostics
 
 The strategy tracks four execution counters alongside the detection counters:
 
 - **`arbs_submitted`**: total arb attempts with orders sent to the venue.
-- **`arbs_completed`**: both legs filled successfully — profit captured.
-- **`arbs_unwound`**: one leg failed, position was unwound — controlled loss.
-- **`arbs_failed`**: both legs failed or unwind failed — no position or stuck position.
+- **`arbs_completed`**: both legs filled successfully; profit captured.
+- **`arbs_unwound`**: one leg failed, position was unwound; controlled loss.
+- **`arbs_failed`**: both legs failed or unwind failed; no position or stuck position.
 
 These appear in the periodic diagnostic summary log.
 
@@ -316,7 +323,7 @@ WebSocket (subscribe_new_markets: true)
 
 When `subscribe_new_markets: true`, the adapter subscribes to a WebSocket channel that
 pushes new market listings. The `NewMarketPredicateFilter` gates which markets are
-accepted — in this example, only markets tagged with "sports" or "sport".
+accepted. In this example, only markets tagged with "sports" or "sport".
 
 ## Configuration
 
@@ -348,14 +355,14 @@ position at $0.50/share, that's $0.025 absolute profit.
 
 **`min_profit_abs`**: Set a dollar floor to avoid chasing sub-cent arbs. For example,
 `min_profit_abs = 0.50` requires at least $0.50 absolute profit per pair (computed as
-`profit_per_share * trade_size`). Works alongside `min_profit_bps` — both gates must pass.
+`profit_per_share * trade_size`). Works alongside `min_profit_bps`; both gates must pass.
 Default `0.0` disables this check.
 
 **`trade_size`**: Start small (10 shares) to validate the pipeline, then scale up based
 on observed liquidity. The strategy checks `ask_size`/`bid_size` against `trade_size`
 before triggering.
 
-**`live_trading`**: Defaults to `false` for safety — the strategy detects and logs arbs
+**`live_trading`**: Defaults to `false` for safety. The strategy detects and logs arbs
 without submitting orders. Set to `true` only after validating detection output on your
 target markets. This two-mode design lets you tune `min_profit_bps`, `fee_estimate_bps`,
 and `trade_size` in observation mode before committing capital.
@@ -406,7 +413,7 @@ connecting each block back to the concepts covered earlier.
 ### Instrument universe: startup filters
 
 The first thing to configure is *which markets the strategy will see*. This maps directly
-to the [data pipeline](#data-pipeline-how-instruments-reach-the-strategy) described above —
+to the [data pipeline](#data-pipeline-how-instruments-reach-the-strategy) described above.
 the `EventParamsFilter` controls the Gamma API query that populates the instrument cache
 before `on_start()` runs pair discovery.
 
@@ -463,7 +470,7 @@ handler, where the O(1) complement matching logic tries to form new pairs at run
 ### Execution client: signing and order routing
 
 The execution client handles order submission, cancellation, and fill reporting. The
-`signature_type` determines how orders are signed — this is relevant to the
+`signature_type` determines how orders are signed. This is relevant to the
 [execution](#execution) section's entry and unwind orders, which both flow through this
 client.
 
@@ -481,7 +488,7 @@ client.
 ### Node assembly: reconciliation and lifecycle
 
 The `LiveNode` ties data and execution together. Reconciliation is critical for the
-state machine — on restart, the node queries the Polymarket REST API for open orders
+state machine. On restart, the node queries the Polymarket REST API for open orders
 and positions so the strategy doesn't submit duplicate arbs on pairs that already have
 active entries. The `delay_post_stop_secs` grace period ensures that residual fill and
 cancel events from the [unwind logic](#unwind-logic) are processed before shutdown.
@@ -505,7 +512,7 @@ cancel events from the [unwind logic](#unwind-logic) are processed before shutdo
             Box::new(PolymarketExecutionClientFactory),
             Box::new(exec_config),
         )?
-        // Reconcile open orders/positions on startup — prevents the state machine
+        // Reconcile open orders/positions on startup. Prevents the state machine
         // from treating existing positions as Idle and submitting duplicate entries.
         .with_reconciliation(true)
         .with_reconciliation_lookback_mins(120)
@@ -519,13 +526,15 @@ cancel events from the [unwind logic](#unwind-logic) are processed before shutdo
 
 These parameters directly control the [buy/sell arb detection](#buy-arb-detection) gates
 and the [per-pair state machine](#per-pair-state-machine) behavior. Note that
-`fee_estimate_bps` defaults to `0.0` here because `use_post_only` defaults to `true` —
+`fee_estimate_bps` defaults to `0.0` here because `use_post_only` defaults to `true`:
 maker orders have 0% fee on Polymarket, so no fee adjustment is needed. The
 `order_expire_secs` sets the GTD window for entry orders; if both legs expire, the pair
 returns to Idle with no harm done.
 
 All bps/quantity/dollar fields are `rust_decimal::Decimal`, so the `dec!` macro from
-`rust_decimal_macros` is the cleanest way to pass literals:
+`rust_decimal_macros` is the cleanest way to pass literals. The shipped example
+(`complement_arb.rs`) defaults to detection-only mode; this walkthrough shows the
+full production config with `live_trading(true)` and `min_profit_abs`:
 
 ```rust
 use rust_decimal_macros::dec;
@@ -535,9 +544,9 @@ use rust_decimal_macros::dec;
         .client_id(client_id)
         .min_profit_bps(dec!(50))    // minimum 0.5% profit after fees to trigger
         .min_profit_abs(dec!(0.50))  // minimum $0.50 absolute profit per arb
-        .trade_size(dec!(10))        // 10 shares per leg — checked against ask/bid size
+        .trade_size(dec!(10))        // 10 shares per leg, checked against ask/bid size
         .live_trading(true)          // false = detection-only, no orders submitted
-        .order_expire_secs(15)       // GTD expiry — state machine transitions on expiry
+        .order_expire_secs(15)       // GTD expiry, state machine transitions on expiry
         .build();
 
     let strategy = ComplementArb::new(strategy_config);
@@ -634,15 +643,17 @@ Press **Ctrl+C** to stop the node. The shutdown sequence:
 | `BUY ARB \| <label> \| profit=Xbps \| ... \| $profit=Y`       | Buy arb detected with absolute profit Y.             |
 | `SELL ARB \| <label> \| profit=Xbps \| ... \| $profit=Y`      | Sell arb detected with absolute profit Y.            |
 | `BUY ARB \| <label> \| skipped: insufficient ...`             | Arb found but liquidity too thin for trade_size.     |
+| `ARB SKIPPED \| <label> \| post‑only price at venue ...`      | Post‑only price would breach venue min/max bounds.   |
 | `ARB SUBMITTED \| <label> \| side=X \| ...`                   | Both leg orders sent to venue.                       |
-| `ARB COMPLETE \| <label> \| yes_px=X no_px=Y`                 | Both legs filled — arb profit locked in.             |
-| `ARB LEG <reason> \| <pair_key> \| canceling other leg ...`   | One leg rejected/expired/canceled with no fills — strategy cancels its sibling. |
-| `PARTIAL FILL \| <label> \| one leg closed...`                | One leg filled, other still pending — at risk.      |
+| `ARB COMPLETE \| <label> \| yes_px=X no_px=Y`                 | Both legs filled, arb profit locked in.              |
+| `ARB PARTIAL COMPLETE \| <pair_key> \| matched N shares`      | Both legs partially filled; matched portion is arb.  |
+| `ARB LEG <reason> \| <pair_key> \| canceling other leg ...`   | One leg rejected/expired/canceled with no fills; strategy cancels its sibling. |
+| `PARTIAL FILL \| <label> \| one leg closed...`                | One leg filled, other still pending, at risk.      |
 | `UNWIND SUBMITTED \| pair=<key> \| <id> \| ...`               | IOC unwind order sent for a partial‑fill leg.        |
-| `UNWIND COMPLETE \| <label> \| filled @ X`                    | Unwind order filled — loss controlled.               |
-| `UNWIND FAILED \| <label> \| ...`                             | Unwind order failed — manual intervention needed.    |
+| `UNWIND COMPLETE \| <label> \| filled @ X`                    | Unwind order filled, loss controlled.               |
+| `UNWIND FAILED \| <label> \| ...`                             | Unwind order failed, manual intervention needed.    |
 | `SUMMARY \| ... submitted=N completed=M unwound=X failed=Y`   | Execution counters in periodic summary.              |
-| `Order rejected: <id> — <reason>`                             | Order rejected by venue.                             |
+| `Order rejected: <id>: <reason>`                             | Order rejected by venue.                             |
 
 ### Understanding the diagnostics
 
@@ -661,24 +672,24 @@ an arb opportunity:
 If your summary line shows unexpected values, use the counters to narrow the problem:
 
 - **`arbs_failed` > 0, `unwound` = 0**: both legs are failing before either fills. Look
-  for `Order rejected` messages in the log — common causes are insufficient USDC.e
+  for `Order rejected` messages in the log. Common causes are insufficient USDC.e
   allowance, expired API credentials, or `trade_size` exceeding the venue's minimum/maximum
   order size. If rejections mention "post-only", the market may have moved and your limit
   price would cross the spread; try setting `use_post_only: false` or reducing
   `order_expire_secs`.
 - **`unwound` high relative to `completed`**: one leg fills consistently but the other
   doesn't. This usually means the arb is closing between the first and second leg
-  submission — the market is faster than your execution. Consider raising `min_profit_bps`
+  submission, meaning the market is faster than your execution. Consider raising `min_profit_bps`
   to only trigger on wider spreads that survive the submission latency, or reduce
   `order_expire_secs` to fail faster and limit exposure.
 - **`UNWIND FAILED` in logs**: the IOC exit order found no liquidity on the filled leg's
   side. The position is now stuck and requires manual intervention. Check the instrument's
-  order book depth — if the book is empty, the market may be illiquid or near resolution.
+  order book depth. If the book is empty, the market may be illiquid or near resolution.
   Raise `liquidity_min` in `EventParamsFilter` to avoid thin markets, or increase
   `unwind_slippage_bps` to price the exit more aggressively.
 - **`submitted` > 0 but `completed` + `unwound` + `failed` = 0**: arb orders are in
   flight but nothing has resolved yet. This is normal during the first few seconds. If it
-  persists, check that the WebSocket feed is delivering fill and cancel events — a stalled
+  persists, check that the WebSocket feed is delivering fill and cancel events. A stalled
   connection will leave the state machine stuck in `PendingEntry`.
 
 ## Risk considerations
@@ -687,7 +698,7 @@ If your summary line shows unexpected values, use the counters to narrow the pro
 
 - **Non-atomic execution**: Polymarket does not support atomic cross-instrument orders.
   The strategy submits both legs as fast as possible, but there is inherent latency
-  between submissions. Detection-to-fill latency matters — the CLOB is
+  between submissions. Detection-to-fill latency matters because the CLOB is
   first-come-first-served. Use `live_trading: false` to validate detection before
   enabling execution.
 - **Partial fill risk**: because the two legs are submitted independently, one may fill
@@ -778,19 +789,19 @@ Run in detection-only mode (`live_trading: false`) for at least 24 hours. Check 
 diagnostic summary: if no arbs are detected, lower `min_profit_bps` to 10 (0.1%) to
 see what exists, then tune upward. Frequent "skipped: insufficient liquidity" means
 `trade_size` is too large for available depth. If `best_buy_spread` stays above 0.99,
-arbs are rare on those markets — widen the universe.
+arbs are rare on those markets. Widen the universe.
 
 ### Backtesting
 
 Record `QuoteTick` streams using NautilusTrader's data catalog, then swap `LiveNode`
 for `BacktestNode` to replay them through the same arb detection logic. Compare
 `arbs_detected` vs. `arbs_completed` for theoretical capture rate. Note that historical
-quotes don't reflect fill competition — treat results as an upper bound. See the
+quotes don't reflect fill competition, so treat results as an upper bound. See the
 [backtesting guide](../concepts/backtesting.md) for setup.
 
 ### Improving execution
 
-Detection is the easy part — alpha loss is in execution.
+Detection is the easy part. Alpha loss is in execution.
 
 - **Sequential legs.** Submit the less liquid leg first; once filled, submit the second.
   Eliminates partial fills at the cost of missing arbs where the second leg moves.
@@ -804,7 +815,7 @@ Detection is the easy part — alpha loss is in execution.
 ### Expanding the strategy
 
 - **Order book depth.** Subscribe to `OrderBookDeltas` to walk the book on both legs
-  and compute the exact maximum arb size where cumulative cost stays below 1.0 — this
+  and compute the exact maximum arb size where cumulative cost stays below 1.0. This
   replaces the fixed `trade_size` parameter entirely.
 - **Multi-venue arb.** Match Yes on one venue against No on another by event description
   rather than condition ID.

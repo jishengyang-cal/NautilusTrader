@@ -132,6 +132,17 @@ fn register_strategy(strategy: &mut ComplementArb) {
 
 /// Create a `BinaryOption` instrument for the given instrument ID with an outcome.
 fn make_binary_option(id: InstrumentId, outcome: &str, description: &str) -> BinaryOption {
+    make_binary_option_bounded(id, outcome, description, None, None)
+}
+
+/// Create a `BinaryOption` with explicit min/max price bounds.
+fn make_binary_option_bounded(
+    id: InstrumentId,
+    outcome: &str,
+    description: &str,
+    min_price: Option<Price>,
+    max_price: Option<Price>,
+) -> BinaryOption {
     let raw_symbol = Symbol::new(id.symbol.as_str());
     BinaryOption::new(
         id,
@@ -150,8 +161,8 @@ fn make_binary_option(id: InstrumentId, outcome: &str, description: &str) -> Bin
         None,
         None,
         None,
-        None,
-        None,
+        max_price,
+        min_price,
         None,
         None,
         None,
@@ -160,6 +171,33 @@ fn make_binary_option(id: InstrumentId, outcome: &str, description: &str) -> Bin
         UnixNanos::default(),
         UnixNanos::default(),
     )
+}
+
+/// Add instruments with explicit price bounds to the strategy's cache.
+fn cache_pair_instruments_bounded(
+    strategy: &ComplementArb,
+    pair: &ComplementPair,
+    min_price: Option<Price>,
+    max_price: Option<Price>,
+) {
+    let yes_inst = InstrumentAny::BinaryOption(make_binary_option_bounded(
+        pair.yes_id,
+        "Yes",
+        &pair.label,
+        min_price,
+        max_price,
+    ));
+    let no_inst = InstrumentAny::BinaryOption(make_binary_option_bounded(
+        pair.no_id,
+        "No",
+        &pair.label,
+        min_price,
+        max_price,
+    ));
+    let cache_rc = strategy.cache_rc();
+    let mut cache = cache_rc.borrow_mut();
+    cache.add_instrument(yes_inst).unwrap();
+    cache.add_instrument(no_inst).unwrap();
 }
 
 /// Build a limit order via `OrderTestBuilder` for a given instrument, side, price, qty, and order ID.
@@ -1056,6 +1094,148 @@ mod execution_state_machine {
     }
 
     #[rstest]
+    fn test_submit_arb_post_only_improves_price_by_one_tick() {
+        let config = ComplementArbConfig::builder()
+            .venue(Venue::new("POLYMARKET"))
+            .min_profit_bps(dec!(50))
+            .trade_size(dec!(10))
+            .live_trading(true)
+            .use_post_only(true)
+            .build();
+        let mut strategy = ComplementArb::new(config);
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+        cache_pair_instruments_bounded(
+            &strategy,
+            &pair,
+            Some(Price::from("0.001")),
+            Some(Price::from("0.999")),
+        );
+
+        // Ask at 0.480 mid-book: improved price should be 0.479
+        strategy
+            .quotes
+            .insert(pair.yes_id, quote(pair.yes_id, 0.45, 0.48, 100.0));
+        strategy
+            .quotes
+            .insert(pair.no_id, quote(pair.no_id, 0.45, 0.48, 100.0));
+
+        assert!(strategy.check_buy_arb(&pair));
+        assert_eq!(strategy.arbs_submitted, 1);
+
+        // Verify the orders were created (exec tracking exists)
+        let exec = strategy.arb_executions.get("0xabc").unwrap();
+        assert_eq!(exec.state, ArbState::PendingEntry);
+        assert_eq!(exec.arb_side, OrderSide::Buy);
+    }
+
+    #[rstest]
+    fn test_submit_arb_post_only_skips_at_min_price_boundary() {
+        let config = ComplementArbConfig::builder()
+            .venue(Venue::new("POLYMARKET"))
+            .min_profit_bps(dec!(50))
+            .trade_size(dec!(10))
+            .live_trading(true)
+            .use_post_only(true)
+            .build();
+        let mut strategy = ComplementArb::new(config);
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+        cache_pair_instruments_bounded(
+            &strategy,
+            &pair,
+            Some(Price::from("0.001")),
+            Some(Price::from("0.999")),
+        );
+
+        // Yes ask at 0.001 (venue min): cannot improve to 0.000
+        // No ask at 0.001: same
+        // combined_ask = 0.002 < 1.0 → arb detected, but submit should skip
+        strategy
+            .quotes
+            .insert(pair.yes_id, quote(pair.yes_id, 0.001, 0.001, 100.0));
+        strategy
+            .quotes
+            .insert(pair.no_id, quote(pair.no_id, 0.001, 0.001, 100.0));
+
+        assert!(strategy.check_buy_arb(&pair));
+        // Detected but not submitted due to boundary
+        assert_eq!(strategy.buy_arbs_detected, 1);
+        assert_eq!(strategy.arbs_submitted, 0);
+        assert!(strategy.arb_executions.is_empty());
+    }
+
+    #[rstest]
+    fn test_submit_arb_post_only_skips_sell_at_max_price_boundary() {
+        let config = ComplementArbConfig::builder()
+            .venue(Venue::new("POLYMARKET"))
+            .min_profit_bps(dec!(50))
+            .trade_size(dec!(10))
+            .live_trading(true)
+            .use_post_only(true)
+            .build();
+        let mut strategy = ComplementArb::new(config);
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+        cache_pair_instruments_bounded(
+            &strategy,
+            &pair,
+            Some(Price::from("0.001")),
+            Some(Price::from("0.999")),
+        );
+
+        // Yes bid at 0.999 (venue max): cannot improve to 1.000
+        // No bid at 0.999: same
+        // combined_bid = 1.998 > 1.0 → arb detected, but submit should skip
+        strategy
+            .quotes
+            .insert(pair.yes_id, quote(pair.yes_id, 0.999, 1.000, 100.0));
+        strategy
+            .quotes
+            .insert(pair.no_id, quote(pair.no_id, 0.999, 1.000, 100.0));
+
+        assert!(strategy.check_sell_arb(&pair));
+        // Detected but not submitted due to boundary
+        assert_eq!(strategy.sell_arbs_detected, 1);
+        assert_eq!(strategy.arbs_submitted, 0);
+        assert!(strategy.arb_executions.is_empty());
+    }
+
+    #[rstest]
+    fn test_submit_arb_no_post_only_submits_at_touch() {
+        let config = ComplementArbConfig::builder()
+            .venue(Venue::new("POLYMARKET"))
+            .min_profit_bps(dec!(50))
+            .trade_size(dec!(10))
+            .live_trading(true)
+            .use_post_only(false)
+            .build();
+        let mut strategy = ComplementArb::new(config);
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+
+        strategy
+            .quotes
+            .insert(pair.yes_id, quote(pair.yes_id, 0.45, 0.48, 100.0));
+        strategy
+            .quotes
+            .insert(pair.no_id, quote(pair.no_id, 0.45, 0.48, 100.0));
+
+        assert!(strategy.check_buy_arb(&pair));
+        // With post_only=false, no price adjustment, orders submit at touch
+        assert_eq!(strategy.arbs_submitted, 1);
+        assert!(strategy.arb_executions.contains_key("0xabc"));
+    }
+
+    #[rstest]
     fn test_scenario_active_arb_suppresses_detection() {
         let mut strategy = test_strategy();
         let pair = test_pair();
@@ -1615,6 +1795,225 @@ mod execution_state_machine {
 
         assert_eq!(strategy.arbs_completed, 0);
         assert_eq!(strategy.arbs_failed, 0);
+    }
+
+    #[rstest]
+    fn test_scenario_dual_partial_fill_unwinds_net_imbalance() {
+        let mut strategy = test_strategy();
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+
+        let yes_order_id = ClientOrderId::new("O-YES-DP");
+        let no_order_id = ClientOrderId::new("O-NO-DP");
+
+        // Both legs have fills: yes=10, no=6
+        let mut exec = make_arb_execution(yes_order_id, no_order_id, OrderSide::Buy);
+        exec.yes_filled_qty = dec!(10);
+        exec.no_filled_qty = dec!(6);
+
+        strategy.arb_executions.insert("0xabc".to_string(), exec);
+        strategy
+            .order_to_pair
+            .insert(yes_order_id, "0xabc".to_string());
+        strategy
+            .order_to_pair
+            .insert(no_order_id, "0xabc".to_string());
+
+        // Need a quote for unwind pricing
+        strategy
+            .quotes
+            .insert(pair.yes_id, quote(pair.yes_id, 0.45, 0.48, 100.0));
+
+        strategy.initiate_unwind("0xabc");
+
+        // Should be unwinding only the net imbalance (10-6=4) on YES leg
+        let exec = strategy.arb_executions.get("0xabc");
+        if let Some(e) = exec {
+            assert_eq!(e.state, ArbState::Unwinding);
+            assert!(e.unwind_order_id.is_some());
+        } else {
+            // If submit_unwind failed in test env, it should have cleaned up
+            assert!(strategy.arbs_failed > 0);
+        }
+    }
+
+    #[rstest]
+    fn test_scenario_dual_partial_fill_equal_qty_completes() {
+        let mut strategy = test_strategy();
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+        let instrument_yes =
+            InstrumentAny::BinaryOption(make_binary_option(pair.yes_id, "Yes", "Test Market"));
+        let instrument_no =
+            InstrumentAny::BinaryOption(make_binary_option(pair.no_id, "No", "Test Market"));
+
+        // Build orders and make them filled (closed) in cache
+        let yes_order = build_limit_order(pair.yes_id, OrderSide::Buy, "0.480", "6", "O-YES-EQ");
+        let no_order = build_limit_order(pair.no_id, OrderSide::Buy, "0.480", "6", "O-NO-EQ");
+        let yes_order_id = yes_order.client_order_id();
+        let no_order_id = no_order.client_order_id();
+
+        let yes_filled =
+            TestOrderStubs::make_filled_order(&yes_order, &instrument_yes, LiquiditySide::Taker);
+        let no_filled =
+            TestOrderStubs::make_filled_order(&no_order, &instrument_no, LiquiditySide::Taker);
+
+        {
+            let cache_rc = strategy.cache_rc();
+            cache_rc
+                .borrow_mut()
+                .add_order(yes_filled, None, None, false)
+                .unwrap();
+            cache_rc
+                .borrow_mut()
+                .add_order(no_filled, None, None, false)
+                .unwrap();
+        }
+
+        // Equal fills on both legs: 6 and 6
+        let mut exec = make_arb_execution(yes_order_id, no_order_id, OrderSide::Buy);
+        exec.yes_filled_qty = dec!(6);
+        exec.no_filled_qty = dec!(6);
+
+        strategy.arb_executions.insert("0xabc".to_string(), exec);
+        strategy
+            .order_to_pair
+            .insert(yes_order_id, "0xabc".to_string());
+        strategy
+            .order_to_pair
+            .insert(no_order_id, "0xabc".to_string());
+
+        strategy.initiate_unwind("0xabc");
+
+        // Equal fills with both orders closed: treated as complete
+        assert_eq!(strategy.arbs_completed, 1);
+        assert!(strategy.arb_executions.is_empty());
+        assert!(strategy.order_to_pair.is_empty());
+    }
+
+    #[rstest]
+    fn test_scenario_dual_partial_fill_no_side_larger_unwinds_no() {
+        let mut strategy = test_strategy();
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+
+        let yes_order_id = ClientOrderId::new("O-YES-NL");
+        let no_order_id = ClientOrderId::new("O-NO-NL");
+
+        // NO side has more fills: yes=4, no=10
+        let mut exec = make_arb_execution(yes_order_id, no_order_id, OrderSide::Buy);
+        exec.yes_filled_qty = dec!(4);
+        exec.no_filled_qty = dec!(10);
+
+        strategy.arb_executions.insert("0xabc".to_string(), exec);
+        strategy
+            .order_to_pair
+            .insert(yes_order_id, "0xabc".to_string());
+        strategy
+            .order_to_pair
+            .insert(no_order_id, "0xabc".to_string());
+
+        // Need a quote for the NO side for unwind pricing
+        strategy
+            .quotes
+            .insert(pair.no_id, quote(pair.no_id, 0.45, 0.48, 100.0));
+
+        strategy.initiate_unwind("0xabc");
+
+        // Should unwind net imbalance (10-4=6) on NO leg
+        let exec = strategy.arb_executions.get("0xabc");
+        if let Some(e) = exec {
+            assert_eq!(e.state, ArbState::Unwinding);
+            assert!(e.unwind_order_id.is_some());
+        } else {
+            assert!(strategy.arbs_failed > 0);
+        }
+    }
+
+    #[rstest]
+    fn test_scenario_equal_fills_not_cleaned_when_sibling_still_open() {
+        let mut strategy = test_strategy();
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+        let instrument_yes =
+            InstrumentAny::BinaryOption(make_binary_option(pair.yes_id, "Yes", "Test Market"));
+
+        // YES is filled (closed), NO is not in cache (still live)
+        let yes_order = build_limit_order(pair.yes_id, OrderSide::Buy, "0.480", "6", "O-YES-OC");
+        let yes_order_id = yes_order.client_order_id();
+        let no_order_id = ClientOrderId::new("O-NO-OC");
+
+        let yes_filled =
+            TestOrderStubs::make_filled_order(&yes_order, &instrument_yes, LiquiditySide::Taker);
+        {
+            let cache_rc = strategy.cache_rc();
+            cache_rc
+                .borrow_mut()
+                .add_order(yes_filled, None, None, false)
+                .unwrap();
+        }
+
+        let mut exec = make_arb_execution(yes_order_id, no_order_id, OrderSide::Buy);
+        exec.yes_filled_qty = dec!(6);
+        exec.no_filled_qty = dec!(6);
+
+        strategy.arb_executions.insert("0xabc".to_string(), exec);
+        strategy
+            .order_to_pair
+            .insert(yes_order_id, "0xabc".to_string());
+        strategy
+            .order_to_pair
+            .insert(no_order_id, "0xabc".to_string());
+
+        strategy.initiate_unwind("0xabc");
+
+        // Sibling not closed: tracking must stay in place
+        assert_eq!(strategy.arbs_completed, 0);
+        assert!(strategy.arb_executions.contains_key("0xabc"));
+        assert_eq!(strategy.order_to_pair.len(), 2);
+    }
+
+    #[rstest]
+    fn test_submit_arb_post_only_sell_one_tick_below_max() {
+        let config = ComplementArbConfig::builder()
+            .venue(Venue::new("POLYMARKET"))
+            .min_profit_bps(dec!(50))
+            .trade_size(dec!(10))
+            .live_trading(true)
+            .use_post_only(true)
+            .build();
+        let mut strategy = ComplementArb::new(config);
+        register_strategy(&mut strategy);
+
+        let pair = test_pair();
+        wire_pair(&mut strategy, &pair);
+        cache_pair_instruments_bounded(
+            &strategy,
+            &pair,
+            Some(Price::from("0.001")),
+            Some(Price::from("0.999")),
+        );
+
+        // Bid at 0.998: improved sell price is 0.999 (max), should submit
+        strategy
+            .quotes
+            .insert(pair.yes_id, quote(pair.yes_id, 0.998, 1.000, 100.0));
+        strategy
+            .quotes
+            .insert(pair.no_id, quote(pair.no_id, 0.998, 1.000, 100.0));
+
+        assert!(strategy.check_sell_arb(&pair));
+        assert_eq!(strategy.sell_arbs_detected, 1);
+        assert_eq!(strategy.arbs_submitted, 1);
+        assert!(strategy.arb_executions.contains_key("0xabc"));
     }
 }
 

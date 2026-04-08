@@ -27,7 +27,7 @@ use nautilus_model::{
     identifiers::{ClientOrderId, InstrumentId},
     instruments::{Instrument, InstrumentAny},
     orders::Order,
-    types::{Price, Quantity},
+    types::{Price, Quantity, price::PriceRaw},
 };
 use rust_decimal::Decimal;
 use ustr::Ustr;
@@ -136,6 +136,40 @@ impl ComplementArb {
 
     fn leg_fee(fee_rate_bps: Decimal, price: Decimal) -> Decimal {
         fee_rate_bps / Self::BPS_DIVISOR * price * (Decimal::ONE - price)
+    }
+
+    /// Improve a price by one tick for post-only orders.
+    ///
+    /// Returns `None` if the improved price would breach the instrument's
+    /// min/max bounds (e.g. buy at 0.001 cannot be improved to 0.000).
+    fn improve_price(
+        core: &StrategyCore,
+        id: InstrumentId,
+        price: Price,
+        side: OrderSide,
+    ) -> Option<Price> {
+        let cache = core.cache();
+        let inst = cache.instrument(&id);
+        let tick = inst.map_or(Price::from("0.001"), |i| i.price_increment());
+
+        let improved = match side {
+            OrderSide::Buy => price.raw - tick.raw,
+            _ => price.raw + tick.raw,
+        };
+
+        let in_bounds = match side {
+            OrderSide::Buy => {
+                improved >= inst.and_then(|i| i.min_price()).map_or(tick.raw, |p| p.raw)
+            }
+            _ => {
+                improved
+                    <= inst
+                        .and_then(|i| i.max_price())
+                        .map_or(PriceRaw::MAX, |p| p.raw)
+            }
+        };
+
+        in_bounds.then(|| Price::from_raw(improved, price.precision))
     }
 
     /// Extract pair key from instrument ID.
@@ -322,6 +356,26 @@ impl ComplementArb {
         let expire_ns = now_ns + self.config.order_expire_secs * NANOSECONDS_IN_SECOND;
         let trade_size = Quantity::from_decimal(self.config.trade_size)?;
         let post_only = Some(self.config.use_post_only);
+
+        // Post-only orders at the touch immediately cross the spread and
+        // get rejected by the venue, so improve by one tick
+        let (yes_price, no_price) = if self.config.use_post_only {
+            match (
+                Self::improve_price(&self.core, pair.yes_id, yes_price, arb_side),
+                Self::improve_price(&self.core, pair.no_id, no_price, arb_side),
+            ) {
+                (Some(y), Some(n)) => (y, n),
+                _ => {
+                    log::info!(
+                        "ARB SKIPPED | {} | post-only price at venue bound, cannot improve",
+                        pair.label,
+                    );
+                    return Ok(());
+                }
+            }
+        } else {
+            (yes_price, no_price)
+        };
 
         let yes_order = self.core.order_factory().limit(
             pair.yes_id,
@@ -684,8 +738,11 @@ impl ComplementArb {
         }
     }
 
-    /// Determine which leg was filled and submit an unwind order for it.
-    fn initiate_unwind(&mut self, pair_key: &str) {
+    /// Determine which leg needs unwinding and submit the appropriate order.
+    ///
+    /// When both legs have fills, the matched quantity counts as a completed
+    /// (partial) arb. Only the net imbalance on the larger leg is unwound.
+    pub(super) fn initiate_unwind(&mut self, pair_key: &str) {
         let exec = match self.arb_executions.get(pair_key) {
             Some(e) => e.clone(),
             None => return,
@@ -701,20 +758,47 @@ impl ComplementArb {
             }
         };
 
-        // Determine which leg has fills
-        let (instrument_id, filled_qty) = if exec.yes_filled_qty > Decimal::ZERO {
-            (pair.yes_id, exec.yes_filled_qty)
-        } else if exec.no_filled_qty > Decimal::ZERO {
-            (pair.no_id, exec.no_filled_qty)
-        } else {
-            // No fills on either side — nothing to unwind
+        let yes_qty = exec.yes_filled_qty;
+        let no_qty = exec.no_filled_qty;
+
+        if yes_qty == Decimal::ZERO && no_qty == Decimal::ZERO {
             log::info!("ARB FAILED | {pair_key} | no fills to unwind");
             self.arbs_failed += 1;
             self.cleanup_arb(pair_key);
             return;
+        }
+
+        let matched = yes_qty.min(no_qty);
+        if matched > Decimal::ZERO {
+            log::info!("ARB PARTIAL COMPLETE | {pair_key} | matched {matched} shares on each leg");
+        }
+
+        let (instrument_id, unwind_qty) = if yes_qty > no_qty {
+            (pair.yes_id, yes_qty - no_qty)
+        } else if no_qty > yes_qty {
+            (pair.no_id, no_qty - yes_qty)
+        } else {
+            // Equal fills: only clean up once both entry orders are closed.
+            // A cancel-in-flight sibling can still receive a late fill.
+            let both_closed = {
+                let cache = self.cache();
+                cache
+                    .order(&exec.yes_order_id)
+                    .is_some_and(|o| o.is_closed())
+                    && cache
+                        .order(&exec.no_order_id)
+                        .is_some_and(|o| o.is_closed())
+            };
+
+            if both_closed {
+                log::info!("ARB COMPLETE (partial) | {pair_key} | matched {matched} shares");
+                self.arbs_completed += 1;
+                self.cleanup_arb(pair_key);
+            }
+            return;
         };
 
-        if let Err(e) = self.submit_unwind(pair_key, instrument_id, filled_qty, exec.arb_side) {
+        if let Err(e) = self.submit_unwind(pair_key, instrument_id, unwind_qty, exec.arb_side) {
             log::error!(
                 "UNWIND FAILED | {pair_key} | submit error: {e} — manual intervention required",
             );
@@ -896,6 +980,13 @@ impl ComplementArb {
     }
 }
 
+// NOTE: OrderDenied is not handled here. In backtests, submit_order can
+// dispatch OrderDenied synchronously on the same call stack, which requires
+// tracking state to exist before submission and creates complex re-entrancy
+// in the state machine. Without atomic multi-leg submission, handling denied
+// correctly requires hardening every downstream handler against states that
+// are otherwise impossible. A denied leg leaves the pair stuck in PendingEntry
+// until the sibling's GTD expiry fires, which is safe (no untracked exposure).
 nautilus_strategy!(ComplementArb, {
     fn on_order_rejected(&mut self, event: OrderRejected) {
         log::warn!(
