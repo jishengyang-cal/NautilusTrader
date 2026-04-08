@@ -35,7 +35,8 @@ pub struct CoinbaseWsSubscription {
     /// `"subscribe"` or `"unsubscribe"`.
     #[serde(rename = "type")]
     pub msg_type: CoinbaseWsAction,
-    /// Product IDs to subscribe to.
+    /// Product IDs to subscribe to (omitted for channel-level subscriptions).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub product_ids: Vec<Ustr>,
     /// Channel name (subscription-side, e.g. `level2`).
     pub channel: CoinbaseWsChannel,
@@ -500,6 +501,22 @@ mod tests {
         let json = serde_json::to_value(&sub).unwrap();
         assert_eq!(json["type"], "unsubscribe");
         assert_eq!(json["channel"], "market_trades");
+        assert!(json.get("jwt").is_none());
+    }
+
+    #[rstest]
+    fn test_serialize_channel_level_subscription_omits_product_ids() {
+        let sub = CoinbaseWsSubscription {
+            msg_type: CoinbaseWsAction::Subscribe,
+            product_ids: vec![],
+            channel: CoinbaseWsChannel::Heartbeats,
+            jwt: None,
+        };
+
+        let json = serde_json::to_value(&sub).unwrap();
+        assert_eq!(json["type"], "subscribe");
+        assert_eq!(json["channel"], "heartbeats");
+        assert!(json.get("product_ids").is_none());
         assert!(json.get("jwt").is_none());
     }
 
