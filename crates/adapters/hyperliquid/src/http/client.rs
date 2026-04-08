@@ -66,8 +66,9 @@ use crate::{
         },
         parse::{
             bar_type_to_interval, clamp_price_to_precision, derive_limit_from_trigger,
-            extract_inner_error, normalize_price, order_to_hyperliquid_request_with_asset,
-            round_to_sig_figs, time_in_force_to_hyperliquid_tif,
+            determine_order_list_grouping, extract_inner_error, normalize_price,
+            order_to_hyperliquid_request_with_asset, round_to_sig_figs,
+            time_in_force_to_hyperliquid_tif,
         },
     },
     data::candle_to_bar,
@@ -2518,9 +2519,12 @@ impl HyperliquidHttpClient {
             })
         };
 
+        let grouping =
+            determine_order_list_grouping(&orders.iter().copied().cloned().collect::<Vec<_>>());
+
         let action = HyperliquidExecAction::Order {
             orders: hyperliquid_orders,
-            grouping: HyperliquidExecGrouping::Na,
+            grouping,
             builder,
         };
 
@@ -2552,8 +2556,12 @@ impl HyperliquidHttpClient {
                     .ok_or_else(|| Error::bad_request("Account ID not set"))?;
                 let ts_init = self.clock.get_time_ns();
 
-                // Validate we have the same number of statuses as orders submitted
-                if order_response.statuses.len() != orders.len() {
+                // For grouped orders (NormalTpsl/PositionTpsl), the exchange
+                // returns a single status for the whole group. Only enforce
+                // 1:1 matching for ungrouped (Na) submissions.
+                if grouping == HyperliquidExecGrouping::Na
+                    && order_response.statuses.len() != orders.len()
+                {
                     return Err(Error::bad_request(format!(
                         "Mismatch between submitted orders ({}) and response statuses ({})",
                         orders.len(),
@@ -2563,7 +2571,9 @@ impl HyperliquidHttpClient {
 
                 let mut reports = Vec::new();
 
-                // Create OrderStatusReport for each order
+                // Create OrderStatusReport for each order with a matching
+                // status. For grouped submissions the exchange may return
+                // fewer statuses; remaining orders are confirmed via WS.
                 for (order, order_status) in orders.iter().zip(order_response.statuses.iter()) {
                     // Extract asset from instrument symbol
                     let instrument_id = order.instrument_id();

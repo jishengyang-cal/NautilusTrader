@@ -67,7 +67,10 @@ pub use nautilus_core::serialization::{
 };
 use nautilus_model::{
     data::{bar::BarType, quote::QuoteTick},
-    enums::{AggregationSource, BarAggregation, OrderSide, OrderStatus, OrderType, TimeInForce},
+    enums::{
+        AggregationSource, BarAggregation, ContingencyType, OrderSide, OrderStatus, OrderType,
+        TimeInForce,
+    },
     identifiers::{ClientOrderId, InstrumentId, Symbol, TradeId, Venue},
     orders::{Order, any::OrderAny},
     types::{AccountBalance, Currency, MarginBalance, Money},
@@ -81,7 +84,7 @@ use crate::{
     },
     http::models::{
         Cloid, CrossMarginSummary, HyperliquidExchangeResponse,
-        HyperliquidExecCancelByCloidRequest, HyperliquidExecCancelStatus,
+        HyperliquidExecCancelByCloidRequest, HyperliquidExecCancelStatus, HyperliquidExecGrouping,
         HyperliquidExecLimitParams, HyperliquidExecModifyStatus, HyperliquidExecOrderKind,
         HyperliquidExecOrderStatus, HyperliquidExecPlaceOrderRequest, HyperliquidExecResponseData,
         HyperliquidExecTif, HyperliquidExecTpSl, HyperliquidExecTriggerParams, RESPONSE_STATUS_OK,
@@ -802,6 +805,53 @@ pub fn parse_account_balances_and_margins(
     }
 
     Ok((balances, margins))
+}
+
+/// Determine the Hyperliquid grouping strategy for an order list.
+///
+/// Contingency type, reduce-only flags, structural shape, and parent/child
+/// linkage must all agree to avoid misclassifying generic contingent lists
+/// as Hyperliquid TP/SL groups.
+///
+/// - `NormalTpsl` (OTOCO bracket): entry order is OTO and not reduce-only,
+///   all child orders are OCO, reduce-only, and reference the entry as parent.
+/// - `PositionTpsl` (OCO pair): every order is OCO, reduce-only, and linked
+///   to the same sibling set.
+/// - `Na`: everything else (independent batch).
+pub(crate) fn determine_order_list_grouping(orders: &[OrderAny]) -> HyperliquidExecGrouping {
+    if orders.len() >= 2 {
+        let entry = &orders[0];
+        let children = &orders[1..];
+        let entry_id = entry.client_order_id();
+        let entry_is_oto =
+            entry.contingency_type() == Some(ContingencyType::Oto) && !entry.is_reduce_only();
+        let children_are_linked = children.iter().all(|o| {
+            o.contingency_type() == Some(ContingencyType::Oco)
+                && o.is_reduce_only()
+                && o.parent_order_id() == Some(entry_id)
+        });
+
+        if entry_is_oto && children_are_linked {
+            return HyperliquidExecGrouping::NormalTpsl;
+        }
+    }
+
+    let all_oco_linked = orders.len() >= 2
+        && orders
+            .iter()
+            .all(|o| o.contingency_type() == Some(ContingencyType::Oco) && o.is_reduce_only())
+        && orders.iter().all(|o| {
+            o.linked_order_ids().is_some_and(|ids| {
+                ids.iter()
+                    .all(|id| orders.iter().any(|other| other.client_order_id() == *id))
+            })
+        });
+
+    if all_oco_linked {
+        HyperliquidExecGrouping::PositionTpsl
+    } else {
+        HyperliquidExecGrouping::Na
+    }
 }
 
 #[cfg(test)]

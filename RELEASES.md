@@ -12,6 +12,7 @@ Released on TBD (UTC).
 
 ### Fixes
 - Fixed `OrderTriggered` ValueError on market-style stop orders (#3812), thanks for reporting @jindrichsirucek
+- Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
 
 ### Internal Improvements

@@ -615,6 +615,9 @@ impl ExecutionClient for HyperliquidExecutionClient {
             return Ok(());
         }
 
+        let grouping = determine_order_list_grouping(&valid_orders);
+        log::info!("Order list grouping: {grouping:?}");
+
         for order in &valid_orders {
             let cloid = Cloid::from_client_order_id(order.client_order_id());
             self.ws_client
@@ -642,7 +645,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         self.spawn_task("submit_order_list", async move {
             let action = HyperliquidExecAction::Order {
                 orders: hyperliquid_orders,
-                grouping: HyperliquidExecGrouping::Na,
+                grouping,
                 builder,
             };
 
@@ -650,7 +653,30 @@ impl ExecutionClient for HyperliquidExecutionClient {
                 Ok(response) => {
                     if response.is_ok() {
                         let inner_errors = extract_inner_errors(&response);
-                        if inner_errors.iter().any(|e| e.is_some()) {
+
+                        // For grouped orders (NormalTpsl/PositionTpsl), the
+                        // exchange returns a single status for the whole group
+                        // rather than one per order. If fewer statuses than
+                        // orders are returned, broadcast the first error (if
+                        // any) to all orders, or treat all as successful.
+                        if inner_errors.len() < valid_orders.len() {
+                            if let Some(error_msg) = inner_errors.iter().find_map(|e| e.as_ref()) {
+                                let ts = clock.get_time_ns();
+
+                                for (order, cloid_hex) in
+                                    valid_orders.iter().zip(cloid_hexes.iter())
+                                {
+                                    log::warn!(
+                                        "Order {} rejected by exchange: {error_msg}",
+                                        order.client_order_id(),
+                                    );
+                                    emitter.emit_order_rejected(order, error_msg, ts, false);
+                                    ws_client.remove_cloid_mapping(cloid_hex);
+                                }
+                            } else {
+                                log::info!("Order list submitted successfully: {response:?}");
+                            }
+                        } else if inner_errors.iter().any(|e| e.is_some()) {
                             let ts = clock.get_time_ns();
 
                             for (i, error) in inner_errors.iter().enumerate() {
@@ -1526,5 +1552,164 @@ impl HyperliquidExecutionClient {
         *self.ws_stream_handle.lock().expect(MUTEX_POISONED) = Some(handle);
         log::info!("Hyperliquid WebSocket execution stream started");
         Ok(())
+    }
+}
+
+use crate::common::parse::determine_order_list_grouping;
+
+#[cfg(test)]
+mod tests {
+    use nautilus_model::{
+        enums::{ContingencyType, OrderSide, TimeInForce, TriggerType},
+        identifiers::{ClientOrderId, InstrumentId, StrategyId, TraderId},
+        orders::{OrderAny, limit::LimitOrder, stop_market::StopMarketOrder},
+        types::{Price, Quantity},
+    };
+    use rstest::rstest;
+
+    use super::determine_order_list_grouping;
+    use crate::http::models::HyperliquidExecGrouping;
+
+    fn limit_order(
+        id: &str,
+        reduce_only: bool,
+        contingency: ContingencyType,
+        linked_ids: Option<Vec<&str>>,
+        parent_id: Option<&str>,
+    ) -> OrderAny {
+        OrderAny::Limit(LimitOrder::new(
+            TraderId::from("TESTER-001"),
+            StrategyId::from("S-001"),
+            InstrumentId::from("ETH-USD-PERP.HYPERLIQUID"),
+            ClientOrderId::from(id),
+            OrderSide::Buy,
+            Quantity::from(1),
+            Price::from("3000.00"),
+            TimeInForce::Gtc,
+            None,  // expire_time
+            false, // post_only
+            reduce_only,
+            false, // quote_quantity
+            None,  // display_qty
+            None,  // emulation_trigger
+            None,  // trigger_instrument_id
+            Some(contingency),
+            None, // order_list_id
+            linked_ids.map(|ids| ids.into_iter().map(ClientOrderId::from).collect()),
+            parent_id.map(ClientOrderId::from),
+            None, // exec_algorithm_id
+            None, // exec_algorithm_params
+            None, // exec_spawn_id
+            None, // tags
+            Default::default(),
+            Default::default(),
+        ))
+    }
+
+    fn stop_order(
+        id: &str,
+        reduce_only: bool,
+        contingency: ContingencyType,
+        linked_ids: Option<Vec<&str>>,
+        parent_id: Option<&str>,
+    ) -> OrderAny {
+        OrderAny::StopMarket(StopMarketOrder::new(
+            TraderId::from("TESTER-001"),
+            StrategyId::from("S-001"),
+            InstrumentId::from("ETH-USD-PERP.HYPERLIQUID"),
+            ClientOrderId::from(id),
+            OrderSide::Sell,
+            Quantity::from(1),
+            Price::from("2800.00"),
+            TriggerType::LastPrice,
+            TimeInForce::Gtc,
+            None, // expire_time
+            reduce_only,
+            false, // quote_quantity
+            None,  // display_qty
+            None,  // emulation_trigger
+            None,  // trigger_instrument_id
+            Some(contingency),
+            None, // order_list_id
+            linked_ids.map(|ids| ids.into_iter().map(ClientOrderId::from).collect()),
+            parent_id.map(ClientOrderId::from),
+            None, // exec_algorithm_id
+            None, // exec_algorithm_params
+            None, // exec_spawn_id
+            None, // tags
+            Default::default(),
+            Default::default(),
+        ))
+    }
+
+    #[rstest]
+    #[case::independent_orders(
+        vec![
+            limit_order("O-001", false, ContingencyType::NoContingency, None, None),
+            limit_order("O-002", false, ContingencyType::NoContingency, None, None),
+        ],
+        HyperliquidExecGrouping::Na,
+    )]
+    #[case::bracket_oto(
+        vec![
+            limit_order("O-001", false, ContingencyType::Oto, Some(vec!["O-002", "O-003"]), None),
+            limit_order("O-002", true, ContingencyType::Oco, Some(vec!["O-003"]), Some("O-001")),
+            stop_order("O-003", true, ContingencyType::Oco, Some(vec!["O-002"]), Some("O-001")),
+        ],
+        HyperliquidExecGrouping::NormalTpsl,
+    )]
+    #[case::oto_not_bracket_shaped(
+        vec![
+            limit_order("O-001", false, ContingencyType::Oto, Some(vec!["O-002"]), None),
+            limit_order("O-002", false, ContingencyType::Oto, Some(vec!["O-001"]), None),
+        ],
+        HyperliquidExecGrouping::Na,
+    )]
+    #[case::oco_all_reduce_only(
+        vec![
+            limit_order("O-001", true, ContingencyType::Oco, Some(vec!["O-002"]), None),
+            stop_order("O-002", true, ContingencyType::Oco, Some(vec!["O-001"]), None),
+        ],
+        HyperliquidExecGrouping::PositionTpsl,
+    )]
+    #[case::oco_not_all_reduce_only(
+        vec![
+            limit_order("O-001", false, ContingencyType::Oco, Some(vec!["O-002"]), None),
+            stop_order("O-002", true, ContingencyType::Oco, Some(vec!["O-001"]), None),
+        ],
+        HyperliquidExecGrouping::Na,
+    )]
+    #[case::oto_with_non_oco_children(
+        vec![
+            limit_order("O-001", false, ContingencyType::Oto, Some(vec!["O-002", "O-003"]), None),
+            limit_order("O-002", true, ContingencyType::NoContingency, None, None),
+            stop_order("O-003", true, ContingencyType::NoContingency, None, None),
+        ],
+        HyperliquidExecGrouping::Na,
+    )]
+    #[case::mixed_oco_and_plain_reduce_only(
+        vec![
+            limit_order("O-001", true, ContingencyType::Oco, Some(vec!["O-002"]), None),
+            stop_order("O-002", true, ContingencyType::NoContingency, None, None),
+        ],
+        HyperliquidExecGrouping::Na,
+    )]
+    #[case::unlinked_oco_reduce_only(
+        vec![
+            limit_order("O-001", true, ContingencyType::Oco, Some(vec!["O-099"]), None),
+            stop_order("O-002", true, ContingencyType::Oco, Some(vec!["O-098"]), None),
+        ],
+        HyperliquidExecGrouping::Na,
+    )]
+    #[case::single_order(
+        vec![limit_order("O-001", false, ContingencyType::NoContingency, None, None)],
+        HyperliquidExecGrouping::Na,
+    )]
+    fn test_determine_order_list_grouping(
+        #[case] orders: Vec<OrderAny>,
+        #[case] expected: HyperliquidExecGrouping,
+    ) {
+        let result = determine_order_list_grouping(&orders);
+        assert_eq!(result, expected);
     }
 }
