@@ -333,7 +333,7 @@ pub fn parse_instrument(product: &Product, ts_init: UnixNanos) -> anyhow::Result
 /// 2. Non-empty `funding_rate` in `future_product_details` (structural signal:
 ///    only perpetuals have ongoing funding)
 /// 3. `display_name` contains "PERP" or "Perpetual" (heuristic fallback)
-fn is_perpetual_product(product: &Product) -> bool {
+pub(crate) fn is_perpetual_product(product: &Product) -> bool {
     if let Some(details) = &product.future_product_details {
         if details.contract_expiry_type == CoinbaseContractExpiryType::Perpetual {
             return true;
