@@ -16,6 +16,7 @@ Released on TBD (UTC).
 - Fixed `stop_timer` in `TimeBarAggregator` (#3822), thanks @faysou
 - Fixed `OrderTriggered` ValueError on market-style stop orders (#3812), thanks for reporting @jindrichsirucek
 - Fixed PyO3 `LiveNode` `request_bars()` historical callbacks dropped during startup warmup (#3825), thanks @BurnOutTrader
+- Fixed PyO3 `DataActor` missing `on_historical_funding_rates` and `on_historical_data` forwarding `None`
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute

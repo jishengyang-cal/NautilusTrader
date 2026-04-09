@@ -15,12 +15,27 @@
 
 import datetime as dt
 import inspect
+from decimal import Decimal
 
 import pytest
 
 from nautilus_trader.common import ComponentState
+from nautilus_trader.common import CustomData
+from nautilus_trader.model import AggressorSide
+from nautilus_trader.model import Bar
+from nautilus_trader.model import BarType
+from nautilus_trader.model import DataType
+from nautilus_trader.model import FundingRateUpdate
+from nautilus_trader.model import IndexPriceUpdate
+from nautilus_trader.model import MarkPriceUpdate
+from nautilus_trader.model import Price
+from nautilus_trader.model import Quantity
+from nautilus_trader.model import QuoteTick
 from nautilus_trader.model import StrategyId
 from nautilus_trader.model import TimeInForce
+from nautilus_trader.model import TradeId
+from nautilus_trader.model import TradeTick
+from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.trading import ForexSession
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading import StrategyConfig
@@ -217,3 +232,77 @@ def test_fx_local_from_utc_returns_string(session):
 
     assert isinstance(result, str)
     assert "2024" in result
+
+
+@pytest.fixture
+def strategy():
+    return Strategy()
+
+
+@pytest.fixture
+def strategy_sample_objects():
+    instrument = TestInstrumentProvider.audusd_sim()
+    quote = QuoteTick(
+        instrument.id,
+        Price.from_str("1.00000"),
+        Price.from_str("1.00001"),
+        Quantity.from_int(1),
+        Quantity.from_int(2),
+        1,
+        2,
+    )
+    trade = TradeTick(
+        instrument.id,
+        Price.from_str("1.00000"),
+        Quantity.from_int(10),
+        AggressorSide.BUYER,
+        TradeId("T-001"),
+        1,
+        2,
+    )
+    bar_type = BarType.from_str(f"{instrument.id}-1-MINUTE-LAST-EXTERNAL")
+    bar = Bar(
+        bar_type,
+        Price.from_str("1.00000"),
+        Price.from_str("1.10000"),
+        Price.from_str("0.90000"),
+        Price.from_str("1.05000"),
+        Quantity.from_int(100),
+        1,
+        2,
+    )
+    custom_data = CustomData(DataType("X"), [1, 2], 3, 4)
+    mark_price = MarkPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2)
+    index_price = IndexPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2)
+    funding_rate = FundingRateUpdate(instrument.id, Decimal("0.0001"), 1, 2, interval=480)
+
+    return {
+        "historical_data": custom_data,
+        "historical_quotes": [quote],
+        "historical_trades": [trade],
+        "historical_funding_rates": [funding_rate],
+        "historical_bars": [bar],
+        "historical_mark_prices": [mark_price],
+        "historical_index_prices": [index_price],
+    }
+
+
+STRATEGY_HISTORICAL_CALLBACKS = [
+    ("on_historical_data", "historical_data"),
+    ("on_historical_quotes", "historical_quotes"),
+    ("on_historical_trades", "historical_trades"),
+    ("on_historical_funding_rates", "historical_funding_rates"),
+    ("on_historical_bars", "historical_bars"),
+    ("on_historical_mark_prices", "historical_mark_prices"),
+    ("on_historical_index_prices", "historical_index_prices"),
+]
+
+
+@pytest.mark.parametrize(("method_name", "sample_name"), STRATEGY_HISTORICAL_CALLBACKS)
+def test_strategy_historical_callbacks_accept_runtime_objects(
+    strategy,
+    strategy_sample_objects,
+    method_name,
+    sample_name,
+):
+    assert getattr(strategy, method_name)(strategy_sample_objects[sample_name]) is None

@@ -396,6 +396,22 @@ impl PyDataActorInner {
         Ok(())
     }
 
+    fn dispatch_on_historical_funding_rates(
+        &mut self,
+        funding_rates: Vec<FundingRateUpdate>,
+    ) -> PyResult<()> {
+        if let Some(ref py_self) = self.py_self {
+            Python::attach(|py| {
+                let py_rates: Vec<_> = funding_rates
+                    .into_iter()
+                    .map(|r| r.into_py_any_unwrap(py))
+                    .collect();
+                py_self.call_method1(py, "on_historical_funding_rates", (py_rates,))
+            })?;
+        }
+        Ok(())
+    }
+
     fn dispatch_on_historical_bars(&mut self, bars: Vec<Bar>) -> PyResult<()> {
         if let Some(ref py_self) = self.py_self {
             Python::attach(|py| {
@@ -852,9 +868,13 @@ impl DataActor for PyDataActorInner {
             .map_err(|e| anyhow::anyhow!("Python on_pool_flash failed: {e}"))
     }
 
-    fn on_historical_data(&mut self, _data: &dyn Any) -> anyhow::Result<()> {
+    fn on_historical_data(&mut self, data: &dyn Any) -> anyhow::Result<()> {
         Python::attach(|py| {
-            let py_data = py.None();
+            let py_data: Py<PyAny> = if let Some(custom_data) = data.downcast_ref::<CustomData>() {
+                Py::new(py, custom_data.clone())?.into_any()
+            } else {
+                anyhow::bail!("Failed to convert historical data to Python: unsupported type");
+            };
             self.dispatch_on_historical_data(py_data)
                 .map_err(|e| anyhow::anyhow!("Python on_historical_data failed: {e}"))
         })
@@ -868,6 +888,14 @@ impl DataActor for PyDataActorInner {
     fn on_historical_trades(&mut self, trades: &[TradeTick]) -> anyhow::Result<()> {
         self.dispatch_on_historical_trades(trades.to_vec())
             .map_err(|e| anyhow::anyhow!("Python on_historical_trades failed: {e}"))
+    }
+
+    fn on_historical_funding_rates(
+        &mut self,
+        funding_rates: &[FundingRateUpdate],
+    ) -> anyhow::Result<()> {
+        self.dispatch_on_historical_funding_rates(funding_rates.to_vec())
+            .map_err(|e| anyhow::anyhow!("Python on_historical_funding_rates failed: {e}"))
     }
 
     fn on_historical_bars(&mut self, bars: &[Bar]) -> anyhow::Result<()> {
@@ -1766,6 +1794,12 @@ impl PyDataActor {
     }
 
     #[allow(unused_variables, clippy::needless_pass_by_value)]
+    #[pyo3(name = "on_historical_funding_rates")]
+    fn py_on_historical_funding_rates(&mut self, funding_rates: Vec<FundingRateUpdate>) {
+        // Default implementation - can be overridden in Python subclasses
+    }
+
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_bars")]
     fn py_on_historical_bars(&mut self, bars: Vec<Bar>) {
         // Default implementation - can be overridden in Python subclasses
@@ -2028,8 +2062,9 @@ mod tests {
     };
     use nautilus_model::{
         data::{
-            Bar, BarType, CustomData, DataType, IndexPriceUpdate, InstrumentStatus,
-            MarkPriceUpdate, OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick,
+            Bar, BarType, CustomData, DataType, FundingRateUpdate, IndexPriceUpdate,
+            InstrumentStatus, MarkPriceUpdate, OrderBookDelta, OrderBookDeltas, QuoteTick,
+            TradeTick,
             close::InstrumentClose,
             greeks::OptionGreekValues,
             option_chain::{OptionChainSlice, OptionGreeks},
@@ -3655,5 +3690,50 @@ class TrackingActor:
             let result = DataActor::on_start(rust_actor.inner_mut());
             assert!(result.is_ok());
         });
+    }
+
+    #[rstest]
+    fn test_python_on_historical_funding_rates_handler(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+        audusd_sim: CurrencyPair,
+    ) {
+        pyo3::Python::initialize();
+        let mut rust_actor = PyDataActor::new(None);
+        rust_actor.register(trader_id, clock, cache).unwrap();
+
+        let funding_rate = FundingRateUpdate::new(
+            audusd_sim.id,
+            "0.0001".parse().unwrap(),
+            None,
+            None,
+            UnixNanos::default(),
+            UnixNanos::default(),
+        );
+
+        assert!(
+            rust_actor
+                .inner_mut()
+                .on_historical_funding_rates(&[funding_rate])
+                .is_ok()
+        );
+    }
+
+    #[rstest]
+    fn test_python_on_historical_data_rejects_non_custom_data(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        pyo3::Python::initialize();
+        let mut rust_actor = PyDataActor::new(None);
+        rust_actor.register(trader_id, clock, cache).unwrap();
+
+        let non_custom: String = "not CustomData".to_string();
+        let result = rust_actor.inner_mut().on_historical_data(&non_custom);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unsupported type"));
     }
 }

@@ -112,6 +112,7 @@ HISTORICAL_CALLBACKS = [
     ("on_historical_data", "historical_data"),
     ("on_historical_quotes", "historical_quotes"),
     ("on_historical_trades", "historical_trades"),
+    ("on_historical_funding_rates", "historical_funding_rates"),
     ("on_historical_bars", "historical_bars"),
     ("on_historical_mark_prices", "historical_mark_prices"),
     ("on_historical_index_prices", "historical_index_prices"),
@@ -312,9 +313,13 @@ def sample_objects():
     option_greeks = _make_option_greeks()
     option_chain = _make_option_chain()
     pool = _make_pool()
+    custom_data = CustomData(DataType("X"), [1, 2], 3, 4)
+    mark_price = MarkPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2)
+    index_price = IndexPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2)
+    funding_rate = FundingRateUpdate(instrument.id, Decimal("0.0001"), 1, 2, interval=480)
 
     return {
-        "custom_data": CustomData(DataType("X"), [1, 2], 3, 4),
+        "custom_data": custom_data,
         "signal": Signal("sig", "value", 1, 2),
         "instrument": instrument,
         "quote": quote,
@@ -322,9 +327,9 @@ def sample_objects():
         "bar": bar,
         "book_deltas": book_deltas,
         "book": OrderBook(instrument.id, BookType.L2_MBP),
-        "mark_price": MarkPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2),
-        "index_price": IndexPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2),
-        "funding_rate": FundingRateUpdate(instrument.id, Decimal("0.0001"), 1, 2, interval=480),
+        "mark_price": mark_price,
+        "index_price": index_price,
+        "funding_rate": funding_rate,
         "instrument_status": InstrumentStatus(instrument.id, MarketStatusAction.TRADING, 1, 2),
         "instrument_close": InstrumentClose(
             instrument.id,
@@ -340,14 +345,13 @@ def sample_objects():
         "pool_liquidity_update": _make_pool_liquidity_update(pool),
         "pool_fee_collect": _make_pool_fee_collect(pool),
         "pool_flash": _make_pool_flash(pool),
-        "historical_data": [CustomData(DataType("X"), [1, 2], 3, 4)],
+        "historical_data": [custom_data],
         "historical_quotes": [quote],
         "historical_trades": [trade],
+        "historical_funding_rates": [funding_rate],
         "historical_bars": [bar],
-        "historical_mark_prices": [MarkPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2)],
-        "historical_index_prices": [
-            IndexPriceUpdate(instrument.id, Price.from_str("1.00000"), 1, 2),
-        ],
+        "historical_mark_prices": [mark_price],
+        "historical_index_prices": [index_price],
     }
 
 
