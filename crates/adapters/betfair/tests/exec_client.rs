@@ -359,7 +359,9 @@ async fn test_cancel_order_instruction_failure_emits_rejected() {
     let (addr, state) = start_mock_http().await;
 
     let fixture = load_fixture("rest/betting_cancel_orders_error.json");
-    let v: Value = serde_json::from_str(&fixture).unwrap();
+    let mut v: Value = serde_json::from_str(&fixture).unwrap();
+    v["result"]["instructionReports"][0]["errorMessage"] =
+        Value::String("Betfair returned a detailed cancel validation error".to_string());
     state.betting_overrides.lock().unwrap().insert(
         "SportsAPING/v1.0/cancelOrders".to_string(),
         v["result"].clone(),
@@ -390,10 +392,14 @@ async fn test_cancel_order_instruction_failure_emits_rejected() {
         ExecutionEvent::Order(OrderEventAny::CancelRejected(rejected)) => {
             assert_eq!(rejected.client_order_id, ClientOrderId::from("O-002"));
             assert!(
-                rejected.reason.as_str().contains("ErrorInOrder"),
-                "Expected ErrorInOrder reason, found: {}",
+                rejected
+                    .reason
+                    .as_str()
+                    .contains("Betfair returned a detailed cancel validation error"),
+                "Expected detailed Betfair error message, found: {}",
                 rejected.reason,
             );
+            assert!(rejected.reason.as_str().contains("ErrorInOrder"));
         }
         other => panic!("Expected CancelRejected event, found: {other:?}"),
     }
@@ -584,7 +590,9 @@ async fn test_submit_order_error_emits_rejected() {
     let (addr, state) = start_mock_http().await;
 
     let fixture = load_fixture("rest/betting_place_order_error.json");
-    let v: Value = serde_json::from_str(&fixture).unwrap();
+    let mut v: Value = serde_json::from_str(&fixture).unwrap();
+    v["result"]["instructionReports"][0]["errorMessage"] =
+        Value::String("Betfair returned a detailed submit validation error".to_string());
     state.betting_overrides.lock().unwrap().insert(
         "SportsAPING/v1.0/placeOrders".to_string(),
         v["result"].clone(),
@@ -625,6 +633,15 @@ async fn test_submit_order_error_emits_rejected() {
                 rejected.client_order_id,
                 ClientOrderId::from("O-SUBMIT-002")
             );
+            assert!(
+                rejected
+                    .reason
+                    .as_str()
+                    .contains("Betfair returned a detailed submit validation error"),
+                "Expected detailed Betfair error message, found: {}",
+                rejected.reason,
+            );
+            assert!(rejected.reason.as_str().contains("ErrorInOrder"));
         }
         other => panic!("Expected OrderRejected event, found: {other:?}"),
     }

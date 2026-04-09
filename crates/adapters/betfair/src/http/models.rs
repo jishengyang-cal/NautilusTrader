@@ -468,6 +468,7 @@ pub struct PlaceExecutionReport {
     pub customer_ref: Option<String>,
     pub status: ExecutionReportStatus,
     pub error_code: Option<ExecutionReportErrorCode>,
+    pub error_message: Option<String>,
     pub market_id: Option<MarketId>,
     pub instruction_reports: Option<Vec<PlaceInstructionReport>>,
 }
@@ -478,6 +479,7 @@ pub struct PlaceExecutionReport {
 pub struct PlaceInstructionReport {
     pub status: InstructionReportStatus,
     pub error_code: Option<InstructionReportErrorCode>,
+    pub error_message: Option<String>,
     pub order_status: Option<BetfairOrderStatus>,
     pub instruction: Option<PlaceInstruction>,
     pub bet_id: Option<BetId>,
@@ -495,6 +497,7 @@ pub struct CancelExecutionReport {
     pub customer_ref: Option<String>,
     pub status: ExecutionReportStatus,
     pub error_code: Option<ExecutionReportErrorCode>,
+    pub error_message: Option<String>,
     pub market_id: Option<MarketId>,
     pub instruction_reports: Option<Vec<CancelInstructionReport>>,
 }
@@ -505,6 +508,7 @@ pub struct CancelExecutionReport {
 pub struct CancelInstructionReport {
     pub status: InstructionReportStatus,
     pub error_code: Option<InstructionReportErrorCode>,
+    pub error_message: Option<String>,
     pub instruction: Option<CancelInstruction>,
     #[serde(default, deserialize_with = "deserialize_optional_decimal")]
     pub size_cancelled: Option<Decimal>,
@@ -518,6 +522,7 @@ pub struct ReplaceExecutionReport {
     pub customer_ref: Option<String>,
     pub status: ExecutionReportStatus,
     pub error_code: Option<ExecutionReportErrorCode>,
+    pub error_message: Option<String>,
     pub market_id: Option<MarketId>,
     pub instruction_reports: Option<Vec<ReplaceInstructionReport>>,
 }
@@ -528,6 +533,7 @@ pub struct ReplaceExecutionReport {
 pub struct ReplaceInstructionReport {
     pub status: InstructionReportStatus,
     pub error_code: Option<InstructionReportErrorCode>,
+    pub error_message: Option<String>,
     pub cancel_instruction_report: Option<CancelInstructionReport>,
     pub place_instruction_report: Option<PlaceInstructionReport>,
 }
@@ -851,6 +857,37 @@ mod tests {
     fn test_place_order_responses(#[case] fixture: &str) {
         let data = load_test_json(fixture);
         let _resp: PlaceExecutionReport = parse_jsonrpc(&data);
+    }
+
+    #[rstest]
+    fn test_place_order_response_parses_instruction_error_message() {
+        let data = r#"
+        {
+          "jsonrpc": "2.0",
+          "result": {
+            "status": "FAILURE",
+            "instructionReports": [
+              {
+                "status": "FAILURE",
+                "errorCode": "ERROR_IN_ORDER",
+                "errorMessage": "Detailed Betfair validation message"
+              }
+            ]
+          }
+        }
+        "#;
+
+        let resp: PlaceExecutionReport = parse_jsonrpc(data);
+        let instruction_report = resp
+            .instruction_reports
+            .as_ref()
+            .and_then(|reports| reports.first())
+            .expect("instruction report");
+
+        assert_eq!(
+            instruction_report.error_message.as_deref(),
+            Some("Detailed Betfair validation message"),
+        );
     }
 
     #[rstest]

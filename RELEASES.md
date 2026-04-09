@@ -3,6 +3,7 @@
 Released on TBD (UTC).
 
 ### Enhancements
+- Added Betfair tiered tick scheme to `BettingInstrument` for ladder-snapped pricing
 - Added Polymarket game_id and fee_schedule to instrument info (#3811), thanks @Javdu10
 
 ### Breaking Changes
@@ -14,9 +15,10 @@ Released on TBD (UTC).
 - Fixed WebSocket auth state during reconnection for Bybit, OKX, and Deribit (#3820), thanks for reporting @KaizynX
 - Fixed `stop_timer` in `TimeBarAggregator` (#3822), thanks @faysou
 - Fixed `OrderTriggered` ValueError on market-style stop orders (#3812), thanks for reporting @jindrichsirucek
+- Fixed PyO3 `LiveNode` `request_bars()` historical callbacks dropped during startup warmup (#3825), thanks @BurnOutTrader
+- Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
-- Fixed PyO3 `LiveNode` `request_bars()` historical callbacks dropped during startup warmup (#3825), thanks @BurnOutTrader
 
 ### Internal Improvements
 - Upgraded `tokio` crate to v1.51.1

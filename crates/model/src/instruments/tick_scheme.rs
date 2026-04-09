@@ -15,7 +15,7 @@
 
 //! Tick scheme definitions for price-level navigation.
 
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, str::FromStr, sync::LazyLock};
 
 use nautilus_core::correctness::check_predicate_true;
 
@@ -33,6 +33,26 @@ pub trait TickSchemeRule: Display {
     fn next_bid_price(&self, value: f64, n: i32, precision: u8) -> Option<Price>;
     fn next_ask_price(&self, value: f64, n: i32, precision: u8) -> Option<Price>;
 }
+
+pub const BETFAIR_TICK_SCHEME_NAME: &str = "BETFAIR";
+
+const BETFAIR_PRICE_TIERS: [(f64, f64, f64); 10] = [
+    (1.01, 2.0, 0.01),
+    (2.0, 3.0, 0.02),
+    (3.0, 4.0, 0.05),
+    (4.0, 6.0, 0.1),
+    (6.0, 10.0, 0.2),
+    (10.0, 20.0, 0.5),
+    (20.0, 30.0, 1.0),
+    (30.0, 50.0, 2.0),
+    (50.0, 100.0, 5.0),
+    (100.0, 1010.0, 10.0),
+];
+
+pub static BETFAIR_TICK_SCHEME: LazyLock<TieredTickScheme> = LazyLock::new(|| {
+    TieredTickScheme::new(&BETFAIR_PRICE_TIERS, 2, 100)
+        .expect("BETFAIR tick scheme tiers are valid by construction")
+});
 
 #[derive(Clone, Copy, Debug)]
 pub struct FixedTickScheme {
@@ -270,6 +290,16 @@ impl TieredTickScheme {
         // SAFETY: TOPIX100 tiers are valid by construction
         .unwrap()
     }
+
+    /// Creates the BETFAIR tick scheme.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the hardcoded BETFAIR tiers fail validation (should not happen).
+    #[must_use]
+    pub fn betfair() -> Self {
+        BETFAIR_TICK_SCHEME.clone()
+    }
 }
 
 impl TickSchemeRule for TieredTickScheme {
@@ -341,6 +371,7 @@ impl Display for TieredTickScheme {
 pub enum TickScheme {
     Fixed(FixedTickScheme),
     Tiered(TieredTickScheme),
+    Betfair,
     Crypto,
 }
 
@@ -350,6 +381,7 @@ impl TickSchemeRule for TickScheme {
         match self {
             Self::Fixed(scheme) => scheme.next_bid_price(value, n, precision),
             Self::Tiered(scheme) => scheme.next_bid_price(value, n, precision),
+            Self::Betfair => BETFAIR_TICK_SCHEME.next_bid_price(value, n, precision),
             Self::Crypto => {
                 let increment: f64 = 0.01;
                 let base = (value / increment).floor() * increment;
@@ -363,6 +395,7 @@ impl TickSchemeRule for TickScheme {
         match self {
             Self::Fixed(scheme) => scheme.next_ask_price(value, n, precision),
             Self::Tiered(scheme) => scheme.next_ask_price(value, n, precision),
+            Self::Betfair => BETFAIR_TICK_SCHEME.next_ask_price(value, n, precision),
             Self::Crypto => {
                 let increment: f64 = 0.01;
                 let base = (value / increment).ceil() * increment;
@@ -377,6 +410,7 @@ impl Display for TickScheme {
         match self {
             Self::Fixed(_) => write!(f, "FIXED"),
             Self::Tiered(scheme) => write!(f, "{scheme}"),
+            Self::Betfair => write!(f, "{BETFAIR_TICK_SCHEME_NAME}"),
             Self::Crypto => write!(f, "CRYPTO_0_01"),
         }
     }
@@ -389,6 +423,7 @@ impl FromStr for TickScheme {
         match s.trim().to_ascii_uppercase().as_str() {
             "FIXED" => Ok(Self::Fixed(FixedTickScheme::new(1.0)?)),
             "TOPIX100" => Ok(Self::Tiered(TieredTickScheme::topix100())),
+            BETFAIR_TICK_SCHEME_NAME => Ok(Self::Betfair),
             "CRYPTO_0_01" => Ok(Self::Crypto),
             _ => anyhow::bail!("unknown tick scheme {s}"),
         }
@@ -472,6 +507,15 @@ mod tests {
     }
 
     #[rstest]
+    fn tiered_tick_scheme_betfair_construction() {
+        let scheme = TieredTickScheme::betfair();
+        assert_eq!(scheme.tick_count(), 350);
+        assert_eq!(scheme.precision(), 2);
+        assert_eq!(scheme.min_price(), Price::new(1.01, 2));
+        assert_eq!(scheme.max_price(), Price::new(1000.0, 2));
+    }
+
+    #[rstest]
     fn tiered_tick_scheme_ask_at_low_price() {
         let scheme = TieredTickScheme::topix100();
         let ask = scheme.next_ask_price(500.0, 0, 4).unwrap();
@@ -509,6 +553,33 @@ mod tests {
         // At 1000.0 we cross from 0.1 step to 0.5 step
         let ask = scheme.next_ask_price(1000.0, 1, 4).unwrap();
         assert_eq!(ask, Price::new(1000.5, 4));
+    }
+
+    #[rstest]
+    #[case(3.90, 1, "3.95")]
+    #[case(4.0, 1, "4.10")]
+    fn tiered_tick_scheme_betfair_ask_transition(
+        #[case] value: f64,
+        #[case] n: i32,
+        #[case] expected: &str,
+    ) {
+        let scheme = TieredTickScheme::betfair();
+        let ask = scheme.next_ask_price(value, n, 2).unwrap();
+        assert_eq!(ask, Price::from(expected));
+    }
+
+    #[rstest]
+    #[case(1.499, 0, "1.49")]
+    #[case(2.011, 0, "2.00")]
+    #[case(2.027, 2, "1.99")]
+    fn tiered_tick_scheme_betfair_bid_transition(
+        #[case] value: f64,
+        #[case] n: i32,
+        #[case] expected: &str,
+    ) {
+        let scheme = TieredTickScheme::betfair();
+        let bid = scheme.next_bid_price(value, n, 2).unwrap();
+        assert_eq!(bid, Price::from(expected));
     }
 
     #[rstest]
@@ -640,6 +711,16 @@ mod tests {
     fn tiered_tick_scheme_from_str_topix100() {
         let scheme = TickScheme::from_str("TOPIX100").unwrap();
         assert_eq!(scheme.to_string(), "TIERED");
+    }
+
+    #[rstest]
+    fn tiered_tick_scheme_from_str_betfair() {
+        let scheme = TickScheme::from_str("BETFAIR").unwrap();
+        assert_eq!(scheme.to_string(), BETFAIR_TICK_SCHEME_NAME);
+        assert_eq!(
+            scheme.next_ask_price(4.0, 1, 2).unwrap(),
+            Price::new(4.1, 2)
+        );
     }
 
     #[rstest]
