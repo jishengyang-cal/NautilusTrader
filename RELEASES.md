@@ -22,6 +22,7 @@ Released on TBD (UTC).
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
 
 ### Internal Improvements
+- Upgraded `databento` crate to v0.46.0
 - Upgraded `tokio` crate to v1.51.1
 
 ### Documentation Updates

@@ -177,16 +177,34 @@ criteria = "safe-to-deploy"
 delta = "0.44.0 -> 0.45.0"
 notes = "Adds HeartbeatTimeout error variant with tokio::time timeout on next_record/fill_buf, SlowReaderBehavior::Skip sends 'skip' instead of 'drop'"
 
+[[audits.databento]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.45.0 -> 0.46.0"
+notes = "SplitDuration gains None variant, new TimeoutConf with connect/auth timeouts for Live client. No new unsafe."
+
 [[audits.dbn]]
 who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
 delta = "0.51.0 -> 0.52.1"
 notes = "Venue/publisher renames (Nasdaq BX -> Nasdaq Texas), __index__ methods on PyO3 enums, removes dict from pyclass attrs"
 
+[[audits.dbn]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.52.1 -> 0.53.0"
+notes = "Bulk removal of #[pyo3(get,set)] (now via derive macros), FlagSet methods made const, publisher capitalization fix. No new unsafe."
+
 [[audits.dbn-macros]]
 who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
 delta = "0.51.0 -> 0.52.1"
+notes = "Version bump only"
+
+[[audits.dbn-macros]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.52.1 -> 0.53.0"
 notes = "Version bump only"
 
 [[audits.fastrand]]
