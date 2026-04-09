@@ -1225,10 +1225,6 @@ criteria = "safe-to-deploy"
 version = "0.14.5"
 criteria = "safe-to-deploy"
 
-[[exemptions.hashbrown]]
-version = "0.16.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.hashlink]]
 version = "0.10.0"
 criteria = "safe-to-deploy"
@@ -1351,14 +1347,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.indenter]]
 version = "0.3.4"
-criteria = "safe-to-deploy"
-
-[[exemptions.indexmap]]
-version = "1.9.3"
-criteria = "safe-to-deploy"
-
-[[exemptions.indexmap]]
-version = "2.13.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.integer-encoding]]

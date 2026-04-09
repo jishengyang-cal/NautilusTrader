@@ -23,10 +23,12 @@ Released on TBD (UTC).
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 
 ### Internal Improvements
+- Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
 - Upgraded `databento` crate to v0.46.0
 - Upgraded `tokio` crate to v1.51.1
 
 ### Documentation Updates
+- Refined IB documentation regarding UTC timestamps (#3826), thanks @faysou
 
 ### Deprecations
 
