@@ -664,6 +664,41 @@ fn test_unsubscribe_book_at_interval(
 }
 
 #[rstest]
+fn test_unsubscribe_book_at_interval_keeps_other_intervals(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+    audusd_sim: CurrencyPair,
+) {
+    let actor_id = register_data_actor(clock, cache, trader_id);
+    let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    actor.start().unwrap();
+
+    let book_type = BookType::L2_MBP;
+    let fast_interval_ms = NonZeroUsize::new(500).unwrap();
+    let slow_interval_ms = NonZeroUsize::new(1_000).unwrap();
+
+    actor.subscribe_book_at_interval(audusd_sim.id, book_type, None, fast_interval_ms, None, None);
+    actor.subscribe_book_at_interval(audusd_sim.id, book_type, None, slow_interval_ms, None, None);
+
+    let fast_topic = get_book_snapshots_topic(audusd_sim.id, fast_interval_ms);
+    let slow_topic = get_book_snapshots_topic(audusd_sim.id, slow_interval_ms);
+    let book = OrderBook::new(audusd_sim.id, book_type);
+
+    msgbus::publish_book(fast_topic, &book);
+    msgbus::publish_book(slow_topic, &book);
+
+    assert_eq!(actor.received_books.len(), 2);
+
+    actor.unsubscribe_book_at_interval(audusd_sim.id, fast_interval_ms, None, None);
+
+    msgbus::publish_book(fast_topic, &book);
+    msgbus::publish_book(slow_topic, &book);
+
+    assert_eq!(actor.received_books.len(), 3);
+}
+
+#[rstest]
 fn test_subscribe_and_receive_quotes(
     clock: Rc<RefCell<TestClock>>,
     cache: Rc<RefCell<Cache>>,

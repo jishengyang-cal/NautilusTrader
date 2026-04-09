@@ -19,6 +19,7 @@ use std::{
     rc::Rc,
 };
 
+use ahash::AHashMap;
 use nautilus_common::{
     cache::Cache,
     msgbus::{self, Handler, MStr, Topic},
@@ -103,48 +104,55 @@ impl Handler<OrderBookDepth10> for BookUpdater {
 /// full order book state updates in addition to incremental delta updates.
 #[derive(Debug)]
 pub struct BookSnapshotter {
-    pub id: Ustr,
     pub timer_name: Ustr,
-    pub snap_info: BookSnapshotInfo,
+    pub interval_ms: NonZeroUsize,
+    pub snapshot_infos: Rc<RefCell<AHashMap<InstrumentId, BookSnapshotInfo>>>,
     pub cache: Rc<RefCell<Cache>>,
 }
 
 impl BookSnapshotter {
     /// Creates a new [`BookSnapshotter`] instance.
-    pub fn new(snap_info: BookSnapshotInfo, cache: Rc<RefCell<Cache>>) -> Self {
-        let id_str = format!(
-            "{}-{}",
-            stringify!(BookSnapshotter),
-            snap_info.instrument_id
-        );
-        let timer_name = format!(
-            "OrderBook|{}|{}",
-            snap_info.instrument_id, snap_info.interval_ms
-        );
+    pub fn new(
+        interval_ms: NonZeroUsize,
+        snapshot_infos: Rc<RefCell<AHashMap<InstrumentId, BookSnapshotInfo>>>,
+        cache: Rc<RefCell<Cache>>,
+    ) -> Self {
+        let timer_name = format!("OrderBookSnapshots|{interval_ms}");
 
         Self {
-            id: Ustr::from(&id_str),
             timer_name: Ustr::from(&timer_name),
-            snap_info,
+            interval_ms,
+            snapshot_infos,
             cache,
         }
     }
 
     pub fn snapshot(&self, _event: TimeEvent) {
+        let snapshot_infos: Vec<BookSnapshotInfo> =
+            self.snapshot_infos.borrow().values().cloned().collect();
+
         log::debug!(
-            "BookSnapshotter.snapshot called for {}",
-            self.snap_info.instrument_id
+            "BookSnapshotter.snapshot called for {} subscriptions at {}ms",
+            snapshot_infos.len(),
+            self.interval_ms,
         );
+
         let cache = self.cache.borrow();
 
-        if self.snap_info.is_composite {
-            let topic = self.snap_info.topic;
-            let underlying = self.snap_info.root;
-            for instrument in cache.instruments(&self.snap_info.venue, Some(&underlying)) {
-                self.publish_order_book(&instrument.id(), topic, &cache);
+        for snap_info in snapshot_infos {
+            self.publish_snapshot(&snap_info, &cache);
+        }
+    }
+
+    fn publish_snapshot(&self, snap_info: &BookSnapshotInfo, cache: &Ref<Cache>) {
+        if snap_info.is_composite {
+            let topic = snap_info.topic;
+            let underlying = snap_info.root;
+            for instrument in cache.instruments(&snap_info.venue, Some(&underlying)) {
+                self.publish_order_book(&instrument.id(), topic, cache);
             }
         } else {
-            self.publish_order_book(&self.snap_info.instrument_id, self.snap_info.topic, &cache);
+            self.publish_order_book(&snap_info.instrument_id, snap_info.topic, cache);
         }
     }
 

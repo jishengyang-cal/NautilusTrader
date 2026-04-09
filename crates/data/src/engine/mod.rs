@@ -38,7 +38,7 @@ pub mod pool;
 use std::{
     any::{Any, type_name},
     cell::{Ref, RefCell},
-    collections::{VecDeque, hash_map::Entry},
+    collections::VecDeque,
     fmt::{Debug, Display},
     num::NonZeroUsize,
     rc::Rc,
@@ -127,6 +127,15 @@ pub(crate) enum DeferredCommand {
 /// Shared queue for deferred subscribe/unsubscribe commands.
 pub(crate) type DeferredCommandQueue = Rc<RefCell<VecDeque<DeferredCommand>>>;
 
+type BookSnapshotKey = (InstrumentId, NonZeroUsize);
+type BookSnapshotInfos = Rc<RefCell<AHashMap<InstrumentId, BookSnapshotInfo>>>;
+
+enum BookSnapshotUnsubscribeResult {
+    NotSubscribed,
+    Decremented,
+    Removed,
+}
+
 /// Typed subscription for bar aggregator handlers.
 ///
 /// Stores the topic and handler for each data type so we can properly
@@ -180,11 +189,12 @@ pub struct DataEngine {
     #[cfg(feature = "streaming")]
     catalogs: AHashMap<Ustr, ParquetDataCatalog>,
     routing_map: IndexMap<Venue, ClientId>,
-    book_intervals: AHashMap<NonZeroUsize, AHashSet<InstrumentId>>,
+    book_intervals: AHashMap<NonZeroUsize, BookSnapshotInfos>,
+    book_snapshot_counts: AHashMap<BookSnapshotKey, usize>,
     book_deltas_subs: AHashSet<InstrumentId>,
     book_depth10_subs: AHashSet<InstrumentId>,
     book_updaters: AHashMap<InstrumentId, Rc<BookUpdater>>,
-    book_snapshotters: AHashMap<InstrumentId, Rc<BookSnapshotter>>,
+    book_snapshotters: AHashMap<NonZeroUsize, Rc<BookSnapshotter>>,
     bar_aggregators: AHashMap<BarType, Rc<RefCell<Box<dyn BarAggregator>>>>,
     bar_aggregator_handlers: AHashMap<BarType, Vec<BarAggregatorSubscription>>,
     option_chain_managers: AHashMap<OptionSeriesId, Rc<RefCell<OptionChainManager>>>,
@@ -233,6 +243,7 @@ impl DataEngine {
             catalogs: AHashMap::new(),
             routing_map: IndexMap::new(),
             book_intervals: AHashMap::new(),
+            book_snapshot_counts: AHashMap::new(),
             book_deltas_subs: AHashSet::new(),
             book_depth10_subs: AHashSet::new(),
             book_updaters: AHashMap::new(),
@@ -665,9 +676,9 @@ impl DataEngine {
     /// Returns all instrument IDs for which book snapshot subscriptions exist.
     #[must_use]
     pub fn subscribed_book_snapshots(&self) -> Vec<InstrumentId> {
-        self.book_intervals
-            .values()
-            .flat_map(|set| set.iter().copied())
+        self.book_snapshot_counts
+            .keys()
+            .map(|(instrument_id, _)| *instrument_id)
             .collect()
     }
 
@@ -796,8 +807,16 @@ impl DataEngine {
     /// Returns an error if the underlying client operation fails.
     pub fn execute_unsubscribe(&mut self, cmd: &UnsubscribeCommand) -> anyhow::Result<()> {
         match &cmd {
-            UnsubscribeCommand::BookDeltas(cmd) => self.unsubscribe_book_deltas(cmd),
-            UnsubscribeCommand::BookDepth10(cmd) => self.unsubscribe_book_depth10(cmd),
+            UnsubscribeCommand::BookDeltas(cmd) => {
+                if !self.unsubscribe_book_deltas(cmd) {
+                    return Ok(());
+                }
+            }
+            UnsubscribeCommand::BookDepth10(cmd) => {
+                if !self.unsubscribe_book_depth10(cmd) {
+                    return Ok(());
+                }
+            }
             UnsubscribeCommand::BookSnapshots(cmd) => {
                 // Handles client forwarding internally (forwards as BookDeltas)
                 self.unsubscribe_book_snapshots(cmd);
@@ -1333,64 +1352,15 @@ impl DataEngine {
             anyhow::bail!("Cannot subscribe for synthetic instrument `OrderBookDelta` data");
         }
 
-        // Track snapshot intervals per instrument, and set up timer on first subscription
-        let first_for_interval = match self.book_intervals.entry(cmd.interval_ms) {
-            Entry::Vacant(e) => {
-                let mut set = AHashSet::new();
-                set.insert(cmd.instrument_id);
-                e.insert(set);
-                true
-            }
-            Entry::Occupied(mut e) => {
-                e.get_mut().insert(cmd.instrument_id);
-                false
-            }
-        };
+        let had_snapshots = self.has_book_snapshot_subscriptions(&cmd.instrument_id);
+        let inserted = self.increment_book_snapshot_subscription(cmd);
 
-        if first_for_interval {
-            // Initialize snapshotter and schedule its timer
-            let interval_ns = millis_to_nanos_unchecked(cmd.interval_ms.get() as f64);
-            let topic = switchboard::get_book_snapshots_topic(cmd.instrument_id, cmd.interval_ms);
-
-            let snap_info = BookSnapshotInfo {
-                instrument_id: cmd.instrument_id,
-                venue: cmd.instrument_id.venue,
-                is_composite: cmd.instrument_id.symbol.is_composite(),
-                root: Ustr::from(cmd.instrument_id.symbol.root()),
-                topic,
-                interval_ms: cmd.interval_ms,
-            };
-
-            // Schedule the first snapshot at the next interval boundary
-            let now_ns = self.clock.borrow().timestamp_ns().as_u64();
-            let start_time_ns = now_ns - (now_ns % interval_ns) + interval_ns;
-
-            let snapshotter = Rc::new(BookSnapshotter::new(snap_info, self.cache.clone()));
-            self.book_snapshotters
-                .insert(cmd.instrument_id, snapshotter.clone());
-            let timer_name = snapshotter.timer_name;
-
-            let callback_fn: Rc<dyn Fn(TimeEvent)> =
-                Rc::new(move |event| snapshotter.snapshot(event));
-            let callback = TimeEventCallback::from(callback_fn);
-
-            self.clock
-                .borrow_mut()
-                .set_timer_ns(
-                    &timer_name,
-                    interval_ns,
-                    Some(start_time_ns.into()),
-                    None,
-                    Some(callback),
-                    None,
-                    None,
-                )
-                .expect(FAILED);
+        if inserted && !had_snapshots && !self.book_deltas_subs.contains(&cmd.instrument_id) {
+            self.setup_book_updater(&cmd.instrument_id, cmd.book_type, false, true)?;
         }
 
-        // Only set up book updater if not already subscribed to deltas
-        if !self.subscribed_book_deltas().contains(&cmd.instrument_id) {
-            self.setup_book_updater(&cmd.instrument_id, cmd.book_type, false, true)?;
+        if had_snapshots || self.book_deltas_subs.contains(&cmd.instrument_id) {
+            return Ok(());
         }
 
         if let Some(client_id) = cmd.client_id.as_ref()
@@ -1457,97 +1427,69 @@ impl DataEngine {
         Ok(())
     }
 
-    fn unsubscribe_book_deltas(&mut self, cmd: &UnsubscribeBookDeltas) {
-        if !self.subscribed_book_deltas().contains(&cmd.instrument_id) {
+    fn unsubscribe_book_deltas(&mut self, cmd: &UnsubscribeBookDeltas) -> bool {
+        if !self.book_deltas_subs.contains(&cmd.instrument_id) {
             log::warn!("Cannot unsubscribe from `OrderBookDeltas` data: not subscribed");
-            return;
+            return false;
         }
 
         self.book_deltas_subs.remove(&cmd.instrument_id);
+        self.maintain_book_updater(&cmd.instrument_id);
 
-        let topics = vec![
-            switchboard::get_book_deltas_topic(cmd.instrument_id),
-            switchboard::get_book_depth10_topic(cmd.instrument_id),
-            // TODO: Unsubscribe from snapshots?
-        ];
-
-        self.maintain_book_updater(&cmd.instrument_id, &topics);
-        self.maintain_book_snapshotter(&cmd.instrument_id);
+        // Snapshot subscriptions reuse the deltas feed.
+        // Keep the client subscribed until the last snapshot consumer is gone.
+        !self.has_book_snapshot_subscriptions(&cmd.instrument_id)
     }
 
-    fn unsubscribe_book_depth10(&mut self, cmd: &UnsubscribeBookDepth10) {
+    fn unsubscribe_book_depth10(&mut self, cmd: &UnsubscribeBookDepth10) -> bool {
         if !self.book_depth10_subs.contains(&cmd.instrument_id) {
             log::warn!("Cannot unsubscribe from `OrderBookDepth10` data: not subscribed");
-            return;
+            return false;
         }
 
         self.book_depth10_subs.remove(&cmd.instrument_id);
+        self.maintain_book_updater(&cmd.instrument_id);
 
-        let topics = vec![
-            switchboard::get_book_deltas_topic(cmd.instrument_id),
-            switchboard::get_book_depth10_topic(cmd.instrument_id),
-        ];
-
-        self.maintain_book_updater(&cmd.instrument_id, &topics);
-        self.maintain_book_snapshotter(&cmd.instrument_id);
+        true
     }
 
     fn unsubscribe_book_snapshots(&mut self, cmd: &UnsubscribeBookSnapshots) {
-        let is_subscribed = self
-            .book_intervals
-            .values()
-            .any(|set| set.contains(&cmd.instrument_id));
+        match self.decrement_book_snapshot_subscription(cmd.instrument_id, cmd.interval_ms) {
+            BookSnapshotUnsubscribeResult::NotSubscribed => {
+                log::warn!("Cannot unsubscribe from `OrderBook` snapshots: not subscribed");
+                return;
+            }
+            BookSnapshotUnsubscribeResult::Decremented => return,
+            BookSnapshotUnsubscribeResult::Removed => {}
+        }
 
-        if !is_subscribed {
-            log::warn!("Cannot unsubscribe from `OrderBook` snapshots: not subscribed");
+        if self.has_book_snapshot_subscriptions(&cmd.instrument_id) {
             return;
         }
 
-        // Remove instrument from interval tracking, and drop empty intervals
-        let mut to_remove = Vec::new();
+        self.maintain_book_updater(&cmd.instrument_id);
 
-        for (interval, set) in &mut self.book_intervals {
-            if set.remove(&cmd.instrument_id) && set.is_empty() {
-                to_remove.push(*interval);
-            }
+        if self.book_deltas_subs.contains(&cmd.instrument_id) {
+            return;
         }
 
-        for interval in to_remove {
-            self.book_intervals.remove(&interval);
+        if let Some(client_id) = cmd.client_id.as_ref()
+            && self.external_clients.contains(client_id)
+        {
+            return;
         }
 
-        let topics = vec![
-            switchboard::get_book_deltas_topic(cmd.instrument_id),
-            switchboard::get_book_depth10_topic(cmd.instrument_id),
-        ];
-
-        self.maintain_book_updater(&cmd.instrument_id, &topics);
-        self.maintain_book_snapshotter(&cmd.instrument_id);
-
-        let still_in_intervals = self
-            .book_intervals
-            .values()
-            .any(|set| set.contains(&cmd.instrument_id));
-
-        if !still_in_intervals && !self.book_deltas_subs.contains(&cmd.instrument_id) {
-            if let Some(client_id) = cmd.client_id.as_ref()
-                && self.external_clients.contains(client_id)
-            {
-                return;
-            }
-
-            if let Some(client) = self.get_client(cmd.client_id.as_ref(), cmd.venue.as_ref()) {
-                let deltas_cmd = UnsubscribeBookDeltas::new(
-                    cmd.instrument_id,
-                    cmd.client_id,
-                    cmd.venue,
-                    UUID4::new(),
-                    cmd.ts_init,
-                    Some(cmd.command_id),
-                    cmd.params.clone(),
-                );
-                client.execute_unsubscribe(&UnsubscribeCommand::BookDeltas(deltas_cmd));
-            }
+        if let Some(client) = self.get_client(cmd.client_id.as_ref(), cmd.venue.as_ref()) {
+            let deltas_cmd = UnsubscribeBookDeltas::new(
+                cmd.instrument_id,
+                cmd.client_id,
+                cmd.venue,
+                UUID4::new(),
+                cmd.ts_init,
+                Some(cmd.command_id),
+                cmd.params.clone(),
+            );
+            client.execute_unsubscribe(&UnsubscribeCommand::BookDeltas(deltas_cmd));
         }
     }
 
@@ -1761,22 +1703,21 @@ impl DataEngine {
         }
     }
 
-    fn maintain_book_updater(&mut self, instrument_id: &InstrumentId, _topics: &[MStr<Topic>]) {
+    fn maintain_book_updater(&mut self, instrument_id: &InstrumentId) {
         let Some(updater) = self.book_updaters.get(instrument_id) else {
             return;
         };
 
-        // Check which internal subscriptions still exist
         let has_deltas = self.book_deltas_subs.contains(instrument_id);
         let has_depth10 = self.book_depth10_subs.contains(instrument_id);
+        let has_snapshots = self.has_book_snapshot_subscriptions(instrument_id);
 
         let deltas_topic = switchboard::get_book_deltas_topic(*instrument_id);
         let depth_topic = switchboard::get_book_depth10_topic(*instrument_id);
         let deltas_handler: TypedHandler<OrderBookDeltas> = TypedHandler::new(updater.clone());
         let depth_handler: TypedHandler<OrderBookDepth10> = TypedHandler::new(updater.clone());
 
-        // Unsubscribe from topics that no longer have subscriptions
-        if !has_deltas {
+        if !has_deltas && !has_snapshots {
             msgbus::unsubscribe_book_deltas(deltas_topic.into(), &deltas_handler);
         }
 
@@ -1784,31 +1725,131 @@ impl DataEngine {
             msgbus::unsubscribe_book_depth10(depth_topic.into(), &depth_handler);
         }
 
-        // Remove BookUpdater only when no subscriptions remain
-        if !has_deltas && !has_depth10 {
+        if !has_deltas && !has_depth10 && !has_snapshots {
             self.book_updaters.remove(instrument_id);
             log::debug!("Removed BookUpdater for instrument ID {instrument_id}");
         }
     }
 
-    fn maintain_book_snapshotter(&mut self, instrument_id: &InstrumentId) {
-        if let Some(snapshotter) = self.book_snapshotters.get(instrument_id) {
-            let topic = switchboard::get_book_snapshots_topic(
-                *instrument_id,
-                snapshotter.snap_info.interval_ms,
-            );
+    fn has_book_snapshot_subscriptions(&self, instrument_id: &InstrumentId) -> bool {
+        self.book_snapshot_counts
+            .keys()
+            .any(|(id, _)| id == instrument_id)
+    }
 
-            // Check remaining snapshot subscriptions, if none then remove snapshotter
-            if msgbus::subscriber_count_book_snapshots(topic) == 0 {
+    fn increment_book_snapshot_subscription(&mut self, cmd: &SubscribeBookSnapshots) -> bool {
+        let key = (cmd.instrument_id, cmd.interval_ms);
+
+        if let Some(count) = self.book_snapshot_counts.get_mut(&key) {
+            *count += 1;
+            return false;
+        }
+
+        self.book_snapshot_counts.insert(key, 1);
+
+        let snapshot_infos = if let Some(snapshot_infos) = self.book_intervals.get(&cmd.interval_ms)
+        {
+            snapshot_infos.clone()
+        } else {
+            let snapshot_infos = Rc::new(RefCell::new(AHashMap::new()));
+            self.book_intervals
+                .insert(cmd.interval_ms, snapshot_infos.clone());
+            self.schedule_book_snapshotter(cmd.interval_ms, snapshot_infos.clone());
+            snapshot_infos
+        };
+
+        let topic = switchboard::get_book_snapshots_topic(cmd.instrument_id, cmd.interval_ms);
+        let snap_info = BookSnapshotInfo {
+            instrument_id: cmd.instrument_id,
+            venue: cmd.instrument_id.venue,
+            is_composite: cmd.instrument_id.symbol.is_composite(),
+            root: Ustr::from(cmd.instrument_id.symbol.root()),
+            topic,
+            interval_ms: cmd.interval_ms,
+        };
+
+        snapshot_infos
+            .borrow_mut()
+            .insert(cmd.instrument_id, snap_info);
+
+        true
+    }
+
+    fn decrement_book_snapshot_subscription(
+        &mut self,
+        instrument_id: InstrumentId,
+        interval_ms: NonZeroUsize,
+    ) -> BookSnapshotUnsubscribeResult {
+        let key = (instrument_id, interval_ms);
+
+        let Some(count) = self.book_snapshot_counts.get_mut(&key) else {
+            return BookSnapshotUnsubscribeResult::NotSubscribed;
+        };
+
+        if *count > 1 {
+            *count -= 1;
+            return BookSnapshotUnsubscribeResult::Decremented;
+        }
+
+        self.book_snapshot_counts.remove(&key);
+
+        let remove_interval = if let Some(snapshot_infos) = self.book_intervals.get(&interval_ms) {
+            let mut snapshot_infos = snapshot_infos.borrow_mut();
+            snapshot_infos.remove(&instrument_id);
+            snapshot_infos.is_empty()
+        } else {
+            false
+        };
+
+        if remove_interval {
+            self.book_intervals.remove(&interval_ms);
+
+            if let Some(snapshotter) = self.book_snapshotters.remove(&interval_ms) {
                 let timer_name = snapshotter.timer_name;
-                self.book_snapshotters.remove(instrument_id);
                 let mut clock = self.clock.borrow_mut();
                 if clock.timer_exists(&timer_name) {
                     clock.cancel_timer(&timer_name);
                 }
-                log::debug!("Removed BookSnapshotter for instrument ID {instrument_id}");
             }
         }
+
+        BookSnapshotUnsubscribeResult::Removed
+    }
+
+    fn schedule_book_snapshotter(
+        &mut self,
+        interval_ms: NonZeroUsize,
+        snapshot_infos: BookSnapshotInfos,
+    ) {
+        let interval_ns = millis_to_nanos_unchecked(interval_ms.get() as f64);
+        let now_ns = self.clock.borrow().timestamp_ns().as_u64();
+        let start_time_ns = now_ns - (now_ns % interval_ns) + interval_ns;
+
+        let snapshotter = Rc::new(BookSnapshotter::new(
+            interval_ms,
+            snapshot_infos,
+            self.cache.clone(),
+        ));
+        let timer_name = snapshotter.timer_name;
+        let snapshotter_callback = snapshotter.clone();
+        let callback_fn: Rc<dyn Fn(TimeEvent)> =
+            Rc::new(move |event| snapshotter_callback.snapshot(event));
+        let callback = TimeEventCallback::from(callback_fn);
+
+        self.clock
+            .borrow_mut()
+            .set_timer_ns(
+                &timer_name,
+                interval_ns,
+                Some(start_time_ns.into()),
+                None,
+                Some(callback),
+                None,
+                None,
+            )
+            .expect(FAILED);
+
+        self.book_snapshotters.insert(interval_ms, snapshotter);
     }
 
     // -- RESPONSE HANDLERS -----------------------------------------------------------------------

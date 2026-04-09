@@ -3564,6 +3564,7 @@ impl DataActorCore {
 
         let command = UnsubscribeCommand::BookSnapshots(UnsubscribeBookSnapshots {
             instrument_id,
+            interval_ms,
             client_id,
             venue: Some(instrument_id.venue),
             command_id: UUID4::new(),

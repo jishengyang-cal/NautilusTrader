@@ -43,13 +43,14 @@ use nautilus_common::{
         SubscribeIndexPrices, SubscribeInstrument, SubscribeInstrumentClose,
         SubscribeInstrumentStatus, SubscribeMarkPrices, SubscribeOptionChain,
         SubscribeOptionGreeks, SubscribeQuotes, SubscribeTrades, UnsubscribeBars,
-        UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeCommand, UnsubscribeCustomData,
-        UnsubscribeFundingRates, UnsubscribeIndexPrices, UnsubscribeInstrument,
-        UnsubscribeInstrumentClose, UnsubscribeInstrumentStatus, UnsubscribeMarkPrices,
-        UnsubscribeOptionChain, UnsubscribeOptionGreeks, UnsubscribeQuotes, UnsubscribeTrades,
+        UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeBookSnapshots,
+        UnsubscribeCommand, UnsubscribeCustomData, UnsubscribeFundingRates, UnsubscribeIndexPrices,
+        UnsubscribeInstrument, UnsubscribeInstrumentClose, UnsubscribeInstrumentStatus,
+        UnsubscribeMarkPrices, UnsubscribeOptionChain, UnsubscribeOptionGreeks, UnsubscribeQuotes,
+        UnsubscribeTrades,
     },
     msgbus::{
-        self, MessageBus, TypedIntoHandler,
+        self, MessageBus, TypedHandler, TypedIntoHandler,
         stubs::get_typed_message_saving_handler,
         switchboard::{self, MessagingSwitchboard},
     },
@@ -75,7 +76,10 @@ use nautilus_model::{
     },
     enums::{BookType, OptionKind, PriceType},
     identifiers::{ClientId, InstrumentId, OptionSeriesId, TraderId, Venue},
-    instruments::{CurrencyPair, Instrument, InstrumentAny, stubs::audusd_sim},
+    instruments::{
+        CurrencyPair, Instrument, InstrumentAny,
+        stubs::{audusd_sim, gbpusd_sim},
+    },
     orderbook::OrderBook,
     stubs::TestDefault,
     types::Price,
@@ -3908,6 +3912,495 @@ fn test_process_book_snapshot_publish(
     let messages = saver.get_messages();
     assert!(!messages.is_empty(), "Expected at least one book snapshot");
     assert_eq!(messages[0].instrument_id, audusd_sim.id);
+}
+
+#[rstest]
+fn test_process_book_snapshot_publish_for_multiple_instruments_same_interval(
+    audusd_sim: CurrencyPair,
+    gbpusd_sim: CurrencyPair,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let data_engine = create_snapshot_test_engine(clock.clone(), cache.clone());
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(audusd_sim.clone()));
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(gbpusd_sim.clone()));
+
+    let interval_ms = NonZeroUsize::new(100).unwrap();
+    let aud_topic = switchboard::get_book_snapshots_topic(audusd_sim.id, interval_ms);
+    let gbp_topic = switchboard::get_book_snapshots_topic(gbpusd_sim.id, interval_ms);
+    let (aud_handler, aud_saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    let (gbp_handler, gbp_saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    msgbus::subscribe_book_snapshots(aud_topic.into(), aud_handler, None);
+    msgbus::subscribe_book_snapshots(gbp_topic.into(), gbp_handler, None);
+
+    execute_book_snapshot_subscribe(&data_engine, audusd_sim.id, client_id, venue, interval_ms);
+    execute_book_snapshot_subscribe(&data_engine, gbpusd_sim.id, client_id, venue, interval_ms);
+
+    process_book_delta(&data_engine, audusd_sim.id);
+    process_book_delta(&data_engine, gbpusd_sim.id);
+    advance_clock_and_dispatch(&clock, 200_000_000);
+
+    assert_eq!(aud_saver.get_messages().len(), 1);
+    assert_eq!(aud_saver.get_messages()[0].instrument_id, audusd_sim.id);
+    assert_eq!(gbp_saver.get_messages().len(), 1);
+    assert_eq!(gbp_saver.get_messages()[0].instrument_id, gbpusd_sim.id);
+}
+
+#[rstest]
+fn test_process_book_snapshot_publish_for_multiple_intervals_same_instrument(
+    audusd_sim: CurrencyPair,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let data_engine = create_snapshot_test_engine(clock.clone(), cache.clone());
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(audusd_sim.clone()));
+
+    let fast_interval_ms = NonZeroUsize::new(100).unwrap();
+    let slow_interval_ms = NonZeroUsize::new(200).unwrap();
+    let fast_topic = switchboard::get_book_snapshots_topic(audusd_sim.id, fast_interval_ms);
+    let slow_topic = switchboard::get_book_snapshots_topic(audusd_sim.id, slow_interval_ms);
+    let (fast_handler, fast_saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    let (slow_handler, slow_saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    msgbus::subscribe_book_snapshots(fast_topic.into(), fast_handler, None);
+    msgbus::subscribe_book_snapshots(slow_topic.into(), slow_handler, None);
+
+    execute_book_snapshot_subscribe(
+        &data_engine,
+        audusd_sim.id,
+        client_id,
+        venue,
+        fast_interval_ms,
+    );
+    execute_book_snapshot_subscribe(
+        &data_engine,
+        audusd_sim.id,
+        client_id,
+        venue,
+        slow_interval_ms,
+    );
+
+    let recorded = recorder.borrow();
+    assert_eq!(recorded.len(), 1);
+    assert!(matches!(
+        &recorded[0],
+        DataCommand::Subscribe(SubscribeCommand::BookDeltas(cmd)) if cmd.instrument_id == audusd_sim.id
+    ));
+    drop(recorded);
+
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 500_000_000);
+
+    assert!(!fast_saver.get_messages().is_empty());
+    assert_eq!(fast_saver.get_messages()[0].instrument_id, audusd_sim.id);
+    assert!(!slow_saver.get_messages().is_empty());
+    assert_eq!(slow_saver.get_messages()[0].instrument_id, audusd_sim.id);
+}
+
+#[rstest]
+fn test_duplicate_book_snapshot_subscriptions_require_matching_unsubscribes(
+    audusd_sim: CurrencyPair,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let data_engine = create_snapshot_test_engine(clock.clone(), cache.clone());
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(audusd_sim.clone()));
+
+    let interval_ms = NonZeroUsize::new(100).unwrap();
+    let topic = switchboard::get_book_snapshots_topic(audusd_sim.id, interval_ms);
+    let (handler, saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    msgbus::subscribe_book_snapshots(topic.into(), handler, None);
+
+    execute_book_snapshot_subscribe(&data_engine, audusd_sim.id, client_id, venue, interval_ms);
+    execute_book_snapshot_subscribe(&data_engine, audusd_sim.id, client_id, venue, interval_ms);
+
+    assert_eq!(recorder.borrow().len(), 1);
+
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 200_000_000);
+    let snapshot_count = saver.get_messages().len();
+    assert!(!saver.get_messages().is_empty());
+
+    execute_book_snapshot_unsubscribe(&data_engine, audusd_sim.id, client_id, venue, interval_ms);
+
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 200_000_000);
+    assert!(saver.get_messages().len() > snapshot_count);
+    assert_eq!(recorder.borrow().len(), 1);
+
+    execute_book_snapshot_unsubscribe(&data_engine, audusd_sim.id, client_id, venue, interval_ms);
+
+    let recorded = recorder.borrow();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(
+        &recorded[1],
+        DataCommand::Unsubscribe(UnsubscribeCommand::BookDeltas(cmd)) if cmd.instrument_id == audusd_sim.id
+    ));
+    drop(recorded);
+
+    let snapshot_count = saver.get_messages().len();
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 200_000_000);
+    assert_eq!(saver.get_messages().len(), snapshot_count);
+}
+
+#[rstest]
+fn test_unsubscribe_book_snapshots_removes_only_requested_interval(
+    audusd_sim: CurrencyPair,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let data_engine = create_snapshot_test_engine(clock.clone(), cache.clone());
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(audusd_sim.clone()));
+
+    let fast_interval_ms = NonZeroUsize::new(100).unwrap();
+    let slow_interval_ms = NonZeroUsize::new(200).unwrap();
+    let fast_topic = switchboard::get_book_snapshots_topic(audusd_sim.id, fast_interval_ms);
+    let slow_topic = switchboard::get_book_snapshots_topic(audusd_sim.id, slow_interval_ms);
+    let (fast_handler, fast_saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    let (slow_handler, slow_saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    msgbus::subscribe_book_snapshots(fast_topic.into(), fast_handler, None);
+    msgbus::subscribe_book_snapshots(slow_topic.into(), slow_handler, None);
+
+    execute_book_snapshot_subscribe(
+        &data_engine,
+        audusd_sim.id,
+        client_id,
+        venue,
+        fast_interval_ms,
+    );
+    execute_book_snapshot_subscribe(
+        &data_engine,
+        audusd_sim.id,
+        client_id,
+        venue,
+        slow_interval_ms,
+    );
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 500_000_000);
+
+    let fast_count = fast_saver.get_messages().len();
+    let slow_count = slow_saver.get_messages().len();
+
+    execute_book_snapshot_unsubscribe(
+        &data_engine,
+        audusd_sim.id,
+        client_id,
+        venue,
+        fast_interval_ms,
+    );
+
+    assert_eq!(recorder.borrow().len(), 1);
+
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 500_000_000);
+
+    assert_eq!(fast_saver.get_messages().len(), fast_count);
+    assert!(slow_saver.get_messages().len() > slow_count);
+
+    execute_book_snapshot_unsubscribe(
+        &data_engine,
+        audusd_sim.id,
+        client_id,
+        venue,
+        slow_interval_ms,
+    );
+
+    let recorded = recorder.borrow();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(
+        &recorded[1],
+        DataCommand::Unsubscribe(UnsubscribeCommand::BookDeltas(cmd)) if cmd.instrument_id == audusd_sim.id
+    ));
+    drop(recorded);
+
+    let slow_count = slow_saver.get_messages().len();
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 500_000_000);
+    assert_eq!(slow_saver.get_messages().len(), slow_count);
+}
+
+#[rstest]
+fn test_unsubscribe_book_snapshots_during_publish_does_not_panic(
+    audusd_sim: CurrencyPair,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let data_engine = create_snapshot_test_engine(clock.clone(), cache.clone());
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(audusd_sim.clone()));
+
+    let interval_ms = NonZeroUsize::new(100).unwrap();
+    let topic = switchboard::get_book_snapshots_topic(audusd_sim.id, interval_ms);
+    let snapshot_count = Rc::new(RefCell::new(0usize));
+    let snapshot_count_clone = snapshot_count.clone();
+    let data_engine_clone = data_engine.clone();
+    let unsubscribe_handler = TypedHandler::from(move |_book: &OrderBook| {
+        *snapshot_count_clone.borrow_mut() += 1;
+        execute_book_snapshot_unsubscribe(
+            &data_engine_clone,
+            audusd_sim.id,
+            client_id,
+            venue,
+            interval_ms,
+        );
+    });
+    msgbus::subscribe_book_snapshots(topic.into(), unsubscribe_handler, None);
+
+    execute_book_snapshot_subscribe(&data_engine, audusd_sim.id, client_id, venue, interval_ms);
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 200_000_000);
+
+    assert_eq!(*snapshot_count.borrow(), 1);
+
+    let recorded = recorder.borrow();
+    assert_eq!(recorded.len(), 2);
+    assert!(matches!(
+        &recorded[1],
+        DataCommand::Unsubscribe(UnsubscribeCommand::BookDeltas(cmd)) if cmd.instrument_id == audusd_sim.id
+    ));
+    drop(recorded);
+
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 200_000_000);
+    assert_eq!(*snapshot_count.borrow(), 1);
+}
+
+#[rstest]
+fn test_unsubscribe_book_deltas_keeps_snapshot_subscriptions_active(
+    audusd_sim: CurrencyPair,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    client_id: ClientId,
+    venue: Venue,
+) {
+    let data_engine = create_snapshot_test_engine(clock.clone(), cache.clone());
+    let recorder: Rc<RefCell<Vec<DataCommand>>> = Rc::new(RefCell::new(Vec::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        None,
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::CurrencyPair(audusd_sim.clone()));
+
+    let interval_ms = NonZeroUsize::new(100).unwrap();
+    let topic = switchboard::get_book_snapshots_topic(audusd_sim.id, interval_ms);
+    let (handler, saver) = get_typed_message_saving_handler::<OrderBook>(None);
+    msgbus::subscribe_book_snapshots(topic.into(), handler, None);
+
+    execute_book_snapshot_subscribe(&data_engine, audusd_sim.id, client_id, venue, interval_ms);
+
+    let deltas_cmd = SubscribeBookDeltas::new(
+        audusd_sim.id,
+        BookType::L2_MBP,
+        Some(client_id),
+        Some(venue),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        true,
+        None,
+        None,
+    );
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Subscribe(SubscribeCommand::BookDeltas(
+            deltas_cmd,
+        )));
+
+    let unsubscribe_cmd = UnsubscribeBookDeltas::new(
+        audusd_sim.id,
+        Some(client_id),
+        Some(venue),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Unsubscribe(UnsubscribeCommand::BookDeltas(
+            unsubscribe_cmd,
+        )));
+
+    assert!(!recorder.borrow().iter().any(|cmd| matches!(
+        cmd,
+        DataCommand::Unsubscribe(UnsubscribeCommand::BookDeltas(_))
+    )));
+
+    process_book_delta(&data_engine, audusd_sim.id);
+    advance_clock_and_dispatch(&clock, 200_000_000);
+
+    assert_eq!(saver.get_messages().len(), 1);
+    assert_eq!(saver.get_messages()[0].instrument_id, audusd_sim.id);
+}
+
+fn execute_book_snapshot_subscribe(
+    data_engine: &Rc<RefCell<DataEngine>>,
+    instrument_id: InstrumentId,
+    client_id: ClientId,
+    venue: Venue,
+    interval_ms: NonZeroUsize,
+) {
+    let subscribe = SubscribeBookSnapshots::new(
+        instrument_id,
+        BookType::L2_MBP,
+        Some(client_id),
+        Some(venue),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        interval_ms,
+        None,
+        None,
+    );
+
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Subscribe(SubscribeCommand::BookSnapshots(
+            subscribe,
+        )));
+}
+
+fn execute_book_snapshot_unsubscribe(
+    data_engine: &Rc<RefCell<DataEngine>>,
+    instrument_id: InstrumentId,
+    client_id: ClientId,
+    venue: Venue,
+    interval_ms: NonZeroUsize,
+) {
+    let unsubscribe = UnsubscribeBookSnapshots::new(
+        instrument_id,
+        interval_ms,
+        Some(client_id),
+        Some(venue),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Unsubscribe(UnsubscribeCommand::BookSnapshots(
+            unsubscribe,
+        )));
+}
+
+fn process_book_delta(data_engine: &Rc<RefCell<DataEngine>>, instrument_id: InstrumentId) {
+    let delta = OrderBookDeltaTestBuilder::new(instrument_id).build();
+    let deltas = OrderBookDeltas_API::new(OrderBookDeltas::new(instrument_id, vec![delta]));
+    data_engine.borrow_mut().process_data(Data::Deltas(deltas));
+}
+
+fn advance_clock_and_dispatch(clock: &Rc<RefCell<TestClock>>, advance_ns: u64) {
+    let to_time_ns = clock.borrow().timestamp_ns().as_u64() + advance_ns;
+    let events = clock.borrow_mut().advance_time(to_time_ns.into(), true);
+    let handlers = clock.borrow().match_handlers(events);
+
+    for handler in handlers {
+        handler.callback.call(handler.event);
+    }
+}
+
+fn create_snapshot_test_engine(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) -> Rc<RefCell<DataEngine>> {
+    let _ =
+        MessageBus::new(TraderId::test_default(), UUID4::new(), None, None).register_message_bus();
+
+    let data_engine = Rc::new(RefCell::new(DataEngine::new(clock, cache, None)));
+    let data_engine_clone = data_engine.clone();
+    let handler = TypedIntoHandler::from(move |cmd: DataCommand| {
+        data_engine_clone.borrow_mut().execute(cmd);
+    });
+    let endpoint = MessagingSwitchboard::data_engine_execute();
+    msgbus::register_data_command_endpoint(endpoint, handler);
+
+    data_engine
 }
 
 fn make_crypto_option(

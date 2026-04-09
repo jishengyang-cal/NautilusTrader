@@ -13,6 +13,8 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+use std::num::NonZeroUsize;
+
 use nautilus_core::{Params, UUID4, UnixNanos};
 use nautilus_model::{
     data::{BarType, DataType},
@@ -199,6 +201,7 @@ impl UnsubscribeBookDepth10 {
 #[derive(Clone, Debug)]
 pub struct UnsubscribeBookSnapshots {
     pub instrument_id: InstrumentId,
+    pub interval_ms: NonZeroUsize,
     pub client_id: Option<ClientId>,
     pub venue: Option<Venue>,
     pub command_id: UUID4,
@@ -212,6 +215,7 @@ impl UnsubscribeBookSnapshots {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
+        interval_ms: NonZeroUsize,
         client_id: Option<ClientId>,
         venue: Option<Venue>,
         command_id: UUID4,
@@ -222,6 +226,7 @@ impl UnsubscribeBookSnapshots {
         check_client_id_or_venue(&client_id, &venue);
         Self {
             instrument_id,
+            interval_ms,
             client_id,
             venue,
             command_id,
