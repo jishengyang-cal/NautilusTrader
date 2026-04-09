@@ -79,6 +79,7 @@ use crate::{
 };
 
 const WEBSOCKET_AUTH_WINDOW_MS: i64 = 5_000;
+const AUTH_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const BATCH_PROCESSING_LIMIT: usize = 20;
 
 /// Tracks a pending Python execution request for OrderResponse correlation.
@@ -427,6 +428,7 @@ impl BybitWebSocketClient {
         };
 
         self.connection_mode.store(client.connection_mode_atomic());
+        client.set_auth_tracker(self.auth_tracker.clone());
 
         let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel::<BybitWsMessage>();
         self.out_rx = Some(Arc::new(out_rx));
@@ -1189,17 +1191,52 @@ impl BybitWebSocketClient {
             .await
     }
 
+    /// Waits for the session to be authenticated, aborting early if the client
+    /// enters a terminal state (closed or disconnecting) during the wait.
+    async fn require_authenticated(&self) -> BybitWsResult<()> {
+        if self.is_closed() {
+            return Err(BybitWsError::ClientError(
+                "WebSocket client is closed".to_string(),
+            ));
+        }
+
+        if self.auth_tracker.is_authenticated() {
+            return Ok(());
+        }
+
+        tokio::select! {
+            authenticated = self.auth_tracker.wait_for_authenticated(AUTH_WAIT_TIMEOUT) => {
+                if authenticated {
+                    Ok(())
+                } else {
+                    Err(BybitWsError::Authentication(
+                        "Must be authenticated".to_string(),
+                    ))
+                }
+            }
+            () = async {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+
+                    if self.is_closed() {
+                        return;
+                    }
+                }
+            } => {
+                Err(BybitWsError::ClientError(
+                    "WebSocket client closed during authentication wait".to_string(),
+                ))
+            }
+        }
+    }
+
     /// Places an order via WebSocket, returning the request ID for correlation.
     ///
     /// # Errors
     ///
     /// Returns an error if the order request fails or if not authenticated.
     pub async fn place_order(&self, params: BybitWsPlaceOrderParams) -> BybitWsResult<String> {
-        if !self.auth_tracker.is_authenticated() {
-            return Err(BybitWsError::Authentication(
-                "Must be authenticated to place orders".to_string(),
-            ));
-        }
+        self.require_authenticated().await?;
 
         let req_id = UUID4::new().to_string();
 
@@ -1228,11 +1265,7 @@ impl BybitWebSocketClient {
     ///
     /// Returns an error if the amend request fails or if not authenticated.
     pub async fn amend_order(&self, params: BybitWsAmendOrderParams) -> BybitWsResult<String> {
-        if !self.auth_tracker.is_authenticated() {
-            return Err(BybitWsError::Authentication(
-                "Must be authenticated to amend orders".to_string(),
-            ));
-        }
+        self.require_authenticated().await?;
 
         let req_id = UUID4::new().to_string();
 
@@ -1255,11 +1288,7 @@ impl BybitWebSocketClient {
     ///
     /// Returns an error if the cancel request fails or if not authenticated.
     pub async fn cancel_order(&self, params: BybitWsCancelOrderParams) -> BybitWsResult<String> {
-        if !self.auth_tracker.is_authenticated() {
-            return Err(BybitWsError::Authentication(
-                "Must be authenticated to cancel orders".to_string(),
-            ));
-        }
+        self.require_authenticated().await?;
 
         let req_id = UUID4::new().to_string();
 
@@ -1285,11 +1314,7 @@ impl BybitWebSocketClient {
         &self,
         orders: Vec<BybitWsPlaceOrderParams>,
     ) -> BybitWsResult<Vec<String>> {
-        if !self.auth_tracker.is_authenticated() {
-            return Err(BybitWsError::Authentication(
-                "Must be authenticated to place orders".to_string(),
-            ));
-        }
+        self.require_authenticated().await?;
 
         if orders.is_empty() {
             log::warn!("Batch place orders called with empty orders list");
@@ -1383,11 +1408,7 @@ impl BybitWebSocketClient {
         &self,
         orders: Vec<BybitWsAmendOrderParams>,
     ) -> BybitWsResult<Vec<String>> {
-        if !self.auth_tracker.is_authenticated() {
-            return Err(BybitWsError::Authentication(
-                "Must be authenticated to amend orders".to_string(),
-            ));
-        }
+        self.require_authenticated().await?;
 
         if orders.is_empty() {
             log::warn!("Batch amend orders called with empty orders list");
@@ -1432,11 +1453,7 @@ impl BybitWebSocketClient {
         &self,
         orders: Vec<BybitWsCancelOrderParams>,
     ) -> BybitWsResult<Vec<String>> {
-        if !self.auth_tracker.is_authenticated() {
-            return Err(BybitWsError::Authentication(
-                "Must be authenticated to cancel orders".to_string(),
-            ));
-        }
+        self.require_authenticated().await?;
 
         if orders.is_empty() {
             log::warn!("Batch cancel orders called with empty orders list");

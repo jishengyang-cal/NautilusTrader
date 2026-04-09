@@ -947,6 +947,7 @@ impl DeribitWsFeedHandler {
         if text == RECONNECTED {
             log::info!("Received reconnection signal");
 
+            self.auth_tracker.invalidate();
             self.clear_state();
 
             return Some(NautilusWsMessage::Reconnected);

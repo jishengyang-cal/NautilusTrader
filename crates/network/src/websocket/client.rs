@@ -27,7 +27,7 @@ use std::{
     collections::VecDeque,
     fmt::Debug,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicU8, Ordering},
     },
     time::Duration,
@@ -49,6 +49,7 @@ use tokio_tungstenite::tungstenite::{
 use ustr::Ustr;
 
 use super::{
+    auth::AuthTracker,
     config::WebSocketConfig,
     consts::{
         CONNECTION_STATE_CHECK_INTERVAL_MS, GRACEFUL_SHUTDOWN_DELAY_MS,
@@ -104,6 +105,8 @@ pub struct WebSocketClientInner {
     reconnect_max_attempts: Option<u32>,
     /// Current count of consecutive reconnection attempts.
     reconnection_attempt_count: u32,
+    /// Shared auth tracker invalidated on connection drops.
+    auth_tracker: Arc<OnceLock<AuthTracker>>,
 }
 
 impl WebSocketClientInner {
@@ -136,12 +139,15 @@ impl WebSocketClientInner {
         )
         .map_err(|e| Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, e)))?;
 
+        let auth_tracker = Arc::new(OnceLock::new());
+
         let (writer_tx, writer_rx) = tokio::sync::mpsc::unbounded_channel::<WriterCommand>();
         let write_task = Self::spawn_write_task(
             connection_mode.clone(),
             state_notify.clone(),
             writer,
             writer_rx,
+            Arc::clone(&auth_tracker),
         );
 
         let heartbeat_task = if let Some(heartbeat_interval) = config.heartbeat {
@@ -173,6 +179,7 @@ impl WebSocketClientInner {
             is_stream_mode: true,
             reconnect_max_attempts,
             reconnection_attempt_count: 0,
+            auth_tracker,
         })
     }
 
@@ -227,12 +234,15 @@ impl WebSocketClientInner {
             None
         };
 
+        let auth_tracker = Arc::new(OnceLock::new());
+
         let (writer_tx, writer_rx) = tokio::sync::mpsc::unbounded_channel::<WriterCommand>();
         let write_task = Self::spawn_write_task(
             connection_mode.clone(),
             state_notify.clone(),
             writer,
             writer_rx,
+            Arc::clone(&auth_tracker),
         );
 
         // Optionally spawn a heartbeat task to periodically ping server
@@ -272,6 +282,7 @@ impl WebSocketClientInner {
             is_stream_mode,
             reconnect_max_attempts,
             reconnection_attempt_count: 0,
+            auth_tracker,
         })
     }
 
@@ -671,6 +682,7 @@ impl WebSocketClientInner {
         state_notify: Arc<tokio::sync::Notify>,
         writer: MessageWriter,
         mut writer_rx: tokio::sync::mpsc::UnboundedReceiver<WriterCommand>,
+        auth_tracker: Arc<OnceLock<AuthTracker>>,
     ) -> tokio::task::JoinHandle<()> {
         log_task_started("write");
 
@@ -769,6 +781,10 @@ impl WebSocketClientInner {
                                     log::error!("Failed to send message: {e}");
                                     log::warn!("Writer triggering reconnect");
                                     reconnect_buffer.push_back(msg);
+
+                                    if let Some(tracker) = auth_tracker.get() {
+                                        tracker.invalidate();
+                                    }
                                     connection_state
                                         .store(ConnectionMode::Reconnect.as_u8(), Ordering::SeqCst);
                                     state_notify.notify_one();
@@ -905,6 +921,7 @@ pub struct WebSocketClient {
     pub(crate) reconnect_timeout: Duration,
     pub(crate) rate_limiter: Arc<RateLimiter<Ustr, MonotonicClock>>,
     pub(crate) writer_tx: tokio::sync::mpsc::UnboundedSender<WriterCommand>,
+    auth_tracker: Arc<OnceLock<AuthTracker>>,
 }
 
 impl Debug for WebSocketClient {
@@ -948,6 +965,7 @@ impl WebSocketClient {
         let connection_mode = inner.connection_mode.clone();
         let state_notify = inner.state_notify.clone();
         let reconnect_timeout = inner.reconnect_timeout;
+        let auth_tracker = Arc::clone(&inner.auth_tracker);
         let keyed_quotas = keyed_quotas
             .into_iter()
             .map(|(key, quota)| (Ustr::from(&key), quota))
@@ -960,6 +978,7 @@ impl WebSocketClient {
             connection_mode.clone(),
             state_notify.clone(),
             post_reconnect,
+            Arc::clone(&auth_tracker),
         );
 
         Ok((
@@ -971,6 +990,7 @@ impl WebSocketClient {
                 reconnect_timeout,
                 rate_limiter,
                 writer_tx,
+                auth_tracker,
             },
         ))
     }
@@ -1015,12 +1035,14 @@ impl WebSocketClient {
         let state_notify = inner.state_notify.clone();
         let writer_tx = inner.writer_tx.clone();
         let reconnect_timeout = inner.reconnect_timeout;
+        let auth_tracker = Arc::clone(&inner.auth_tracker);
 
         let controller_task = Self::spawn_controller_task(
             inner,
             connection_mode.clone(),
             state_notify.clone(),
             post_reconnection,
+            Arc::clone(&auth_tracker),
         );
 
         let keyed_quotas = keyed_quotas
@@ -1036,6 +1058,7 @@ impl WebSocketClient {
             reconnect_timeout,
             rate_limiter,
             writer_tx,
+            auth_tracker,
         })
     }
 
@@ -1078,6 +1101,17 @@ impl WebSocketClient {
     #[must_use]
     pub fn is_reconnecting(&self) -> bool {
         self.connection_mode().is_reconnect()
+    }
+
+    /// Registers an [`AuthTracker`] with the client.
+    ///
+    /// When the controller detects a dead connection and transitions to
+    /// `Reconnect`, it calls `invalidate()` on the tracker so that any
+    /// pending authenticated sends see the state change immediately.
+    ///
+    /// Call this once after construction, before any authenticated sends.
+    pub fn set_auth_tracker(&self, tracker: AuthTracker) {
+        let _ = self.auth_tracker.set(tracker);
     }
 
     /// Check if the client is disconnecting.
@@ -1322,6 +1356,7 @@ impl WebSocketClient {
         connection_mode: Arc<AtomicU8>,
         state_notify: Arc<tokio::sync::Notify>,
         post_reconnection: Option<Arc<dyn Fn() + Send + Sync>>,
+        auth_tracker: Arc<OnceLock<AuthTracker>>,
     ) -> tokio::task::JoinHandle<()> {
         const CONTROLLER_FALLBACK_INTERVAL_MS: u64 = 100;
 
@@ -1391,6 +1426,9 @@ impl WebSocketClient {
                         )
                         .is_ok()
                     {
+                        if let Some(tracker) = auth_tracker.get() {
+                            tracker.invalidate();
+                        }
                         log::debug!("Detected dead connection, transitioning to {target:?}");
                     }
                     mode = ConnectionMode::from_atomic(&connection_mode);

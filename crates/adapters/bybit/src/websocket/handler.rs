@@ -261,6 +261,7 @@ impl BybitWsFeedHandler {
                             return Some(BybitWsMessage::AccountPosition(msg));
                         }
                         BybitWsFrame::Reconnected => {
+                            self.auth_tracker.invalidate();
                             return Some(BybitWsMessage::Reconnected);
                         }
                         BybitWsFrame::Unknown(value) => {
