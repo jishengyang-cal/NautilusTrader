@@ -145,8 +145,3 @@ doc = false
 name = "polymarket-new-market-monitor"
 path = "examples/new_market_monitor.rs"
 doc = false
-
-[[example]]
-name = "polymarket-complement-arb"
-path = "examples/complement_arb.rs"
-doc = false

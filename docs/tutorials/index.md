@@ -58,7 +58,6 @@ For task-oriented data recipes, see the [how-to guides](../how_to/):
 | [Gold Perpetual Book Imbalance (AX Exchange)](gold_book_imbalance_ax)               | Order book imbalance on XAU‑PERP.                 | Databento API key    |
 | [Grid Market Making with a Deadman's Switch (BitMEX)](grid_market_maker_bitmex)     | Grid MM with server‑side safety on XBTUSD.        | Tardis.dev           |
 | [On‑Chain Grid Market Making with Short‑Term Orders (dYdX)](grid_market_maker_dydx) | Grid MM on dYdX v4 perpetuals.                    | User‑provided        |
-| [Complement arbitrage on Polymarket binary options](complement_arb_polymarket)      | Binary option complement arb on Polymarket   | Live                 |
 
 ## Options
 
