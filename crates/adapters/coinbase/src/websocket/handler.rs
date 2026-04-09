@@ -30,12 +30,20 @@ use nautilus_model::{
 use nautilus_network::websocket::WebSocketClient;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::websocket::{
-    messages::{CoinbaseWsMessage, CoinbaseWsSubscription, WsEventType},
-    parse::{
-        parse_ws_candle, parse_ws_l2_snapshot, parse_ws_l2_update, parse_ws_ticker, parse_ws_trade,
+use crate::{
+    common::consts::COINBASE,
+    websocket::{
+        messages::{CoinbaseWsMessage, CoinbaseWsSubscription, WsEventType},
+        parse::{
+            parse_ws_candle, parse_ws_l2_snapshot, parse_ws_l2_update, parse_ws_ticker,
+            parse_ws_trade,
+        },
     },
 };
+
+fn instrument_id_from_product(product_id: &ustr::Ustr) -> InstrumentId {
+    InstrumentId::from(format!("{product_id}.{COINBASE}").as_str())
+}
 
 /// Commands sent from [`super::client::CoinbaseWebSocketClient`] to the feed handler.
 pub enum HandlerCommand {
@@ -103,7 +111,6 @@ pub struct FeedHandler {
 }
 
 impl FeedHandler {
-    /// Creates a new [`FeedHandler`] instance.
     /// Creates a new [`FeedHandler`] instance.
     pub fn new(
         signal: Arc<std::sync::atomic::AtomicBool>,
@@ -268,8 +275,7 @@ impl FeedHandler {
         let mut first: Option<NautilusWsMessage> = None;
 
         for event in events {
-            let instrument_id =
-                InstrumentId::from(format!("{}.COINBASE", event.product_id).as_str());
+            let instrument_id = instrument_id_from_product(&event.product_id);
 
             let instrument = match self.instruments.get(&instrument_id) {
                 Some(inst) => inst,
@@ -311,8 +317,7 @@ impl FeedHandler {
     ) -> Option<NautilusWsMessage> {
         for event in events {
             for trade in &event.trades {
-                let instrument_id =
-                    InstrumentId::from(format!("{}.COINBASE", trade.product_id).as_str());
+                let instrument_id = instrument_id_from_product(&trade.product_id);
 
                 let instrument = match self.instruments.get(&instrument_id) {
                     Some(inst) => inst,
@@ -356,8 +361,7 @@ impl FeedHandler {
                     continue;
                 }
 
-                let instrument_id =
-                    InstrumentId::from(format!("{}.COINBASE", trade.product_id).as_str());
+                let instrument_id = instrument_id_from_product(&trade.product_id);
 
                 if let Some(instrument) = self.instruments.get(&instrument_id)
                     && let Ok(tick) = parse_ws_trade(trade, instrument, ts_init)
@@ -380,8 +384,7 @@ impl FeedHandler {
 
         for event in events {
             for ticker in &event.tickers {
-                let instrument_id =
-                    InstrumentId::from(format!("{}.COINBASE", ticker.product_id).as_str());
+                let instrument_id = instrument_id_from_product(&ticker.product_id);
 
                 let instrument = match self.instruments.get(&instrument_id) {
                     Some(inst) => inst,
@@ -431,8 +434,7 @@ impl FeedHandler {
                     }
                 };
 
-                let instrument_id =
-                    InstrumentId::from(format!("{}.COINBASE", candle.product_id).as_str());
+                let instrument_id = instrument_id_from_product(&candle.product_id);
 
                 let instrument = match self.instruments.get(&instrument_id) {
                     Some(inst) => inst,

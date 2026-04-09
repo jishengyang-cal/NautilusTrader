@@ -1,32 +1,49 @@
 # Coinbase
 
-[Coinbase](https://coinbase.com) is one of the largest cryptocurrency exchanges,
-offering trading across spot, futures, and perpetual markets via the
+Founded in 2012, Coinbase is one of the largest cryptocurrency exchanges,
+offering trading across spot, futures, and perpetual markets. This integration
+supports live market data ingest via the
 [Advanced Trade API](https://docs.cdp.coinbase.com/coinbase-app/docs/advanced-trade-apis).
 
 ## Overview
 
 This adapter is implemented in Rust with Python bindings. It provides direct
-integration with Coinbase's REST API without requiring external client libraries.
+integration with Coinbase's REST and WebSocket APIs without requiring external
+client libraries.
 
 :::info
-This adapter is under active development. The Rust HTTP client and parsing layer
-are available. WebSocket streaming, data client, execution client, and Python
+This adapter is under active development. The Rust data layer (HTTP, WebSocket,
+instrument provider, data client) is available. The execution client and Python
 integration are not yet implemented.
 :::
 
 The following components are available:
 
-- `CoinbaseHttpClient`: HTTP API connectivity with instrument caching.
-- `CoinbaseRawHttpClient`: Low-level HTTP endpoint methods and JWT authentication.
+- `CoinbaseHttpClient`: Low-level HTTP API connectivity.
+- `CoinbaseWebSocketClient`: Low-level WebSocket API connectivity.
+- `CoinbaseInstrumentProvider`: Instrument parsing and loading functionality.
+- `CoinbaseDataClient`: A market data feed manager.
 
-## Instrument types
+:::note
+Most users will define a configuration for a live trading node (as below),
+and won't need to work with these lower level components directly.
+:::
 
-| Coinbase product type | Nautilus instrument type |
-| :-------------------- | :---------------------- |
-| Spot                  | `CurrencyPair`          |
-| Future                | `CryptoFuture`          |
-| Perpetual             | `CryptoPerpetual`       |
+## Coinbase documentation
+
+Coinbase provides documentation for the Advanced Trade API:
+
+- [REST API reference](https://docs.cdp.coinbase.com/advanced-trade/reference)
+- [WebSocket channels](https://docs.cdp.coinbase.com/advanced-trade/docs/ws-channels)
+- [API key setup](https://docs.cdp.coinbase.com/coinbase-app/docs/api-key-authentication)
+
+## Products
+
+| Product Type        | Supported | Notes                             |
+|---------------------|-----------|-----------------------------------|
+| Spot                | ✓         | Direct crypto trading.            |
+| Perpetual contracts | ✓         | USD-margined perpetual swaps.     |
+| Futures contracts   | ✓         | Dated delivery futures.           |
 
 ## Authentication
 
@@ -39,57 +56,33 @@ You can create API keys at
 
 ### Environment variables
 
-| Variable              | Description                   | Required |
-| :-------------------- | :---------------------------- | :------: |
-| `COINBASE_API_KEY`    | CDP API key name              | Yes      |
-| `COINBASE_API_SECRET` | CDP API secret (PEM format)   | Yes      |
+- `COINBASE_API_KEY`: CDP API key name
+- `COINBASE_API_SECRET`: CDP API secret (PEM format)
 
 ### Environments
 
 The adapter supports both production and sandbox environments via the
 `CoinbaseEnvironment` enum:
 
-| Environment | REST base URL                        |
-| :---------- | :----------------------------------- |
-| `Live`      | `https://api.coinbase.com`           |
-| `Sandbox`   | `https://api-sandbox.coinbase.com`   |
+| Environment | REST base URL                      |
+| :---------- | :--------------------------------- |
+| `Live`      | `https://api.coinbase.com`         |
+| `Sandbox`   | `https://api-sandbox.coinbase.com` |
 
-## REST API coverage
+## Configuration
 
-### Public endpoints
+### Data client
 
-| Endpoint          | Method                         |
-| :---------------- | :----------------------------- |
-| List products     | `get_products()`               |
-| Get product       | `get_product(product_id)`      |
-| Get candles       | `get_candles(product_id, ...)` |
-| Get market trades | `get_market_trades(product_id, limit)` |
-| Best bid/ask      | `get_best_bid_ask(product_ids)` |
-| Product book      | `get_product_book(product_id, limit)` |
-
-### Authenticated endpoints
-
-| Endpoint              | Method                       |
-| :-------------------- | :--------------------------- |
-| List accounts         | `get_accounts()`             |
-| Get account           | `get_account(account_id)`    |
-| Create order          | `create_order(order)`        |
-| Cancel orders         | `cancel_orders(order_ids)`   |
-| List orders           | `get_orders(query)`          |
-| Get order             | `get_order(order_id)`        |
-| List fills            | `get_fills(query)`           |
-| Transaction summary   | `get_transaction_summary()`  |
-
-## Parsing
-
-The adapter parses Coinbase API responses into Nautilus types:
-
-| Coinbase data    | Nautilus type       |
-| :--------------- | :------------------ |
-| Product          | `InstrumentAny`     |
-| Trade            | `TradeTick`         |
-| Candle           | `Bar`               |
-| Product book     | `OrderBookDeltas`   |
+| Option                             | Default | Description                                   |
+|------------------------------------|---------|-----------------------------------------------|
+| `api_key`                          | `None`  | Falls back to `COINBASE_API_KEY` env var.     |
+| `api_secret`                       | `None`  | Falls back to `COINBASE_API_SECRET` env var.  |
+| `base_url_rest`                    | `None`  | Override for the REST base URL.               |
+| `base_url_ws`                      | `None`  | Override for the WebSocket market data URL.   |
+| `environment`                      | `Live`  | `Live` or `Sandbox`.                          |
+| `http_timeout_secs`                | `10`    | HTTP request timeout in seconds.              |
+| `ws_timeout_secs`                  | `30`    | WebSocket timeout in seconds.                 |
+| `update_instruments_interval_mins` | `60`    | Interval for refreshing instruments.          |
 
 ## Contributing
 
