@@ -35,7 +35,6 @@ from nautilus_trader.model import StrategyId
 from nautilus_trader.model import TimeInForce
 from nautilus_trader.model import TradeId
 from nautilus_trader.model import TradeTick
-from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.trading import ForexSession
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading import StrategyConfig
@@ -44,6 +43,7 @@ from nautilus_trader.trading import fx_next_end
 from nautilus_trader.trading import fx_next_start
 from nautilus_trader.trading import fx_prev_end
 from nautilus_trader.trading import fx_prev_start
+from tests.providers import TestInstrumentProvider
 
 
 def test_strategy_default_construction():

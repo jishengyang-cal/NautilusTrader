@@ -1588,49 +1588,46 @@ impl PyStrategy {
         self.inner_mut().dispatch_on_instrument_close(close)
     }
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_data")]
-    fn py_on_historical_data(&mut self, py: Python<'_>, data: CustomData) -> PyResult<()> {
-        self.inner_mut()
-            .dispatch_on_historical_data(Py::new(py, data)?.into_any())
+    fn py_on_historical_data(&mut self, data: Py<PyAny>) {
+        // Default implementation - can be overridden in Python subclasses
     }
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_quotes")]
-    fn py_on_historical_quotes(&mut self, quotes: Vec<QuoteTick>) -> PyResult<()> {
-        self.inner_mut().dispatch_on_historical_quotes(quotes)
+    fn py_on_historical_quotes(&mut self, quotes: Vec<QuoteTick>) {
+        // Default implementation - can be overridden in Python subclasses
     }
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_trades")]
-    fn py_on_historical_trades(&mut self, trades: Vec<TradeTick>) -> PyResult<()> {
-        self.inner_mut().dispatch_on_historical_trades(trades)
+    fn py_on_historical_trades(&mut self, trades: Vec<TradeTick>) {
+        // Default implementation - can be overridden in Python subclasses
     }
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_funding_rates")]
-    fn py_on_historical_funding_rates(
-        &mut self,
-        funding_rates: Vec<FundingRateUpdate>,
-    ) -> PyResult<()> {
-        self.inner_mut()
-            .dispatch_on_historical_funding_rates(funding_rates)
+    fn py_on_historical_funding_rates(&mut self, funding_rates: Vec<FundingRateUpdate>) {
+        // Default implementation - can be overridden in Python subclasses
     }
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_bars")]
-    fn py_on_historical_bars(&mut self, bars: Vec<Bar>) -> PyResult<()> {
-        self.inner_mut().dispatch_on_historical_bars(bars)
+    fn py_on_historical_bars(&mut self, bars: Vec<Bar>) {
+        // Default implementation - can be overridden in Python subclasses
     }
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_mark_prices")]
-    fn py_on_historical_mark_prices(&mut self, mark_prices: Vec<MarkPriceUpdate>) -> PyResult<()> {
-        self.inner_mut()
-            .dispatch_on_historical_mark_prices(mark_prices)
+    fn py_on_historical_mark_prices(&mut self, mark_prices: Vec<MarkPriceUpdate>) {
+        // Default implementation - can be overridden in Python subclasses
     }
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_index_prices")]
-    fn py_on_historical_index_prices(
-        &mut self,
-        index_prices: Vec<IndexPriceUpdate>,
-    ) -> PyResult<()> {
-        self.inner_mut()
-            .dispatch_on_historical_index_prices(index_prices)
+    fn py_on_historical_index_prices(&mut self, index_prices: Vec<IndexPriceUpdate>) {
+        // Default implementation - can be overridden in Python subclasses
     }
 
     #[pyo3(name = "subscribe_data")]
