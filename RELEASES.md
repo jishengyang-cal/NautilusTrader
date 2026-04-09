@@ -20,6 +20,7 @@ Released on TBD (UTC).
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
+- Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 
 ### Internal Improvements
 - Upgraded `databento` crate to v0.46.0

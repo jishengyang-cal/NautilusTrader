@@ -310,12 +310,12 @@ class DeribitDataClient(LiveMarketDataClient):
     async def _subscribe_mark_prices(self, command: SubscribeMarkPrices) -> None:
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)
         interval = self._get_interval(command.params)
-        await self._ws_client.subscribe_ticker(pyo3_instrument_id, interval)
+        await self._ws_client.subscribe_mark_prices(pyo3_instrument_id, interval)
 
     async def _subscribe_index_prices(self, command: SubscribeIndexPrices) -> None:
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)
         interval = self._get_interval(command.params)
-        await self._ws_client.subscribe_ticker(pyo3_instrument_id, interval)
+        await self._ws_client.subscribe_index_prices(pyo3_instrument_id, interval)
 
     async def _subscribe_bars(self, command: SubscribeBars) -> None:
         pyo3_bar_type = nautilus_pyo3.BarType.from_str(str(command.bar_type))
@@ -342,12 +342,12 @@ class DeribitDataClient(LiveMarketDataClient):
     async def _subscribe_option_greeks(self, command: SubscribeOptionGreeks) -> None:
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)
         interval = self._get_interval(command.params)
-        await self._ws_client.subscribe_option_greeks(pyo3_instrument_id, interval)  # type: ignore[attr-defined]
+        await self._ws_client.subscribe_option_greeks(pyo3_instrument_id, interval)
 
     async def _unsubscribe_option_greeks(self, command: UnsubscribeOptionGreeks) -> None:
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)
         interval = self._get_interval(command.params)
-        await self._ws_client.unsubscribe_option_greeks(pyo3_instrument_id, interval)  # type: ignore[attr-defined]
+        await self._ws_client.unsubscribe_option_greeks(pyo3_instrument_id, interval)
 
     async def _unsubscribe_instruments(self, command: UnsubscribeInstruments) -> None:
         kind = "any"
@@ -402,7 +402,7 @@ class DeribitDataClient(LiveMarketDataClient):
             f"Unsubscribing from mark prices for {command.instrument_id} "
             f"(via ticker channel, interval: {interval_display})",
         )
-        await self._ws_client.unsubscribe_ticker(pyo3_instrument_id, interval)
+        await self._ws_client.unsubscribe_mark_prices(pyo3_instrument_id, interval)
 
     async def _unsubscribe_index_prices(self, command: UnsubscribeIndexPrices) -> None:
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)
@@ -412,7 +412,7 @@ class DeribitDataClient(LiveMarketDataClient):
             f"Unsubscribing from index prices for {command.instrument_id} "
             f"(via ticker channel, interval: {interval_display})",
         )
-        await self._ws_client.unsubscribe_ticker(pyo3_instrument_id, interval)
+        await self._ws_client.unsubscribe_index_prices(pyo3_instrument_id, interval)
 
     async def _unsubscribe_bars(self, command: UnsubscribeBars) -> None:
         pyo3_bar_type = nautilus_pyo3.BarType.from_str(str(command.bar_type))

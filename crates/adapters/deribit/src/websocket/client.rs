@@ -429,6 +429,26 @@ impl DeribitWebSocketClient {
         self.index_price_subs = subs;
     }
 
+    /// Registers an instrument for mark price emission from ticker messages.
+    pub fn add_mark_price_sub(&self, instrument_id: InstrumentId) {
+        self.mark_price_subs.insert(instrument_id);
+    }
+
+    /// Unregisters an instrument from mark price emission.
+    pub fn remove_mark_price_sub(&self, instrument_id: &InstrumentId) {
+        self.mark_price_subs.remove(instrument_id);
+    }
+
+    /// Registers an instrument for index price emission from ticker messages.
+    pub fn add_index_price_sub(&self, instrument_id: InstrumentId) {
+        self.index_price_subs.insert(instrument_id);
+    }
+
+    /// Unregisters an instrument from index price emission.
+    pub fn remove_index_price_sub(&self, instrument_id: &InstrumentId) {
+        self.index_price_subs.remove(instrument_id);
+    }
+
     /// Registers an instrument for option greeks emission from ticker messages.
     pub fn add_option_greeks_sub(&self, instrument_id: InstrumentId) {
         self.option_greeks_subs.insert(instrument_id);

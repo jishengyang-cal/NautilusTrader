@@ -648,6 +648,98 @@ impl DeribitWebSocketClient {
         })
     }
 
+    /// Subscribes to mark prices for the given instrument.
+    ///
+    /// Registers the instrument in the `mark_price_subs` set so the handler
+    /// emits `MarkPriceUpdate` from ticker messages, then subscribes to the ticker channel.
+    #[pyo3(name = "subscribe_mark_prices")]
+    #[pyo3(signature = (instrument_id, interval=None))]
+    fn py_subscribe_mark_prices<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+        interval: Option<DeribitUpdateInterval>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.add_mark_price_sub(instrument_id);
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .subscribe_ticker(instrument_id, interval)
+                .await
+                .map_err(to_pyvalue_err)
+        })
+    }
+
+    /// Unsubscribes from mark prices for the given instrument.
+    ///
+    /// Removes the instrument from the `mark_price_subs` set and unsubscribes
+    /// from the ticker channel.
+    #[pyo3(name = "unsubscribe_mark_prices")]
+    #[pyo3(signature = (instrument_id, interval=None))]
+    fn py_unsubscribe_mark_prices<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+        interval: Option<DeribitUpdateInterval>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.remove_mark_price_sub(&instrument_id);
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .unsubscribe_ticker(instrument_id, interval)
+                .await
+                .map_err(to_pyvalue_err)
+        })
+    }
+
+    /// Subscribes to index prices for the given instrument.
+    ///
+    /// Registers the instrument in the `index_price_subs` set so the handler
+    /// emits `IndexPriceUpdate` from ticker messages, then subscribes to the ticker channel.
+    #[pyo3(name = "subscribe_index_prices")]
+    #[pyo3(signature = (instrument_id, interval=None))]
+    fn py_subscribe_index_prices<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+        interval: Option<DeribitUpdateInterval>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.add_index_price_sub(instrument_id);
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .subscribe_ticker(instrument_id, interval)
+                .await
+                .map_err(to_pyvalue_err)
+        })
+    }
+
+    /// Unsubscribes from index prices for the given instrument.
+    ///
+    /// Removes the instrument from the `index_price_subs` set and unsubscribes
+    /// from the ticker channel.
+    #[pyo3(name = "unsubscribe_index_prices")]
+    #[pyo3(signature = (instrument_id, interval=None))]
+    fn py_unsubscribe_index_prices<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+        interval: Option<DeribitUpdateInterval>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.remove_index_price_sub(&instrument_id);
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .unsubscribe_ticker(instrument_id, interval)
+                .await
+                .map_err(to_pyvalue_err)
+        })
+    }
+
     /// Subscribes to option greeks for the given instrument.
     ///
     /// Registers the instrument in the `option_greeks_subs` set so the handler
