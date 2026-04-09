@@ -118,6 +118,7 @@ test = false
 name = "binance-spot-http-capture-fixtures"
 path = "bin/capture_spot_http_fixtures.rs"
 doc = false
+test = false
 
 [[bin]]
 name = "binance-spot-ws-user-data-capture"
