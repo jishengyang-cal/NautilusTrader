@@ -31,7 +31,7 @@ use ustr::Ustr;
 use super::{
     consts::{
         BETFAIR_CUSTOMER_ORDER_REF_MAX_LEN, BETFAIR_PRICE_PRECISION, BETFAIR_QUANTITY_PRECISION,
-        BETFAIR_VENUE,
+        BETFAIR_VENUE, DEFAULT_BETTING_TYPE, DEFAULT_MARKET_TYPE,
     },
     types::SelectionId,
 };
@@ -184,7 +184,11 @@ pub fn parse_market_catalogue(
             desc.market_type,
             desc.market_base_rate,
         ),
-        None => (Ustr::from("ODDS"), Ustr::from("WIN"), Decimal::ZERO),
+        None => (
+            Ustr::from(DEFAULT_BETTING_TYPE),
+            Ustr::from(DEFAULT_MARKET_TYPE),
+            Decimal::ZERO,
+        ),
     };
 
     let market_name = Ustr::from(&catalogue.market_name);
@@ -309,10 +313,12 @@ pub fn parse_market_definition(
 
     let betting_type = match &def.betting_type {
         Some(bt) => Ustr::from(&format!("{bt}")),
-        None => Ustr::from("ODDS"),
+        None => Ustr::from(DEFAULT_BETTING_TYPE),
     };
     let market_name = Ustr::from(def.market_name.as_deref().unwrap_or(""));
-    let market_type = def.market_type.unwrap_or_else(|| Ustr::from("WIN"));
+    let market_type = def
+        .market_type
+        .unwrap_or_else(|| Ustr::from(DEFAULT_MARKET_TYPE));
     let market_start_time = def
         .market_time
         .as_deref()

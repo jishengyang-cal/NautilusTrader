@@ -63,7 +63,10 @@ use tokio::task::JoinHandle;
 
 use crate::{
     common::{
-        consts::BETFAIR_VENUE,
+        consts::{
+            BETFAIR_VENUE, METHOD_CANCEL_ORDERS, METHOD_GET_ACCOUNT_FUNDS,
+            METHOD_LIST_CURRENT_ORDERS, METHOD_PLACE_ORDERS, METHOD_REPLACE_ORDERS,
+        },
         credential::BetfairCredential,
         enums::{
             BetfairOrderType, BetfairSide, BetfairTimeInForce, ExecutionReportErrorCode,
@@ -693,7 +696,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
         let funds: AccountFundsResponse = self
             .http_client
-            .send_accounts("AccountAPING/v1.0/getAccountFunds", serde_json::json!({}))
+            .send_accounts(METHOD_GET_ACCOUNT_FUNDS, serde_json::json!({}))
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -799,7 +802,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
                     match acct_client
                         .send_accounts::<AccountFundsResponse, _>(
-                            "AccountAPING/v1.0/getAccountFunds",
+                            METHOD_GET_ACCOUNT_FUNDS,
                             serde_json::json!({}),
                         )
                         .await
@@ -857,7 +860,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
                 match reconnect_http
                     .send_accounts::<AccountFundsResponse, _>(
-                        "AccountAPING/v1.0/getAccountFunds",
+                        METHOD_GET_ACCOUNT_FUNDS,
                         serde_json::json!({}),
                     )
                     .await
@@ -991,7 +994,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
             let response: CurrentOrderSummaryReport = match self
                 .http_client
-                .send_betting("SportsAPING/v1.0/listCurrentOrders", &params)
+                .send_betting(METHOD_LIST_CURRENT_ORDERS, &params)
                 .await
             {
                 Ok(r) => r,
@@ -1010,7 +1013,7 @@ impl ExecutionClient for BetfairExecutionClient {
                         }
                     }
                     self.http_client
-                        .send_betting("SportsAPING/v1.0/listCurrentOrders", &params)
+                        .send_betting(METHOD_LIST_CURRENT_ORDERS, &params)
                         .await
                         .map_err(|e| anyhow::anyhow!("{e}"))?
                 }
@@ -1091,7 +1094,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
             let response: CurrentOrderSummaryReport = match self
                 .http_client
-                .send_betting("SportsAPING/v1.0/listCurrentOrders", &params)
+                .send_betting(METHOD_LIST_CURRENT_ORDERS, &params)
                 .await
             {
                 Ok(r) => r,
@@ -1110,7 +1113,7 @@ impl ExecutionClient for BetfairExecutionClient {
                         }
                     }
                     self.http_client
-                        .send_betting("SportsAPING/v1.0/listCurrentOrders", &params)
+                        .send_betting(METHOD_LIST_CURRENT_ORDERS, &params)
                         .await
                         .map_err(|e| anyhow::anyhow!("{e}"))?
                 }
@@ -1287,7 +1290,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
         self.spawn_task("submit-order", async move {
             let report: PlaceExecutionReport = match http_client
-                .send_betting_order("SportsAPING/v1.0/placeOrders", &params)
+                .send_betting_order(METHOD_PLACE_ORDERS, &params)
                 .await
             {
                 Ok(r) => r,
@@ -1419,7 +1422,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
         self.spawn_task("cancel-order", async move {
             let result: Result<CancelExecutionReport, _> = http_client
-                .send_betting_order("SportsAPING/v1.0/cancelOrders", &params)
+                .send_betting_order(METHOD_CANCEL_ORDERS, &params)
                 .await;
 
             let report = match result {
@@ -1578,7 +1581,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
             self.spawn_task("modify-order-price", async move {
                 let result: Result<ReplaceExecutionReport, _> = http_client
-                    .send_betting_order("SportsAPING/v1.0/replaceOrders", &params)
+                    .send_betting_order(METHOD_REPLACE_ORDERS, &params)
                     .await;
 
                 match result {
@@ -1698,7 +1701,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
             self.spawn_task("modify-order-quantity", async move {
                 let result: Result<CancelExecutionReport, _> = http_client
-                    .send_betting_order("SportsAPING/v1.0/cancelOrders", &params)
+                    .send_betting_order(METHOD_CANCEL_ORDERS, &params)
                     .await;
 
                 match result {
@@ -1764,10 +1767,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
         self.spawn_task("cancel-all-orders", async move {
             let result = http_client
-                .send_betting_order::<serde_json::Value, _>(
-                    "SportsAPING/v1.0/cancelOrders",
-                    &params,
-                )
+                .send_betting_order::<serde_json::Value, _>(METHOD_CANCEL_ORDERS, &params)
                 .await;
 
             if let Err(e) = result {
@@ -1839,7 +1839,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
         self.spawn_task("batch-cancel-orders", async move {
             let report: CancelExecutionReport = match http_client
-                .send_betting_order("SportsAPING/v1.0/cancelOrders", &params)
+                .send_betting_order(METHOD_CANCEL_ORDERS, &params)
                 .await
             {
                 Ok(r) => r,
@@ -2070,7 +2070,7 @@ impl ExecutionClient for BetfairExecutionClient {
 
         self.spawn_task("submit-order-list", async move {
             let report: PlaceExecutionReport = match http_client
-                .send_betting_order("SportsAPING/v1.0/placeOrders", &params)
+                .send_betting_order(METHOD_PLACE_ORDERS, &params)
                 .await
             {
                 Ok(r) => r,

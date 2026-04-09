@@ -28,7 +28,11 @@ use std::{
     time::Duration,
 };
 
-use nautilus_betfair::{config::BetfairExecConfig, execution::BetfairExecutionClient};
+use nautilus_betfair::{
+    common::consts::{METHOD_CANCEL_ORDERS, METHOD_LIST_CURRENT_ORDERS, METHOD_PLACE_ORDERS},
+    config::BetfairExecConfig,
+    execution::BetfairExecutionClient,
+};
 use nautilus_common::{
     cache::Cache,
     clients::ExecutionClient,
@@ -320,10 +324,11 @@ async fn test_cancel_order_bet_taken_or_lapsed_treated_as_success() {
 
     let fixture = load_fixture("rest/betting_cancel_orders_bet_taken_or_lapsed.json");
     let v: Value = serde_json::from_str(&fixture).unwrap();
-    state.betting_overrides.lock().unwrap().insert(
-        "SportsAPING/v1.0/cancelOrders".to_string(),
-        v["result"].clone(),
-    );
+    state
+        .betting_overrides
+        .lock()
+        .unwrap()
+        .insert(METHOD_CANCEL_ORDERS.to_string(), v["result"].clone());
 
     let (stream_port, listener) = start_mock_stream().await;
     let (mut client, mut rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);
@@ -362,10 +367,11 @@ async fn test_cancel_order_instruction_failure_emits_rejected() {
     let mut v: Value = serde_json::from_str(&fixture).unwrap();
     v["result"]["instructionReports"][0]["errorMessage"] =
         Value::String("Betfair returned a detailed cancel validation error".to_string());
-    state.betting_overrides.lock().unwrap().insert(
-        "SportsAPING/v1.0/cancelOrders".to_string(),
-        v["result"].clone(),
-    );
+    state
+        .betting_overrides
+        .lock()
+        .unwrap()
+        .insert(METHOD_CANCEL_ORDERS.to_string(), v["result"].clone());
 
     let (stream_port, listener) = start_mock_stream().await;
     let (mut client, mut rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);
@@ -415,10 +421,11 @@ async fn test_cancel_order_result_failure_no_instructions_emits_rejected() {
 
     let fixture = load_fixture("rest/betting_cancel_orders_result_failure.json");
     let v: Value = serde_json::from_str(&fixture).unwrap();
-    state.betting_overrides.lock().unwrap().insert(
-        "SportsAPING/v1.0/cancelOrders".to_string(),
-        v["result"].clone(),
-    );
+    state
+        .betting_overrides
+        .lock()
+        .unwrap()
+        .insert(METHOD_CANCEL_ORDERS.to_string(), v["result"].clone());
 
     let (stream_port, listener) = start_mock_stream().await;
     let (mut client, mut rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);
@@ -464,10 +471,11 @@ async fn test_cancel_order_success_no_rejected_event() {
 
     let fixture = load_fixture("rest/betting_cancel_orders_success.json");
     let v: Value = serde_json::from_str(&fixture).unwrap();
-    state.betting_overrides.lock().unwrap().insert(
-        "SportsAPING/v1.0/cancelOrders".to_string(),
-        v["result"].clone(),
-    );
+    state
+        .betting_overrides
+        .lock()
+        .unwrap()
+        .insert(METHOD_CANCEL_ORDERS.to_string(), v["result"].clone());
 
     let (stream_port, listener) = start_mock_stream().await;
     let (mut client, mut rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);
@@ -593,10 +601,11 @@ async fn test_submit_order_error_emits_rejected() {
     let mut v: Value = serde_json::from_str(&fixture).unwrap();
     v["result"]["instructionReports"][0]["errorMessage"] =
         Value::String("Betfair returned a detailed submit validation error".to_string());
-    state.betting_overrides.lock().unwrap().insert(
-        "SportsAPING/v1.0/placeOrders".to_string(),
-        v["result"].clone(),
-    );
+    state
+        .betting_overrides
+        .lock()
+        .unwrap()
+        .insert(METHOD_PLACE_ORDERS.to_string(), v["result"].clone());
 
     let (stream_port, listener) = start_mock_stream().await;
     let (mut client, mut rx, _data_rx, cache) = create_test_execution_client(addr, stream_port);
@@ -804,7 +813,7 @@ async fn test_cancel_all_orders_sends_request() {
                     .lock()
                     .unwrap()
                     .iter()
-                    .any(|m| m == "SportsAPING/v1.0/cancelOrders")
+                    .any(|m| m == METHOD_CANCEL_ORDERS)
             }
         },
         Duration::from_secs(5),
@@ -1130,7 +1139,7 @@ async fn test_submit_order_registers_customer_order_ref() {
         .lock()
         .unwrap()
         .iter()
-        .any(|m| m == "SportsAPING/v1.0/placeOrders");
+        .any(|m| m == METHOD_PLACE_ORDERS);
     assert!(has_place_orders, "Expected placeOrders call");
 
     client.disconnect().await.unwrap();
@@ -1200,10 +1209,11 @@ async fn test_generate_order_status_reports() {
     // Override listCurrentOrders to return executable orders
     let fixture = load_fixture("rest/list_current_orders_executable.json");
     let v: Value = serde_json::from_str(&fixture).unwrap();
-    state.betting_overrides.lock().unwrap().insert(
-        "SportsAPING/v1.0/listCurrentOrders".to_string(),
-        v["result"].clone(),
-    );
+    state
+        .betting_overrides
+        .lock()
+        .unwrap()
+        .insert(METHOD_LIST_CURRENT_ORDERS.to_string(), v["result"].clone());
 
     let (stream_port, listener) = start_mock_stream().await;
     let (mut client, mut rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);
@@ -1248,10 +1258,11 @@ async fn test_generate_fill_reports() {
     // Override listCurrentOrders to return executed orders with fills
     let fixture = load_fixture("rest/list_current_orders_execution_complete.json");
     let v: Value = serde_json::from_str(&fixture).unwrap();
-    state.betting_overrides.lock().unwrap().insert(
-        "SportsAPING/v1.0/listCurrentOrders".to_string(),
-        v["result"].clone(),
-    );
+    state
+        .betting_overrides
+        .lock()
+        .unwrap()
+        .insert(METHOD_LIST_CURRENT_ORDERS.to_string(), v["result"].clone());
 
     let (stream_port, listener) = start_mock_stream().await;
     let (mut client, mut rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);

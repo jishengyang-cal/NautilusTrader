@@ -37,7 +37,11 @@ use super::{
         RaceSubscription, StreamMarketFilter, StreamMessage, stream_decode,
     },
 };
-use crate::common::{credential::BetfairCredential, enums::StatusErrorCode};
+use crate::common::{
+    consts::{STREAM_OP_MARKET_SUBSCRIPTION, STREAM_OP_ORDER_SUBSCRIPTION},
+    credential::BetfairCredential,
+    enums::StatusErrorCode,
+};
 
 /// Betfair Exchange Stream API client using raw TLS (CRLF-delimited JSON).
 ///
@@ -277,7 +281,7 @@ impl BetfairStreamClient {
         // from the previous subscription are immediately rejected by the handler.
         self.market_active_sub_id.store(id, Ordering::SeqCst);
         let sub = MarketSubscription {
-            op: "marketSubscription".to_string(),
+            op: STREAM_OP_MARKET_SUBSCRIPTION.to_string(),
             id: Some(id),
             market_filter,
             market_data_filter: data_filter,
@@ -322,7 +326,7 @@ impl BetfairStreamClient {
         let id = self.request_id.fetch_add(1, Ordering::Relaxed);
         self.order_active_sub_id.store(id, Ordering::SeqCst);
         let sub = OrderSubscription {
-            op: "orderSubscription".to_string(),
+            op: STREAM_OP_ORDER_SUBSCRIPTION.to_string(),
             id: Some(id),
             order_filter,
             clk: None,
@@ -660,7 +664,7 @@ mod tests {
         let auth_bytes = Bytes::from(serde_json::to_vec(&auth).unwrap());
 
         let _ = market_sub_tx.send(Some(MarketSubscription {
-            op: "marketSubscription".to_string(),
+            op: STREAM_OP_MARKET_SUBSCRIPTION.to_string(),
             id: Some(1),
             market_filter: StreamMarketFilter::default(),
             market_data_filter: MarketDataFilter::default(),
@@ -671,7 +675,7 @@ mod tests {
             segmentation_enabled: None,
         }));
         let _ = order_sub_tx.send(Some(OrderSubscription {
-            op: "orderSubscription".to_string(),
+            op: STREAM_OP_ORDER_SUBSCRIPTION.to_string(),
             id: Some(2),
             order_filter: None,
             clk: None,

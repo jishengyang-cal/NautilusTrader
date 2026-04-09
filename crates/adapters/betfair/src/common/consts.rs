@@ -17,11 +17,11 @@
 
 use std::sync::LazyLock;
 
-use nautilus_model::{identifiers::Venue, instruments::tick_scheme::BETFAIR_TICK_SCHEME_NAME};
+use nautilus_model::identifiers::Venue;
 use ustr::Ustr;
 
 /// Venue identifier string.
-pub const BETFAIR: &str = BETFAIR_TICK_SCHEME_NAME;
+pub const BETFAIR: &str = "BETFAIR";
 
 /// Static venue instance.
 pub static BETFAIR_VENUE: LazyLock<Venue> = LazyLock::new(|| Venue::new(Ustr::from(BETFAIR)));
@@ -69,3 +69,29 @@ pub const BETFAIR_RATE_LIMIT_ORDERS: &str = "orders";
 /// Betfair silently truncates longer references. We take the last 32 characters
 /// of the client order ID to preserve the high-entropy suffix (UUID tail).
 pub const BETFAIR_CUSTOMER_ORDER_REF_MAX_LEN: usize = 32;
+
+// Betting API JSON-RPC methods
+pub const METHOD_LIST_MARKET_CATALOGUE: &str = "SportsAPING/v1.0/listMarketCatalogue";
+pub const METHOD_LIST_CURRENT_ORDERS: &str = "SportsAPING/v1.0/listCurrentOrders";
+pub const METHOD_PLACE_ORDERS: &str = "SportsAPING/v1.0/placeOrders";
+pub const METHOD_CANCEL_ORDERS: &str = "SportsAPING/v1.0/cancelOrders";
+pub const METHOD_REPLACE_ORDERS: &str = "SportsAPING/v1.0/replaceOrders";
+
+// Accounts API JSON-RPC methods
+pub const METHOD_GET_ACCOUNT_FUNDS: &str = "AccountAPING/v1.0/getAccountFunds";
+pub const METHOD_GET_ACCOUNT_DETAILS: &str = "AccountAPING/v1.0/getAccountDetails";
+
+// Stream operation strings
+pub const STREAM_OP_AUTHENTICATION: &str = "authentication";
+pub const STREAM_OP_MARKET_SUBSCRIPTION: &str = "marketSubscription";
+pub const STREAM_OP_ORDER_SUBSCRIPTION: &str = "orderSubscription";
+pub const STREAM_OP_RACE_SUBSCRIPTION: &str = "raceSubscription";
+pub const STREAM_OP_HEARTBEAT: &str = "heartbeat";
+
+// HTTP header names
+pub const HEADER_X_AUTHENTICATION: &str = "X-Authentication";
+pub const HEADER_X_APPLICATION: &str = "X-Application";
+
+// Default market attribute values
+pub const DEFAULT_BETTING_TYPE: &str = "ODDS";
+pub const DEFAULT_MARKET_TYPE: &str = "WIN";

@@ -34,7 +34,14 @@ use axum::{
     routing::{get, post},
 };
 use nautilus_betfair::{
-    common::credential::BetfairCredential, http::client::BetfairHttpClient,
+    common::{
+        consts::{
+            METHOD_CANCEL_ORDERS, METHOD_LIST_MARKET_CATALOGUE, METHOD_PLACE_ORDERS,
+            METHOD_REPLACE_ORDERS,
+        },
+        credential::BetfairCredential,
+    },
+    http::client::BetfairHttpClient,
     stream::config::BetfairStreamConfig,
 };
 use nautilus_common::testing::wait_until_async;
@@ -142,21 +149,21 @@ async fn handle_betting(State(state): State<MockState>, body: Bytes) -> impl Int
         value
     } else {
         match method {
-            "SportsAPING/v1.0/listMarketCatalogue" => {
+            METHOD_LIST_MARKET_CATALOGUE => {
                 let fixture = load_fixture("rest/betting_list_market_catalogue.json");
                 serde_json::from_str::<Value>(&fixture).unwrap()
             }
-            "SportsAPING/v1.0/placeOrders" => {
+            METHOD_PLACE_ORDERS => {
                 let fixture = load_fixture("rest/betting_place_order_success.json");
                 let v: Value = serde_json::from_str(&fixture).unwrap();
                 v["result"].clone()
             }
-            "SportsAPING/v1.0/cancelOrders" => {
+            METHOD_CANCEL_ORDERS => {
                 let fixture = load_fixture("rest/betting_cancel_orders_success.json");
                 let v: Value = serde_json::from_str(&fixture).unwrap();
                 v["result"].clone()
             }
-            "SportsAPING/v1.0/replaceOrders" => {
+            METHOD_REPLACE_ORDERS => {
                 let fixture = load_fixture("rest/betting_replace_orders_success.json");
                 let v: Value = serde_json::from_str(&fixture).unwrap();
                 v["result"].clone()

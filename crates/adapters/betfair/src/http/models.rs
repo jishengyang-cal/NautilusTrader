@@ -31,9 +31,10 @@ use ustr::Ustr;
 use crate::common::{
     enums::{
         BetDelayModel, BetStatus, BetTargetType, BetfairOrderStatus, BetfairOrderType, BetfairSide,
-        BetfairTimeInForce, ExecutionReportErrorCode, ExecutionReportStatus, GroupBy,
-        InstructionReportErrorCode, InstructionReportStatus, MarketBettingType, MarketProjection,
-        MarketSort, OrderBy, OrderProjection, PersistenceType, PriceLadderType, SortDir,
+        BetfairTimeInForce, CertLoginStatus, ExecutionReportErrorCode, ExecutionReportStatus,
+        GroupBy, InstructionReportErrorCode, InstructionReportStatus, MarketBettingType,
+        MarketProjection, MarketSort, OrderBy, OrderProjection, PersistenceType, PriceLadderType,
+        SortDir,
     },
     types::{
         BetId, CompetitionId, CustomerOrderRef, CustomerStrategyRef, EventId, EventTypeId,
@@ -68,7 +69,7 @@ pub struct LoginResponse {
 #[serde(rename_all = "camelCase")]
 pub struct CertLoginResponse {
     pub session_token: Option<String>,
-    pub login_status: String,
+    pub login_status: CertLoginStatus,
 }
 
 /// Account details response.
@@ -742,7 +743,7 @@ mod tests {
     fn test_cert_login_response() {
         let data = load_test_json("rest/cert_login.json");
         let resp: CertLoginResponse = serde_json::from_str(&data).unwrap();
-        assert_eq!(resp.login_status, "SUCCESS");
+        assert_eq!(resp.login_status, CertLoginStatus::Success);
         assert!(resp.session_token.is_some());
     }
 
@@ -750,8 +751,15 @@ mod tests {
     fn test_cert_login_error_response() {
         let json = r#"{"loginStatus":"CERT_AUTH_REQUIRED"}"#;
         let resp: CertLoginResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.login_status, "CERT_AUTH_REQUIRED");
+        assert_eq!(resp.login_status, CertLoginStatus::CertAuthRequired);
         assert!(resp.session_token.is_none());
+    }
+
+    #[rstest]
+    fn test_cert_login_unknown_status_deserializes_to_other() {
+        let json = r#"{"loginStatus":"SOME_FUTURE_CODE"}"#;
+        let resp: CertLoginResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.login_status, CertLoginStatus::Other);
     }
 
     #[rstest]

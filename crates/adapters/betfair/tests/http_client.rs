@@ -18,7 +18,10 @@
 #[allow(dead_code)]
 mod common;
 
-use nautilus_betfair::http::error::BetfairHttpError;
+use nautilus_betfair::{
+    common::consts::{METHOD_GET_ACCOUNT_FUNDS, METHOD_LIST_MARKET_CATALOGUE},
+    http::error::BetfairHttpError,
+};
 use rstest::rstest;
 use serde_json::Value;
 
@@ -123,10 +126,7 @@ async fn test_send_betting_returns_parsed_response() {
     client.connect().await.unwrap();
 
     let result: Value = client
-        .send_betting(
-            "SportsAPING/v1.0/listMarketCatalogue",
-            &serde_json::json!({}),
-        )
+        .send_betting(METHOD_LIST_MARKET_CATALOGUE, &serde_json::json!({}))
         .await
         .unwrap();
 
@@ -142,7 +142,7 @@ async fn test_send_accounts_returns_parsed_response() {
     client.connect().await.unwrap();
 
     let result: Value = client
-        .send_accounts("AccountAPING/v1.0/getAccountFunds", &serde_json::json!({}))
+        .send_accounts(METHOD_GET_ACCOUNT_FUNDS, &serde_json::json!({}))
         .await
         .unwrap();
 
@@ -233,10 +233,7 @@ async fn test_send_betting_without_session_returns_error() {
     let client = create_test_http_client(addr);
 
     let result: Result<Value, _> = client
-        .send_betting(
-            "SportsAPING/v1.0/listMarketCatalogue",
-            &serde_json::json!({}),
-        )
+        .send_betting(METHOD_LIST_MARKET_CATALOGUE, &serde_json::json!({}))
         .await;
 
     assert!(result.is_err());
