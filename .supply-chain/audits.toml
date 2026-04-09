@@ -195,6 +195,12 @@ criteria = "safe-to-deploy"
 delta = "2.3.0 -> 2.4.0"
 notes = "Improved f32/f64 generation quality, new f32/f64_inclusive methods, const with_seed, getrandom 0.3 bump. No new unsafe."
 
+[[audits.fastrand]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "2.4.0 -> 2.4.1"
+notes = "JS feature build fix, getrandom::getrandom renamed to getrandom::fill."
+
 [[audits.hyper]]
 who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
@@ -307,6 +313,12 @@ criteria = "safe-to-deploy"
 delta = "1.50.0 -> 1.51.0"
 notes = "LIFO slot made stealable for better work distribution, notify_waiters race fix, recv_many panic fix, LocalRuntime stabilized. No new deps."
 
+[[audits.tokio]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "1.51.0 -> 1.51.1"
+notes = "Semaphore reopen-after-forget fix, UDP SO_ERROR surfacing, io_uring FD leak fix. Patch-only."
+
 [[audits.tokio-macros]]
 who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
@@ -318,6 +330,12 @@ who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
 delta = "0.28.0 -> 0.29.0"
 notes = "Bumps tungstenite dep to 0.29.0, README updates only"
+
+[[audits.toml_edit]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.25.9+spec-1.1.0 -> 0.25.11+spec-1.1.0"
+notes = "Span tracking for array and inline table close brackets. Parser-only change."
 
 [[audits.tungstenite]]
 who = "Nautech Systems <info@nautechsystems.io>"

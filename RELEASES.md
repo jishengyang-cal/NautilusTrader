@@ -11,12 +11,15 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
+- Fixed WebSocket auth state during reconnection for Bybit, OKX, and Deribit (#3820), thanks for reporting @KaizynX
+- Fixed `stop_timer` in `TimeBarAggregator` (#3822), thanks @faysou
 - Fixed `OrderTriggered` ValueError on market-style stop orders (#3812), thanks for reporting @jindrichsirucek
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
-- Fixed PyO3 `LiveNode` `request_bars()` historical callbacks being dropped during strategy startup warmup
+- Fixed PyO3 `LiveNode` `request_bars()` historical callbacks dropped during startup warmup (#3825), thanks @BurnOutTrader
 
 ### Internal Improvements
+- Upgraded `tokio` crate to v1.51.1
 
 ### Documentation Updates
 
