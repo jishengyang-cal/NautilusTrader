@@ -1253,12 +1253,20 @@ pub struct BybitPosition {
     pub unrealised_pnl: String,
     pub cur_realised_pnl: String,
     pub cum_realised_pnl: String,
+    #[serde(default = "default_position_seq")]
     pub seq: i64,
+    #[serde(default)]
     pub is_reduce_only: bool,
+    #[serde(default)]
     pub mmr_sys_updated_time: String,
+    #[serde(default)]
     pub leverage_sys_updated_time: String,
     pub created_time: String,
     pub updated_time: String,
+}
+
+const fn default_position_seq() -> i64 {
+    -1
 }
 
 /// Response alias for position list requests.
@@ -1780,5 +1788,61 @@ mod tests {
         assert_eq!(response.ret_code, 0);
         assert_eq!(response.ret_msg, "OK");
         assert_eq!(response.result.result_status, "SU");
+    }
+
+    #[rstest]
+    fn deserialize_position_without_conditional_fields() {
+        // Bybit v5 docs mark `isReduceOnly`, `mmrSysUpdatedTime`, `leverageSysUpdatedTime`
+        // and `seq` as conditional fields that may be absent, e.g. once a position has been
+        // closed through the UI (see issue #3836).
+        let json = r#"{
+            "retCode": 0,
+            "retMsg": "OK",
+            "result": {
+                "list": [{
+                    "positionIdx": 0,
+                    "riskId": 1,
+                    "riskLimitValue": "150",
+                    "symbol": "LTCUSDT",
+                    "side": "",
+                    "size": "0",
+                    "avgPrice": "0",
+                    "positionValue": "0",
+                    "tradeMode": 0,
+                    "positionStatus": "Normal",
+                    "autoAddMargin": 0,
+                    "adlRankIndicator": 0,
+                    "leverage": "10",
+                    "positionBalance": "0",
+                    "markPrice": "70.00",
+                    "liqPrice": "",
+                    "bustPrice": "",
+                    "positionMM": "0",
+                    "positionIM": "0",
+                    "tpslMode": "Full",
+                    "takeProfit": "0",
+                    "stopLoss": "0",
+                    "trailingStop": "0",
+                    "unrealisedPnl": "0",
+                    "curRealisedPnl": "0",
+                    "cumRealisedPnl": "0",
+                    "createdTime": "1676538056258",
+                    "updatedTime": "1697673600012"
+                }],
+                "nextPageCursor": "",
+                "category": "linear"
+            },
+            "retExtInfo": {},
+            "time": 1697673900000
+        }"#;
+
+        let response: BybitPositionListResponse = serde_json::from_str(json)
+            .expect("Failed to parse position list with missing conditional fields");
+
+        let position = &response.result.list[0];
+        assert!(!position.is_reduce_only);
+        assert_eq!(position.seq, -1);
+        assert_eq!(position.mmr_sys_updated_time, "");
+        assert_eq!(position.leverage_sys_updated_time, "");
     }
 }

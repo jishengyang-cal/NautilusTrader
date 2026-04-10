@@ -940,10 +940,18 @@ pub struct BybitWsAccountPosition {
     pub adl_rank_indicator: i32,
     pub created_time: String,
     pub updated_time: String,
+    #[serde(default = "default_ws_position_seq")]
     pub seq: i64,
+    #[serde(default)]
     pub is_reduce_only: bool,
+    #[serde(default)]
     pub mmr_sys_updated_time: String,
+    #[serde(default)]
     pub leverage_sys_updated_time: String,
+}
+
+const fn default_ws_position_seq() -> i64 {
+    -1
 }
 
 /// Envelope for position updates on private streams.
@@ -1072,5 +1080,60 @@ mod tests {
         assert_eq!(order.tpsl_mode, Some(BybitTpSlMode::Full));
         assert_eq!(order.create_type, Some(BybitCreateType::CreateByUser));
         assert_eq!(order.side, BybitOrderSide::Buy);
+    }
+
+    #[rstest]
+    fn deserialize_ws_account_position_without_conditional_fields() {
+        // Bybit v5 docs mark `isReduceOnly`, `mmrSysUpdatedTime`, `leverageSysUpdatedTime`
+        // and `seq` as conditional fields that may be absent from position snapshots,
+        // e.g. once a position has been closed through the UI (see issue #3836).
+        let json = r#"{
+            "topic": "position",
+            "id": "1",
+            "creationTime": 1697673900000,
+            "data": [{
+                "category": "linear",
+                "symbol": "LTCUSDT",
+                "side": "",
+                "size": "0",
+                "positionIdx": 0,
+                "tradeMode": 0,
+                "positionValue": "0",
+                "riskId": 1,
+                "riskLimitValue": "150",
+                "entryPrice": "",
+                "markPrice": "70.00",
+                "leverage": "10",
+                "positionBalance": "0",
+                "autoAddMargin": 0,
+                "positionIM": "0",
+                "positionIMByMp": "0",
+                "positionMM": "0",
+                "positionMMByMp": "0",
+                "liqPrice": "",
+                "bustPrice": "",
+                "tpslMode": "Full",
+                "takeProfit": "0",
+                "stopLoss": "0",
+                "trailingStop": "0",
+                "unrealisedPnl": "0",
+                "sessionAvgPrice": "0",
+                "curRealisedPnl": "0",
+                "cumRealisedPnl": "0",
+                "positionStatus": "Normal",
+                "adlRankIndicator": 0,
+                "createdTime": "1676538056258",
+                "updatedTime": "1697673600012"
+            }]
+        }"#;
+
+        let msg: BybitWsAccountPositionMsg = serde_json::from_str(json)
+            .expect("Failed to parse WS account position with missing conditional fields");
+        let position = &msg.data[0];
+
+        assert!(!position.is_reduce_only);
+        assert_eq!(position.seq, -1);
+        assert_eq!(position.mmr_sys_updated_time, "");
+        assert_eq!(position.leverage_sys_updated_time, "");
     }
 }
