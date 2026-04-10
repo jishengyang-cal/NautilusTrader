@@ -110,7 +110,7 @@ impl DeribitDataClient {
                 config.api_key.clone(),
                 config.api_secret.clone(),
                 config.base_url_http.clone(),
-                config.use_testnet,
+                config.environment,
                 config.http_timeout_secs,
                 config.max_retries,
                 config.retry_delay_initial_ms,
@@ -120,7 +120,7 @@ impl DeribitDataClient {
         } else {
             DeribitHttpClient::new(
                 config.base_url_http.clone(),
-                config.use_testnet,
+                config.environment,
                 config.http_timeout_secs,
                 config.max_retries,
                 config.retry_delay_initial_ms,
@@ -134,7 +134,7 @@ impl DeribitDataClient {
             config.api_key.clone(),
             config.api_secret.clone(),
             config.heartbeat_interval_secs,
-            config.use_testnet,
+            config.environment,
         )?;
 
         Ok(Self {
@@ -353,9 +353,9 @@ impl DataClient for DeribitDataClient {
 
     fn start(&mut self) -> anyhow::Result<()> {
         log::info!(
-            "Starting data client: client_id={}, use_testnet={}",
+            "Starting data client: client_id={}, environment={}",
             self.client_id,
-            self.config.use_testnet
+            self.config.environment
         );
         Ok(())
     }
@@ -474,12 +474,7 @@ impl DataClient for DeribitDataClient {
         self.spawn_stream_task(stream);
 
         self.is_connected.store(true, Ordering::Release);
-        let network = if self.config.use_testnet {
-            "testnet"
-        } else {
-            "mainnet"
-        };
-        log_info!("Connected ({})", network);
+        log_info!("Connected ({})", self.config.environment);
         Ok(())
     }
 

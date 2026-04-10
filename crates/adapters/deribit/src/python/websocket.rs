@@ -52,7 +52,7 @@ use pyo3::{IntoPyObjectExt, prelude::*};
 
 use crate::{
     common::{
-        enums::{DeribitTimeInForce, resolve_trigger_type},
+        enums::{DeribitEnvironment, DeribitTimeInForce, resolve_trigger_type},
         parse::parse_instrument_kind_currency,
     },
     websocket::{
@@ -82,16 +82,16 @@ impl DeribitWebSocketClient {
         api_key=None,
         api_secret=None,
         heartbeat_interval=30,
-        is_testnet=false,
+        environment=DeribitEnvironment::Mainnet,
     ))]
     fn py_new(
         url: Option<String>,
         api_key: Option<String>,
         api_secret: Option<String>,
         heartbeat_interval: u64,
-        is_testnet: bool,
+        environment: DeribitEnvironment,
     ) -> PyResult<Self> {
-        Self::new(url, api_key, api_secret, heartbeat_interval, is_testnet).map_err(to_pyvalue_err)
+        Self::new(url, api_key, api_secret, heartbeat_interval, environment).map_err(to_pyvalue_err)
     }
 
     /// Creates a new public (unauthenticated) client.
@@ -103,8 +103,8 @@ impl DeribitWebSocketClient {
     /// Returns an error if initialization fails.
     #[staticmethod]
     #[pyo3(name = "new_public")]
-    fn py_new_public(is_testnet: bool) -> PyResult<Self> {
-        Self::new_public(is_testnet).map_err(to_pyvalue_err)
+    fn py_new_public(environment: DeribitEnvironment) -> PyResult<Self> {
+        Self::new_public(environment).map_err(to_pyvalue_err)
     }
 
     /// Creates an authenticated client with credentials.
@@ -117,9 +117,12 @@ impl DeribitWebSocketClient {
     ///
     /// Returns an error if credentials are not found in environment variables.
     #[staticmethod]
-    #[pyo3(name = "with_credentials", signature = (is_testnet, account_id = None))]
-    fn py_with_credentials(is_testnet: bool, account_id: Option<AccountId>) -> PyResult<Self> {
-        let mut client = Self::with_credentials(is_testnet).map_err(to_pyvalue_err)?;
+    #[pyo3(name = "with_credentials", signature = (environment, account_id = None))]
+    fn py_with_credentials(
+        environment: DeribitEnvironment,
+        account_id: Option<AccountId>,
+    ) -> PyResult<Self> {
+        let mut client = Self::with_credentials(environment).map_err(to_pyvalue_err)?;
 
         if let Some(id) = account_id {
             client.set_account_id(id);
@@ -139,8 +142,7 @@ impl DeribitWebSocketClient {
     #[pyo3(name = "is_testnet")]
     #[must_use]
     pub fn py_is_testnet(&self) -> bool {
-        // Check if the URL contains "test"
-        self.url().contains("test")
+        self.environment() == DeribitEnvironment::Testnet
     }
 
     /// Returns whether the client is actively connected.

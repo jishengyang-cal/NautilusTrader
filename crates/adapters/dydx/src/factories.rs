@@ -105,11 +105,11 @@ impl DataClientFactory for DydxDataClientFactory {
         let http_url = dydx_config
             .base_url_http
             .clone()
-            .unwrap_or_else(|| urls::http_base_url(dydx_config.is_testnet).to_string());
+            .unwrap_or_else(|| urls::http_base_url(dydx_config.network).to_string());
         let ws_url = dydx_config
             .base_url_ws
             .clone()
-            .unwrap_or_else(|| urls::ws_url(dydx_config.is_testnet).to_string());
+            .unwrap_or_else(|| urls::ws_url(dydx_config.network).to_string());
 
         let retry_config = Some(RetryConfig {
             max_retries: dydx_config.max_retries as u32,
@@ -122,7 +122,7 @@ impl DataClientFactory for DydxDataClientFactory {
             Some(http_url),
             dydx_config.http_timeout_secs,
             dydx_config.http_proxy_url.clone(),
-            dydx_config.is_testnet,
+            dydx_config.network,
             retry_config,
         )?;
 
@@ -215,7 +215,6 @@ impl ExecutionClientFactory for DydxExecutionClientFactory {
             timeout_secs: dydx_config.http_timeout_secs.unwrap_or(30),
             wallet_address: dydx_config.wallet_address.clone(),
             subaccount: dydx_config.subaccount_number,
-            is_testnet: dydx_config.is_testnet(),
             private_key: dydx_config.private_key.clone(),
             authenticator_ids: dydx_config.authenticator_ids.clone(),
             max_retries: dydx_config.max_retries.unwrap_or(3),
@@ -225,9 +224,9 @@ impl ExecutionClientFactory for DydxExecutionClientFactory {
         };
 
         log::info!(
-            "Resolving wallet address: config={:?}, is_testnet={}, env_var={}",
+            "Resolving wallet address: config={:?}, network={}, env_var={}",
             dydx_config.wallet_address,
-            dydx_config.is_testnet(),
+            dydx_config.network,
             if dydx_config.is_testnet() {
                 "DYDX_TESTNET_WALLET_ADDRESS"
             } else {
@@ -235,13 +234,13 @@ impl ExecutionClientFactory for DydxExecutionClientFactory {
             }
         );
         let wallet_address = if let Some(addr) =
-            resolve_wallet_address(dydx_config.wallet_address.clone(), dydx_config.is_testnet())
+            resolve_wallet_address(dydx_config.wallet_address.clone(), dydx_config.network)
         {
             log::info!("Using wallet address from config/env: {addr}");
             addr
         } else if let Some(credential) = DydxCredential::resolve(
             dydx_config.private_key.as_deref(),
-            dydx_config.is_testnet(),
+            dydx_config.network,
             dydx_config.authenticator_ids.clone(),
         )? {
             log::info!(

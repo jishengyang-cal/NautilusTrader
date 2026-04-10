@@ -26,6 +26,7 @@
 
 use nautilus_common::enums::Environment;
 use nautilus_deribit::{
+    common::enums::DeribitEnvironment,
     config::{DeribitDataClientConfig, DeribitExecClientConfig},
     factories::{DeribitDataClientFactory, DeribitExecutionClientFactory},
     http::models::DeribitProductType,
@@ -42,8 +43,13 @@ use nautilus_trading::strategy::StrategyConfig;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    // Read USE_TESTNET from environment (default true for safety)
-    let use_testnet = std::env::var("USE_TESTNET").map_or(true, |v| v.to_lowercase() != "false");
+    // Read DERIBIT_ENVIRONMENT from environment (default testnet for safety)
+    let deribit_environment =
+        if std::env::var("USE_TESTNET").map_or(true, |v| v.to_lowercase() != "false") {
+            DeribitEnvironment::Testnet
+        } else {
+            DeribitEnvironment::Mainnet
+        };
 
     let environment = Environment::Live;
     let trader_id = TraderId::from("TESTER-001");
@@ -56,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         api_key: None,    // Will use env var
         api_secret: None, // Will use env var
         product_types: vec![DeribitProductType::Future],
-        use_testnet,
+        environment: deribit_environment,
         ..Default::default()
     };
 
@@ -66,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         api_key: None,    // Will use env var
         api_secret: None, // Will use env var
         product_types: vec![DeribitProductType::Future],
-        use_testnet,
+        environment: deribit_environment,
         ..Default::default()
     };
 

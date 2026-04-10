@@ -20,6 +20,7 @@ use nautilus_model::identifiers::AccountId;
 use crate::common::{
     consts::{BITMEX_HTTP_TESTNET_URL, BITMEX_HTTP_URL, BITMEX_WS_TESTNET_URL, BITMEX_WS_URL},
     credential::credential_env_vars,
+    enums::BitmexEnvironment,
 };
 
 /// Configuration for the BitMEX live data client.
@@ -84,9 +85,9 @@ pub struct BitmexDataClientConfig {
     pub active_only: bool,
     /// Optional interval (minutes) for instrument refresh from REST.
     pub update_instruments_interval_mins: Option<u64>,
-    /// When `true`, use BitMEX testnet endpoints by default.
+    /// BitMEX environment (mainnet or testnet).
     #[builder(default)]
-    pub use_testnet: bool,
+    pub environment: BitmexEnvironment,
     /// Maximum number of requests per second (burst limit).
     #[builder(default = 10)]
     pub max_requests_per_second: u32,
@@ -112,34 +113,32 @@ impl BitmexDataClientConfig {
     /// (either explicitly set or resolvable from environment variables).
     #[must_use]
     pub fn has_api_credentials(&self) -> bool {
-        let (key_var, secret_var) = credential_env_vars(self.use_testnet);
+        let (key_var, secret_var) = credential_env_vars(self.environment);
         let has_key = self.api_key.is_some() || std::env::var(key_var).is_ok();
         let has_secret = self.api_secret.is_some() || std::env::var(secret_var).is_ok();
         has_key && has_secret
     }
 
-    /// Returns the REST base URL, considering overrides and the testnet flag.
+    /// Returns the REST base URL, considering overrides and the environment.
     #[must_use]
     pub fn http_base_url(&self) -> String {
-        self.base_url_http.clone().unwrap_or_else(|| {
-            if self.use_testnet {
-                BITMEX_HTTP_TESTNET_URL.to_string()
-            } else {
-                BITMEX_HTTP_URL.to_string()
-            }
-        })
+        self.base_url_http
+            .clone()
+            .unwrap_or_else(|| match self.environment {
+                BitmexEnvironment::Testnet => BITMEX_HTTP_TESTNET_URL.to_string(),
+                BitmexEnvironment::Mainnet => BITMEX_HTTP_URL.to_string(),
+            })
     }
 
-    /// Returns the WebSocket URL, considering overrides and the testnet flag.
+    /// Returns the WebSocket URL, considering overrides and the environment.
     #[must_use]
     pub fn ws_url(&self) -> String {
-        self.base_url_ws.clone().unwrap_or_else(|| {
-            if self.use_testnet {
-                BITMEX_WS_TESTNET_URL.to_string()
-            } else {
-                BITMEX_WS_URL.to_string()
-            }
-        })
+        self.base_url_ws
+            .clone()
+            .unwrap_or_else(|| match self.environment {
+                BitmexEnvironment::Testnet => BITMEX_WS_TESTNET_URL.to_string(),
+                BitmexEnvironment::Mainnet => BITMEX_WS_URL.to_string(),
+            })
     }
 }
 
@@ -204,9 +203,9 @@ pub struct BitmexExecClientConfig {
     /// When `true`, only active instruments are requested during bootstrap.
     #[builder(default = true)]
     pub active_only: bool,
-    /// When `true`, use BitMEX testnet endpoints by default.
+    /// BitMEX environment (mainnet or testnet).
     #[builder(default)]
-    pub use_testnet: bool,
+    pub environment: BitmexEnvironment,
     /// Optional account identifier to associate with the execution client.
     pub account_id: Option<AccountId>,
     /// Maximum number of requests per second (burst limit).
@@ -249,33 +248,31 @@ impl BitmexExecClientConfig {
     /// (either explicitly set or resolvable from environment variables).
     #[must_use]
     pub fn has_api_credentials(&self) -> bool {
-        let (key_var, secret_var) = credential_env_vars(self.use_testnet);
+        let (key_var, secret_var) = credential_env_vars(self.environment);
         let has_key = self.api_key.is_some() || std::env::var(key_var).is_ok();
         let has_secret = self.api_secret.is_some() || std::env::var(secret_var).is_ok();
         has_key && has_secret
     }
 
-    /// Returns the REST base URL, considering overrides and the testnet flag.
+    /// Returns the REST base URL, considering overrides and the environment.
     #[must_use]
     pub fn http_base_url(&self) -> String {
-        self.base_url_http.clone().unwrap_or_else(|| {
-            if self.use_testnet {
-                BITMEX_HTTP_TESTNET_URL.to_string()
-            } else {
-                BITMEX_HTTP_URL.to_string()
-            }
-        })
+        self.base_url_http
+            .clone()
+            .unwrap_or_else(|| match self.environment {
+                BitmexEnvironment::Testnet => BITMEX_HTTP_TESTNET_URL.to_string(),
+                BitmexEnvironment::Mainnet => BITMEX_HTTP_URL.to_string(),
+            })
     }
 
-    /// Returns the WebSocket URL, considering overrides and the testnet flag.
+    /// Returns the WebSocket URL, considering overrides and the environment.
     #[must_use]
     pub fn ws_url(&self) -> String {
-        self.base_url_ws.clone().unwrap_or_else(|| {
-            if self.use_testnet {
-                BITMEX_WS_TESTNET_URL.to_string()
-            } else {
-                BITMEX_WS_URL.to_string()
-            }
-        })
+        self.base_url_ws
+            .clone()
+            .unwrap_or_else(|| match self.environment {
+                BitmexEnvironment::Testnet => BITMEX_WS_TESTNET_URL.to_string(),
+                BitmexEnvironment::Mainnet => BITMEX_WS_URL.to_string(),
+            })
     }
 }

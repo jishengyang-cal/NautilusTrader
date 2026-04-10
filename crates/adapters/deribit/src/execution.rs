@@ -88,7 +88,7 @@ impl DeribitExecutionClient {
                 config.api_key.clone(),
                 config.api_secret.clone(),
                 config.base_url_http.clone(),
-                config.use_testnet,
+                config.environment,
                 config.http_timeout_secs,
                 config.max_retries,
                 config.retry_delay_initial_ms,
@@ -98,7 +98,7 @@ impl DeribitExecutionClient {
         } else {
             DeribitHttpClient::new(
                 config.base_url_http.clone(),
-                config.use_testnet,
+                config.environment,
                 config.http_timeout_secs,
                 config.max_retries,
                 config.retry_delay_initial_ms,
@@ -112,7 +112,7 @@ impl DeribitExecutionClient {
             config.api_key.clone(),
             config.api_secret.clone(),
             DERIBIT_WS_HEARTBEAT_SECS,
-            config.use_testnet,
+            config.environment,
         )
         .context("failed to create WebSocket client for execution")?;
         // Set account ID for order/fill reports
@@ -372,12 +372,12 @@ impl ExecutionClient for DeribitExecutionClient {
         self.core.set_started();
 
         log::info!(
-            "Started: client_id={}, account_id={}, account_type={:?}, product_types={:?}, use_testnet={}",
+            "Started: client_id={}, account_id={}, account_type={:?}, product_types={:?}, environment={}",
             self.core.client_id,
             self.core.account_id,
             self.core.account_type,
             self.config.product_types,
-            self.config.use_testnet
+            self.config.environment
         );
         Ok(())
     }

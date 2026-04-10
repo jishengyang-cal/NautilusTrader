@@ -128,7 +128,7 @@ impl BitmexExecutionClient {
             Some(config.http_base_url()),
             config.api_key.clone(),
             config.api_secret.clone(),
-            config.use_testnet,
+            config.environment,
             config.http_timeout_secs,
             config.max_retries,
             config.retry_delay_initial_ms,
@@ -145,7 +145,7 @@ impl BitmexExecutionClient {
             config.api_secret.clone(),
             Some(account_id),
             config.heartbeat_interval_secs,
-            config.use_testnet,
+            config.environment,
         )
         .context("failed to construct BitMEX execution websocket client")?;
 
@@ -160,7 +160,7 @@ impl BitmexExecutionClient {
             api_key: config.api_key.clone(),
             api_secret: config.api_secret.clone(),
             base_url: config.base_url_http.clone(),
-            testnet: config.use_testnet,
+            environment: config.environment,
             timeout_secs: config.http_timeout_secs,
             max_retries: config.max_retries,
             retry_delay_ms: config.retry_delay_initial_ms,
@@ -186,7 +186,7 @@ impl BitmexExecutionClient {
             api_key: config.api_key.clone(),
             api_secret: config.api_secret.clone(),
             base_url: config.base_url_http.clone(),
-            testnet: config.use_testnet,
+            environment: config.environment,
             timeout_secs: config.http_timeout_secs,
             max_retries: config.max_retries,
             retry_delay_ms: config.retry_delay_initial_ms,
@@ -646,10 +646,10 @@ impl ExecutionClient for BitmexExecutionClient {
         self.emitter.set_sender(get_exec_event_sender());
         self.core.set_started();
         log::info!(
-            "BitMEX execution client started: client_id={}, account_id={}, use_testnet={}, submitter_pool_size={:?}, canceller_pool_size={:?}, http_proxy_url={:?}, ws_proxy_url={:?}, submitter_proxy_urls={:?}, canceller_proxy_urls={:?}",
+            "BitMEX execution client started: client_id={}, account_id={}, environment={}, submitter_pool_size={:?}, canceller_pool_size={:?}, http_proxy_url={:?}, ws_proxy_url={:?}, submitter_proxy_urls={:?}, canceller_proxy_urls={:?}",
             self.core.client_id,
             self.core.account_id,
-            self.config.use_testnet,
+            self.config.environment,
             self.config.submitter_pool_size,
             self.config.canceller_pool_size,
             self.config.http_proxy_url,

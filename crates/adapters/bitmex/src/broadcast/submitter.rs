@@ -56,7 +56,10 @@ use nautilus_model::{
 use tokio::{sync::RwLock, task::JoinHandle, time::interval};
 
 use crate::{
-    common::{consts::BITMEX_HTTP_TESTNET_URL, enums::BitmexPegPriceType},
+    common::{
+        consts::BITMEX_HTTP_TESTNET_URL,
+        enums::{BitmexEnvironment, BitmexPegPriceType},
+    },
     http::client::BitmexHttpClient,
 };
 
@@ -187,8 +190,8 @@ pub struct SubmitBroadcasterConfig {
     pub api_secret: Option<String>,
     /// Base URL for BitMEX HTTP API.
     pub base_url: Option<String>,
-    /// If connecting to BitMEX testnet.
-    pub testnet: bool,
+    /// BitMEX environment (mainnet or testnet).
+    pub environment: BitmexEnvironment,
     /// Timeout in seconds for HTTP requests.
     pub timeout_secs: u64,
     /// Maximum number of retry attempts for failed requests.
@@ -224,7 +227,7 @@ impl Default for SubmitBroadcasterConfig {
             api_key: None,
             api_secret: None,
             base_url: None,
-            testnet: false,
+            environment: BitmexEnvironment::Mainnet,
             timeout_secs: 60,
             max_retries: 3,
             retry_delay_ms: 1_000,
@@ -411,11 +414,11 @@ impl SubmitBroadcaster {
     pub fn new(config: SubmitBroadcasterConfig) -> anyhow::Result<Self> {
         let mut transports = Vec::with_capacity(config.pool_size);
 
-        // Synthesize base_url when testnet is true but base_url is None
-        let base_url = if config.testnet && config.base_url.is_none() {
-            Some(BITMEX_HTTP_TESTNET_URL.to_string())
-        } else {
-            config.base_url.clone()
+        let base_url = match config.environment {
+            BitmexEnvironment::Testnet if config.base_url.is_none() => {
+                Some(BITMEX_HTTP_TESTNET_URL.to_string())
+            }
+            _ => config.base_url.clone(),
         };
 
         for i in 0..config.pool_size {
@@ -1327,7 +1330,7 @@ mod tests {
             pool_size: 1,
             api_key: Some("test_key".to_string()),
             api_secret: Some("test_secret".to_string()),
-            testnet: true,
+            environment: BitmexEnvironment::Testnet,
             base_url: None,
             ..Default::default()
         };

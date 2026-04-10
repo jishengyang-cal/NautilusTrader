@@ -7649,7 +7649,7 @@ class DeribitHttpClient:
         api_key: str | None = None,
         api_secret: str | None = None,
         base_url: str | None = None,
-        is_testnet: bool = False,
+        environment: DeribitEnvironment = ...,
         timeout_secs: int = 10,
         max_retries: int = 3,
         retry_delay_ms: int = 1_000,
@@ -7715,13 +7715,13 @@ class DeribitWebSocketClient:
         api_key: str | None = None,
         api_secret: str | None = None,
         heartbeat_interval: int = 30,
-        is_testnet: bool = False,
+        environment: DeribitEnvironment = ...,
     ) -> None: ...
     @staticmethod
-    def new_public(is_testnet: bool) -> DeribitWebSocketClient: ...
+    def new_public(environment: DeribitEnvironment) -> DeribitWebSocketClient: ...
     @staticmethod
     def with_credentials(
-        is_testnet: bool,
+        environment: DeribitEnvironment,
         account_id: AccountId | None = None,
     ) -> DeribitWebSocketClient: ...
     @property
@@ -7911,8 +7911,12 @@ class DeribitWebSocketClient:
         instrument_id: InstrumentId,
     ) -> None: ...
 
-def get_deribit_http_base_url(is_testnet: bool) -> str: ...
-def get_deribit_ws_url(is_testnet: bool) -> str: ...
+def get_deribit_http_base_url(environment: DeribitEnvironment) -> str: ...
+def get_deribit_ws_url(environment: DeribitEnvironment) -> str: ...
+
+class DeribitEnvironment(Enum):
+    MAINNET = "MAINNET"
+    TESTNET = "TESTNET"
 
 class DeribitCurrency(Enum):
     BTC = "BTC"
@@ -8119,6 +8123,10 @@ async def run_tardis_machine_replay(
 
 # OKX
 
+class OKXEnvironment(Enum):
+    LIVE = "LIVE"
+    DEMO = "DEMO"
+
 class OKXHttpClient:
     def __init__(
         self,
@@ -8130,7 +8138,7 @@ class OKXHttpClient:
         max_retries: int = 3,
         retry_delay_ms: int = 1_000,
         retry_delay_max_ms: int = 10_000,
-        is_demo: bool = False,
+        environment: OKXEnvironment = ...,
         proxy_url: str | None = None,
     ) -> None: ...
     @staticmethod
@@ -8458,9 +8466,9 @@ class OKXEndpointType(Enum):
     Business = "Business"
 
 def get_okx_http_base_url() -> str: ...
-def get_okx_ws_url_public(is_demo: bool) -> str: ...
-def get_okx_ws_url_private(is_demo: bool) -> str: ...
-def get_okx_ws_url_business(is_demo: bool) -> str: ...
+def get_okx_ws_url_public(environment: OKXEnvironment) -> str: ...
+def get_okx_ws_url_private(environment: OKXEnvironment) -> str: ...
+def get_okx_ws_url_business(environment: OKXEnvironment) -> str: ...
 def derive_okx_ws_url(base_url: str, channel: str) -> str: ...
 def okx_requires_authentication(endpoint_type: OKXEndpointType) -> bool: ...
 
@@ -8518,8 +8526,12 @@ class OKXVipLevel(Enum):
 
 # BitMEX
 
-def get_bitmex_http_base_url(testnet: bool) -> str: ...
-def get_bitmex_ws_url(testnet: bool) -> str: ...
+class BitmexEnvironment(Enum):
+    MAINNET = "MAINNET"
+    TESTNET = "TESTNET"
+
+def get_bitmex_http_base_url(environment: BitmexEnvironment) -> str: ...
+def get_bitmex_ws_url(environment: BitmexEnvironment) -> str: ...
 
 class BitmexHttpClient:
     def __init__(
@@ -8527,7 +8539,7 @@ class BitmexHttpClient:
         api_key: str | None = None,
         api_secret: str | None = None,
         base_url: str | None = None,
-        testnet: bool = False,
+        environment: BitmexEnvironment = ...,
         timeout_secs: int = 60,
         max_retries: int = 3,
         retry_delay_ms: int = 1_000,
@@ -8656,7 +8668,7 @@ class BitmexWebSocketClient:
         api_secret: str | None = None,
         account_id: AccountId | None = None,
         heartbeat: int = 5,
-        testnet: bool = False,
+        environment: BitmexEnvironment = ...,
     ) -> None: ...
     @property
     def url(self) -> str: ...
@@ -8727,7 +8739,7 @@ class SubmitBroadcaster:
         api_key: str | None = None,
         api_secret: str | None = None,
         base_url: str | None = None,
-        testnet: bool = False,
+        environment: BitmexEnvironment = ...,
         timeout_secs: int | None = None,
         max_retries: int | None = None,
         retry_delay_ms: int | None = None,
@@ -8774,7 +8786,7 @@ class CancelBroadcaster:
         api_key: str | None = None,
         api_secret: str | None = None,
         base_url: str | None = None,
-        testnet: bool = False,
+        environment: BitmexEnvironment = ...,
         timeout_secs: int | None = None,
         max_retries: int | None = None,
         retry_delay_ms: int | None = None,
@@ -8812,12 +8824,16 @@ class CancelBroadcaster:
 
 # Hyperliquid
 
+class HyperliquidEnvironment(Enum):
+    MAINNET = "MAINNET"
+    TESTNET = "TESTNET"
+
 HYPERLIQUID_POST_ONLY_WOULD_MATCH: Final[str]
 
 def hyperliquid_product_type_from_symbol(symbol: str) -> HyperliquidProductType: ...
 def hyperliquid_cloid_from_client_order_id(client_order_id: ClientOrderId) -> str: ...
-def get_hyperliquid_http_base_url(is_testnet: bool = False) -> str: ...
-def get_hyperliquid_ws_url(is_testnet: bool = False) -> str: ...
+def get_hyperliquid_http_base_url(environment: HyperliquidEnvironment = ...) -> str: ...
+def get_hyperliquid_ws_url(environment: HyperliquidEnvironment = ...) -> str: ...
 
 class HyperliquidProductType(Enum):
     PERP = "PERP"
@@ -8858,18 +8874,18 @@ class HyperliquidHttpClient:
         private_key: str | None = None,
         vault_address: str | None = None,
         account_address: str | None = None,
-        is_testnet: bool = False,
+        environment: HyperliquidEnvironment = ...,
         timeout_secs: int = 60,
         proxy_url: str | None = None,
         normalize_prices: bool = True,
     ) -> None: ...
     @staticmethod
-    def from_env() -> HyperliquidHttpClient: ...
+    def from_env(environment: HyperliquidEnvironment = ...) -> HyperliquidHttpClient: ...
     @staticmethod
     def from_credentials(
         private_key: str,
         vault_address: str | None = None,
-        is_testnet: bool = False,
+        environment: HyperliquidEnvironment = ...,
         timeout_secs: int = 60,
         proxy_url: str | None = None,
     ) -> HyperliquidHttpClient: ...
@@ -8962,7 +8978,7 @@ class HyperliquidWebSocketClient:
     def __init__(
         self,
         url: str | None = None,
-        testnet: bool = False,
+        environment: HyperliquidEnvironment = ...,
         product_type: HyperliquidProductType = ...,
         account_id: str | None = None,
     ) -> None: ...
@@ -9009,6 +9025,12 @@ class HyperliquidWebSocketClient:
     async def unsubscribe_mark_prices(self, instrument_id: InstrumentId) -> None: ...
     async def unsubscribe_index_prices(self, instrument_id: InstrumentId) -> None: ...
     async def unsubscribe_funding_rates(self, instrument_id: InstrumentId) -> None: ...
+
+# dYdX
+
+class DydxNetwork(Enum):
+    MAINNET = "MAINNET"
+    TESTNET = "TESTNET"
 
 # Kraken
 

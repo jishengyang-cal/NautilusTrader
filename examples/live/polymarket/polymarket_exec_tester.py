@@ -114,21 +114,13 @@ config_node = TradingNodeConfig(
     # ),
     data_clients={
         POLYMARKET: PolymarketDataClientConfig(
-            api_key=None,  # 'POLYMARKET_API_KEY' env var
-            api_secret=None,  # 'POLYMARKET_API_SECRET' env var
-            passphrase=None,  # 'POLYMARKET_PASSPHRASE' env var
             # signature_type=2,  # Use if trading via Polymarket Proxy (enables UI verification, requires funder address)
-            base_url_http=None,  # Override with custom endpoint
             instrument_config=instrument_provider_config,
         ),
     },
     exec_clients={
         POLYMARKET: PolymarketExecClientConfig(
-            api_key=None,  # 'POLYMARKET_API_KEY' env var
-            api_secret=None,  # 'POLYMARKET_API_SECRET' env var
-            passphrase=None,  # 'POLYMARKET_PASSPHRASE' env var
             # signature_type=2,  # Use if trading via Polymarket Proxy (enables UI verification, requires funder address)
-            base_url_http=None,  # Override with custom endpoint
             instrument_config=instrument_provider_config,
             generate_order_history_from_trades=False,
         ),

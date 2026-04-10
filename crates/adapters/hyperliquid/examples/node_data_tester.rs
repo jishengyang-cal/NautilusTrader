@@ -21,7 +21,10 @@ use std::num::NonZeroUsize;
 
 use log::LevelFilter;
 use nautilus_common::{enums::Environment, logging::logger::LoggerConfig};
-use nautilus_hyperliquid::{HyperliquidDataClientConfig, HyperliquidDataClientFactory};
+use nautilus_hyperliquid::{
+    HyperliquidDataClientConfig, HyperliquidDataClientFactory,
+    common::enums::HyperliquidEnvironment,
+};
 use nautilus_live::node::LiveNode;
 use nautilus_model::{
     identifiers::{ClientId, InstrumentId, TraderId},
@@ -42,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     let hyperliquid_config = HyperliquidDataClientConfig {
-        is_testnet: false, // Set to true for testnet
+        environment: HyperliquidEnvironment::Mainnet,
         ..Default::default()
     };
 

@@ -40,6 +40,7 @@ from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.datetime import nanos_to_secs
+from nautilus_trader.core.nautilus_pyo3 import DydxNetwork
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.messages import BatchCancelOrders
 from nautilus_trader.execution.messages import CancelAllOrders
@@ -140,8 +141,13 @@ class DydxExecutionClient(LiveExecutionClient):
         # Configuration
         self._config = config
         self._subaccount = config.subaccount
-        self._is_testnet = config.is_testnet
-        self._log.info(f"{config.is_testnet=}", LogColor.BLUE)
+        self._network = (
+            config.environment
+            if config.environment is not None
+            else (DydxNetwork.TESTNET if config.is_testnet else DydxNetwork.MAINNET)
+        )
+        self._is_testnet = self._network == DydxNetwork.TESTNET
+        self._log.info(f"network={self._network}", LogColor.BLUE)
         self._log.info(f"{config.subaccount=}", LogColor.BLUE)
         self._log.info(f"{config.max_retries=}", LogColor.BLUE)
         self._log.info(f"{config.retry_delay_initial_ms=}", LogColor.BLUE)
@@ -151,8 +157,8 @@ class DydxExecutionClient(LiveExecutionClient):
         self._http_client = client
 
         # Resolve URLs
-        ws_url = config.base_url_ws or nautilus_pyo3.get_dydx_ws_url(config.is_testnet)  # type: ignore[attr-defined]
-        grpc_urls = config.base_url_grpc or nautilus_pyo3.get_dydx_grpc_urls(config.is_testnet)  # type: ignore[attr-defined]
+        ws_url = config.base_url_ws or nautilus_pyo3.get_dydx_ws_url(self._network)  # type: ignore[attr-defined]
+        grpc_urls = config.base_url_grpc or nautilus_pyo3.get_dydx_grpc_urls(self._network)  # type: ignore[attr-defined]
 
         # Initialize gRPC and order submitter (created on connect)
         self._grpc_client: nautilus_pyo3.DydxGrpcClient | None = None  # type: ignore[name-defined]

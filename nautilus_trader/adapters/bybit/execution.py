@@ -29,6 +29,7 @@ from typing import Any
 
 from nautilus_trader.accounting.factory import AccountFactory
 from nautilus_trader.adapters.bybit.config import BybitExecClientConfig
+from nautilus_trader.adapters.bybit.config import _resolve_environment
 from nautilus_trader.adapters.bybit.constants import BYBIT_VENUE
 from nautilus_trader.adapters.bybit.providers import BybitInstrumentProvider
 from nautilus_trader.cache.cache import Cache
@@ -278,7 +279,8 @@ class BybitExecutionClient(LiveExecutionClient):
         # Configuration
         self._config = config
         self._product_types = list(product_types)
-        self._is_demo = config.demo
+        environment = _resolve_environment(config.environment, config.demo, config.testnet)
+        self._is_demo = environment == nautilus_pyo3.BybitEnvironment.DEMO
         self._use_gtd = config.use_gtd
         self._use_ws_execution_fast = config.use_ws_execution_fast
         self._use_http_batch_api = config.use_http_batch_api
@@ -316,13 +318,7 @@ class BybitExecutionClient(LiveExecutionClient):
         # Configure HTTP client settings
         self._http_client.set_use_spot_position_reports(self._use_spot_position_reports)
 
-        # Priority: demo > testnet > mainnet
-        if config.demo:
-            environment = nautilus_pyo3.BybitEnvironment.DEMO
-        elif config.testnet:
-            environment = nautilus_pyo3.BybitEnvironment.TESTNET
-        else:
-            environment = nautilus_pyo3.BybitEnvironment.MAINNET
+        environment = _resolve_environment(config.environment, config.demo, config.testnet)
 
         # WebSocket API - Private channel
         self._ws_private_client = nautilus_pyo3.BybitWebSocketClient.new_private(

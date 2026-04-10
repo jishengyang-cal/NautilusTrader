@@ -232,7 +232,7 @@ mod tests {
         let factory = DeribitDataClientFactory::new();
         let config = DeribitDataClientConfig {
             product_types: vec![DeribitProductType::Future],
-            use_testnet: true,
+            environment: crate::common::enums::DeribitEnvironment::Testnet,
             ..Default::default()
         };
 

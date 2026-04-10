@@ -34,16 +34,16 @@ pub struct DydxAdapterConfig {
     #[builder(default)]
     pub network: DydxNetwork,
     /// Base URL for the HTTP API.
-    #[builder(default = urls::http_base_url(false).to_string())]
+    #[builder(default = urls::http_base_url(DydxNetwork::Mainnet).to_string())]
     pub base_url: String,
     /// Base URL for the WebSocket API.
-    #[builder(default = urls::ws_url(false).to_string())]
+    #[builder(default = urls::ws_url(DydxNetwork::Mainnet).to_string())]
     pub ws_url: String,
     /// Base URL for the gRPC API (Cosmos SDK transactions).
     ///
     /// For backwards compatibility, a single URL can be provided.
     /// Consider using `grpc_urls` for fallback support.
-    #[builder(default = urls::grpc_urls(false)[0].to_string())]
+    #[builder(default = urls::grpc_urls(DydxNetwork::Mainnet)[0].to_string())]
     pub grpc_url: String,
     /// List of gRPC URLs with fallback support.
     ///
@@ -51,7 +51,7 @@ pub struct DydxAdapterConfig {
     /// until a successful connection is established. This is recommended for
     /// production use in DEX environments where nodes can fail.
     #[serde(default)]
-    #[builder(default = urls::grpc_urls(false).iter().map(|&s| s.to_string()).collect())]
+    #[builder(default = urls::grpc_urls(DydxNetwork::Mainnet).iter().map(|&s| s.to_string()).collect())]
     pub grpc_urls: Vec<String>,
     /// Chain ID (e.g., "dydx-mainnet-1" for mainnet, "dydx-testnet-4" for testnet).
     #[builder(default = DYDX_CHAIN_ID.to_string())]
@@ -72,15 +72,6 @@ pub struct DydxAdapterConfig {
     #[serde(default)]
     #[builder(default)]
     pub subaccount: u32,
-    /// Whether this is a testnet configuration.
-    ///
-    /// Precedence: `network` is canonical. If both `network` and `is_testnet`
-    /// are provided and conflict, `network` takes precedence internally.
-    /// This flag exists for backwards compatibility and may be derived from
-    /// `network` in future versions.
-    #[serde(default)]
-    #[builder(default)]
-    pub is_testnet: bool,
     /// Private key (hex) for wallet signing.
     ///
     /// If not provided, falls back to environment variable:
@@ -185,12 +176,9 @@ impl DydxAdapterConfig {
         self.network.chain_id()
     }
 
-    /// Convenience: compute `is_testnet` from `network`.
-    ///
-    /// Prefer `network` as the source of truth; this method is provided to
-    /// avoid ambiguity when legacy configs include `is_testnet`.
+    /// Returns whether this is a testnet configuration.
     #[must_use]
-    pub const fn compute_is_testnet(&self) -> bool {
+    pub const fn is_testnet(&self) -> bool {
         matches!(self.network, DydxNetwork::Testnet)
     }
 
@@ -243,13 +231,22 @@ pub struct DydxDataClientConfig {
     #[serde(default = "default_data_retry_delay_max_ms")]
     #[builder(default = 5000)]
     pub retry_delay_max_ms: u64,
-    /// Whether this is a testnet configuration.
+    /// Network environment (mainnet or testnet).
+    #[serde(default)]
     #[builder(default)]
-    pub is_testnet: bool,
+    pub network: DydxNetwork,
     /// HTTP proxy URL.
     pub http_proxy_url: Option<String>,
     /// WebSocket proxy URL.
     pub ws_proxy_url: Option<String>,
+}
+
+impl DydxDataClientConfig {
+    /// Returns whether this is a testnet configuration.
+    #[must_use]
+    pub const fn is_testnet(&self) -> bool {
+        matches!(self.network, DydxNetwork::Testnet)
+    }
 }
 
 impl Default for DydxDataClientConfig {
@@ -346,8 +343,7 @@ impl DydxExecClientConfig {
         if let Some(ref endpoint) = self.grpc_endpoint {
             return vec![endpoint.clone()];
         }
-        let is_testnet = matches!(self.network, DydxNetwork::Testnet);
-        urls::grpc_urls(is_testnet)
+        urls::grpc_urls(self.network)
             .iter()
             .map(|&s| s.to_string())
             .collect()
@@ -356,19 +352,17 @@ impl DydxExecClientConfig {
     /// Returns the WebSocket URL for the configured network.
     #[must_use]
     pub fn get_ws_url(&self) -> String {
-        self.ws_endpoint.clone().unwrap_or_else(|| {
-            let is_testnet = matches!(self.network, DydxNetwork::Testnet);
-            urls::ws_url(is_testnet).to_string()
-        })
+        self.ws_endpoint
+            .clone()
+            .unwrap_or_else(|| urls::ws_url(self.network).to_string())
     }
 
     /// Returns the HTTP URL for the configured network.
     #[must_use]
     pub fn get_http_url(&self) -> String {
-        self.http_endpoint.clone().unwrap_or_else(|| {
-            let is_testnet = matches!(self.network, DydxNetwork::Testnet);
-            urls::http_base_url(is_testnet).to_string()
-        })
+        self.http_endpoint
+            .clone()
+            .unwrap_or_else(|| urls::http_base_url(self.network).to_string())
     }
 
     /// Returns the chain ID for the configured network.
@@ -417,43 +411,31 @@ mod tests {
     }
 
     #[rstest]
-    fn test_config_compute_is_testnet() {
+    fn test_config_is_testnet() {
         let mainnet_config = DydxAdapterConfig {
             network: DydxNetwork::Mainnet,
             ..Default::default()
         };
-        assert!(!mainnet_config.compute_is_testnet());
+        assert!(!mainnet_config.is_testnet());
 
         let testnet_config = DydxAdapterConfig {
             network: DydxNetwork::Testnet,
             ..Default::default()
         };
-        assert!(testnet_config.compute_is_testnet());
+        assert!(testnet_config.is_testnet());
     }
 
     #[rstest]
     fn test_config_default_uses_mainnet() {
         let config = DydxAdapterConfig::default();
         assert_eq!(config.network, DydxNetwork::Mainnet);
-        assert!(!config.is_testnet);
-    }
-
-    #[rstest]
-    fn test_config_network_canonical_over_is_testnet() {
-        // When network=mainnet but is_testnet=true, get_chain_id uses network
-        let config = DydxAdapterConfig {
-            network: DydxNetwork::Mainnet,
-            is_testnet: true, // Conflicting value
-            ..Default::default()
-        };
-        assert_eq!(config.get_chain_id(), ChainId::Mainnet1); // network wins
-        assert!(!config.compute_is_testnet()); // compute_is_testnet derives from network
+        assert!(!config.is_testnet());
     }
 
     #[rstest]
     fn test_config_serde_backwards_compat() {
         // Test that configs missing network field can deserialize with default
-        let json = r#"{"base_url":"https://indexer.dydx.trade","ws_url":"wss://indexer.dydx.trade/v4/ws","grpc_url":"https://dydx-ops-grpc.kingnodes.com:443","grpc_urls":[],"chain_id":"dydx-mainnet-1","timeout_secs":30,"subaccount":0,"is_testnet":false,"max_retries":3,"retry_delay_initial_ms":1000,"retry_delay_max_ms":10000}"#;
+        let json = r#"{"base_url":"https://indexer.dydx.trade","ws_url":"wss://indexer.dydx.trade/v4/ws","grpc_url":"https://dydx-ops-grpc.kingnodes.com:443","grpc_urls":[],"chain_id":"dydx-mainnet-1","timeout_secs":30,"subaccount":0,"max_retries":3,"retry_delay_initial_ms":1000,"retry_delay_max_ms":10000}"#;
 
         let config: Result<DydxAdapterConfig, _> = serde_json::from_str(json);
         assert!(config.is_ok());

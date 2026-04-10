@@ -52,7 +52,10 @@ use ustr::Ustr;
 
 use crate::{
     common::{
-        enums::{BitmexExecType, BitmexInstrumentState, BitmexOrderType, BitmexPegPriceType},
+        enums::{
+            BitmexEnvironment, BitmexExecType, BitmexInstrumentState, BitmexOrderType,
+            BitmexPegPriceType,
+        },
         parse::{
             parse_contracts_quantity, parse_instrument_id, parse_optional_datetime_to_unix_nanos,
         },
@@ -100,17 +103,22 @@ impl Debug for PyBitmexWebSocketClient {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 impl PyBitmexWebSocketClient {
     #[new]
-    #[pyo3(signature = (url=None, api_key=None, api_secret=None, account_id=None, heartbeat=5, testnet=false))]
+    #[pyo3(signature = (url=None, api_key=None, api_secret=None, account_id=None, heartbeat=5, environment=BitmexEnvironment::Mainnet))]
     fn py_new(
         url: Option<String>,
         api_key: Option<String>,
         api_secret: Option<String>,
         account_id: Option<AccountId>,
         heartbeat: u64,
-        testnet: bool,
+        environment: BitmexEnvironment,
     ) -> PyResult<Self> {
         let inner = BitmexWebSocketClient::new_with_env(
-            url, api_key, api_secret, account_id, heartbeat, testnet,
+            url,
+            api_key,
+            api_secret,
+            account_id,
+            heartbeat,
+            environment,
         )
         .map_err(to_pyvalue_err)?;
         Ok(Self {

@@ -19,7 +19,7 @@ use nautilus_model::identifiers::{AccountId, TraderId};
 
 use crate::common::{
     credential::credential_env_vars,
-    enums::{OKXContractType, OKXInstrumentType, OKXMarginMode, OKXVipLevel},
+    enums::{OKXContractType, OKXEnvironment, OKXInstrumentType, OKXMarginMode, OKXVipLevel},
     urls::{
         get_http_base_url, get_ws_base_url_business, get_ws_base_url_private,
         get_ws_base_url_public,
@@ -64,9 +64,9 @@ pub struct OKXDataClientConfig {
     /// Note: WebSocket proxy support is not yet implemented. This field is reserved
     /// for future functionality. Use `http_proxy_url` for REST API proxy support.
     pub ws_proxy_url: Option<String>,
-    /// When true the client will use OKX demo endpoints.
+    /// The API environment (live or demo).
     #[builder(default)]
-    pub is_demo: bool,
+    pub environment: OKXEnvironment,
     /// HTTP timeout in seconds.
     #[builder(default = 60)]
     pub http_timeout_secs: u64,
@@ -117,20 +117,20 @@ impl OKXDataClientConfig {
             .unwrap_or_else(|| get_http_base_url().to_string())
     }
 
-    /// Returns the public WebSocket URL, respecting the demo flag and overrides.
+    /// Returns the public WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_public_url(&self) -> String {
         self.base_url_ws_public
             .clone()
-            .unwrap_or_else(|| get_ws_base_url_public(self.is_demo).to_string())
+            .unwrap_or_else(|| get_ws_base_url_public(self.environment).to_string())
     }
 
-    /// Returns the business WebSocket URL, respecting the demo flag and overrides.
+    /// Returns the business WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_business_url(&self) -> String {
         self.base_url_ws_business
             .clone()
-            .unwrap_or_else(|| get_ws_base_url_business(self.is_demo).to_string())
+            .unwrap_or_else(|| get_ws_base_url_business(self.environment).to_string())
     }
 
     /// Returns `true` when the business WebSocket should be instantiated.
@@ -187,9 +187,9 @@ pub struct OKXExecClientConfig {
     /// Note: WebSocket proxy support is not yet implemented. This field is reserved
     /// for future functionality. Use `http_proxy_url` for REST API proxy support.
     pub ws_proxy_url: Option<String>,
-    /// When true the client will use OKX demo endpoints.
+    /// The API environment (live or demo).
     #[builder(default)]
-    pub is_demo: bool,
+    pub environment: OKXEnvironment,
     /// HTTP timeout in seconds.
     #[builder(default = 60)]
     pub http_timeout_secs: u64,
@@ -246,19 +246,19 @@ impl OKXExecClientConfig {
             .unwrap_or_else(|| get_http_base_url().to_string())
     }
 
-    /// Returns the private WebSocket URL, respecting the demo flag and overrides.
+    /// Returns the private WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_private_url(&self) -> String {
         self.base_url_ws_private
             .clone()
-            .unwrap_or_else(|| get_ws_base_url_private(self.is_demo).to_string())
+            .unwrap_or_else(|| get_ws_base_url_private(self.environment).to_string())
     }
 
-    /// Returns the business WebSocket URL, respecting the demo flag and overrides.
+    /// Returns the business WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_business_url(&self) -> String {
         self.base_url_ws_business
             .clone()
-            .unwrap_or_else(|| get_ws_base_url_business(self.is_demo).to_string())
+            .unwrap_or_else(|| get_ws_base_url_business(self.environment).to_string())
     }
 }

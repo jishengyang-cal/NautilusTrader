@@ -80,8 +80,8 @@ use crate::{
         consts::{BITMEX_HTTP_TESTNET_URL, BITMEX_HTTP_URL, BITMEX_VENUE},
         credential::{Credential, credential_env_vars},
         enums::{
-            BitmexContingencyType, BitmexExecInstruction, BitmexOrderStatus, BitmexOrderType,
-            BitmexPegPriceType, BitmexSide, BitmexTimeInForce,
+            BitmexContingencyType, BitmexEnvironment, BitmexExecInstruction, BitmexOrderStatus,
+            BitmexOrderType, BitmexPegPriceType, BitmexSide, BitmexTimeInForce,
         },
         parse::{
             bitmex_currency_divisor, map_bitmex_currency, parse_account_balance, quantity_to_u32,
@@ -832,7 +832,7 @@ impl Default for BitmexHttpClient {
             None,
             None,
             None,
-            false,
+            BitmexEnvironment::Mainnet,
             60,
             3,
             1_000,
@@ -857,7 +857,7 @@ impl BitmexHttpClient {
         base_url: Option<String>,
         api_key: Option<String>,
         api_secret: Option<String>,
-        testnet: bool,
+        environment: BitmexEnvironment,
         timeout_secs: u64,
         max_retries: u32,
         retry_delay_ms: u64,
@@ -868,15 +868,12 @@ impl BitmexHttpClient {
         proxy_url: Option<String>,
     ) -> Result<Self, BitmexHttpError> {
         // Determine the base URL
-        let url = base_url.unwrap_or_else(|| {
-            if testnet {
-                BITMEX_HTTP_TESTNET_URL.to_string()
-            } else {
-                BITMEX_HTTP_URL.to_string()
-            }
+        let url = base_url.unwrap_or_else(|| match environment {
+            BitmexEnvironment::Testnet => BITMEX_HTTP_TESTNET_URL.to_string(),
+            BitmexEnvironment::Mainnet => BITMEX_HTTP_URL.to_string(),
         });
 
-        let (key_var, secret_var) = credential_env_vars(testnet);
+        let (key_var, secret_var) = credential_env_vars(environment);
         let api_key = get_or_env_var_opt(api_key, key_var);
         let api_secret = get_or_env_var_opt(api_secret, secret_var);
 
@@ -957,10 +954,14 @@ impl BitmexHttpClient {
         max_requests_per_minute: u32,
         proxy_url: Option<String>,
     ) -> anyhow::Result<Self> {
-        // Determine testnet from URL first to select correct environment variables
-        let testnet = base_url.as_ref().is_some_and(|url| url.contains("testnet"));
+        // Determine environment from URL to select correct environment variables
+        let environment = if base_url.as_ref().is_some_and(|url| url.contains("testnet")) {
+            BitmexEnvironment::Testnet
+        } else {
+            BitmexEnvironment::Mainnet
+        };
 
-        let (key_var, secret_var) = credential_env_vars(testnet);
+        let (key_var, secret_var) = credential_env_vars(environment);
 
         let api_key = get_or_env_var_opt(api_key, key_var);
         let api_secret = get_or_env_var_opt(api_secret, secret_var);
@@ -978,7 +979,7 @@ impl BitmexHttpClient {
             base_url,
             api_key,
             api_secret,
-            testnet,
+            environment,
             timeout_secs,
             max_retries,
             retry_delay_ms,

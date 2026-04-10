@@ -212,7 +212,7 @@ impl DydxExecutionClient {
             Some(config.base_url.clone()),
             config.timeout_secs,
             None, // proxy_url - not in DydxAdapterConfig currently
-            config.is_testnet,
+            config.network,
             Some(retry_config),
         )?;
 
@@ -222,7 +222,7 @@ impl DydxExecutionClient {
         // Use private WebSocket client for authenticated subaccount subscriptions
         let credential = DydxCredential::resolve(
             config.private_key.as_deref(),
-            config.is_testnet,
+            config.network,
             config.authenticator_ids.clone(),
         )?
         .ok_or_else(|| anyhow::anyhow!("Credentials required for execution client"))?;
@@ -264,7 +264,7 @@ impl DydxExecutionClient {
     }
 
     fn resolve_private_key(config: &DydxAdapterConfig) -> anyhow::Result<String> {
-        let (private_key_env, _) = credential_env_vars(config.is_testnet);
+        let (private_key_env, _) = credential_env_vars(config.network);
 
         // 1. Try private key from config
         if let Some(ref pk) = config.private_key

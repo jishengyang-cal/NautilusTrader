@@ -101,11 +101,12 @@ impl HyperliquidDataClient {
 
         // Only fall back to unauthenticated when credentials are absent,
         // not when they're invalid (fail fast on malformed keys)
-        let (pk_var, _) = credential_env_vars(config.is_testnet);
+        let (pk_var, _) = credential_env_vars(config.environment);
         let has_credentials = config.has_credentials() || std::env::var(pk_var).is_ok();
 
         let mut http_client = if has_credentials {
-            let secrets = Secrets::resolve(config.private_key.as_deref(), None, config.is_testnet)?;
+            let secrets =
+                Secrets::resolve(config.private_key.as_deref(), None, config.environment)?;
             HyperliquidHttpClient::with_secrets(
                 &secrets,
                 config.http_timeout_secs,
@@ -113,7 +114,7 @@ impl HyperliquidDataClient {
             )?
         } else {
             HyperliquidHttpClient::new(
-                config.is_testnet,
+                config.environment,
                 config.http_timeout_secs,
                 config.http_proxy_url.clone(),
             )?
@@ -125,7 +126,7 @@ impl HyperliquidDataClient {
         }
 
         let ws_url = config.base_url_ws.clone();
-        let ws_client = HyperliquidWebSocketClient::new(ws_url, config.is_testnet, None);
+        let ws_client = HyperliquidWebSocketClient::new(ws_url, config.environment, None);
 
         Ok(Self {
             client_id,
@@ -461,9 +462,9 @@ impl DataClient for HyperliquidDataClient {
 
     fn start(&mut self) -> anyhow::Result<()> {
         log::info!(
-            "Starting Hyperliquid data client: client_id={}, is_testnet={}, http_proxy_url={:?}, ws_proxy_url={:?}",
+            "Starting Hyperliquid data client: client_id={}, environment={:?}, http_proxy_url={:?}, ws_proxy_url={:?}",
             self.client_id,
-            self.config.is_testnet,
+            self.config.environment,
             self.config.http_proxy_url,
             self.config.ws_proxy_url,
         );

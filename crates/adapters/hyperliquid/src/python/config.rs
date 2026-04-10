@@ -17,7 +17,10 @@
 
 use pyo3::prelude::*;
 
-use crate::config::{HyperliquidDataClientConfig, HyperliquidExecClientConfig};
+use crate::{
+    common::enums::HyperliquidEnvironment,
+    config::{HyperliquidDataClientConfig, HyperliquidExecClientConfig},
+};
 
 #[pymethods]
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
@@ -25,7 +28,7 @@ impl HyperliquidDataClientConfig {
     /// Configuration for the Hyperliquid data client.
     #[new]
     #[pyo3(signature = (
-        is_testnet = None,
+        environment = None,
         private_key = None,
         base_url_ws = None,
         base_url_http = None,
@@ -36,7 +39,7 @@ impl HyperliquidDataClientConfig {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn py_new(
-        is_testnet: Option<bool>,
+        environment: Option<HyperliquidEnvironment>,
         private_key: Option<String>,
         base_url_ws: Option<String>,
         base_url_http: Option<String>,
@@ -52,7 +55,7 @@ impl HyperliquidDataClientConfig {
             base_url_http,
             http_proxy_url,
             ws_proxy_url: None,
-            is_testnet: is_testnet.unwrap_or(defaults.is_testnet),
+            environment: environment.unwrap_or(defaults.environment),
             http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
             ws_timeout_secs: ws_timeout_secs.unwrap_or(defaults.ws_timeout_secs),
             update_instruments_interval_mins: update_instruments_interval_mins
@@ -74,7 +77,7 @@ impl HyperliquidExecClientConfig {
         private_key = None,
         vault_address = None,
         account_address = None,
-        is_testnet = None,
+        environment = None,
         base_url_ws = None,
         base_url_http = None,
         base_url_exchange = None,
@@ -90,7 +93,7 @@ impl HyperliquidExecClientConfig {
         private_key: Option<String>,
         vault_address: Option<String>,
         account_address: Option<String>,
-        is_testnet: Option<bool>,
+        environment: Option<HyperliquidEnvironment>,
         base_url_ws: Option<String>,
         base_url_http: Option<String>,
         base_url_exchange: Option<String>,
@@ -111,7 +114,7 @@ impl HyperliquidExecClientConfig {
             base_url_exchange,
             http_proxy_url,
             ws_proxy_url: None,
-            is_testnet: is_testnet.unwrap_or(defaults.is_testnet),
+            environment: environment.unwrap_or(defaults.environment),
             http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
             max_retries: max_retries.unwrap_or(defaults.max_retries),
             retry_delay_initial_ms: retry_delay_initial_ms

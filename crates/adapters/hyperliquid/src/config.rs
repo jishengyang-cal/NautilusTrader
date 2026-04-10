@@ -15,7 +15,10 @@
 
 //! Configuration structures for the Hyperliquid adapter.
 
-use crate::common::consts::{info_url, ws_url};
+use crate::common::{
+    consts::{info_url, ws_url},
+    enums::HyperliquidEnvironment,
+};
 
 /// Configuration for the Hyperliquid data client.
 #[derive(Clone, Debug, bon::Builder)]
@@ -44,9 +47,9 @@ pub struct HyperliquidDataClientConfig {
     /// Note: WebSocket proxy support is not yet implemented. This field is reserved
     /// for future functionality. Use `http_proxy_url` for REST API proxy support.
     pub ws_proxy_url: Option<String>,
-    /// When true the client will use Hyperliquid testnet endpoints.
+    /// The target environment (mainnet or testnet).
     #[builder(default)]
-    pub is_testnet: bool,
+    pub environment: HyperliquidEnvironment,
     /// HTTP timeout in seconds.
     #[builder(default = 60)]
     pub http_timeout_secs: u64,
@@ -79,20 +82,20 @@ impl HyperliquidDataClientConfig {
             .is_some_and(|s| !s.trim().is_empty())
     }
 
-    /// Returns the WebSocket URL, respecting the testnet flag and overrides.
+    /// Returns the WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_url(&self) -> String {
         self.base_url_ws
             .clone()
-            .unwrap_or_else(|| ws_url(self.is_testnet).to_string())
+            .unwrap_or_else(|| ws_url(self.environment).to_string())
     }
 
-    /// Returns the HTTP info URL, respecting the testnet flag and overrides.
+    /// Returns the HTTP info URL, respecting the environment and overrides.
     #[must_use]
     pub fn http_url(&self) -> String {
         self.base_url_http
             .clone()
-            .unwrap_or_else(|| info_url(self.is_testnet).to_string())
+            .unwrap_or_else(|| info_url(self.environment).to_string())
     }
 }
 
@@ -135,9 +138,9 @@ pub struct HyperliquidExecClientConfig {
     /// Note: WebSocket proxy support is not yet implemented. This field is reserved
     /// for future functionality. Use `http_proxy_url` for REST API proxy support.
     pub ws_proxy_url: Option<String>,
-    /// When true the client will use Hyperliquid testnet endpoints.
+    /// The target environment (mainnet or testnet).
     #[builder(default)]
-    pub is_testnet: bool,
+    pub environment: HyperliquidEnvironment,
     /// HTTP timeout in seconds.
     #[builder(default = 60)]
     pub http_timeout_secs: u64,
@@ -180,20 +183,20 @@ impl HyperliquidExecClientConfig {
             .is_some_and(|s| !s.trim().is_empty())
     }
 
-    /// Returns the WebSocket URL, respecting the testnet flag and overrides.
+    /// Returns the WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_url(&self) -> String {
         self.base_url_ws
             .clone()
-            .unwrap_or_else(|| ws_url(self.is_testnet).to_string())
+            .unwrap_or_else(|| ws_url(self.environment).to_string())
     }
 
-    /// Returns the HTTP info URL, respecting the testnet flag and overrides.
+    /// Returns the HTTP info URL, respecting the environment and overrides.
     #[must_use]
     pub fn http_url(&self) -> String {
         self.base_url_http
             .clone()
-            .unwrap_or_else(|| info_url(self.is_testnet).to_string())
+            .unwrap_or_else(|| info_url(self.environment).to_string())
     }
 }
 

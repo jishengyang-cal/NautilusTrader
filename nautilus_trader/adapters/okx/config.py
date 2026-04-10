@@ -17,6 +17,7 @@ from nautilus_trader.common.config import PositiveInt
 from nautilus_trader.config import LiveDataClientConfig
 from nautilus_trader.config import LiveExecClientConfig
 from nautilus_trader.core.nautilus_pyo3 import OKXContractType
+from nautilus_trader.core.nautilus_pyo3 import OKXEnvironment
 from nautilus_trader.core.nautilus_pyo3 import OKXInstrumentType
 from nautilus_trader.core.nautilus_pyo3 import OKXMarginMode
 from nautilus_trader.core.nautilus_pyo3 import OKXVipLevel
@@ -59,8 +60,13 @@ class OKXDataClientConfig(LiveDataClientConfig, frozen=True):
         Optional WebSocket proxy URL.
         Note: WebSocket proxy support is not yet implemented. This field is reserved
         for future functionality. Use `http_proxy_url` for REST API proxy support.
+    environment : OKXEnvironment, optional
+        The OKX environment for the client (LIVE or DEMO).
+        If ``None`` then defaults to LIVE.
+        Takes precedence over ``is_demo`` if set.
     is_demo : bool, default False
         If the client is connecting to the OKX demo API.
+        Deprecated: use ``environment=OKXEnvironment.DEMO`` instead.
     update_instruments_interval_mins: PositiveInt or None, default 60
         The interval (minutes) between reloading instruments from the venue.
     vip_level : OKXVipLevel, optional
@@ -76,6 +82,7 @@ class OKXDataClientConfig(LiveDataClientConfig, frozen=True):
     instrument_types: tuple[OKXInstrumentType, ...] = (OKXInstrumentType.SPOT,)
     instrument_families: tuple[str, ...] | None = None
     contract_types: tuple[OKXContractType, ...] | None = None
+    environment: OKXEnvironment | None = None
     base_url_http: str | None = None
     base_url_ws: str | None = None
     http_proxy_url: str | None = None
@@ -126,8 +133,13 @@ class OKXExecClientConfig(LiveExecClientConfig, frozen=True):
         Optional WebSocket proxy URL.
         Note: WebSocket proxy support is not yet implemented. This field is reserved
         for future functionality. Use `http_proxy_url` for REST API proxy support.
+    environment : OKXEnvironment, optional
+        The OKX environment for the client (LIVE or DEMO).
+        If ``None`` then defaults to LIVE.
+        Takes precedence over ``is_demo`` if set.
     is_demo : bool, default False
         If the client is connecting to the OKX demo API.
+        Deprecated: use ``environment=OKXEnvironment.DEMO`` instead.
     margin_mode : OKXMarginMode, optional
         The intended OKX account margin mode.
         - `ISOLATED`: Margin isolated to specific positions (default)
@@ -168,6 +180,7 @@ class OKXExecClientConfig(LiveExecClientConfig, frozen=True):
     instrument_types: tuple[OKXInstrumentType, ...] = (OKXInstrumentType.SPOT,)
     contract_types: tuple[OKXContractType, ...] | None = None
     instrument_families: tuple[str, ...] | None = None
+    environment: OKXEnvironment | None = None
     base_url_http: str | None = None
     base_url_ws: str | None = None
     http_proxy_url: str | None = None

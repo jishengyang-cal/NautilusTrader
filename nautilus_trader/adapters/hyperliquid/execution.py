@@ -33,6 +33,7 @@ from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.nautilus_pyo3 import HyperliquidEnvironment
 from nautilus_trader.execution.messages import BatchCancelOrders
 from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.execution.messages import CancelOrder
@@ -127,7 +128,14 @@ class HyperliquidExecutionClient(LiveExecutionClient):
         self._instrument_provider: HyperliquidInstrumentProvider = instrument_provider
 
         # Log configuration details
-        self._log.info(f"config.testnet={config.testnet}", LogColor.BLUE)
+        environment = (
+            config.environment
+            if config.environment is not None
+            else (
+                HyperliquidEnvironment.TESTNET if config.testnet else HyperliquidEnvironment.MAINNET
+            )
+        )
+        self._log.info(f"config.environment={environment}", LogColor.BLUE)
         self._log.info(f"config.http_timeout_secs={config.http_timeout_secs}", LogColor.BLUE)
         self._log.info(f"config.normalize_prices={config.normalize_prices}", LogColor.BLUE)
         self._log.info(f"{config.http_proxy_url=}", LogColor.BLUE)
@@ -139,7 +147,7 @@ class HyperliquidExecutionClient(LiveExecutionClient):
         # WebSocket client for order/execution updates (user-level, not product-specific)
         self._ws_client = nautilus_pyo3.HyperliquidWebSocketClient(
             url=config.base_url_ws,
-            testnet=config.testnet,
+            environment=environment,
             account_id=str(account_id),
         )
 

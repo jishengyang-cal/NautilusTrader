@@ -26,6 +26,7 @@ from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.nautilus_pyo3 import DeribitEnvironment
 from nautilus_trader.core.nautilus_pyo3 import DeribitProductType
 from nautilus_trader.live.factories import LiveDataClientFactory
 from nautilus_trader.live.factories import LiveExecClientFactory
@@ -36,7 +37,7 @@ def get_cached_deribit_http_client(
     api_key: str | None = None,
     api_secret: str | None = None,
     base_url: str | None = None,
-    is_testnet: bool = False,
+    environment: DeribitEnvironment = DeribitEnvironment.MAINNET,
     timeout_secs: int | None = None,
     max_retries: int | None = None,
     retry_delay_ms: int | None = None,
@@ -55,8 +56,8 @@ def get_cached_deribit_http_client(
         The API secret for the client.
     base_url : str, optional
         The base URL for the API endpoints.
-    is_testnet : bool, default False
-        If the client is for the Deribit testnet API.
+    environment : DeribitEnvironment, default MAINNET
+        The Deribit environment (MAINNET or TESTNET).
     timeout_secs : int, optional
         The timeout (seconds) for HTTP requests to Deribit.
     max_retries : int, optional
@@ -75,7 +76,7 @@ def get_cached_deribit_http_client(
         "api_key": api_key,
         "api_secret": api_secret,
         "base_url": base_url,
-        "is_testnet": is_testnet,
+        "environment": environment,
     }
 
     if timeout_secs is not None:
@@ -159,11 +160,16 @@ class DeribitLiveDataClientFactory(LiveDataClientFactory):
         DeribitDataClient
 
         """
+        environment = (
+            config.environment
+            if config.environment is not None
+            else (DeribitEnvironment.TESTNET if config.is_testnet else DeribitEnvironment.MAINNET)
+        )
         client: nautilus_pyo3.DeribitHttpClient = get_cached_deribit_http_client(
             api_key=config.api_key,
             api_secret=config.api_secret,
             base_url=config.base_url_http,
-            is_testnet=config.is_testnet,
+            environment=environment,
             timeout_secs=config.http_timeout_secs,
             max_retries=config.max_retries,
             retry_delay_ms=config.retry_delay_initial_ms,
@@ -223,11 +229,16 @@ class DeribitLiveExecClientFactory(LiveExecClientFactory):
         DeribitExecutionClient
 
         """
+        environment = (
+            config.environment
+            if config.environment is not None
+            else (DeribitEnvironment.TESTNET if config.is_testnet else DeribitEnvironment.MAINNET)
+        )
         http_client: nautilus_pyo3.DeribitHttpClient = get_cached_deribit_http_client(
             api_key=config.api_key,
             api_secret=config.api_secret,
             base_url=config.base_url_http,
-            is_testnet=config.is_testnet,
+            environment=environment,
             timeout_secs=config.http_timeout_secs,
             max_retries=config.max_retries,
             retry_delay_ms=config.retry_delay_initial_ms,

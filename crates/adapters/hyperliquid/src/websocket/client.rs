@@ -41,7 +41,11 @@ use nautilus_network::{
 use ustr::Ustr;
 
 use crate::{
-    common::{enums::HyperliquidBarInterval, parse::bar_type_to_interval},
+    common::{
+        consts::ws_url,
+        enums::{HyperliquidBarInterval, HyperliquidEnvironment},
+        parse::bar_type_to_interval,
+    },
     websocket::{
         enums::HyperliquidWsChannel,
         handler::{FeedHandler, HandlerCommand},
@@ -114,19 +118,17 @@ impl Clone for HyperliquidWebSocketClient {
 impl HyperliquidWebSocketClient {
     /// Creates a new Hyperliquid WebSocket client without connecting.
     ///
-    /// If `url` is `None`, the appropriate URL will be determined based on the `testnet` flag:
-    /// - `testnet=false`: `wss://api.hyperliquid.xyz/ws`
-    /// - `testnet=true`: `wss://api.hyperliquid-testnet.xyz/ws`
+    /// If `url` is `None`, the appropriate URL will be determined from the `environment`:
+    /// - `Mainnet`: `wss://api.hyperliquid.xyz/ws`
+    /// - `Testnet`: `wss://api.hyperliquid-testnet.xyz/ws`
     ///
     /// The connection will be established when `connect()` is called.
-    pub fn new(url: Option<String>, testnet: bool, account_id: Option<AccountId>) -> Self {
-        let url = url.unwrap_or_else(|| {
-            if testnet {
-                "wss://api.hyperliquid-testnet.xyz/ws".to_string()
-            } else {
-                "wss://api.hyperliquid.xyz/ws".to_string()
-            }
-        });
+    pub fn new(
+        url: Option<String>,
+        environment: HyperliquidEnvironment,
+        account_id: Option<AccountId>,
+    ) -> Self {
+        let url = url.unwrap_or_else(|| ws_url(environment).to_string());
         let connection_mode = Arc::new(ArcSwap::new(Arc::new(AtomicU8::new(
             ConnectionMode::Closed as u8,
         ))));

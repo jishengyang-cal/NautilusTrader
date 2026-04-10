@@ -19,7 +19,7 @@ use nautilus_model::identifiers::{AccountId, TraderId};
 use pyo3::prelude::*;
 
 use crate::{
-    common::enums::{OKXInstrumentType, OKXMarginMode, OKXVipLevel},
+    common::enums::{OKXEnvironment, OKXInstrumentType, OKXMarginMode, OKXVipLevel},
     config::{OKXDataClientConfig, OKXExecClientConfig},
 };
 
@@ -30,7 +30,7 @@ impl OKXDataClientConfig {
     #[new]
     #[pyo3(signature = (
         instrument_types = None,
-        is_demo = None,
+        environment = None,
         api_key = None,
         api_secret = None,
         api_passphrase = None,
@@ -48,7 +48,7 @@ impl OKXDataClientConfig {
     #[allow(clippy::too_many_arguments)]
     fn py_new(
         instrument_types: Option<Vec<OKXInstrumentType>>,
-        is_demo: Option<bool>,
+        environment: Option<OKXEnvironment>,
         api_key: Option<String>,
         api_secret: Option<String>,
         api_passphrase: Option<String>,
@@ -76,7 +76,7 @@ impl OKXDataClientConfig {
             base_url_ws_business,
             http_proxy_url,
             ws_proxy_url: None,
-            is_demo: is_demo.unwrap_or(defaults.is_demo),
+            environment: environment.unwrap_or(defaults.environment),
             http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
             max_retries: max_retries.unwrap_or(defaults.max_retries),
             retry_delay_initial_ms: retry_delay_initial_ms
@@ -102,7 +102,7 @@ impl OKXExecClientConfig {
         trader_id,
         account_id,
         instrument_types = None,
-        is_demo = None,
+        environment = None,
         api_key = None,
         api_secret = None,
         api_passphrase = None,
@@ -121,7 +121,7 @@ impl OKXExecClientConfig {
         trader_id: TraderId,
         account_id: AccountId,
         instrument_types: Option<Vec<OKXInstrumentType>>,
-        is_demo: Option<bool>,
+        environment: Option<OKXEnvironment>,
         api_key: Option<String>,
         api_secret: Option<String>,
         api_passphrase: Option<String>,
@@ -150,7 +150,7 @@ impl OKXExecClientConfig {
             base_url_ws_business,
             http_proxy_url,
             ws_proxy_url: None,
-            is_demo: is_demo.unwrap_or(defaults.is_demo),
+            environment: environment.unwrap_or(defaults.environment),
             http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
             use_fills_channel: defaults.use_fills_channel,
             use_mm_mass_cancel: defaults.use_mm_mass_cancel,

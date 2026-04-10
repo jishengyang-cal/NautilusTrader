@@ -40,7 +40,10 @@
 use std::{env, time::Duration};
 
 use nautilus_dydx::{
-    common::consts::{DYDX_TESTNET_HTTP_URL, DYDX_TESTNET_WS_URL},
+    common::{
+        consts::{DYDX_TESTNET_HTTP_URL, DYDX_TESTNET_WS_URL},
+        enums::DydxNetwork,
+    },
     http::client::DydxHttpClient,
     websocket::client::DydxWebSocketClient,
 };
@@ -78,17 +81,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     };
 
-    let is_testnet = http_url.contains("testnet") || ws_url.contains("testnet");
+    let network = if http_url.contains("testnet") || ws_url.contains("testnet") {
+        DydxNetwork::Testnet
+    } else {
+        DydxNetwork::Mainnet
+    };
 
     log::info!("Connecting to dYdX HTTP API: {http_url}");
     log::info!("Connecting to dYdX WebSocket: {ws_url}");
-    log::info!(
-        "Environment: {}",
-        if is_testnet { "TESTNET" } else { "MAINNET" }
-    );
+    log::info!("Environment: {network}");
     log::info!("");
 
-    let http_client = DydxHttpClient::new(Some(http_url), 30, None, is_testnet, None)?;
+    let http_client = DydxHttpClient::new(Some(http_url), 30, None, network, None)?;
     let instruments = http_client.request_instruments(None, None, None).await?;
 
     log::info!("Fetched {} instruments from HTTP", instruments.len());

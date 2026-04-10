@@ -27,6 +27,7 @@
 
 use log::LevelFilter;
 use nautilus_bitmex::{
+    common::enums::BitmexEnvironment,
     config::{BitmexDataClientConfig, BitmexExecClientConfig},
     factories::{BitmexDataClientFactory, BitmexExecFactoryConfig, BitmexExecutionClientFactory},
 };
@@ -42,21 +43,19 @@ use nautilus_trading::examples::strategies::{GridMarketMaker, GridMarketMakerCon
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let use_testnet = true;
-
     let environment = Environment::Live;
     let trader_id = TraderId::from("TESTER-001");
     let instrument_id = InstrumentId::from("XBTUSD.BITMEX");
 
     let data_config = BitmexDataClientConfig {
-        use_testnet,
+        environment: BitmexEnvironment::Testnet,
         ..Default::default()
     };
 
     let exec_config = BitmexExecFactoryConfig::new(
         trader_id,
         BitmexExecClientConfig {
-            use_testnet,
+            environment: BitmexEnvironment::Testnet,
             deadmans_switch_timeout_secs: Some(60),
             ..Default::default()
         },

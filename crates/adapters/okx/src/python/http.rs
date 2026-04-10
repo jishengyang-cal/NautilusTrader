@@ -32,7 +32,9 @@ use pyo3::{
 
 use super::{extract_optional_string, extract_optional_trigger_type};
 use crate::{
-    common::enums::{OKXInstrumentType, OKXOrderStatus, OKXPositionMode, OKXTradeMode},
+    common::enums::{
+        OKXEnvironment, OKXInstrumentType, OKXOrderStatus, OKXPositionMode, OKXTradeMode,
+    },
     http::{
         client::OKXHttpClient,
         error::OKXHttpError,
@@ -91,7 +93,7 @@ impl OKXHttpClient {
         max_retries=3,
         retry_delay_ms=1_000,
         retry_delay_max_ms=10_000,
-        is_demo=false,
+        environment=OKXEnvironment::Live,
         proxy_url=None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -104,7 +106,7 @@ impl OKXHttpClient {
         max_retries: u32,
         retry_delay_ms: u64,
         retry_delay_max_ms: u64,
-        is_demo: bool,
+        environment: OKXEnvironment,
         proxy_url: Option<String>,
     ) -> PyResult<Self> {
         Self::with_credentials(
@@ -116,7 +118,7 @@ impl OKXHttpClient {
             max_retries,
             retry_delay_ms,
             retry_delay_max_ms,
-            is_demo,
+            environment,
             proxy_url,
         )
         .map_err(to_pyvalue_err)

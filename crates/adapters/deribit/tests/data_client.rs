@@ -49,7 +49,8 @@ use nautilus_common::{
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_deribit::{
-    config::DeribitDataClientConfig, data::DeribitDataClient, http::models::DeribitProductType,
+    common::enums::DeribitEnvironment, config::DeribitDataClientConfig, data::DeribitDataClient,
+    http::models::DeribitProductType,
 };
 use nautilus_model::{
     data::Data,
@@ -397,7 +398,7 @@ fn create_test_config(addr: SocketAddr) -> DeribitDataClientConfig {
         product_types: vec![DeribitProductType::Future],
         base_url_http: Some(format!("http://{addr}/api/v2")),
         base_url_ws: Some(format!("ws://{addr}/ws/api/v2")),
-        use_testnet: true,
+        environment: DeribitEnvironment::Testnet,
         http_timeout_secs: 10,
         max_retries: 1,
         retry_delay_initial_ms: 100,

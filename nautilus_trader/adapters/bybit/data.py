@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 
 from nautilus_trader.adapters.bybit.config import BybitDataClientConfig
+from nautilus_trader.adapters.bybit.config import _resolve_environment
 from nautilus_trader.adapters.bybit.constants import BYBIT_VENUE
 from nautilus_trader.adapters.bybit.providers import BybitInstrumentProvider
 from nautilus_trader.cache.cache import Cache
@@ -154,13 +155,7 @@ class BybitDataClient(LiveMarketDataClient):
         ] = {}
         self._ws_client_futures: set[asyncio.Future] = set()
 
-        # Priority: demo > testnet > mainnet
-        if config.demo:
-            environment = nautilus_pyo3.BybitEnvironment.DEMO
-        elif config.testnet:
-            environment = nautilus_pyo3.BybitEnvironment.TESTNET
-        else:
-            environment = nautilus_pyo3.BybitEnvironment.MAINNET
+        environment = _resolve_environment(config.environment, config.demo, config.testnet)
 
         for product_type in self._product_types:
             ws_client = nautilus_pyo3.BybitWebSocketClient.new_public(

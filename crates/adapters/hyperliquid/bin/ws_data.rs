@@ -16,7 +16,8 @@
 use std::{env, time::Duration};
 
 use nautilus_hyperliquid::{
-    common::consts::ws_url, http::HyperliquidHttpClient,
+    common::{consts::ws_url, enums::HyperliquidEnvironment},
+    http::HyperliquidHttpClient,
     websocket::client::HyperliquidWebSocketClient,
 };
 use nautilus_model::instruments::{Instrument, InstrumentAny};
@@ -27,13 +28,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     nautilus_common::logging::ensure_logging_initialized();
 
     let args: Vec<String> = env::args().collect();
-    let testnet = args.get(1).is_some_and(|s| s == "testnet");
+    let environment = if args.get(1).is_some_and(|s| s == "testnet") {
+        HyperliquidEnvironment::Testnet
+    } else {
+        HyperliquidEnvironment::Mainnet
+    };
 
     log::info!("Starting Hyperliquid WebSocket data example");
-    log::info!("Testnet: {testnet}");
+    log::info!("Environment: {environment:?}");
 
     // Load instruments first
-    let http_client = HyperliquidHttpClient::new(testnet, 60, None)?;
+    let http_client = HyperliquidHttpClient::new(environment, 60, None)?;
     let instruments = http_client.request_instruments().await?;
     log::info!("Loaded {} instruments", instruments.len());
 
@@ -48,10 +53,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     log::info!("Using instrument: {instrument_id}");
 
-    let ws_url = ws_url(testnet);
+    let ws_url = ws_url(environment);
     log::info!("WebSocket URL: {ws_url}");
 
-    let mut client = HyperliquidWebSocketClient::new(Some(ws_url.to_string()), testnet, None);
+    let mut client = HyperliquidWebSocketClient::new(Some(ws_url.to_string()), environment, None);
 
     // Cache instruments before connecting
     client.cache_instruments(instruments);

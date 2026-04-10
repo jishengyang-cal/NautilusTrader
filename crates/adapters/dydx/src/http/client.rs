@@ -90,7 +90,7 @@ use super::error::DydxHttpError;
 use crate::{
     common::{
         consts::{DYDX_HTTP_URL, DYDX_TESTNET_HTTP_URL},
-        enums::DydxCandleResolution,
+        enums::{DydxCandleResolution, DydxNetwork},
         instrument_cache::InstrumentCache,
         parse::extract_raw_symbol,
     },
@@ -152,12 +152,13 @@ pub struct DydxRawHttpClient {
     client: HttpClient,
     retry_manager: RetryManager<DydxHttpError>,
     cancellation_token: CancellationToken,
-    is_testnet: bool,
+    network: DydxNetwork,
 }
 
 impl Default for DydxRawHttpClient {
     fn default() -> Self {
-        Self::new(None, 60, None, false, None).expect("Failed to create default DydxRawHttpClient")
+        Self::new(None, 60, None, DydxNetwork::Mainnet, None)
+            .expect("Failed to create default DydxRawHttpClient")
     }
 }
 
@@ -165,7 +166,7 @@ impl Debug for DydxRawHttpClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(stringify!(DydxRawHttpClient))
             .field("base_url", &self.base_url)
-            .field("is_testnet", &self.is_testnet)
+            .field("network", &self.network)
             .finish_non_exhaustive()
     }
 }
@@ -193,13 +194,12 @@ impl DydxRawHttpClient {
         base_url: Option<String>,
         timeout_secs: u64,
         proxy_url: Option<String>,
-        is_testnet: bool,
+        network: DydxNetwork,
         retry_config: Option<RetryConfig>,
     ) -> anyhow::Result<Self> {
-        let base_url = if is_testnet {
-            base_url.unwrap_or_else(|| DYDX_TESTNET_HTTP_URL.to_string())
-        } else {
-            base_url.unwrap_or_else(|| DYDX_HTTP_URL.to_string())
+        let base_url = match network {
+            DydxNetwork::Testnet => base_url.unwrap_or_else(|| DYDX_TESTNET_HTTP_URL.to_string()),
+            DydxNetwork::Mainnet => base_url.unwrap_or_else(|| DYDX_HTTP_URL.to_string()),
         };
 
         let retry_manager = RetryManager::new(retry_config.unwrap_or_default());
@@ -224,14 +224,14 @@ impl DydxRawHttpClient {
             client,
             retry_manager,
             cancellation_token: CancellationToken::new(),
-            is_testnet,
+            network,
         })
     }
 
     /// Returns `true` if this client is configured for testnet.
     #[must_use]
     pub const fn is_testnet(&self) -> bool {
-        self.is_testnet
+        matches!(self.network, DydxNetwork::Testnet)
     }
 
     /// Returns the base URL used by this client.
@@ -727,7 +727,8 @@ impl Clone for DydxHttpClient {
 
 impl Default for DydxHttpClient {
     fn default() -> Self {
-        Self::new(None, 60, None, false, None).expect("Failed to create default DydxHttpClient")
+        Self::new(None, 60, None, DydxNetwork::Mainnet, None)
+            .expect("Failed to create default DydxHttpClient")
     }
 }
 
@@ -748,14 +749,14 @@ impl DydxHttpClient {
         base_url: Option<String>,
         timeout_secs: u64,
         proxy_url: Option<String>,
-        is_testnet: bool,
+        network: DydxNetwork,
         retry_config: Option<RetryConfig>,
     ) -> anyhow::Result<Self> {
         Self::new_with_cache(
             base_url,
             timeout_secs,
             proxy_url,
-            is_testnet,
+            network,
             retry_config,
             Arc::new(InstrumentCache::new()),
         )
@@ -777,7 +778,7 @@ impl DydxHttpClient {
         base_url: Option<String>,
         timeout_secs: u64,
         proxy_url: Option<String>,
-        is_testnet: bool,
+        network: DydxNetwork,
         retry_config: Option<RetryConfig>,
         instrument_cache: Arc<InstrumentCache>,
     ) -> anyhow::Result<Self> {
@@ -786,7 +787,7 @@ impl DydxHttpClient {
                 base_url,
                 timeout_secs,
                 proxy_url,
-                is_testnet,
+                network,
                 retry_config,
             )?),
             instrument_cache,
@@ -1753,7 +1754,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_raw_client_creation() {
-        let client = DydxRawHttpClient::new(None, 30, None, false, None);
+        let client = DydxRawHttpClient::new(None, 30, None, DydxNetwork::Mainnet, None);
         assert!(client.is_ok());
 
         let client = client.unwrap();
@@ -1763,7 +1764,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_raw_client_testnet() {
-        let client = DydxRawHttpClient::new(None, 30, None, true, None);
+        let client = DydxRawHttpClient::new(None, 30, None, DydxNetwork::Testnet, None);
         assert!(client.is_ok());
 
         let client = client.unwrap();
@@ -1773,7 +1774,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_domain_client_creation() {
-        let client = DydxHttpClient::new(None, 30, None, false, None);
+        let client = DydxHttpClient::new(None, 30, None, DydxNetwork::Mainnet, None);
         assert!(client.is_ok());
 
         let client = client.unwrap();
@@ -1785,7 +1786,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_domain_client_testnet() {
-        let client = DydxHttpClient::new(None, 30, None, true, None);
+        let client = DydxHttpClient::new(None, 30, None, DydxNetwork::Testnet, None);
         assert!(client.is_ok());
 
         let client = client.unwrap();
@@ -1803,7 +1804,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_domain_client_clone() {
-        let client = DydxHttpClient::new(None, 30, None, false, None).unwrap();
+        let client = DydxHttpClient::new(None, 30, None, DydxNetwork::Mainnet, None).unwrap();
 
         // Clone before initialization
         let cloned = client.clone();
@@ -1863,8 +1864,14 @@ mod tests {
 
         // Keep HTTP client timeout at a typical value; rely on RetryManager
         // operation timeout to enforce non-blocking behavior.
-        let client =
-            DydxRawHttpClient::new(Some(base_url), 60, None, false, Some(retry_config)).unwrap();
+        let client = DydxRawHttpClient::new(
+            Some(base_url),
+            60,
+            None,
+            DydxNetwork::Mainnet,
+            Some(retry_config),
+        )
+        .unwrap();
 
         let start = std::time::Instant::now();
         let result: Result<serde_json::Value, error::DydxHttpError> =

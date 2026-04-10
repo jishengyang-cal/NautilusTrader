@@ -24,7 +24,7 @@ use nautilus_model::{
     types::Quantity,
 };
 use nautilus_okx::{
-    common::enums::OKXInstrumentType,
+    common::enums::{OKXEnvironment, OKXInstrumentType},
     config::{OKXDataClientConfig, OKXExecClientConfig},
     factories::{OKXDataClientFactory, OKXExecutionClientFactory},
 };
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         api_secret: None,     // Will use 'OKX_API_SECRET' env var
         api_passphrase: None, // Will use 'OKX_API_PASSPHRASE' env var
         instrument_types: vec![OKXInstrumentType::Spot, OKXInstrumentType::Swap],
-        is_demo: false,
+        environment: OKXEnvironment::Live,
         ..Default::default()
     };
 
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         api_secret: None,     // Will use 'OKX_API_SECRET' env var
         api_passphrase: None, // Will use 'OKX_API_PASSPHRASE' env var
         instrument_types: vec![OKXInstrumentType::Spot, OKXInstrumentType::Swap],
-        is_demo: false,
+        environment: OKXEnvironment::Live,
         ..Default::default()
     };
 

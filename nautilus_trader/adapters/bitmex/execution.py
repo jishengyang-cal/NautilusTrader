@@ -28,6 +28,7 @@ from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.nautilus_pyo3 import BitmexEnvironment
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.messages import BatchCancelOrders
 from nautilus_trader.execution.messages import CancelAllOrders
@@ -133,8 +134,13 @@ class BitmexExecutionClient(LiveExecutionClient):
 
         # Configuration
         self._config = config
+        self._env = (
+            config.environment
+            if config.environment is not None
+            else (BitmexEnvironment.TESTNET if config.testnet else BitmexEnvironment.MAINNET)
+        )
 
-        self._log.info(f"{config.testnet=}", LogColor.BLUE)
+        self._log.info(f"environment={self._env}", LogColor.BLUE)
         self._log.info(f"{config.http_timeout_secs=}", LogColor.BLUE)
         self._log.info(f"{config.max_retries=}", LogColor.BLUE)
         self._log.info(f"{config.retry_delay_initial_ms=}", LogColor.BLUE)
@@ -163,14 +169,14 @@ class BitmexExecutionClient(LiveExecutionClient):
         self._log.info(f"REST API key {masked_key}", LogColor.BLUE)
 
         # Determine HTTP base URL for broadcasters
-        http_url = config.base_url_http or nautilus_pyo3.get_bitmex_http_base_url(config.testnet)
+        http_url = config.base_url_http or nautilus_pyo3.get_bitmex_http_base_url(self._env)
 
         self._submitter = nautilus_pyo3.SubmitBroadcaster(
             pool_size=config.submitter_pool_size or 1,
             api_key=config.api_key,
             api_secret=config.api_secret,
             base_url=http_url,
-            testnet=config.testnet,
+            environment=self._env,
             timeout_secs=config.http_timeout_secs,
             max_retries=config.max_retries,
             retry_delay_ms=config.retry_delay_initial_ms,
@@ -185,7 +191,7 @@ class BitmexExecutionClient(LiveExecutionClient):
             api_key=config.api_key,
             api_secret=config.api_secret,
             base_url=http_url,
-            testnet=config.testnet,
+            environment=self._env,
             timeout_secs=config.http_timeout_secs,
             max_retries=config.max_retries,
             retry_delay_ms=config.retry_delay_initial_ms,
@@ -196,7 +202,7 @@ class BitmexExecutionClient(LiveExecutionClient):
         )
 
         # WebSocket API
-        ws_url = config.base_url_ws or nautilus_pyo3.get_bitmex_ws_url(config.testnet)
+        ws_url = config.base_url_ws or nautilus_pyo3.get_bitmex_ws_url(self._env)
 
         self._ws_client = nautilus_pyo3.BitmexWebSocketClient(
             url=ws_url,
@@ -204,7 +210,7 @@ class BitmexExecutionClient(LiveExecutionClient):
             api_secret=config.api_secret,
             account_id=self.pyo3_account_id,
             heartbeat=30,
-            testnet=config.testnet,
+            environment=self._env,
         )
         self._ws_client_futures: set[asyncio.Future] = set()
         self._dms_task: asyncio.Task | None = None

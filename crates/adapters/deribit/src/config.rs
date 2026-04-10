@@ -20,6 +20,7 @@ use nautilus_model::identifiers::{AccountId, TraderId};
 use crate::{
     common::{
         credential::credential_env_vars,
+        enums::DeribitEnvironment,
         urls::{get_http_base_url, get_ws_url},
     },
     http::models::DeribitProductType,
@@ -47,9 +48,9 @@ pub struct DeribitDataClientConfig {
     pub base_url_http: Option<String>,
     /// Optional override for the WebSocket URL.
     pub base_url_ws: Option<String>,
-    /// When true the client will use Deribit testnet endpoints.
+    /// The Deribit environment (mainnet or testnet).
     #[builder(default)]
-    pub use_testnet: bool,
+    pub environment: DeribitEnvironment,
     /// HTTP timeout in seconds.
     #[builder(default = 60)]
     pub http_timeout_secs: u64,
@@ -86,7 +87,7 @@ impl DeribitDataClientConfig {
     /// Returns `true` when API credentials are available (in config or env vars).
     #[must_use]
     pub fn has_api_credentials(&self) -> bool {
-        let (key_env, secret_env) = credential_env_vars(self.use_testnet);
+        let (key_env, secret_env) = credential_env_vars(self.environment);
         let has_key = self.api_key.is_some() || std::env::var(key_env).is_ok();
         let has_secret = self.api_secret.is_some() || std::env::var(secret_env).is_ok();
         has_key && has_secret
@@ -97,15 +98,15 @@ impl DeribitDataClientConfig {
     pub fn http_base_url(&self) -> String {
         self.base_url_http
             .clone()
-            .unwrap_or_else(|| get_http_base_url(self.use_testnet).to_string())
+            .unwrap_or_else(|| get_http_base_url(self.environment).to_string())
     }
 
-    /// Returns the WebSocket URL, respecting the testnet flag and overrides.
+    /// Returns the WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_url(&self) -> String {
         self.base_url_ws
             .clone()
-            .unwrap_or_else(|| get_ws_url(self.use_testnet).to_string())
+            .unwrap_or_else(|| get_ws_url(self.environment).to_string())
     }
 }
 
@@ -137,9 +138,9 @@ pub struct DeribitExecClientConfig {
     pub base_url_http: Option<String>,
     /// Optional override for the WebSocket URL.
     pub base_url_ws: Option<String>,
-    /// When true the client will use Deribit testnet endpoints.
+    /// The Deribit environment (mainnet or testnet).
     #[builder(default)]
-    pub use_testnet: bool,
+    pub environment: DeribitEnvironment,
     /// HTTP timeout in seconds.
     #[builder(default = 60)]
     pub http_timeout_secs: u64,
@@ -174,7 +175,7 @@ impl DeribitExecClientConfig {
     /// Returns `true` when API credentials are available (in config or env vars).
     #[must_use]
     pub fn has_api_credentials(&self) -> bool {
-        let (key_env, secret_env) = credential_env_vars(self.use_testnet);
+        let (key_env, secret_env) = credential_env_vars(self.environment);
         let has_key = self.api_key.is_some() || std::env::var(key_env).is_ok();
         let has_secret = self.api_secret.is_some() || std::env::var(secret_env).is_ok();
         has_key && has_secret
@@ -185,15 +186,15 @@ impl DeribitExecClientConfig {
     pub fn http_base_url(&self) -> String {
         self.base_url_http
             .clone()
-            .unwrap_or_else(|| get_http_base_url(self.use_testnet).to_string())
+            .unwrap_or_else(|| get_http_base_url(self.environment).to_string())
     }
 
-    /// Returns the WebSocket URL, respecting the testnet flag and overrides.
+    /// Returns the WebSocket URL, respecting the environment and overrides.
     #[must_use]
     pub fn ws_url(&self) -> String {
         self.base_url_ws
             .clone()
-            .unwrap_or_else(|| get_ws_url(self.use_testnet).to_string())
+            .unwrap_or_else(|| get_ws_url(self.environment).to_string())
     }
 }
 
@@ -206,7 +207,7 @@ mod tests {
     #[rstest]
     fn test_default_config() {
         let config = DeribitDataClientConfig::default();
-        assert!(!config.use_testnet);
+        assert_eq!(config.environment, DeribitEnvironment::Mainnet);
         assert_eq!(config.product_types.len(), 1);
         assert_eq!(config.http_timeout_secs, 60);
     }
@@ -220,7 +221,7 @@ mod tests {
     #[rstest]
     fn test_http_base_url_testnet() {
         let config = DeribitDataClientConfig {
-            use_testnet: true,
+            environment: DeribitEnvironment::Testnet,
             ..Default::default()
         };
         assert_eq!(config.http_base_url(), "https://test.deribit.com");
@@ -235,7 +236,7 @@ mod tests {
     #[rstest]
     fn test_ws_url_testnet() {
         let config = DeribitDataClientConfig {
-            use_testnet: true,
+            environment: DeribitEnvironment::Testnet,
             ..Default::default()
         };
         assert_eq!(config.ws_url(), "wss://test.deribit.com/ws/api/v2");

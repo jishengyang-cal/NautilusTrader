@@ -36,7 +36,7 @@ use axum::{
 use nautilus_common::testing::wait_until_async;
 use nautilus_hyperliquid::{
     HyperliquidHttpClient,
-    common::enums::HyperliquidInfoRequestType,
+    common::enums::{HyperliquidEnvironment, HyperliquidInfoRequestType},
     http::{
         models::{
             Cloid, HyperliquidFills, HyperliquidL2Book, PerpMeta, PerpMetaAndCtxs, SpotMeta,
@@ -580,7 +580,7 @@ impl TestHttpClient {
 }
 
 fn create_domain_client(addr: &SocketAddr) -> HyperliquidHttpClient {
-    let mut client = HyperliquidHttpClient::new(true, 60, None).unwrap();
+    let mut client = HyperliquidHttpClient::new(HyperliquidEnvironment::Mainnet, 60, None).unwrap();
     client.set_base_info_url(format!("http://{addr}/info"));
     client.set_base_exchange_url(format!("http://{addr}/exchange"));
     client.set_account_id(AccountId::new("HYPERLIQUID-master"));

@@ -19,6 +19,7 @@ use nautilus_model::identifiers::{AccountId, TraderId};
 use pyo3::prelude::*;
 
 use crate::{
+    common::enums::DeribitEnvironment,
     config::{DeribitDataClientConfig, DeribitExecClientConfig},
     http::models::DeribitProductType,
 };
@@ -30,7 +31,7 @@ impl DeribitDataClientConfig {
     #[new]
     #[pyo3(signature = (
         product_types = None,
-        use_testnet = None,
+        environment = None,
         api_key = None,
         api_secret = None,
         base_url_http = None,
@@ -45,7 +46,7 @@ impl DeribitDataClientConfig {
     #[allow(clippy::too_many_arguments)]
     fn py_new(
         product_types: Option<Vec<DeribitProductType>>,
-        use_testnet: Option<bool>,
+        environment: Option<DeribitEnvironment>,
         api_key: Option<String>,
         api_secret: Option<String>,
         base_url_http: Option<String>,
@@ -64,7 +65,7 @@ impl DeribitDataClientConfig {
             product_types: product_types.unwrap_or(defaults.product_types),
             base_url_http,
             base_url_ws,
-            use_testnet: use_testnet.unwrap_or(defaults.use_testnet),
+            environment: environment.unwrap_or(defaults.environment),
             http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
             max_retries: max_retries.unwrap_or(defaults.max_retries),
             retry_delay_initial_ms: retry_delay_initial_ms
@@ -91,7 +92,7 @@ impl DeribitExecClientConfig {
         trader_id,
         account_id,
         product_types = None,
-        use_testnet = None,
+        environment = None,
         api_key = None,
         api_secret = None,
         base_url_http = None,
@@ -106,7 +107,7 @@ impl DeribitExecClientConfig {
         trader_id: TraderId,
         account_id: AccountId,
         product_types: Option<Vec<DeribitProductType>>,
-        use_testnet: Option<bool>,
+        environment: Option<DeribitEnvironment>,
         api_key: Option<String>,
         api_secret: Option<String>,
         base_url_http: Option<String>,
@@ -125,7 +126,7 @@ impl DeribitExecClientConfig {
             product_types: product_types.unwrap_or(defaults.product_types),
             base_url_http,
             base_url_ws,
-            use_testnet: use_testnet.unwrap_or(defaults.use_testnet),
+            environment: environment.unwrap_or(defaults.environment),
             http_timeout_secs: http_timeout_secs.unwrap_or(defaults.http_timeout_secs),
             max_retries: max_retries.unwrap_or(defaults.max_retries),
             retry_delay_initial_ms: retry_delay_initial_ms

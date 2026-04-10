@@ -62,6 +62,7 @@ use super::{
 use crate::common::{
     consts::{BITMEX_WS_TOPIC_DELIMITER, BITMEX_WS_URL},
     credential::{Credential, credential_env_vars},
+    enums::BitmexEnvironment,
 };
 
 /// Provides a WebSocket client for connecting to the [BitMEX](https://bitmex.com) real-time API.
@@ -135,7 +136,7 @@ impl BitmexWebSocketClient {
     /// Creates a new [`BitmexWebSocketClient`] with environment variable credential resolution.
     ///
     /// If `api_key` or `api_secret` are not provided, they will be loaded from
-    /// environment variables based on the `testnet` flag:
+    /// environment variables based on the `environment`:
     /// - Testnet: `BITMEX_TESTNET_API_KEY`, `BITMEX_TESTNET_API_SECRET`
     /// - Mainnet: `BITMEX_API_KEY`, `BITMEX_API_SECRET`
     ///
@@ -148,9 +149,9 @@ impl BitmexWebSocketClient {
         api_secret: Option<String>,
         account_id: Option<AccountId>,
         heartbeat: u64,
-        testnet: bool,
+        environment: BitmexEnvironment,
     ) -> anyhow::Result<Self> {
-        let (api_key_env, api_secret_env) = credential_env_vars(testnet);
+        let (api_key_env, api_secret_env) = credential_env_vars(environment);
 
         let key = get_or_env_var_opt(api_key, api_key_env);
         let secret = get_or_env_var_opt(api_secret, api_secret_env);
@@ -165,7 +166,7 @@ impl BitmexWebSocketClient {
     /// Returns an error if environment variables are not set or credentials are invalid.
     pub fn from_env() -> anyhow::Result<Self> {
         let url = get_env_var("BITMEX_WS_URL")?;
-        let (key_var, secret_var) = credential_env_vars(false);
+        let (key_var, secret_var) = credential_env_vars(BitmexEnvironment::Mainnet);
         let api_key = get_env_var(key_var)?;
         let api_secret = get_env_var(secret_var)?;
 

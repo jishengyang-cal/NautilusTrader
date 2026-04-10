@@ -11,6 +11,7 @@ __all__ = [
     "BITMEX_WS_URL",
     "BitmexDataClientConfig",
     "BitmexDataClientFactory",
+    "BitmexEnvironment",
     "BitmexExecClientConfig",
     "BitmexExecFactoryConfig",
     "BitmexExecutionClientFactory",
@@ -26,6 +27,22 @@ __all__ = [
 
 BITMEX_HTTP_URL: str
 BITMEX_WS_URL: str
+
+@typing.final
+class BitmexEnvironment(enum.Enum):
+    MAINNET = ...
+    TESTNET = ...
+
+    def __init__(self, value: typing.Any) -> None: ...
+    def __hash__(self) -> int: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def value(self) -> int: ...
+    @staticmethod
+    def variants() -> list[str]: ...
+    @classmethod
+    def from_str(cls, data: typing.Any) -> BitmexEnvironment: ...
 
 @typing.final
 class BitmexDataClientConfig:
@@ -99,7 +116,7 @@ class BitmexHttpClient:
         api_key: str | None = None,
         api_secret: str | None = None,
         base_url: str | None = None,
-        testnet: bool = False,
+        environment: BitmexEnvironment = BitmexEnvironment.MAINNET,
         timeout_secs: int = 60,
         max_retries: int = 3,
         retry_delay_ms: int = 1000,
@@ -211,7 +228,7 @@ class CancelBroadcaster:
         api_key: str | None = None,
         api_secret: str | None = None,
         base_url: str | None = None,
-        testnet: bool = False,
+        environment: BitmexEnvironment = BitmexEnvironment.MAINNET,
         timeout_secs: int = 60,
         max_retries: int = 3,
         retry_delay_ms: int = 1000,
@@ -255,7 +272,7 @@ class BitmexWebSocketClient:
         api_secret: str | None = None,
         account_id: model.AccountId | None = None,
         heartbeat: int = 5,
-        testnet: bool = False,
+        environment: BitmexEnvironment = BitmexEnvironment.MAINNET,
     ) -> None: ...
     @staticmethod
     def from_env() -> BitmexWebSocketClient: ...
@@ -329,7 +346,7 @@ class SubmitBroadcaster:
         api_key: str | None = None,
         api_secret: str | None = None,
         base_url: str | None = None,
-        testnet: bool = False,
+        environment: BitmexEnvironment = BitmexEnvironment.MAINNET,
         timeout_secs: int = 60,
         max_retries: int = 3,
         retry_delay_ms: int = 1000,
@@ -392,5 +409,5 @@ class BitmexSymbolStatus(enum.Enum):
     @classmethod
     def from_str(cls, data: typing.Any) -> BitmexSymbolStatus: ...
 
-def get_bitmex_http_base_url(testnet: bool) -> str: ...
-def get_bitmex_ws_url(testnet: bool) -> str: ...
+def get_bitmex_http_base_url(environment: BitmexEnvironment) -> str: ...
+def get_bitmex_ws_url(environment: BitmexEnvironment) -> str: ...

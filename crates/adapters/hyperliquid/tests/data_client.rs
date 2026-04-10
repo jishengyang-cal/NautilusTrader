@@ -49,6 +49,7 @@ use nautilus_common::{
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_hyperliquid::{
+    common::enums::HyperliquidEnvironment,
     config::HyperliquidDataClientConfig,
     data::HyperliquidDataClient,
     http::{
@@ -476,7 +477,7 @@ fn create_data_client_config(addr: SocketAddr) -> HyperliquidDataClientConfig {
     HyperliquidDataClientConfig {
         base_url_http: Some(format!("http://{addr}/info")),
         base_url_ws: Some(format!("ws://{addr}/ws")),
-        is_testnet: false,
+        environment: HyperliquidEnvironment::Mainnet,
         ..HyperliquidDataClientConfig::default()
     }
 }

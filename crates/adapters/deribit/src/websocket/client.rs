@@ -69,7 +69,8 @@ use crate::common::{
         DERIBIT_WS_ORDER_QUOTA, DERIBIT_WS_SUBSCRIPTION_KEY, DERIBIT_WS_SUBSCRIPTION_QUOTA,
         DERIBIT_WS_URL,
     },
-    credential::Credential,
+    credential::{Credential, credential_env_vars},
+    enums::DeribitEnvironment,
     parse::bar_spec_to_resolution,
 };
 
@@ -88,7 +89,7 @@ const AUTHENTICATION_TIMEOUT_SECS: u64 = 30;
 )]
 pub struct DeribitWebSocketClient {
     url: String,
-    is_testnet: bool,
+    environment: DeribitEnvironment,
     heartbeat_interval: Option<u64>,
     credential: Option<Credential>,
     auth_state: Arc<tokio::sync::RwLock<Option<AuthState>>>,
@@ -113,7 +114,7 @@ impl Debug for DeribitWebSocketClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(stringify!(DeribitWebSocketClient))
             .field("url", &self.url)
-            .field("is_testnet", &self.is_testnet)
+            .field("environment", &self.environment)
             .field("has_credentials", &self.credential.is_some())
             .field("is_authenticated", &self.auth_tracker.is_authenticated())
             .field(
@@ -138,14 +139,14 @@ impl DeribitWebSocketClient {
         api_key: Option<String>,
         api_secret: Option<String>,
         heartbeat_interval: u64,
-        is_testnet: bool,
+        environment: DeribitEnvironment,
     ) -> anyhow::Result<Self> {
         Self::new_inner(
             url,
             api_key,
             api_secret,
             heartbeat_interval,
-            is_testnet,
+            environment,
             true,
         )
     }
@@ -156,23 +157,20 @@ impl DeribitWebSocketClient {
         api_key: Option<String>,
         api_secret: Option<String>,
         heartbeat_interval: u64,
-        is_testnet: bool,
+        environment: DeribitEnvironment,
         env_fallback: bool,
     ) -> anyhow::Result<Self> {
-        let url = url.unwrap_or_else(|| {
-            if is_testnet {
-                DERIBIT_TESTNET_WS_URL.to_string()
-            } else {
-                DERIBIT_WS_URL.to_string()
-            }
+        let url = url.unwrap_or_else(|| match environment {
+            DeribitEnvironment::Testnet => DERIBIT_TESTNET_WS_URL.to_string(),
+            DeribitEnvironment::Mainnet => DERIBIT_WS_URL.to_string(),
         });
 
         // Resolve credential from config or environment variables (if env_fallback is true)
         let credential =
-            Credential::resolve_with_env_fallback(api_key, api_secret, is_testnet, env_fallback)?;
+            Credential::resolve_with_env_fallback(api_key, api_secret, environment, env_fallback)?;
 
         if credential.is_some() {
-            log::info!("Credentials loaded (testnet={is_testnet})");
+            log::info!("Credentials loaded ({environment})");
         } else {
             log::debug!("No credentials configured - unauthenticated mode");
         }
@@ -182,7 +180,7 @@ impl DeribitWebSocketClient {
 
         Ok(Self {
             url,
-            is_testnet,
+            environment,
             heartbeat_interval: Some(heartbeat_interval),
             credential,
             auth_state: Arc::new(tokio::sync::RwLock::new(None)),
@@ -216,13 +214,13 @@ impl DeribitWebSocketClient {
     /// # Errors
     ///
     /// Returns an error if initialization fails.
-    pub fn new_public(is_testnet: bool) -> anyhow::Result<Self> {
+    pub fn new_public(environment: DeribitEnvironment) -> anyhow::Result<Self> {
         Self::new_inner(
             None,
             None,
             None,
             DERIBIT_WS_HEARTBEAT_SECS,
-            is_testnet,
+            environment,
             false,
         )
     }
@@ -238,9 +236,9 @@ impl DeribitWebSocketClient {
     pub fn new_unauthenticated(
         url: Option<String>,
         heartbeat_interval: u64,
-        is_testnet: bool,
+        environment: DeribitEnvironment,
     ) -> anyhow::Result<Self> {
-        Self::new_inner(url, None, None, heartbeat_interval, is_testnet, false)
+        Self::new_inner(url, None, None, heartbeat_interval, environment, false)
     }
 
     /// Creates an authenticated client with credentials.
@@ -252,12 +250,8 @@ impl DeribitWebSocketClient {
     /// # Errors
     ///
     /// Returns an error if credentials are not found in environment variables.
-    pub fn with_credentials(is_testnet: bool) -> anyhow::Result<Self> {
-        let (key_env, secret_env) = if is_testnet {
-            ("DERIBIT_TESTNET_API_KEY", "DERIBIT_TESTNET_API_SECRET")
-        } else {
-            ("DERIBIT_API_KEY", "DERIBIT_API_SECRET")
-        };
+    pub fn with_credentials(environment: DeribitEnvironment) -> anyhow::Result<Self> {
+        let (key_env, secret_env) = credential_env_vars(environment);
 
         let api_key = get_or_env_var_opt(None, key_env)
             .ok_or_else(|| anyhow::anyhow!("Missing environment variable: {key_env}"))?;
@@ -269,7 +263,7 @@ impl DeribitWebSocketClient {
             Some(api_key),
             Some(api_secret),
             DERIBIT_WS_HEARTBEAT_SECS,
-            is_testnet,
+            environment,
         )
     }
 
@@ -289,6 +283,12 @@ impl DeribitWebSocketClient {
     #[must_use]
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// Returns the environment for this client.
+    #[must_use]
+    pub fn environment(&self) -> DeribitEnvironment {
+        self.environment
     }
 
     /// Returns whether the client is closed.

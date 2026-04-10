@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from nautilus_trader.adapters.bybit import BYBIT
 from nautilus_trader.adapters.bybit import BybitDataClientConfig
+from nautilus_trader.adapters.bybit import BybitEnvironment
 from nautilus_trader.adapters.bybit import BybitExecClientConfig
 from nautilus_trader.adapters.bybit import BybitLiveDataClientFactory
 from nautilus_trader.adapters.bybit import BybitLiveExecClientFactory
@@ -136,25 +137,18 @@ config_node = TradingNodeConfig(
     # ),
     data_clients={
         BYBIT: BybitDataClientConfig(
-            api_key=None,  # 'BYBIT_API_KEY' env var
-            api_secret=None,  # 'BYBIT_API_SECRET' env var
-            base_url_http=None,  # Override with custom endpoint
+            environment=BybitEnvironment.MAINNET,
             # instrument_provider=InstrumentProviderConfig(load_all=True),
             instrument_provider=InstrumentProviderConfig(
                 load_all=False,
                 load_ids=frozenset(reconciliation_instrument_ids),
             ),
             product_types=product_types,
-            demo=False,  # If client uses the demo API
-            testnet=False,  # If client uses the testnet API
         ),
     },
     exec_clients={
         BYBIT: BybitExecClientConfig(
-            api_key=None,  # 'BYBIT_API_KEY' env var
-            api_secret=None,  # 'BYBIT_API_SECRET' env var
-            base_url_http=None,  # Override with custom endpoint
-            base_url_ws_private=None,  # Override with custom endpoint
+            environment=BybitEnvironment.MAINNET,
             # instrument_provider=InstrumentProviderConfig(load_all=True),
             instrument_provider=InstrumentProviderConfig(
                 load_all=False,
@@ -162,8 +156,6 @@ config_node = TradingNodeConfig(
             ),
             product_types=product_types,
             use_spot_position_reports=use_spot_position_reports,
-            demo=False,  # If client uses the demo API
-            testnet=False,  # If client uses the testnet API
         ),
     },
     timeout_connection=20.0,

@@ -108,9 +108,10 @@ use crate::{
         },
         credential::Credential,
         enums::{
-            OKXAlgoOrderType, OKXContractType, OKXInstrumentStatus, OKXInstrumentType,
-            OKXOrderStatus, OKXOrderType, OKXPositionMode, OKXPositionSide, OKXSide,
-            OKXTargetCurrency, OKXTradeMode, OKXTriggerType, conditional_order_to_algo_type,
+            OKXAlgoOrderType, OKXContractType, OKXEnvironment, OKXInstrumentStatus,
+            OKXInstrumentType, OKXOrderStatus, OKXOrderType, OKXPositionMode, OKXPositionSide,
+            OKXSide, OKXTargetCurrency, OKXTradeMode, OKXTriggerType,
+            conditional_order_to_algo_type,
         },
         models::OKXInstrument,
         parse::{
@@ -278,12 +279,12 @@ pub struct OKXRawHttpClient {
     credential: Option<Credential>,
     retry_manager: RetryManager<OKXHttpError>,
     cancellation_token: CancellationToken,
-    is_demo: bool,
+    environment: OKXEnvironment,
 }
 
 impl Default for OKXRawHttpClient {
     fn default() -> Self {
-        Self::new(None, 60, 3, 1000, 10_000, false, None)
+        Self::new(None, 60, 3, 1000, 10_000, OKXEnvironment::Live, None)
             .expect("Failed to create default OKXRawHttpClient")
     }
 }
@@ -385,7 +386,7 @@ impl OKXRawHttpClient {
         max_retries: u32,
         retry_delay_ms: u64,
         retry_delay_max_ms: u64,
-        is_demo: bool,
+        environment: OKXEnvironment,
         proxy_url: Option<String>,
     ) -> Result<Self, OKXHttpError> {
         let retry_config = RetryConfig {
@@ -404,7 +405,7 @@ impl OKXRawHttpClient {
         Ok(Self {
             base_url: base_url.unwrap_or(OKX_HTTP_URL.to_string()),
             client: HttpClient::new(
-                Self::default_headers(is_demo),
+                Self::default_headers(environment),
                 vec![],
                 Self::rate_limiter_quotas(),
                 Some(*OKX_REST_QUOTA),
@@ -417,7 +418,7 @@ impl OKXRawHttpClient {
             credential: None,
             retry_manager,
             cancellation_token: CancellationToken::new(),
-            is_demo,
+            environment,
         })
     }
 
@@ -437,7 +438,7 @@ impl OKXRawHttpClient {
         max_retries: u32,
         retry_delay_ms: u64,
         retry_delay_max_ms: u64,
-        is_demo: bool,
+        environment: OKXEnvironment,
         proxy_url: Option<String>,
     ) -> Result<Self, OKXHttpError> {
         let retry_config = RetryConfig {
@@ -456,7 +457,7 @@ impl OKXRawHttpClient {
         Ok(Self {
             base_url,
             client: HttpClient::new(
-                Self::default_headers(is_demo),
+                Self::default_headers(environment),
                 vec![],
                 Self::rate_limiter_quotas(),
                 Some(*OKX_REST_QUOTA),
@@ -469,16 +470,16 @@ impl OKXRawHttpClient {
             credential: Some(Credential::new(api_key, api_secret, api_passphrase)),
             retry_manager,
             cancellation_token: CancellationToken::new(),
-            is_demo,
+            environment,
         })
     }
 
     /// Builds the default headers to include with each request (e.g., `User-Agent`).
-    fn default_headers(is_demo: bool) -> HashMap<String, String> {
+    fn default_headers(environment: OKXEnvironment) -> HashMap<String, String> {
         let mut headers =
             HashMap::from([(USER_AGENT.to_string(), NAUTILUS_USER_AGENT.to_string())]);
 
-        if is_demo {
+        if environment == OKXEnvironment::Demo {
             headers.insert("x-simulated-trading".to_string(), "1".to_string());
         }
 
@@ -1218,7 +1219,7 @@ impl Clone for OKXHttpClient {
 
 impl Default for OKXHttpClient {
     fn default() -> Self {
-        Self::new(None, 60, 3, 1000, 10_000, false, None)
+        Self::new(None, 60, 3, 1000, 10_000, OKXEnvironment::Live, None)
             .expect("Failed to create default OKXHttpClient")
     }
 }
@@ -1239,7 +1240,7 @@ impl OKXHttpClient {
         max_retries: u32,
         retry_delay_ms: u64,
         retry_delay_max_ms: u64,
-        is_demo: bool,
+        environment: OKXEnvironment,
         proxy_url: Option<String>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
@@ -1249,7 +1250,7 @@ impl OKXHttpClient {
                 max_retries,
                 retry_delay_ms,
                 retry_delay_max_ms,
-                is_demo,
+                environment,
                 proxy_url,
             )?),
             instruments_cache: Arc::new(AtomicMap::new()),
@@ -1270,7 +1271,18 @@ impl OKXHttpClient {
     ///
     /// Returns an error if the operation fails.
     pub fn from_env() -> anyhow::Result<Self> {
-        Self::with_credentials(None, None, None, None, 60, 3, 1000, 10_000, false, None)
+        Self::with_credentials(
+            None,
+            None,
+            None,
+            None,
+            60,
+            3,
+            1000,
+            10_000,
+            OKXEnvironment::Live,
+            None,
+        )
     }
 
     /// Creates a new [`OKXHttpClient`] configured with credentials
@@ -1289,7 +1301,7 @@ impl OKXHttpClient {
         max_retries: u32,
         retry_delay_ms: u64,
         retry_delay_max_ms: u64,
-        is_demo: bool,
+        environment: OKXEnvironment,
         proxy_url: Option<String>,
     ) -> anyhow::Result<Self> {
         let api_key = get_or_env_var(api_key, "OKX_API_KEY")?;
@@ -1307,7 +1319,7 @@ impl OKXHttpClient {
                 max_retries,
                 retry_delay_ms,
                 retry_delay_max_ms,
-                is_demo,
+                environment,
                 proxy_url,
             )?),
             instruments_cache: Arc::new(AtomicMap::new()),
@@ -1356,7 +1368,7 @@ impl OKXHttpClient {
     /// Returns whether the client is configured for demo trading.
     #[must_use]
     pub fn is_demo(&self) -> bool {
-        self.inner.is_demo
+        self.inner.environment == OKXEnvironment::Demo
     }
 
     /// Requests the current server time from OKX.

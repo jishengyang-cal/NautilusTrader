@@ -22,7 +22,10 @@
 //!
 //! Run with: `cargo run --example bitmex-data-tester --package nautilus-bitmex`
 
-use nautilus_bitmex::{config::BitmexDataClientConfig, factories::BitmexDataClientFactory};
+use nautilus_bitmex::{
+    common::enums::BitmexEnvironment, config::BitmexDataClientConfig,
+    factories::BitmexDataClientFactory,
+};
 use nautilus_common::enums::Environment;
 use nautilus_live::node::LiveNode;
 use nautilus_model::{
@@ -35,8 +38,6 @@ use nautilus_testkit::testers::{DataTester, DataTesterConfig};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let use_testnet = true;
-
     let environment = Environment::Live;
     let trader_id = TraderId::test_default();
     let instrument_ids = vec![
@@ -45,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     let bitmex_config = BitmexDataClientConfig {
-        use_testnet,
+        environment: BitmexEnvironment::Testnet,
         ..Default::default()
     };
 

@@ -26,6 +26,7 @@ import pandas as pd
 
 from nautilus_trader.adapters.bybit import BYBIT
 from nautilus_trader.adapters.bybit import BybitDataClientConfig
+from nautilus_trader.adapters.bybit import BybitEnvironment
 from nautilus_trader.adapters.bybit import BybitProductType
 from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.config import LoggingConfig
@@ -803,16 +804,14 @@ def main():
         ),
         data_clients={
             BYBIT: BybitDataClientConfig(
-                api_key=os.getenv("BYBIT_API_KEY"),
-                api_secret=os.getenv("BYBIT_API_SECRET"),
+                environment=BybitEnvironment.MAINNET,
                 instrument_provider=InstrumentProviderConfig(
-                    load_all=True,  # Load all instruments
+                    load_all=True,
                     filters={
-                        "base_coin": underlying,  # Filter for BTC base coin only
+                        "base_coin": underlying,
                     },
                 ),
-                product_types=product_types,  # Load both options and spot
-                testnet=False,  # Use mainnet
+                product_types=product_types,
             ),
         },
         timeout_connection=30.0,

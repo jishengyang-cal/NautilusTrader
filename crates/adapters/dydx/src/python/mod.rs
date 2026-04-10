@@ -22,6 +22,7 @@
 
 pub mod config;
 pub mod encoder;
+pub mod enums;
 pub mod factories;
 pub mod grpc;
 pub mod http;

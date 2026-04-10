@@ -61,7 +61,6 @@ config_node = TradingNodeConfig(
     logging=LoggingConfig(log_level="INFO"),
     data_clients={
         DATABENTO: DatabentoDataClientConfig(
-            api_key=None,  # 'DATABENTO_API_KEY' env var
             http_gateway=None,
             instrument_provider=InstrumentProviderConfig(load_all=True),
             instrument_ids=instrument_ids,

@@ -22,6 +22,7 @@ and subscribes to exchange-provided greeks (delta, gamma, vega, theta, IV) for e
 
 from nautilus_trader.adapters.bybit import BYBIT
 from nautilus_trader.adapters.bybit import BybitDataClientConfig
+from nautilus_trader.adapters.bybit import BybitEnvironment
 from nautilus_trader.adapters.bybit import BybitLiveDataClientFactory
 from nautilus_trader.adapters.bybit import BybitProductType
 from nautilus_trader.common.actor import Actor
@@ -110,8 +111,7 @@ config_node = TradingNodeConfig(
     ),
     data_clients={
         BYBIT: BybitDataClientConfig(
-            api_key=None,  # 'BYBIT_API_KEY' env var
-            api_secret=None,  # 'BYBIT_API_SECRET' env var
+            environment=BybitEnvironment.MAINNET,
             instrument_provider=InstrumentProviderConfig(load_all=True),
             product_types=(BybitProductType.OPTION,),
         ),

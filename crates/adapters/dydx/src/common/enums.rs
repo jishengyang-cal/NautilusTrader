@@ -917,6 +917,7 @@ mod tests {
     Eq,
     Hash,
     AsRefStr,
+    EnumIter,
     EnumString,
     Serialize,
     Deserialize,
@@ -925,7 +926,13 @@ mod tests {
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.dydx", from_py_object)
+    pyo3::pyclass(
+        eq,
+        eq_int,
+        module = "nautilus_trader.core.nautilus_pyo3.dydx",
+        from_py_object,
+        rename_all = "SCREAMING_SNAKE_CASE",
+    )
 )]
 #[cfg_attr(
     feature = "python",

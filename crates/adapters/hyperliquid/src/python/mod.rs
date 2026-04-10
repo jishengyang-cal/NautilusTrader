@@ -39,8 +39,8 @@ use crate::{
     common::{
         consts::HYPERLIQUID_POST_ONLY_WOULD_MATCH,
         enums::{
-            HyperliquidConditionalOrderType, HyperliquidProductType, HyperliquidTpSl,
-            HyperliquidTrailingOffsetType,
+            HyperliquidConditionalOrderType, HyperliquidEnvironment, HyperliquidProductType,
+            HyperliquidTpSl, HyperliquidTrailingOffsetType,
         },
     },
     config::{HyperliquidDataClientConfig, HyperliquidExecClientConfig},
@@ -140,6 +140,7 @@ pub fn hyperliquid(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<HyperliquidTpSl>()?;
     m.add_class::<HyperliquidConditionalOrderType>()?;
     m.add_class::<HyperliquidTrailingOffsetType>()?;
+    m.add_class::<HyperliquidEnvironment>()?;
     m.add_function(wrap_pyfunction!(urls::py_get_hyperliquid_http_base_url, m)?)?;
     m.add_function(wrap_pyfunction!(urls::py_get_hyperliquid_ws_url, m)?)?;
     m.add_function(wrap_pyfunction!(

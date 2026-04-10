@@ -102,6 +102,7 @@ pub fn deribit(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<super::websocket::client::DeribitWebSocketClient>()?;
     m.add_class::<crate::common::enums::DeribitCurrency>()?;
     m.add_class::<crate::common::enums::DeribitProductType>()?;
+    m.add_class::<crate::common::enums::DeribitEnvironment>()?;
     m.add_class::<crate::websocket::enums::DeribitUpdateInterval>()?;
     m.add_class::<DeribitDataClientConfig>()?;
     m.add_class::<DeribitExecClientConfig>()?;

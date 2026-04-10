@@ -123,7 +123,7 @@ impl OKXDataClient {
                 config.max_retries,
                 config.retry_delay_initial_ms,
                 config.retry_delay_max_ms,
-                config.is_demo,
+                config.environment,
                 config.http_proxy_url.clone(),
             )?
         } else {
@@ -133,7 +133,7 @@ impl OKXDataClient {
                 config.max_retries,
                 config.retry_delay_initial_ms,
                 config.retry_delay_max_ms,
-                config.is_demo,
+                config.environment,
                 config.http_proxy_url.clone(),
             )?
         };
@@ -624,11 +624,11 @@ impl DataClient for OKXDataClient {
 
     fn start(&mut self) -> anyhow::Result<()> {
         log::info!(
-            "Started: client_id={}, vip_level={:?}, instrument_types={:?}, is_demo={}, http_proxy_url={:?}, ws_proxy_url={:?}",
+            "Started: client_id={}, vip_level={:?}, instrument_types={:?}, environment={}, http_proxy_url={:?}, ws_proxy_url={:?}",
             self.client_id,
             self.vip_level(),
             self.config.instrument_types,
-            self.config.is_demo,
+            self.config.environment,
             self.config.http_proxy_url,
             self.config.ws_proxy_url,
         );

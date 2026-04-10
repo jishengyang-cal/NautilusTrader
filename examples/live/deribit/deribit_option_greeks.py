@@ -28,6 +28,7 @@ from nautilus_trader.config import ActorConfig
 from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import TradingNodeConfig
+from nautilus_trader.core.nautilus_pyo3 import DeribitEnvironment
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import InstrumentId
@@ -108,8 +109,7 @@ config_node = TradingNodeConfig(
     ),
     data_clients={
         DERIBIT: DeribitDataClientConfig(
-            api_key=None,  # 'DERIBIT_API_KEY' env var
-            api_secret=None,  # 'DERIBIT_API_SECRET' env var
+            environment=DeribitEnvironment.MAINNET,
             instrument_provider=InstrumentProviderConfig(load_all=True),
         ),
     },

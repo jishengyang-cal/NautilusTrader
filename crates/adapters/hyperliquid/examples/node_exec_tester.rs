@@ -25,6 +25,7 @@ use nautilus_common::{enums::Environment, logging::logger::LoggerConfig};
 use nautilus_hyperliquid::{
     HyperliquidDataClientConfig, HyperliquidDataClientFactory, HyperliquidExecClientConfig,
     HyperliquidExecFactoryConfig, HyperliquidExecutionClientFactory,
+    common::enums::HyperliquidEnvironment,
 };
 use nautilus_live::node::LiveNode;
 use nautilus_model::{
@@ -38,9 +39,8 @@ use nautilus_trading::strategy::StrategyConfig;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let is_testnet = false;
-
     let environment = Environment::Live;
+    let hl_environment = HyperliquidEnvironment::Mainnet;
     let trader_id = TraderId::from("TESTER-001");
     let account_id = AccountId::from("HYPERLIQUID-001");
     let node_name = "HYPERLIQUID-EXEC-TESTER-001".to_string();
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let instrument_id = InstrumentId::from("ETH-USD-PERP.HYPERLIQUID");
 
     let data_config = HyperliquidDataClientConfig {
-        is_testnet,
+        environment: hl_environment,
         ..Default::default()
     };
 
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         trader_id,
         account_id,
         config: HyperliquidExecClientConfig {
-            is_testnet,
+            environment: hl_environment,
             ..Default::default()
         },
     };

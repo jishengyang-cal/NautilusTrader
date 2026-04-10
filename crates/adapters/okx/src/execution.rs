@@ -119,7 +119,7 @@ impl OKXExecutionClient {
             config.max_retries,
             config.retry_delay_initial_ms,
             config.retry_delay_max_ms,
-            config.is_demo,
+            config.environment,
             config.http_proxy_url.clone(),
         )?;
 
@@ -1117,14 +1117,14 @@ impl ExecutionClient for OKXExecutionClient {
         });
 
         log::info!(
-            "Started: client_id={}, account_id={}, account_type={:?}, trade_mode={:?}, instrument_types={:?}, use_fills_channel={}, is_demo={}, http_proxy_url={:?}, ws_proxy_url={:?}",
+            "Started: client_id={}, account_id={}, account_type={:?}, trade_mode={:?}, instrument_types={:?}, use_fills_channel={}, environment={}, http_proxy_url={:?}, ws_proxy_url={:?}",
             self.core.client_id,
             self.core.account_id,
             self.core.account_type,
             self.trade_mode,
             self.config.instrument_types,
             self.config.use_fills_channel,
-            self.config.is_demo,
+            self.config.environment,
             self.config.http_proxy_url,
             self.config.ws_proxy_url,
         );

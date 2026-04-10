@@ -157,7 +157,7 @@ impl HyperliquidExecutionClient {
         let secrets = Secrets::resolve(
             config.private_key.as_deref(),
             config.vault_address.as_deref(),
-            config.is_testnet,
+            config.environment,
         )
         .context("Hyperliquid execution client requires private key")?;
 
@@ -182,7 +182,7 @@ impl HyperliquidExecutionClient {
 
         let ws_url = config.base_url_ws.clone();
         let ws_client =
-            HyperliquidWebSocketClient::new(ws_url, config.is_testnet, Some(core.account_id));
+            HyperliquidWebSocketClient::new(ws_url, config.environment, Some(core.account_id));
 
         let clock = get_atomic_clock_realtime();
         let emitter = ExecutionEventEmitter::new(
@@ -386,10 +386,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
         self.core.set_started();
 
         log::info!(
-            "Started: client_id={}, account_id={}, is_testnet={}, vault_address={:?}, http_proxy_url={:?}, ws_proxy_url={:?}",
+            "Started: client_id={}, account_id={}, environment={:?}, vault_address={:?}, http_proxy_url={:?}, ws_proxy_url={:?}",
             self.core.client_id,
             self.core.account_id,
-            self.config.is_testnet,
+            self.config.environment,
             self.config.vault_address,
             self.config.http_proxy_url,
             self.config.ws_proxy_url,

@@ -50,7 +50,8 @@ use nautilus_common::{
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_hyperliquid::{
-    config::HyperliquidExecClientConfig, execution::HyperliquidExecutionClient,
+    common::enums::HyperliquidEnvironment, config::HyperliquidExecClientConfig,
+    execution::HyperliquidExecutionClient,
 };
 use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
@@ -674,7 +675,7 @@ fn create_test_exec_config(addr: SocketAddr) -> HyperliquidExecClientConfig {
         base_url_http: Some(format!("http://{addr}/info")),
         base_url_exchange: Some(format!("http://{addr}/exchange")),
         base_url_ws: Some(format!("ws://{addr}/ws")),
-        is_testnet: false,
+        environment: HyperliquidEnvironment::Mainnet,
         ..HyperliquidExecClientConfig::default()
     }
 }
