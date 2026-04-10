@@ -27,7 +27,11 @@ use nautilus_model::{
     python::instruments::{instrument_any_to_pyobject, pyobject_to_instrument_any},
     types::{Price, Quantity},
 };
-use pyo3::{conversion::IntoPyObjectExt, prelude::*, types::PyList};
+use pyo3::{
+    conversion::IntoPyObjectExt,
+    prelude::*,
+    types::{PyDict, PyList},
+};
 use rust_decimal::Decimal;
 
 use crate::{
@@ -185,6 +189,35 @@ impl KrakenSpotHttpClient {
                     .collect();
                 let pylist = PyList::new(py, py_instruments?).unwrap();
                 Ok(pylist.unbind())
+            })
+        })
+    }
+
+    /// Requests current market status for Kraken Spot instruments.
+    #[pyo3(name = "request_instrument_statuses")]
+    #[pyo3(signature = (pairs=None))]
+    fn py_request_instrument_statuses<'py>(
+        &self,
+        py: Python<'py>,
+        pairs: Option<Vec<String>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let statuses = client
+                .request_instrument_statuses(pairs)
+                .await
+                .map_err(to_pyruntime_err)?;
+
+            Python::attach(|py| {
+                let dict = PyDict::new(py);
+                for (instrument_id, action) in statuses {
+                    dict.set_item(
+                        instrument_id.into_bound_py_any(py)?,
+                        action.into_bound_py_any(py)?,
+                    )?;
+                }
+                Ok(dict.into_any().unbind())
             })
         })
     }
@@ -516,6 +549,82 @@ impl KrakenSpotHttpClient {
                 .map_err(to_pyruntime_err)?;
 
             Python::attach(|py| new_venue_order_id.into_pyobject(py).map(|o| o.unbind()))
+        })
+    }
+}
+
+// Separate block to avoid pyo3_stub_gen trait bound issues with batch-order tuples.
+// Stub is maintained manually in nautilus_pyo3.pyi.
+#[pymethods]
+impl KrakenSpotHttpClient {
+    /// Submits multiple spot orders in batch-compatible format.
+    ///
+    /// GTD and trailing-stop variants are not exposed through this helper.
+    #[pyo3(name = "submit_orders_batch")]
+    #[allow(clippy::type_complexity)]
+    fn py_submit_orders_batch<'py>(
+        &self,
+        py: Python<'py>,
+        orders: Vec<(
+            InstrumentId,
+            ClientOrderId,
+            OrderSide,
+            OrderType,
+            Quantity,
+            TimeInForce,
+            Option<Price>,
+            Option<Price>,
+            Option<TriggerType>,
+            bool,
+            bool,
+            Option<Quantity>,
+        )>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+        let expanded_orders = orders
+            .into_iter()
+            .map(
+                |(
+                    instrument_id,
+                    client_order_id,
+                    order_side,
+                    order_type,
+                    quantity,
+                    time_in_force,
+                    price,
+                    trigger_price,
+                    trigger_type,
+                    post_only,
+                    quote_quantity,
+                    display_qty,
+                )| {
+                    (
+                        instrument_id,
+                        client_order_id,
+                        order_side,
+                        order_type,
+                        quantity,
+                        time_in_force,
+                        None,
+                        price,
+                        trigger_price,
+                        trigger_type,
+                        None,
+                        None,
+                        false,
+                        post_only,
+                        quote_quantity,
+                        display_qty,
+                    )
+                },
+            )
+            .collect();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .submit_orders_batch(expanded_orders)
+                .await
+                .map_err(to_pyruntime_err)
         })
     }
 }

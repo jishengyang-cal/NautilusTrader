@@ -93,7 +93,7 @@ impl KrakenSpotExecutionClient {
             clock,
             core.trader_id,
             core.account_id,
-            AccountType::Margin,
+            AccountType::Cash,
             None,
         );
 
@@ -897,9 +897,128 @@ impl ExecutionClient for KrakenSpotExecutionClient {
             orders.len()
         );
 
+        let mut order_tuples = Vec::with_capacity(orders.len());
+        let mut order_meta = Vec::with_capacity(orders.len());
+
         for order in &orders {
-            self.submit_single_order(order, "submit_order_list");
+            if order.is_closed() {
+                log::warn!(
+                    "Cannot submit closed order: client_order_id={}",
+                    order.client_order_id()
+                );
+                continue;
+            }
+
+            if order.time_in_force() == TimeInForce::Fok && order.order_type() != OrderType::Limit {
+                self.emitter.emit_order_denied(
+                    order,
+                    "FOK time in force only supported for LIMIT orders on Kraken Spot",
+                );
+                continue;
+            }
+
+            if matches!(
+                order.order_type(),
+                OrderType::TrailingStopMarket | OrderType::TrailingStopLimit
+            ) && let Some(offset_type) = order.trailing_offset_type()
+                && offset_type != TrailingOffsetType::Price
+            {
+                self.emitter.emit_order_denied(
+                    order,
+                    &format!(
+                        "Kraken Spot only supports Price trailing offset type: received {offset_type:?}"
+                    ),
+                );
+                continue;
+            }
+
+            let client_order_id = order.client_order_id();
+            let kraken_cl_ord_id = truncate_cl_ord_id(&client_order_id);
+
+            self.emitter.emit_order_submitted(order);
+
+            if !order.is_quote_quantity() {
+                self.order_qty_cache
+                    .insert(kraken_cl_ord_id.clone(), order.quantity().as_f64());
+            }
+
+            if kraken_cl_ord_id != client_order_id.as_str() {
+                self.truncated_id_map
+                    .insert(kraken_cl_ord_id, client_order_id);
+            }
+
+            order_tuples.push((
+                order.instrument_id(),
+                client_order_id,
+                order.order_side(),
+                order.order_type(),
+                order.quantity(),
+                order.time_in_force(),
+                order.expire_time(),
+                order.price(),
+                order.trigger_price(),
+                order.trigger_type(),
+                order.trailing_offset(),
+                order.limit_offset(),
+                order.is_reduce_only(),
+                order.is_post_only(),
+                order.is_quote_quantity(),
+                order.display_qty(),
+            ));
+
+            order_meta.push((order.strategy_id(), order.instrument_id(), client_order_id));
         }
+
+        if order_tuples.is_empty() {
+            return Ok(());
+        }
+
+        let http = self.http.clone();
+        let emitter = self.emitter.clone();
+        let clock = self.clock;
+
+        self.spawn_task("submit_order_list", async move {
+            match http.submit_orders_batch(order_tuples).await {
+                Ok(statuses) => {
+                    // The HTTP helper returns one status per input tuple, including validation failures
+                    for (i, status) in statuses.iter().enumerate() {
+                        if status != "placed"
+                            && let Some((strategy_id, instrument_id, client_order_id)) =
+                                order_meta.get(i)
+                        {
+                            let ts_event = clock.get_time_ns();
+                            let due_post_only = status.contains("POST_ONLY_REJECTED")
+                                || status.contains(KRAKEN_SPOT_POST_ONLY_ERROR);
+                            emitter.emit_order_rejected_event(
+                                *strategy_id,
+                                *instrument_id,
+                                *client_order_id,
+                                &format!("submit_order_list batch item rejected: {status}"),
+                                ts_event,
+                                due_post_only,
+                            );
+                        }
+                    }
+                    Ok(())
+                }
+                Err(e) => {
+                    let ts_event = clock.get_time_ns();
+                    let error_msg = format!("submit_order_list batch error: {e}");
+
+                    for (strategy_id, instrument_id, client_order_id) in &order_meta {
+                        emitter.emit_order_rejected_event(
+                            *strategy_id,
+                            *instrument_id,
+                            *client_order_id,
+                            &error_msg,
+                            ts_event,
+                            false,
+                        );
+                    }
+                    Ok(())
+                }
+            }
+        });
 
         Ok(())
     }

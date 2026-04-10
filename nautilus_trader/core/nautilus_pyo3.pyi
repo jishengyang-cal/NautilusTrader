@@ -9211,6 +9211,10 @@ class KrakenSpotHttpClient:
         self,
         pairs: list[str] | None = None,
     ) -> list[Instrument]: ...
+    async def request_instrument_statuses(
+        self,
+        pairs: list[str] | None = None,
+    ) -> dict[InstrumentId, MarketStatusAction]: ...
     async def request_trades(
         self,
         instrument_id: InstrumentId,
@@ -9258,9 +9262,33 @@ class KrakenSpotHttpClient:
         expire_time: int | None = None,
         price: Price | None = None,
         trigger_price: Price | None = None,
+        trigger_type: TriggerType | None = None,
+        trailing_offset: str | None = None,
+        limit_offset: str | None = None,
         reduce_only: bool = False,
         post_only: bool = False,
+        quote_quantity: bool = False,
+        display_qty: Quantity | None = None,
     ) -> VenueOrderId: ...
+    async def submit_orders_batch(
+        self,
+        orders: list[
+            tuple[
+                InstrumentId,
+                ClientOrderId,
+                OrderSide,
+                OrderType,
+                Quantity,
+                TimeInForce,
+                Price | None,
+                Price | None,
+                TriggerType | None,
+                bool,
+                bool,
+                Quantity | None,
+            ]
+        ],
+    ) -> list[str]: ...
     async def modify_order(
         self,
         instrument_id: InstrumentId,
@@ -9308,6 +9336,9 @@ class KrakenFuturesHttpClient:
     async def request_mark_price(self, instrument_id: InstrumentId) -> float: ...
     async def request_index_price(self, instrument_id: InstrumentId) -> float: ...
     async def request_instruments(self) -> list[Instrument]: ...
+    async def request_instrument_statuses(
+        self,
+    ) -> dict[InstrumentId, MarketStatusAction]: ...
     async def request_trades(
         self,
         instrument_id: InstrumentId,
@@ -9357,6 +9388,7 @@ class KrakenFuturesHttpClient:
         time_in_force: TimeInForce,
         price: Price | None = None,
         trigger_price: Price | None = None,
+        trigger_type: TriggerType | None = None,
         reduce_only: bool = False,
         post_only: bool = False,
     ) -> OrderStatusReport: ...
@@ -9372,8 +9404,22 @@ class KrakenFuturesHttpClient:
                 TimeInForce,
                 Price | None,
                 Price | None,
+                TriggerType | None,
                 bool,
                 bool,
+            ]
+        ],
+    ) -> list[str]: ...
+    async def edit_orders_batch(
+        self,
+        orders: list[
+            tuple[
+                InstrumentId,
+                ClientOrderId | None,
+                VenueOrderId | None,
+                Quantity | None,
+                Price | None,
+                Price | None,
             ]
         ],
     ) -> list[str]: ...

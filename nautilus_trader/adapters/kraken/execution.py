@@ -69,6 +69,7 @@ from nautilus_trader.model.events import OrderUpdated
 from nautilus_trader.model.functions import order_side_to_pyo3
 from nautilus_trader.model.functions import order_type_to_pyo3
 from nautilus_trader.model.functions import time_in_force_to_pyo3
+from nautilus_trader.model.functions import trigger_type_to_pyo3
 from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import ClientOrderId
@@ -743,9 +744,29 @@ class KrakenExecutionClient(LiveExecutionClient):
             if hasattr(order, "trigger_price") and order.trigger_price
             else None
         )
+        pyo3_trigger_type = (
+            trigger_type_to_pyo3(order.trigger_type)
+            if hasattr(order, "trigger_type") and order.trigger_type is not None
+            else None
+        )
         pyo3_expire_time = (
             order.expire_time_ns
             if hasattr(order, "expire_time_ns") and order.expire_time_ns
+            else None
+        )
+        pyo3_trailing_offset = (
+            str(order.trailing_offset)
+            if hasattr(order, "trailing_offset") and order.trailing_offset is not None
+            else None
+        )
+        pyo3_limit_offset = (
+            str(order.limit_offset)
+            if hasattr(order, "limit_offset") and order.limit_offset is not None
+            else None
+        )
+        pyo3_display_qty = (
+            nautilus_pyo3.Quantity.from_str(str(order.display_qty))
+            if hasattr(order, "display_qty") and order.display_qty is not None
             else None
         )
 
@@ -762,6 +783,7 @@ class KrakenExecutionClient(LiveExecutionClient):
                     time_in_force=pyo3_time_in_force,
                     price=pyo3_price,
                     trigger_price=pyo3_trigger_price,
+                    trigger_type=pyo3_trigger_type,
                     reduce_only=order.is_reduce_only,
                     post_only=order.is_post_only,
                 )
@@ -778,8 +800,13 @@ class KrakenExecutionClient(LiveExecutionClient):
                     expire_time=pyo3_expire_time,
                     price=pyo3_price,
                     trigger_price=pyo3_trigger_price,
+                    trigger_type=pyo3_trigger_type,
+                    trailing_offset=pyo3_trailing_offset,
+                    limit_offset=pyo3_limit_offset,
                     reduce_only=order.is_reduce_only,
                     post_only=order.is_post_only,
+                    quote_quantity=order.is_quote_quantity,
+                    display_qty=pyo3_display_qty,
                 )
         except Exception as e:
             error_str = str(e)
@@ -794,49 +821,19 @@ class KrakenExecutionClient(LiveExecutionClient):
             )
 
     async def _submit_order_list(self, command: SubmitOrderList) -> None:
-        spot_orders: list[Order] = []
-        futures_orders: list[Order] = []
+        spot_orders, futures_orders = self._split_order_list_orders(command)
+        spot_batch_orders = await self._collect_spot_batch_orders(spot_orders, command)
 
-        for order in command.order_list.orders:
-            if order.is_closed:
-                self._log.warning(f"Cannot submit already closed order: {order}")
-                continue
-            symbol = order.instrument_id.symbol.value
-            product_type = nautilus_pyo3.kraken_product_type_from_symbol(symbol)
-            if product_type == KrakenProductType.FUTURES:
-                futures_orders.append(order)
-            else:
-                spot_orders.append(order)
+        if spot_batch_orders and self._http_client_spot is not None:
+            await self._submit_spot_order_list_batch(spot_batch_orders, command)
+        elif spot_batch_orders:
+            self._log.warning("No spot HTTP client, submitting spot orders individually")
+            await self._submit_orders_from_list(spot_batch_orders, command)
 
-        # Spot: submit individually (no batch API)
-        for order in spot_orders:
-            await self._submit_order(
-                SubmitOrder(
-                    trader_id=command.trader_id,
-                    strategy_id=command.strategy_id,
-                    order=order,
-                    command_id=command.id,
-                    ts_init=command.ts_init,
-                ),
-            )
-
-        # Futures: batch limit/stop orders, submit market orders individually
-        # (Kraken batch endpoint only supports limit and stop orders)
-        futures_batch_orders: list[Order] = []
-
-        for order in futures_orders:
-            if order.order_type == OrderType.MARKET:
-                await self._submit_order(
-                    SubmitOrder(
-                        trader_id=command.trader_id,
-                        strategy_id=command.strategy_id,
-                        order=order,
-                        command_id=command.id,
-                        ts_init=command.ts_init,
-                    ),
-                )
-            else:
-                futures_batch_orders.append(order)
+        futures_batch_orders = await self._collect_futures_batch_orders(
+            futures_orders,
+            command,
+        )
 
         if futures_batch_orders and self._http_client_futures is not None:
             await self._submit_futures_order_list_batch(futures_batch_orders, command)
@@ -844,16 +841,207 @@ class KrakenExecutionClient(LiveExecutionClient):
             self._log.warning(
                 "No futures HTTP client, submitting futures orders individually",
             )
+            await self._submit_orders_from_list(futures_batch_orders, command)
 
-            for order in futures_orders:
-                await self._submit_order(
-                    SubmitOrder(
-                        trader_id=command.trader_id,
-                        strategy_id=command.strategy_id,
-                        order=order,
-                        command_id=command.id,
-                        ts_init=command.ts_init,
+    def _split_order_list_orders(
+        self,
+        command: SubmitOrderList,
+    ) -> tuple[list[Order], list[Order]]:
+        spot_orders: list[Order] = []
+        futures_orders: list[Order] = []
+
+        for order in command.order_list.orders:
+            if order.is_closed:
+                self._log.warning(f"Cannot submit already closed order: {order}")
+                continue
+
+            symbol = order.instrument_id.symbol.value
+            product_type = nautilus_pyo3.kraken_product_type_from_symbol(symbol)
+
+            if product_type == KrakenProductType.FUTURES:
+                futures_orders.append(order)
+            else:
+                spot_orders.append(order)
+
+        return spot_orders, futures_orders
+
+    async def _collect_spot_batch_orders(
+        self,
+        orders: list[Order],
+        command: SubmitOrderList,
+    ) -> list[Order]:
+        spot_batch_orders: list[Order] = []
+
+        for order in orders:
+            if (
+                order.time_in_force == TimeInForce.GTD
+                or (order.time_in_force == TimeInForce.FOK and order.order_type != OrderType.LIMIT)
+                or order.order_type == OrderType.TRAILING_STOP_MARKET
+                or order.order_type == OrderType.TRAILING_STOP_LIMIT
+            ):
+                await self._submit_order_from_list(order, command)
+            else:
+                spot_batch_orders.append(order)
+
+        return spot_batch_orders
+
+    async def _collect_futures_batch_orders(
+        self,
+        orders: list[Order],
+        command: SubmitOrderList,
+    ) -> list[Order]:
+        futures_batch_orders: list[Order] = []
+
+        for order in orders:
+            if order.order_type == OrderType.MARKET:
+                await self._submit_order_from_list(order, command)
+            else:
+                futures_batch_orders.append(order)
+
+        return futures_batch_orders
+
+    async def _submit_orders_from_list(
+        self,
+        orders: list[Order],
+        command: SubmitOrderList,
+    ) -> None:
+        for order in orders:
+            await self._submit_order_from_list(order, command)
+
+    async def _submit_order_from_list(
+        self,
+        order: Order,
+        command: SubmitOrderList,
+    ) -> None:
+        await self._submit_order(
+            SubmitOrder(
+                trader_id=command.trader_id,
+                strategy_id=command.strategy_id,
+                order=order,
+                command_id=command.id,
+                ts_init=command.ts_init,
+            ),
+        )
+
+    async def _submit_spot_order_list_batch(
+        self,
+        orders: list[Order],
+        command: SubmitOrderList,
+    ) -> None:
+        spot_client = cast(nautilus_pyo3.KrakenSpotHttpClient, self._http_client_spot)
+        batch_params = []
+        valid_orders: list[Order] = []
+
+        for order in orders:
+            self.generate_order_submitted(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                ts_event=self._clock.timestamp_ns(),
+            )
+
+            try:
+                pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(
+                    order.instrument_id.value,
+                )
+                pyo3_client_order_id = nautilus_pyo3.ClientOrderId(order.client_order_id.value)
+                pyo3_trader_id = nautilus_pyo3.TraderId(command.trader_id.value)
+                pyo3_strategy_id = nautilus_pyo3.StrategyId(order.strategy_id.value)
+
+                if self._ws_client_spot is not None:
+                    self._ws_client_spot.cache_client_order(
+                        pyo3_client_order_id,
+                        None,
+                        pyo3_instrument_id,
+                        pyo3_trader_id,
+                        pyo3_strategy_id,
+                    )
+
+                pyo3_order_side = order_side_to_pyo3(order.side)
+                pyo3_order_type = order_type_to_pyo3(order.order_type)
+                pyo3_quantity = nautilus_pyo3.Quantity.from_str(str(order.quantity))
+                pyo3_time_in_force = (
+                    time_in_force_to_pyo3(order.time_in_force)
+                    if order.time_in_force
+                    else nautilus_pyo3.TimeInForce.GTC
+                )
+                pyo3_price = (
+                    nautilus_pyo3.Price.from_str(str(order.price)) if order.has_price else None
+                )
+                pyo3_trigger_price = (
+                    nautilus_pyo3.Price.from_str(str(order.trigger_price))
+                    if hasattr(order, "trigger_price") and order.trigger_price
+                    else None
+                )
+                pyo3_trigger_type = (
+                    trigger_type_to_pyo3(order.trigger_type)
+                    if hasattr(order, "trigger_type") and order.trigger_type is not None
+                    else None
+                )
+                pyo3_display_qty = (
+                    nautilus_pyo3.Quantity.from_str(str(order.display_qty))
+                    if hasattr(order, "display_qty") and order.display_qty is not None
+                    else None
+                )
+
+                batch_params.append(
+                    (
+                        pyo3_instrument_id,
+                        pyo3_client_order_id,
+                        pyo3_order_side,
+                        pyo3_order_type,
+                        pyo3_quantity,
+                        pyo3_time_in_force,
+                        pyo3_price,
+                        pyo3_trigger_price,
+                        pyo3_trigger_type,
+                        order.is_post_only,
+                        order.is_quote_quantity,
+                        pyo3_display_qty,
                     ),
+                )
+                valid_orders.append(order)
+            except Exception as e:
+                self.generate_order_rejected(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason=str(e),
+                    ts_event=self._clock.timestamp_ns(),
+                )
+
+        if not batch_params:
+            return
+
+        try:
+            statuses = await spot_client.submit_orders_batch(batch_params)
+            placed = sum(1 for status in statuses if status == "placed")
+            self._log.debug(
+                f"Batch submitted {placed}/{len(valid_orders)} spot orders",
+            )
+
+            for i, status in enumerate(statuses):
+                if status != "placed":
+                    order = valid_orders[i]
+                    due_post_only = "POST_ONLY_REJECTED" in status or "post only" in status.lower()
+                    self.generate_order_rejected(
+                        strategy_id=order.strategy_id,
+                        instrument_id=order.instrument_id,
+                        client_order_id=order.client_order_id,
+                        reason=f"Batch item rejected: {status}",
+                        ts_event=self._clock.timestamp_ns(),
+                        due_post_only=due_post_only,
+                    )
+        except Exception as e:
+            error_str = str(e)
+            self._log.error(f"Batch order submission failed: {error_str}")
+            for order in valid_orders:
+                self.generate_order_rejected(
+                    strategy_id=order.strategy_id,
+                    instrument_id=order.instrument_id,
+                    client_order_id=order.client_order_id,
+                    reason=error_str,
+                    ts_event=self._clock.timestamp_ns(),
                 )
 
     async def _submit_futures_order_list_batch(
@@ -917,6 +1105,11 @@ class KrakenExecutionClient(LiveExecutionClient):
                     if hasattr(order, "trigger_price") and order.trigger_price
                     else None
                 )
+                pyo3_trigger_type = (
+                    trigger_type_to_pyo3(order.trigger_type)
+                    if hasattr(order, "trigger_type") and order.trigger_type is not None
+                    else None
+                )
 
                 batch_params.append(
                     (
@@ -928,6 +1121,7 @@ class KrakenExecutionClient(LiveExecutionClient):
                         pyo3_time_in_force,
                         pyo3_price,
                         pyo3_trigger_price,
+                        pyo3_trigger_type,
                         order.is_reduce_only,
                         order.is_post_only,
                     ),

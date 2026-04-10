@@ -187,6 +187,7 @@ impl KrakenFuturesExecutionClient {
         let time_in_force = order.time_in_force();
         let price = order.price();
         let trigger_price = order.trigger_price();
+        let trigger_type = order.trigger_type();
         let is_reduce_only = order.is_reduce_only();
         let is_post_only = order.is_post_only();
 
@@ -216,6 +217,7 @@ impl KrakenFuturesExecutionClient {
                     time_in_force,
                     price,
                     trigger_price,
+                    trigger_type,
                     is_reduce_only,
                     is_post_only,
                 )
@@ -367,6 +369,17 @@ impl KrakenFuturesExecutionClient {
 
         match msg {
             KrakenFuturesWsMessage::OpenOrdersDelta(delta) => {
+                // The fills delta carries the real fill; skip the cancel-shaped delta
+                // Kraken emits when an order leaves the book because it filled.
+                if delta.is_fill_driven_cancel() {
+                    log::debug!(
+                        "Skipping fill-driven open_orders delta: order_id={}, reason={:?}",
+                        delta.order.order_id,
+                        delta.reason,
+                    );
+                    return;
+                }
+
                 let product_id = delta.order.instrument.as_str();
 
                 let Some(instrument) = Self::lookup_instrument(instruments, product_id) else {
@@ -953,6 +966,7 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
                 order.time_in_force(),
                 order.price(),
                 order.trigger_price(),
+                order.trigger_type(),
                 order.is_reduce_only(),
                 order.is_post_only(),
             ));

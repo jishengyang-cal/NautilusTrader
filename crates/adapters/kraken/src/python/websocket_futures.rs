@@ -714,6 +714,17 @@ fn handle_open_orders_delta(
     call_soon: &Py<PyAny>,
     callback: &Py<PyAny>,
 ) {
+    // The fills delta carries the real fill; skip the cancel-shaped delta
+    // Kraken emits when an order leaves the book because it filled.
+    if delta.is_fill_driven_cancel() {
+        log::debug!(
+            "Skipping fill-driven open_orders delta: order_id={}, reason={:?}",
+            delta.order.order_id,
+            delta.reason,
+        );
+        return;
+    }
+
     let product_id = delta.order.instrument.as_str();
 
     let Some(instrument) = lookup_instrument(instruments, product_id) else {
