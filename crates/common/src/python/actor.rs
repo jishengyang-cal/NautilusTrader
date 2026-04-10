@@ -40,10 +40,10 @@ use nautilus_model::{
         option_chain::{OptionChainSlice, OptionGreeks},
     },
     enums::BookType,
-    identifiers::{ActorId, ClientId, InstrumentId, TraderId, Venue},
+    identifiers::{ActorId, ClientId, InstrumentId, OptionSeriesId, TraderId, Venue},
     instruments::InstrumentAny,
     orderbook::OrderBook,
-    python::instruments::instrument_any_to_pyobject,
+    python::{data::option_chain::PyStrikeRange, instruments::instrument_any_to_pyobject},
 };
 use pyo3::{prelude::*, types::PyDict};
 
@@ -926,6 +926,13 @@ impl PyDataActor {
         Self::new(config)
     }
 
+    #[pyo3(signature = (config=None))]
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    fn __init__(slf: &Bound<'_, Self>, config: Option<DataActorConfig>) {
+        let py_self: Py<PyAny> = slf.clone().unbind().into_any();
+        slf.borrow_mut().set_python_instance(py_self);
+    }
+
     #[getter]
     #[pyo3(name = "clock")]
     fn py_clock(&self) -> PyResult<PyClock> {
@@ -1047,119 +1054,89 @@ impl PyDataActor {
     }
 
     #[pyo3(name = "on_start")]
-    fn py_on_start(&self) -> PyResult<()> {
-        self.inner().dispatch_on_start()
-    }
+    fn py_on_start(&self) {}
 
     #[pyo3(name = "on_stop")]
-    fn py_on_stop(&mut self) -> PyResult<()> {
-        self.inner_mut().dispatch_on_stop()
-    }
+    fn py_on_stop(&mut self) {}
 
     #[pyo3(name = "on_resume")]
-    fn py_on_resume(&mut self) -> PyResult<()> {
-        self.inner_mut().dispatch_on_resume()
-    }
+    fn py_on_resume(&mut self) {}
 
     #[pyo3(name = "on_reset")]
-    fn py_on_reset(&mut self) -> PyResult<()> {
-        self.inner_mut().dispatch_on_reset()
-    }
+    fn py_on_reset(&mut self) {}
 
     #[pyo3(name = "on_dispose")]
-    fn py_on_dispose(&mut self) -> PyResult<()> {
-        self.inner_mut().dispatch_on_dispose()
-    }
+    fn py_on_dispose(&mut self) {}
 
     #[pyo3(name = "on_degrade")]
-    fn py_on_degrade(&mut self) -> PyResult<()> {
-        self.inner_mut().dispatch_on_degrade()
-    }
+    fn py_on_degrade(&mut self) {}
 
     #[pyo3(name = "on_fault")]
-    fn py_on_fault(&mut self) -> PyResult<()> {
-        self.inner_mut().dispatch_on_fault()
-    }
+    fn py_on_fault(&mut self) {}
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_time_event")]
-    fn py_on_time_event(&mut self, event: TimeEvent) -> PyResult<()> {
-        self.inner_mut().dispatch_on_time_event(event)
-    }
+    fn py_on_time_event(&mut self, event: TimeEvent) {}
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_data")]
-    fn py_on_data(&mut self, data: Py<PyAny>) -> PyResult<()> {
-        self.inner_mut().dispatch_on_data(data)
-    }
+    fn py_on_data(&mut self, data: Py<PyAny>) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_signal")]
-    fn py_on_signal(&mut self, signal: &Signal) -> PyResult<()> {
-        self.inner_mut().dispatch_on_signal(signal)
-    }
+    fn py_on_signal(&mut self, signal: &Signal) {}
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_instrument")]
-    fn py_on_instrument(&mut self, instrument: Py<PyAny>) -> PyResult<()> {
-        self.inner_mut().dispatch_on_instrument(instrument)
-    }
+    fn py_on_instrument(&mut self, instrument: Py<PyAny>) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_quote")]
-    fn py_on_quote(&mut self, quote: QuoteTick) -> PyResult<()> {
-        self.inner_mut().dispatch_on_quote(quote)
-    }
+    fn py_on_quote(&mut self, quote: QuoteTick) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_trade")]
-    fn py_on_trade(&mut self, trade: TradeTick) -> PyResult<()> {
-        self.inner_mut().dispatch_on_trade(trade)
-    }
+    fn py_on_trade(&mut self, trade: TradeTick) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_bar")]
-    fn py_on_bar(&mut self, bar: Bar) -> PyResult<()> {
-        self.inner_mut().dispatch_on_bar(bar)
-    }
+    fn py_on_bar(&mut self, bar: Bar) {}
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_book_deltas")]
-    fn py_on_book_deltas(&mut self, deltas: OrderBookDeltas) -> PyResult<()> {
-        self.inner_mut().dispatch_on_book_deltas(deltas)
-    }
+    fn py_on_book_deltas(&mut self, deltas: OrderBookDeltas) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_book")]
-    fn py_on_book(&mut self, book: &OrderBook) -> PyResult<()> {
-        self.inner_mut().dispatch_on_book(book)
-    }
+    fn py_on_book(&mut self, book: &OrderBook) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_mark_price")]
-    fn py_on_mark_price(&mut self, mark_price: MarkPriceUpdate) -> PyResult<()> {
-        self.inner_mut().dispatch_on_mark_price(mark_price)
-    }
+    fn py_on_mark_price(&mut self, mark_price: MarkPriceUpdate) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_index_price")]
-    fn py_on_index_price(&mut self, index_price: IndexPriceUpdate) -> PyResult<()> {
-        self.inner_mut().dispatch_on_index_price(index_price)
-    }
+    fn py_on_index_price(&mut self, index_price: IndexPriceUpdate) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_funding_rate")]
-    fn py_on_funding_rate(&mut self, funding_rate: FundingRateUpdate) -> PyResult<()> {
-        self.inner_mut().dispatch_on_funding_rate(funding_rate)
-    }
+    fn py_on_funding_rate(&mut self, funding_rate: FundingRateUpdate) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_instrument_status")]
-    fn py_on_instrument_status(&mut self, status: InstrumentStatus) -> PyResult<()> {
-        self.inner_mut().dispatch_on_instrument_status(status)
-    }
+    fn py_on_instrument_status(&mut self, status: InstrumentStatus) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_instrument_close")]
-    fn py_on_instrument_close(&mut self, close: InstrumentClose) -> PyResult<()> {
-        self.inner_mut().dispatch_on_instrument_close(close)
-    }
+    fn py_on_instrument_close(&mut self, close: InstrumentClose) {}
 
+    #[allow(unused_variables)]
     #[pyo3(name = "on_option_greeks")]
-    fn py_on_option_greeks(&mut self, greeks: OptionGreeks) -> PyResult<()> {
-        self.inner_mut().dispatch_on_option_greeks(greeks)
-    }
+    fn py_on_option_greeks(&mut self, greeks: OptionGreeks) {}
 
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_option_chain")]
-    fn py_on_option_chain(&mut self, slice: OptionChainSlice) -> PyResult<()> {
-        self.inner_mut().dispatch_on_option_chain(slice)
-    }
+    fn py_on_option_chain(&mut self, slice: OptionChainSlice) {}
 
     #[pyo3(name = "subscribe_data")]
     #[pyo3(signature = (data_type, client_id=None, params=None))]
@@ -1344,6 +1321,20 @@ impl PyDataActor {
         Ok(())
     }
 
+    #[pyo3(name = "subscribe_option_greeks")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_subscribe_option_greeks(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::subscribe_option_greeks(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
     #[pyo3(name = "subscribe_instrument_status")]
     #[pyo3(signature = (instrument_id, client_id=None, params=None))]
     fn py_subscribe_instrument_status(
@@ -1372,6 +1363,24 @@ impl PyDataActor {
         Ok(())
     }
 
+    #[pyo3(name = "subscribe_option_chain")]
+    #[pyo3(signature = (series_id, strike_range, snapshot_interval_ms=None, client_id=None))]
+    fn py_subscribe_option_chain(
+        &mut self,
+        series_id: OptionSeriesId,
+        strike_range: PyStrikeRange,
+        snapshot_interval_ms: Option<u64>,
+        client_id: Option<ClientId>,
+    ) {
+        DataActor::subscribe_option_chain(
+            self.inner_mut(),
+            series_id,
+            strike_range.inner,
+            snapshot_interval_ms,
+            client_id,
+        );
+    }
+
     #[pyo3(name = "subscribe_order_fills")]
     #[pyo3(signature = (instrument_id))]
     fn py_subscribe_order_fills(&mut self, instrument_id: InstrumentId) {
@@ -1382,6 +1391,239 @@ impl PyDataActor {
     #[pyo3(signature = (instrument_id))]
     fn py_subscribe_order_cancels(&mut self, instrument_id: InstrumentId) {
         DataActor::subscribe_order_cancels(self.inner_mut(), instrument_id);
+    }
+
+    #[pyo3(name = "unsubscribe_data")]
+    #[pyo3(signature = (data_type, client_id=None, params=None))]
+    fn py_unsubscribe_data(
+        &mut self,
+        py: Python<'_>,
+        data_type: DataType,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_data(self.inner_mut(), data_type, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_instruments")]
+    #[pyo3(signature = (venue, client_id=None, params=None))]
+    fn py_unsubscribe_instruments(
+        &mut self,
+        py: Python<'_>,
+        venue: Venue,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_instruments(self.inner_mut(), venue, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_instrument")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_instrument(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_instrument(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_book_deltas")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_book_deltas(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_book_deltas(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_book_at_interval")]
+    #[pyo3(signature = (instrument_id, interval_ms, client_id=None, params=None))]
+    fn py_unsubscribe_book_at_interval(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        interval_ms: usize,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        let interval_ms = NonZeroUsize::new(interval_ms)
+            .ok_or_else(|| to_pyvalue_err("interval_ms must be > 0"))?;
+
+        DataActor::unsubscribe_book_at_interval(
+            self.inner_mut(),
+            instrument_id,
+            interval_ms,
+            client_id,
+            params,
+        );
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_quotes")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_quotes(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_quotes(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_trades")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_trades(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_trades(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_bars")]
+    #[pyo3(signature = (bar_type, client_id=None, params=None))]
+    fn py_unsubscribe_bars(
+        &mut self,
+        py: Python<'_>,
+        bar_type: BarType,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_bars(self.inner_mut(), bar_type, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_mark_prices")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_mark_prices(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_mark_prices(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_index_prices")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_index_prices(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_index_prices(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_funding_rates")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_funding_rates(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_funding_rates(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_option_greeks")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_option_greeks(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_option_greeks(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_instrument_status")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_instrument_status(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_instrument_status(
+            self.inner_mut(),
+            instrument_id,
+            client_id,
+            params,
+        );
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_instrument_close")]
+    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
+    fn py_unsubscribe_instrument_close(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<()> {
+        let params = dict_to_params(py, params)?;
+        DataActor::unsubscribe_instrument_close(self.inner_mut(), instrument_id, client_id, params);
+        Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_option_chain")]
+    #[pyo3(signature = (series_id, client_id=None))]
+    fn py_unsubscribe_option_chain(
+        &mut self,
+        series_id: OptionSeriesId,
+        client_id: Option<ClientId>,
+    ) {
+        DataActor::unsubscribe_option_chain(self.inner_mut(), series_id, client_id);
+    }
+
+    #[pyo3(name = "unsubscribe_order_fills")]
+    #[pyo3(signature = (instrument_id))]
+    fn py_unsubscribe_order_fills(&mut self, instrument_id: InstrumentId) {
+        DataActor::unsubscribe_order_fills(self.inner_mut(), instrument_id);
+    }
+
+    #[pyo3(name = "unsubscribe_order_cancels")]
+    #[pyo3(signature = (instrument_id))]
+    fn py_unsubscribe_order_cancels(&mut self, instrument_id: InstrumentId) {
+        DataActor::unsubscribe_order_cancels(self.inner_mut(), instrument_id);
     }
 
     #[pyo3(name = "request_data")]
@@ -1549,6 +1791,37 @@ impl PyDataActor {
         Ok(request_id.to_string())
     }
 
+    #[pyo3(name = "request_funding_rates")]
+    #[pyo3(signature = (instrument_id, start=None, end=None, limit=None, client_id=None, params=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn py_request_funding_rates(
+        &mut self,
+        py: Python<'_>,
+        instrument_id: InstrumentId,
+        start: Option<u64>,
+        end: Option<u64>,
+        limit: Option<usize>,
+        client_id: Option<ClientId>,
+        params: Option<Py<PyDict>>,
+    ) -> PyResult<String> {
+        let params = dict_to_params(py, params)?;
+        let limit = limit.and_then(NonZeroUsize::new);
+        let start = start.map(|ts| UnixNanos::from(ts).to_datetime_utc());
+        let end = end.map(|ts| UnixNanos::from(ts).to_datetime_utc());
+
+        let request_id = DataActor::request_funding_rates(
+            self.inner_mut(),
+            instrument_id,
+            start,
+            end,
+            limit,
+            client_id,
+            params,
+        )
+        .map_err(to_pyvalue_err)?;
+        Ok(request_id.to_string())
+    }
+
     #[pyo3(name = "request_bars")]
     #[pyo3(signature = (bar_type, start=None, end=None, limit=None, client_id=None, params=None))]
     #[allow(clippy::too_many_arguments)]
@@ -1578,201 +1851,6 @@ impl PyDataActor {
         )
         .map_err(to_pyvalue_err)?;
         Ok(request_id.to_string())
-    }
-
-    #[pyo3(name = "unsubscribe_data")]
-    #[pyo3(signature = (data_type, client_id=None, params=None))]
-    fn py_unsubscribe_data(
-        &mut self,
-        py: Python<'_>,
-        data_type: DataType,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_data(self.inner_mut(), data_type, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_instruments")]
-    #[pyo3(signature = (venue, client_id=None, params=None))]
-    fn py_unsubscribe_instruments(
-        &mut self,
-        py: Python<'_>,
-        venue: Venue,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_instruments(self.inner_mut(), venue, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_instrument")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_instrument(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_instrument(self.inner_mut(), instrument_id, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_book_deltas")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_book_deltas(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_book_deltas(self.inner_mut(), instrument_id, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_book_at_interval")]
-    #[pyo3(signature = (instrument_id, interval_ms, client_id=None, params=None))]
-    fn py_unsubscribe_book_at_interval(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        interval_ms: usize,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        let interval_ms = NonZeroUsize::new(interval_ms)
-            .ok_or_else(|| to_pyvalue_err("interval_ms must be > 0"))?;
-
-        DataActor::unsubscribe_book_at_interval(
-            self.inner_mut(),
-            instrument_id,
-            interval_ms,
-            client_id,
-            params,
-        );
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_quotes")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_quotes(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_quotes(self.inner_mut(), instrument_id, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_trades")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_trades(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_trades(self.inner_mut(), instrument_id, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_bars")]
-    #[pyo3(signature = (bar_type, client_id=None, params=None))]
-    fn py_unsubscribe_bars(
-        &mut self,
-        py: Python<'_>,
-        bar_type: BarType,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_bars(self.inner_mut(), bar_type, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_mark_prices")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_mark_prices(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_mark_prices(self.inner_mut(), instrument_id, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_index_prices")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_index_prices(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_index_prices(self.inner_mut(), instrument_id, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_instrument_status")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_instrument_status(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_instrument_status(
-            self.inner_mut(),
-            instrument_id,
-            client_id,
-            params,
-        );
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_instrument_close")]
-    #[pyo3(signature = (instrument_id, client_id=None, params=None))]
-    fn py_unsubscribe_instrument_close(
-        &mut self,
-        py: Python<'_>,
-        instrument_id: InstrumentId,
-        client_id: Option<ClientId>,
-        params: Option<Py<PyDict>>,
-    ) -> PyResult<()> {
-        let params = dict_to_params(py, params)?;
-        DataActor::unsubscribe_instrument_close(self.inner_mut(), instrument_id, client_id, params);
-        Ok(())
-    }
-
-    #[pyo3(name = "unsubscribe_order_fills")]
-    #[pyo3(signature = (instrument_id))]
-    fn py_unsubscribe_order_fills(&mut self, instrument_id: InstrumentId) {
-        DataActor::unsubscribe_order_fills(self.inner_mut(), instrument_id);
-    }
-
-    #[pyo3(name = "unsubscribe_order_cancels")]
-    #[pyo3(signature = (instrument_id))]
-    fn py_unsubscribe_order_cancels(&mut self, instrument_id: InstrumentId) {
-        DataActor::unsubscribe_order_cancels(self.inner_mut(), instrument_id);
     }
 
     #[allow(unused_variables, clippy::needless_pass_by_value)]
@@ -1823,34 +1901,28 @@ impl PyDataActor {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 impl PyDataActor {
     #[pyo3(name = "on_block")]
-    fn py_on_block(&mut self, block: Block) -> PyResult<()> {
-        self.inner_mut().dispatch_on_block(block)
-    }
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    fn py_on_block(&mut self, block: Block) {}
 
     #[pyo3(name = "on_pool")]
-    fn py_on_pool(&mut self, pool: Pool) -> PyResult<()> {
-        self.inner_mut().dispatch_on_pool(pool)
-    }
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    fn py_on_pool(&mut self, pool: Pool) {}
 
     #[pyo3(name = "on_pool_swap")]
-    fn py_on_pool_swap(&mut self, swap: PoolSwap) -> PyResult<()> {
-        self.inner_mut().dispatch_on_pool_swap(swap)
-    }
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    fn py_on_pool_swap(&mut self, swap: PoolSwap) {}
 
     #[pyo3(name = "on_pool_liquidity_update")]
-    fn py_on_pool_liquidity_update(&mut self, update: PoolLiquidityUpdate) -> PyResult<()> {
-        self.inner_mut().dispatch_on_pool_liquidity_update(update)
-    }
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    fn py_on_pool_liquidity_update(&mut self, update: PoolLiquidityUpdate) {}
 
     #[pyo3(name = "on_pool_fee_collect")]
-    fn py_on_pool_fee_collect(&mut self, update: PoolFeeCollect) -> PyResult<()> {
-        self.inner_mut().dispatch_on_pool_fee_collect(update)
-    }
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    fn py_on_pool_fee_collect(&mut self, update: PoolFeeCollect) {}
 
     #[pyo3(name = "on_pool_flash")]
-    fn py_on_pool_flash(&mut self, flash: PoolFlash) -> PyResult<()> {
-        self.inner_mut().dispatch_on_pool_flash(flash)
-    }
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    fn py_on_pool_flash(&mut self, flash: PoolFlash) {}
 
     #[pyo3(name = "subscribe_blocks")]
     #[pyo3(signature = (chain, client_id=None, params=None))]
@@ -2043,22 +2115,15 @@ impl PyDataActor {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        cell::RefCell,
-        collections::HashMap,
-        ops::{Deref, DerefMut},
-        rc::Rc,
-        str::FromStr,
-        sync::{Arc, Mutex},
-    };
+    use std::{cell::RefCell, rc::Rc, str::FromStr, sync::Arc};
 
     #[cfg(feature = "defi")]
-    use alloy_primitives::{I256, U160};
-    use nautilus_core::{MUTEX_POISONED, UUID4, UnixNanos};
+    use alloy_primitives::{I256, U160, U256};
+    use nautilus_core::{UUID4, UnixNanos};
     #[cfg(feature = "defi")]
     use nautilus_model::defi::{
-        AmmType, Block, Blockchain, Chain, Dex, DexType, Pool, PoolIdentifier, PoolLiquidityUpdate,
-        PoolSwap, Token,
+        AmmType, Block, Blockchain, Chain, Dex, DexType, Pool, PoolFeeCollect, PoolFlash,
+        PoolIdentifier, PoolLiquidityUpdate, PoolLiquidityUpdateType, PoolSwap, Token,
     };
     use nautilus_model::{
         data::{
@@ -2068,6 +2133,7 @@ mod tests {
             close::InstrumentClose,
             greeks::OptionGreekValues,
             option_chain::{OptionChainSlice, OptionGreeks},
+            stubs::stub_custom_data,
         },
         enums::{AggressorSide, BookType, InstrumentCloseType, MarketStatusAction},
         identifiers::{ClientId, OptionSeriesId, TradeId, TraderId, Venue},
@@ -2081,10 +2147,9 @@ mod tests {
 
     use super::PyDataActor;
     use crate::{
-        actor::{DataActor, data_actor::DataActorCore},
+        actor::DataActor,
         cache::Cache,
         clock::TestClock,
-        component::Component,
         enums::ComponentState,
         runner::{SyncDataCommandSender, set_data_cmd_sender},
         signal::Signal,
@@ -2315,390 +2380,117 @@ mod tests {
         assert_eq!(state, ComponentState::Ready);
     }
 
-    static CALL_TRACKER: std::sync::LazyLock<Arc<Mutex<HashMap<String, i32>>>> =
-        std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
-
-    #[derive(Debug)]
-    struct TestDataActor {
-        inner: PyDataActor,
+    fn sample_instrument() -> CurrencyPair {
+        audusd_sim()
     }
 
-    impl TestDataActor {
-        fn new() -> Self {
-            Self {
-                inner: PyDataActor::new(None),
-            }
-        }
-
-        fn track_call(&self, handler_name: &str) {
-            let mut tracker = CALL_TRACKER.lock().expect(MUTEX_POISONED);
-            *tracker.entry(handler_name.to_string()).or_insert(0) += 1;
-        }
-
-        fn get_call_count(&self, handler_name: &str) -> i32 {
-            let tracker = CALL_TRACKER.lock().expect(MUTEX_POISONED);
-            tracker.get(handler_name).copied().unwrap_or(0)
-        }
-
-        fn reset_tracker(&self) {
-            let mut tracker = CALL_TRACKER.lock().expect(MUTEX_POISONED);
-            tracker.clear();
-        }
+    fn sample_data() -> CustomData {
+        stub_custom_data(1, 42, None, None)
     }
 
-    impl Deref for TestDataActor {
-        type Target = DataActorCore;
-        fn deref(&self) -> &Self::Target {
-            &self.inner.inner().core
-        }
-    }
-
-    impl DerefMut for TestDataActor {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.inner.inner_mut().core
-        }
-    }
-
-    impl DataActor for TestDataActor {
-        fn on_time_event(&mut self, event: &TimeEvent) -> anyhow::Result<()> {
-            self.track_call("on_time_event");
-            self.inner.inner_mut().on_time_event(event)
-        }
-
-        fn on_data(&mut self, data: &CustomData) -> anyhow::Result<()> {
-            self.track_call("on_data");
-            self.inner.inner_mut().on_data(data)
-        }
-
-        fn on_signal(&mut self, signal: &Signal) -> anyhow::Result<()> {
-            self.track_call("on_signal");
-            self.inner.inner_mut().on_signal(signal)
-        }
-
-        fn on_instrument(&mut self, instrument: &InstrumentAny) -> anyhow::Result<()> {
-            self.track_call("on_instrument");
-            self.inner.inner_mut().on_instrument(instrument)
-        }
-
-        fn on_quote(&mut self, quote: &QuoteTick) -> anyhow::Result<()> {
-            self.track_call("on_quote");
-            self.inner.inner_mut().on_quote(quote)
-        }
-
-        fn on_trade(&mut self, trade: &TradeTick) -> anyhow::Result<()> {
-            self.track_call("on_trade");
-            self.inner.inner_mut().on_trade(trade)
-        }
-
-        fn on_bar(&mut self, bar: &Bar) -> anyhow::Result<()> {
-            self.track_call("on_bar");
-            self.inner.inner_mut().on_bar(bar)
-        }
-
-        fn on_book(&mut self, book: &OrderBook) -> anyhow::Result<()> {
-            self.track_call("on_book");
-            self.inner.inner_mut().on_book(book)
-        }
-
-        fn on_book_deltas(&mut self, deltas: &OrderBookDeltas) -> anyhow::Result<()> {
-            self.track_call("on_book_deltas");
-            self.inner.inner_mut().on_book_deltas(deltas)
-        }
-
-        fn on_mark_price(&mut self, update: &MarkPriceUpdate) -> anyhow::Result<()> {
-            self.track_call("on_mark_price");
-            self.inner.inner_mut().on_mark_price(update)
-        }
-
-        fn on_index_price(&mut self, update: &IndexPriceUpdate) -> anyhow::Result<()> {
-            self.track_call("on_index_price");
-            self.inner.inner_mut().on_index_price(update)
-        }
-
-        fn on_instrument_status(&mut self, update: &InstrumentStatus) -> anyhow::Result<()> {
-            self.track_call("on_instrument_status");
-            self.inner.inner_mut().on_instrument_status(update)
-        }
-
-        fn on_instrument_close(&mut self, update: &InstrumentClose) -> anyhow::Result<()> {
-            self.track_call("on_instrument_close");
-            self.inner.inner_mut().on_instrument_close(update)
-        }
-
-        fn on_option_greeks(&mut self, greeks: &OptionGreeks) -> anyhow::Result<()> {
-            self.track_call("on_option_greeks");
-            self.inner.inner_mut().on_option_greeks(greeks)
-        }
-
-        fn on_option_chain(&mut self, slice: &OptionChainSlice) -> anyhow::Result<()> {
-            self.track_call("on_option_chain");
-            self.inner.inner_mut().on_option_chain(slice)
-        }
-
-        #[cfg(feature = "defi")]
-        fn on_block(&mut self, block: &Block) -> anyhow::Result<()> {
-            self.track_call("on_block");
-            self.inner.inner_mut().on_block(block)
-        }
-
-        #[cfg(feature = "defi")]
-        fn on_pool(&mut self, pool: &Pool) -> anyhow::Result<()> {
-            self.track_call("on_pool");
-            self.inner.inner_mut().on_pool(pool)
-        }
-
-        #[cfg(feature = "defi")]
-        fn on_pool_swap(&mut self, swap: &PoolSwap) -> anyhow::Result<()> {
-            self.track_call("on_pool_swap");
-            self.inner.inner_mut().on_pool_swap(swap)
-        }
-
-        #[cfg(feature = "defi")]
-        fn on_pool_liquidity_update(&mut self, update: &PoolLiquidityUpdate) -> anyhow::Result<()> {
-            self.track_call("on_pool_liquidity_update");
-            self.inner.inner_mut().on_pool_liquidity_update(update)
-        }
-    }
-
-    #[rstest]
-    fn test_python_on_signal_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        let mut test_actor = TestDataActor::new();
-        test_actor.reset_tracker();
-        test_actor.register(trader_id, clock, cache).unwrap();
-
-        let signal = Signal::new(
-            Ustr::from("test_signal"),
-            "1.0".to_string(),
-            UnixNanos::default(),
-            UnixNanos::default(),
-        );
-
-        assert!(test_actor.on_signal(&signal).is_ok());
-        assert_eq!(test_actor.get_call_count("on_signal"), 1);
-    }
-
-    #[rstest]
-    fn test_python_on_data_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        let mut test_actor = TestDataActor::new();
-        test_actor.reset_tracker();
-        test_actor.register(trader_id, clock, cache).unwrap();
-
-        let custom_data = crate::actor::tests::make_test_custom_data("test");
-        assert!(test_actor.on_data(&custom_data).is_ok());
-        assert_eq!(test_actor.get_call_count("on_data"), 1);
-    }
-
-    #[rstest]
-    fn test_python_on_time_event_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        let mut test_actor = TestDataActor::new();
-        test_actor.reset_tracker();
-        test_actor.register(trader_id, clock, cache).unwrap();
-
-        let time_event = TimeEvent::new(
+    fn sample_time_event() -> TimeEvent {
+        TimeEvent::new(
             Ustr::from("test_timer"),
             UUID4::new(),
             UnixNanos::default(),
             UnixNanos::default(),
-        );
-
-        assert!(test_actor.on_time_event(&time_event).is_ok());
-        assert_eq!(test_actor.get_call_count("on_time_event"), 1);
+        )
     }
 
-    #[rstest]
-    fn test_python_on_instrument_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let instrument = InstrumentAny::CurrencyPair(audusd_sim);
-
-        assert!(rust_actor.inner_mut().on_instrument(&instrument).is_ok());
-    }
-
-    #[rstest]
-    fn test_python_on_quote_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let quote = QuoteTick::new(
-            audusd_sim.id,
-            Price::from("1.0000"),
-            Price::from("1.0001"),
-            Quantity::from("100000"),
-            Quantity::from("100000"),
+    fn sample_signal() -> Signal {
+        Signal::new(
+            Ustr::from("test_signal"),
+            "1.0".to_string(),
             UnixNanos::default(),
             UnixNanos::default(),
-        );
-
-        assert!(rust_actor.inner_mut().on_quote(&quote).is_ok());
+        )
     }
 
-    #[rstest]
-    fn test_python_on_trade_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
+    fn sample_quote() -> QuoteTick {
+        let instrument = sample_instrument();
+        QuoteTick::new(
+            instrument.id,
+            Price::from("1.00000"),
+            Price::from("1.00001"),
+            Quantity::from(100_000),
+            Quantity::from(100_000),
+            UnixNanos::default(),
+            UnixNanos::default(),
+        )
+    }
 
-        let trade = TradeTick::new(
-            audusd_sim.id,
-            Price::from("1.0000"),
-            Quantity::from("100000"),
+    fn sample_trade() -> TradeTick {
+        let instrument = sample_instrument();
+        TradeTick::new(
+            instrument.id,
+            Price::from("1.00000"),
+            Quantity::from(100_000),
             AggressorSide::Buyer,
-            "T123".to_string().into(),
+            TradeId::new("123456"),
             UnixNanos::default(),
             UnixNanos::default(),
-        );
-
-        assert!(rust_actor.inner_mut().on_trade(&trade).is_ok());
+        )
     }
 
-    #[rstest]
-    fn test_python_on_bar_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
+    fn sample_bar() -> Bar {
+        let instrument = sample_instrument();
         let bar_type =
-            BarType::from_str(&format!("{}-1-MINUTE-LAST-INTERNAL", audusd_sim.id)).unwrap();
-        let bar = Bar::new(
+            BarType::from_str(&format!("{}-1-MINUTE-LAST-INTERNAL", instrument.id)).unwrap();
+        Bar::new(
             bar_type,
-            Price::from("1.0000"),
-            Price::from("1.0001"),
-            Price::from("0.9999"),
-            Price::from("1.0000"),
-            Quantity::from("100000"),
+            Price::from("1.00000"),
+            Price::from("1.00010"),
+            Price::from("0.99990"),
+            Price::from("1.00005"),
+            Quantity::from(100_000),
             UnixNanos::default(),
             UnixNanos::default(),
-        );
-
-        assert!(rust_actor.inner_mut().on_bar(&bar).is_ok());
+        )
     }
 
-    #[rstest]
-    fn test_python_on_book_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let book = OrderBook::new(audusd_sim.id, BookType::L2_MBP);
-        assert!(rust_actor.inner_mut().on_book(&book).is_ok());
+    fn sample_book() -> OrderBook {
+        OrderBook::new(sample_instrument().id, BookType::L2_MBP)
     }
 
-    #[rstest]
-    fn test_python_on_book_deltas_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
+    fn sample_book_deltas() -> OrderBookDeltas {
+        let instrument = sample_instrument();
         let delta =
-            OrderBookDelta::clear(audusd_sim.id, 0, UnixNanos::default(), UnixNanos::default());
-        let deltas = OrderBookDeltas::new(audusd_sim.id, vec![delta]);
-
-        assert!(rust_actor.inner_mut().on_book_deltas(&deltas).is_ok());
+            OrderBookDelta::clear(instrument.id, 0, UnixNanos::default(), UnixNanos::default());
+        OrderBookDeltas::new(instrument.id, vec![delta])
     }
 
-    #[rstest]
-    fn test_python_on_mark_price_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let mark_price = MarkPriceUpdate::new(
-            audusd_sim.id,
-            Price::from("1.0000"),
+    fn sample_mark_price() -> MarkPriceUpdate {
+        MarkPriceUpdate::new(
+            sample_instrument().id,
+            Price::from("1.00000"),
             UnixNanos::default(),
             UnixNanos::default(),
-        );
-
-        assert!(rust_actor.inner_mut().on_mark_price(&mark_price).is_ok());
+        )
     }
 
-    #[rstest]
-    fn test_python_on_index_price_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let index_price = IndexPriceUpdate::new(
-            audusd_sim.id,
-            Price::from("1.0000"),
+    fn sample_index_price() -> IndexPriceUpdate {
+        IndexPriceUpdate::new(
+            sample_instrument().id,
+            Price::from("1.00000"),
             UnixNanos::default(),
             UnixNanos::default(),
-        );
-
-        assert!(rust_actor.inner_mut().on_index_price(&index_price).is_ok());
+        )
     }
 
-    #[rstest]
-    fn test_python_on_instrument_status_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
+    fn sample_funding_rate() -> FundingRateUpdate {
+        FundingRateUpdate::new(
+            sample_instrument().id,
+            "0.0001".parse().unwrap(),
+            None,
+            None,
+            UnixNanos::default(),
+            UnixNanos::default(),
+        )
+    }
 
-        let status = InstrumentStatus::new(
-            audusd_sim.id,
+    fn sample_instrument_status() -> InstrumentStatus {
+        InstrumentStatus::new(
+            sample_instrument().id,
             MarketStatusAction::Trading,
             UnixNanos::default(),
             UnixNanos::default(),
@@ -2707,46 +2499,22 @@ mod tests {
             None,
             None,
             None,
-        );
-
-        assert!(rust_actor.inner_mut().on_instrument_status(&status).is_ok());
+        )
     }
 
-    #[rstest]
-    fn test_python_on_instrument_close_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let close = InstrumentClose::new(
-            audusd_sim.id,
-            Price::from("1.0000"),
+    fn sample_instrument_close() -> InstrumentClose {
+        InstrumentClose::new(
+            sample_instrument().id,
+            Price::from("1.00000"),
             InstrumentCloseType::EndOfSession,
             UnixNanos::default(),
             UnixNanos::default(),
-        );
-
-        assert!(rust_actor.inner_mut().on_instrument_close(&close).is_ok());
+        )
     }
 
-    #[rstest]
-    fn test_python_on_option_greeks_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let greeks = OptionGreeks {
-            instrument_id: audusd_sim.id,
+    fn sample_option_greeks() -> OptionGreeks {
+        OptionGreeks {
+            instrument_id: sample_instrument().id,
             greeks: OptionGreekValues {
                 delta: 0.55,
                 gamma: 0.03,
@@ -2761,22 +2529,11 @@ mod tests {
             open_interest: None,
             ts_event: UnixNanos::default(),
             ts_init: UnixNanos::default(),
-        };
-
-        assert!(rust_actor.inner_mut().on_option_greeks(&greeks).is_ok());
+        }
     }
 
-    #[rstest]
-    fn test_python_on_option_chain_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let slice = OptionChainSlice {
+    fn sample_option_chain() -> OptionChainSlice {
+        OptionChainSlice {
             series_id: OptionSeriesId::new(
                 Venue::from("SIM"),
                 Ustr::from("AUD"),
@@ -2788,24 +2545,12 @@ mod tests {
             puts: Default::default(),
             ts_event: UnixNanos::default(),
             ts_init: UnixNanos::default(),
-        };
-
-        assert!(rust_actor.inner_mut().on_option_chain(&slice).is_ok());
+        }
     }
 
     #[cfg(feature = "defi")]
-    #[rstest]
-    fn test_python_on_block_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        let mut test_actor = TestDataActor::new();
-        test_actor.reset_tracker();
-        test_actor.register(trader_id, clock, cache).unwrap();
-
-        let block = Block::new(
+    fn sample_block() -> Block {
+        Block::new(
             "0x1234567890abcdef".to_string(),
             "0xabcdef1234567890".to_string(),
             12345,
@@ -2814,23 +2559,11 @@ mod tests {
             20000,
             UnixNanos::default(),
             Some(Blockchain::Ethereum),
-        );
-
-        assert!(test_actor.on_block(&block).is_ok());
-        assert_eq!(test_actor.get_call_count("on_block"), 1);
+        )
     }
 
     #[cfg(feature = "defi")]
-    #[rstest]
-    fn test_python_on_pool_swap_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
+    fn sample_pool_components() -> (Arc<Chain>, Arc<Dex>, Pool) {
         let chain = Arc::new(Chain::new(Blockchain::Ethereum, 1));
         let dex = Arc::new(Dex::new(
             Chain::new(Blockchain::Ethereum, 1),
@@ -2868,7 +2601,7 @@ mod tests {
         let pool_identifier: PoolIdentifier = "0x8ad599c3A0ff1De082011EFDDc58f1908eb6e6D8"
             .parse()
             .unwrap();
-        let pool = Arc::new(Pool::new(
+        let pool = Pool::new(
             chain.clone(),
             dex.clone(),
             pool_address,
@@ -2879,9 +2612,15 @@ mod tests {
             Some(500),
             Some(10),
             UnixNanos::default(),
-        ));
+        );
 
-        let swap = PoolSwap::new(
+        (chain, dex, pool)
+    }
+
+    #[cfg(feature = "defi")]
+    fn sample_pool_swap() -> PoolSwap {
+        let (chain, dex, pool) = sample_pool_components();
+        PoolSwap::new(
             chain,
             dex,
             pool.instrument_id,
@@ -2902,41 +2641,131 @@ mod tests {
             U160::from(59000000000000u128),
             1000000,
             100,
-        );
-
-        assert!(rust_actor.inner_mut().on_pool_swap(&swap).is_ok());
+        )
     }
 
     #[cfg(feature = "defi")]
-    #[rstest]
-    fn test_python_on_pool_liquidity_update_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let block = Block::new(
-            "0x1234567890abcdef".to_string(),
-            "0xabcdef1234567890".to_string(),
+    fn sample_pool_liquidity_update() -> PoolLiquidityUpdate {
+        let (chain, dex, pool) = sample_pool_components();
+        PoolLiquidityUpdate::new(
+            chain,
+            dex,
+            pool.instrument_id,
+            pool.pool_identifier,
+            PoolLiquidityUpdateType::Mint,
             12345,
-            "0x742E4422b21FB8B4dF463F28689AC98bD56c39e0".into(),
-            21000,
-            20000,
-            UnixNanos::default(),
-            Some(Blockchain::Ethereum),
-        );
+            "0xabc123".to_string(),
+            0,
+            0,
+            Some(
+                "0x742E4422b21FB8B4dF463F28689AC98bD56c39e0"
+                    .parse()
+                    .unwrap(),
+            ),
+            "0x742E4422b21FB8B4dF463F28689AC98bD56c39e0"
+                .parse()
+                .unwrap(),
+            1000,
+            U256::from(1_000u64),
+            U256::from(2_000u64),
+            -10,
+            10,
+            Some(UnixNanos::default()),
+        )
+    }
 
-        // We test on_block since PoolLiquidityUpdate construction is complex
-        assert!(rust_actor.inner_mut().on_block(&block).is_ok());
+    #[cfg(feature = "defi")]
+    fn sample_pool_fee_collect() -> PoolFeeCollect {
+        let (chain, dex, pool) = sample_pool_components();
+        PoolFeeCollect::new(
+            chain,
+            dex,
+            pool.instrument_id,
+            pool.pool_identifier,
+            12345,
+            "0xabc123".to_string(),
+            0,
+            0,
+            "0x742E4422b21FB8B4dF463F28689AC98bD56c39e0"
+                .parse()
+                .unwrap(),
+            100,
+            200,
+            -10,
+            10,
+            Some(UnixNanos::default()),
+        )
+    }
+
+    #[cfg(feature = "defi")]
+    fn sample_pool_flash() -> PoolFlash {
+        let (chain, dex, pool) = sample_pool_components();
+        PoolFlash::new(
+            chain,
+            dex,
+            pool.instrument_id,
+            pool.pool_identifier,
+            12345,
+            "0xabc123".to_string(),
+            0,
+            0,
+            Some(UnixNanos::default()),
+            "0x742E4422b21FB8B4dF463F28689AC98bD56c39e0"
+                .parse()
+                .unwrap(),
+            "0x742E4422b21FB8B4dF463F28689AC98bD56c39e0"
+                .parse()
+                .unwrap(),
+            U256::from(100u64),
+            U256::from(200u64),
+            U256::from(101u64),
+            U256::from(201u64),
+        )
     }
 
     const TRACKING_ACTOR_CODE: &std::ffi::CStr = c_str!(
         r#"
 class TrackingActor:
     """A mock Python actor that tracks all method calls."""
+
+    TRACKED_METHODS = {
+        "on_start",
+        "on_stop",
+        "on_resume",
+        "on_reset",
+        "on_dispose",
+        "on_degrade",
+        "on_fault",
+        "on_time_event",
+        "on_data",
+        "on_signal",
+        "on_instrument",
+        "on_quote",
+        "on_trade",
+        "on_bar",
+        "on_book",
+        "on_book_deltas",
+        "on_mark_price",
+        "on_index_price",
+        "on_funding_rate",
+        "on_instrument_status",
+        "on_instrument_close",
+        "on_option_greeks",
+        "on_option_chain",
+        "on_historical_data",
+        "on_historical_quotes",
+        "on_historical_trades",
+        "on_historical_funding_rates",
+        "on_historical_bars",
+        "on_historical_mark_prices",
+        "on_historical_index_prices",
+        "on_block",
+        "on_pool",
+        "on_pool_swap",
+        "on_pool_liquidity_update",
+        "on_pool_fee_collect",
+        "on_pool_flash",
+    }
 
     def __init__(self):
         self.calls = []
@@ -2950,92 +2779,10 @@ class TrackingActor:
     def call_count(self, method_name):
         return sum(1 for call in self.calls if call[0] == method_name)
 
-    def on_start(self):
-        self._record("on_start")
-
-    def on_stop(self):
-        self._record("on_stop")
-
-    def on_resume(self):
-        self._record("on_resume")
-
-    def on_reset(self):
-        self._record("on_reset")
-
-    def on_dispose(self):
-        self._record("on_dispose")
-
-    def on_degrade(self):
-        self._record("on_degrade")
-
-    def on_fault(self):
-        self._record("on_fault")
-
-    def on_time_event(self, event):
-        self._record("on_time_event", event)
-
-    def on_data(self, data):
-        self._record("on_data", data)
-
-    def on_signal(self, signal):
-        self._record("on_signal", signal)
-
-    def on_instrument(self, instrument):
-        self._record("on_instrument", instrument)
-
-    def on_quote(self, quote):
-        self._record("on_quote", quote)
-
-    def on_trade(self, trade):
-        self._record("on_trade", trade)
-
-    def on_bar(self, bar):
-        self._record("on_bar", bar)
-
-    def on_book(self, book):
-        self._record("on_book", book)
-
-    def on_book_deltas(self, deltas):
-        self._record("on_book_deltas", deltas)
-
-    def on_mark_price(self, update):
-        self._record("on_mark_price", update)
-
-    def on_index_price(self, update):
-        self._record("on_index_price", update)
-
-    def on_funding_rate(self, update):
-        self._record("on_funding_rate", update)
-
-    def on_instrument_status(self, status):
-        self._record("on_instrument_status", status)
-
-    def on_instrument_close(self, close):
-        self._record("on_instrument_close", close)
-
-    def on_option_greeks(self, greeks):
-        self._record("on_option_greeks", greeks)
-
-    def on_option_chain(self, chain):
-        self._record("on_option_chain", chain)
-
-    def on_historical_data(self, data):
-        self._record("on_historical_data", data)
-
-    def on_historical_quotes(self, quotes):
-        self._record("on_historical_quotes", quotes)
-
-    def on_historical_trades(self, trades):
-        self._record("on_historical_trades", trades)
-
-    def on_historical_bars(self, bars):
-        self._record("on_historical_bars", bars)
-
-    def on_historical_mark_prices(self, prices):
-        self._record("on_historical_mark_prices", prices)
-
-    def on_historical_index_prices(self, prices):
-        self._record("on_historical_index_prices", prices)
+    def __getattr__(self, name):
+        if name in self.TRACKED_METHODS:
+            return lambda *args: self._record(name, *args)
+        raise AttributeError(name)
 "#
     );
 
@@ -3060,585 +2807,260 @@ class TrackingActor:
             .unwrap_or(0)
     }
 
-    #[rstest]
-    fn test_python_dispatch_on_start(
+    fn assert_python_dispatch<F>(
+        py: Python<'_>,
         clock: Rc<RefCell<TestClock>>,
         cache: Rc<RefCell<Cache>>,
         trader_id: TraderId,
+        method_name: &str,
+        invoke: F,
+    ) where
+        F: FnOnce(&mut PyDataActor) -> anyhow::Result<()>,
+    {
+        let py_actor = create_tracking_python_actor(py).unwrap();
+
+        let mut rust_actor = PyDataActor::new(None);
+        rust_actor.set_python_instance(py_actor.clone_ref(py));
+        rust_actor.register(trader_id, clock, cache).unwrap();
+
+        let result = invoke(&mut rust_actor);
+
+        assert!(result.is_ok());
+        assert!(python_method_was_called(&py_actor, py, method_name));
+        assert_eq!(python_method_call_count(&py_actor, py, method_name), 1);
+    }
+
+    #[rstest]
+    #[case("on_start")]
+    #[case("on_stop")]
+    #[case("on_resume")]
+    #[case("on_reset")]
+    #[case("on_dispose")]
+    #[case("on_degrade")]
+    #[case("on_fault")]
+    fn test_python_dispatch_lifecycle_matrix(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+        #[case] method_name: &str,
     ) {
         pyo3::Python::initialize();
         Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let result = DataActor::on_start(rust_actor.inner_mut());
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_start"));
-            assert_eq!(python_method_call_count(&py_actor, py, "on_start"), 1);
+            assert_python_dispatch(py, clock, cache, trader_id, method_name, |rust_actor| {
+                match method_name {
+                    "on_start" => DataActor::on_start(rust_actor.inner_mut()),
+                    "on_stop" => DataActor::on_stop(rust_actor.inner_mut()),
+                    "on_resume" => DataActor::on_resume(rust_actor.inner_mut()),
+                    "on_reset" => DataActor::on_reset(rust_actor.inner_mut()),
+                    "on_dispose" => DataActor::on_dispose(rust_actor.inner_mut()),
+                    "on_degrade" => DataActor::on_degrade(rust_actor.inner_mut()),
+                    "on_fault" => DataActor::on_fault(rust_actor.inner_mut()),
+                    _ => unreachable!("unhandled lifecycle case: {method_name}"),
+                }
+            });
         });
     }
 
     #[rstest]
-    fn test_python_dispatch_on_stop(
+    #[case("on_time_event")]
+    #[case("on_data")]
+    #[case("on_signal")]
+    #[case("on_instrument")]
+    #[case("on_quote")]
+    #[case("on_trade")]
+    #[case("on_bar")]
+    #[case("on_book")]
+    #[case("on_book_deltas")]
+    #[case("on_mark_price")]
+    #[case("on_index_price")]
+    #[case("on_funding_rate")]
+    #[case("on_instrument_status")]
+    #[case("on_instrument_close")]
+    #[case("on_option_greeks")]
+    #[case("on_option_chain")]
+    fn test_python_dispatch_typed_callback_matrix(
         clock: Rc<RefCell<TestClock>>,
         cache: Rc<RefCell<Cache>>,
         trader_id: TraderId,
+        #[case] method_name: &str,
     ) {
         pyo3::Python::initialize();
         Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let result = DataActor::on_stop(rust_actor.inner_mut());
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_stop"));
+            assert_python_dispatch(py, clock, cache, trader_id, method_name, |rust_actor| {
+                match method_name {
+                    "on_time_event" => {
+                        let event = sample_time_event();
+                        rust_actor.inner_mut().on_time_event(&event)
+                    }
+                    "on_data" => {
+                        let data = sample_data();
+                        rust_actor.inner_mut().on_data(&data)
+                    }
+                    "on_signal" => {
+                        let signal = sample_signal();
+                        rust_actor.inner_mut().on_signal(&signal)
+                    }
+                    "on_instrument" => {
+                        let instrument = InstrumentAny::CurrencyPair(sample_instrument());
+                        rust_actor.inner_mut().on_instrument(&instrument)
+                    }
+                    "on_quote" => {
+                        let quote = sample_quote();
+                        rust_actor.inner_mut().on_quote(&quote)
+                    }
+                    "on_trade" => {
+                        let trade = sample_trade();
+                        rust_actor.inner_mut().on_trade(&trade)
+                    }
+                    "on_bar" => {
+                        let bar = sample_bar();
+                        rust_actor.inner_mut().on_bar(&bar)
+                    }
+                    "on_book" => {
+                        let book = sample_book();
+                        rust_actor.inner_mut().on_book(&book)
+                    }
+                    "on_book_deltas" => {
+                        let deltas = sample_book_deltas();
+                        rust_actor.inner_mut().on_book_deltas(&deltas)
+                    }
+                    "on_mark_price" => {
+                        let update = sample_mark_price();
+                        rust_actor.inner_mut().on_mark_price(&update)
+                    }
+                    "on_index_price" => {
+                        let update = sample_index_price();
+                        rust_actor.inner_mut().on_index_price(&update)
+                    }
+                    "on_funding_rate" => {
+                        let update = sample_funding_rate();
+                        rust_actor.inner_mut().on_funding_rate(&update)
+                    }
+                    "on_instrument_status" => {
+                        let status = sample_instrument_status();
+                        rust_actor.inner_mut().on_instrument_status(&status)
+                    }
+                    "on_instrument_close" => {
+                        let close = sample_instrument_close();
+                        rust_actor.inner_mut().on_instrument_close(&close)
+                    }
+                    "on_option_greeks" => {
+                        let greeks = sample_option_greeks();
+                        rust_actor.inner_mut().on_option_greeks(&greeks)
+                    }
+                    "on_option_chain" => {
+                        let chain = sample_option_chain();
+                        rust_actor.inner_mut().on_option_chain(&chain)
+                    }
+                    _ => unreachable!("unhandled typed callback case: {method_name}"),
+                }
+            });
         });
     }
 
     #[rstest]
-    fn test_python_dispatch_on_resume(
+    #[case("on_historical_data")]
+    #[case("on_historical_quotes")]
+    #[case("on_historical_trades")]
+    #[case("on_historical_funding_rates")]
+    #[case("on_historical_bars")]
+    #[case("on_historical_mark_prices")]
+    #[case("on_historical_index_prices")]
+    fn test_python_dispatch_historical_callback_matrix(
         clock: Rc<RefCell<TestClock>>,
         cache: Rc<RefCell<Cache>>,
         trader_id: TraderId,
+        #[case] method_name: &str,
     ) {
         pyo3::Python::initialize();
         Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let result = DataActor::on_resume(rust_actor.inner_mut());
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_resume"));
+            assert_python_dispatch(py, clock, cache, trader_id, method_name, |rust_actor| {
+                match method_name {
+                    "on_historical_data" => {
+                        let data = sample_data();
+                        rust_actor.inner_mut().on_historical_data(&data)
+                    }
+                    "on_historical_quotes" => {
+                        let quotes = vec![sample_quote()];
+                        rust_actor.inner_mut().on_historical_quotes(&quotes)
+                    }
+                    "on_historical_trades" => {
+                        let trades = vec![sample_trade()];
+                        rust_actor.inner_mut().on_historical_trades(&trades)
+                    }
+                    "on_historical_funding_rates" => {
+                        let funding_rates = vec![sample_funding_rate()];
+                        rust_actor
+                            .inner_mut()
+                            .on_historical_funding_rates(&funding_rates)
+                    }
+                    "on_historical_bars" => {
+                        let bars = vec![sample_bar()];
+                        rust_actor.inner_mut().on_historical_bars(&bars)
+                    }
+                    "on_historical_mark_prices" => {
+                        let mark_prices = vec![sample_mark_price()];
+                        rust_actor
+                            .inner_mut()
+                            .on_historical_mark_prices(&mark_prices)
+                    }
+                    "on_historical_index_prices" => {
+                        let index_prices = vec![sample_index_price()];
+                        rust_actor
+                            .inner_mut()
+                            .on_historical_index_prices(&index_prices)
+                    }
+                    _ => unreachable!("unhandled historical callback case: {method_name}"),
+                }
+            });
         });
     }
 
+    #[cfg(feature = "defi")]
     #[rstest]
-    fn test_python_dispatch_on_reset(
+    #[case("on_block")]
+    #[case("on_pool")]
+    #[case("on_pool_swap")]
+    #[case("on_pool_liquidity_update")]
+    #[case("on_pool_fee_collect")]
+    #[case("on_pool_flash")]
+    fn test_python_dispatch_defi_callback_matrix(
         clock: Rc<RefCell<TestClock>>,
         cache: Rc<RefCell<Cache>>,
         trader_id: TraderId,
+        #[case] method_name: &str,
     ) {
         pyo3::Python::initialize();
         Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let result = DataActor::on_reset(rust_actor.inner_mut());
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_reset"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_dispose(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let result = DataActor::on_dispose(rust_actor.inner_mut());
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_dispose"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_degrade(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let result = DataActor::on_degrade(rust_actor.inner_mut());
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_degrade"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_fault(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let result = DataActor::on_fault(rust_actor.inner_mut());
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_fault"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_signal(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let signal = Signal::new(
-                Ustr::from("test_signal"),
-                "1.0".to_string(),
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_signal(&signal);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_signal"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_time_event(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let time_event = TimeEvent::new(
-                Ustr::from("test_timer"),
-                UUID4::new(),
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_time_event(&time_event);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_time_event"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_instrument(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let instrument = InstrumentAny::CurrencyPair(audusd_sim);
-
-            let result = rust_actor.inner_mut().on_instrument(&instrument);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_instrument"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_quote(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let quote = QuoteTick::new(
-                audusd_sim.id,
-                Price::from("1.00000"),
-                Price::from("1.00001"),
-                Quantity::from(100_000),
-                Quantity::from(100_000),
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_quote(&quote);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_quote"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_trade(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let trade = TradeTick::new(
-                audusd_sim.id,
-                Price::from("1.00000"),
-                Quantity::from(100_000),
-                AggressorSide::Buyer,
-                TradeId::new("123456"),
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_trade(&trade);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_trade"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_bar(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let bar_type =
-                BarType::from_str(&format!("{}-1-MINUTE-LAST-INTERNAL", audusd_sim.id)).unwrap();
-            let bar = Bar::new(
-                bar_type,
-                Price::from("1.00000"),
-                Price::from("1.00010"),
-                Price::from("0.99990"),
-                Price::from("1.00005"),
-                Quantity::from(100_000),
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_bar(&bar);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_bar"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_book(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let book = OrderBook::new(audusd_sim.id, BookType::L2_MBP);
-
-            let result = rust_actor.inner_mut().on_book(&book);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_book"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_book_deltas(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let delta =
-                OrderBookDelta::clear(audusd_sim.id, 0, UnixNanos::default(), UnixNanos::default());
-            let deltas = OrderBookDeltas::new(audusd_sim.id, vec![delta]);
-
-            let result = rust_actor.inner_mut().on_book_deltas(&deltas);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_book_deltas"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_mark_price(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let mark_price = MarkPriceUpdate::new(
-                audusd_sim.id,
-                Price::from("1.00000"),
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_mark_price(&mark_price);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_mark_price"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_index_price(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let index_price = IndexPriceUpdate::new(
-                audusd_sim.id,
-                Price::from("1.00000"),
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_index_price(&index_price);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_index_price"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_instrument_status(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let status = InstrumentStatus::new(
-                audusd_sim.id,
-                MarketStatusAction::Trading,
-                UnixNanos::default(),
-                UnixNanos::default(),
-                None,
-                None,
-                None,
-                None,
-                None,
-            );
-
-            let result = rust_actor.inner_mut().on_instrument_status(&status);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(
-                &py_actor,
-                py,
-                "on_instrument_status"
-            ));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_instrument_close(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let close = InstrumentClose::new(
-                audusd_sim.id,
-                Price::from("1.00000"),
-                InstrumentCloseType::EndOfSession,
-                UnixNanos::default(),
-                UnixNanos::default(),
-            );
-
-            let result = rust_actor.inner_mut().on_instrument_close(&close);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(
-                &py_actor,
-                py,
-                "on_instrument_close"
-            ));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_option_greeks(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let greeks = OptionGreeks {
-                instrument_id: audusd_sim.id,
-                greeks: OptionGreekValues {
-                    delta: 0.55,
-                    gamma: 0.03,
-                    vega: 0.12,
-                    theta: -0.05,
-                    rho: 0.01,
-                },
-                mark_iv: Some(0.25),
-                bid_iv: None,
-                ask_iv: None,
-                underlying_price: None,
-                open_interest: None,
-                ts_event: UnixNanos::default(),
-                ts_init: UnixNanos::default(),
-            };
-
-            let result = rust_actor.inner_mut().on_option_greeks(&greeks);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_option_greeks"));
-        });
-    }
-
-    #[rstest]
-    fn test_python_dispatch_on_option_chain(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-    ) {
-        pyo3::Python::initialize();
-        Python::attach(|py| {
-            let py_actor = create_tracking_python_actor(py).unwrap();
-
-            let mut rust_actor = PyDataActor::new(None);
-            rust_actor.set_python_instance(py_actor.clone_ref(py));
-            rust_actor.register(trader_id, clock, cache).unwrap();
-
-            let slice = OptionChainSlice {
-                series_id: OptionSeriesId::new(
-                    Venue::from("SIM"),
-                    Ustr::from("AUD"),
-                    Ustr::from("USD"),
-                    UnixNanos::from(1_711_036_800_000_000_000),
-                ),
-                atm_strike: None,
-                calls: Default::default(),
-                puts: Default::default(),
-                ts_event: UnixNanos::default(),
-                ts_init: UnixNanos::default(),
-            };
-
-            let result = rust_actor.inner_mut().on_option_chain(&slice);
-
-            assert!(result.is_ok());
-            assert!(python_method_was_called(&py_actor, py, "on_option_chain"));
+            assert_python_dispatch(py, clock, cache, trader_id, method_name, |rust_actor| {
+                match method_name {
+                    "on_block" => {
+                        let block = sample_block();
+                        rust_actor.inner_mut().on_block(&block)
+                    }
+                    "on_pool" => {
+                        let (_chain, _dex, pool) = sample_pool_components();
+                        rust_actor.inner_mut().on_pool(&pool)
+                    }
+                    "on_pool_swap" => {
+                        let swap = sample_pool_swap();
+                        rust_actor.inner_mut().on_pool_swap(&swap)
+                    }
+                    "on_pool_liquidity_update" => {
+                        let update = sample_pool_liquidity_update();
+                        rust_actor.inner_mut().on_pool_liquidity_update(&update)
+                    }
+                    "on_pool_fee_collect" => {
+                        let collect = sample_pool_fee_collect();
+                        rust_actor.inner_mut().on_pool_fee_collect(&collect)
+                    }
+                    "on_pool_flash" => {
+                        let flash = sample_pool_flash();
+                        rust_actor.inner_mut().on_pool_flash(&flash)
+                    }
+                    _ => unreachable!("unhandled defi callback case: {method_name}"),
+                }
+            });
         });
     }
 
@@ -3690,34 +3112,6 @@ class TrackingActor:
             let result = DataActor::on_start(rust_actor.inner_mut());
             assert!(result.is_ok());
         });
-    }
-
-    #[rstest]
-    fn test_python_on_historical_funding_rates_handler(
-        clock: Rc<RefCell<TestClock>>,
-        cache: Rc<RefCell<Cache>>,
-        trader_id: TraderId,
-        audusd_sim: CurrencyPair,
-    ) {
-        pyo3::Python::initialize();
-        let mut rust_actor = PyDataActor::new(None);
-        rust_actor.register(trader_id, clock, cache).unwrap();
-
-        let funding_rate = FundingRateUpdate::new(
-            audusd_sim.id,
-            "0.0001".parse().unwrap(),
-            None,
-            None,
-            UnixNanos::default(),
-            UnixNanos::default(),
-        );
-
-        assert!(
-            rust_actor
-                .inner_mut()
-                .on_historical_funding_rates(&[funding_rate])
-                .is_ok()
-        );
     }
 
     #[rstest]

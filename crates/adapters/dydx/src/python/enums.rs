@@ -26,7 +26,9 @@ use crate::common::enums::DydxNetwork;
 #[pymethods]
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 impl DydxNetwork {
-    /// dYdX network environment.
+    /// dYdX network environment (mainnet vs testnet).
+    ///
+    /// This selects the underlying Cosmos chain for transaction submission.
     #[new]
     fn py_new(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Self> {
         let t = Self::type_object(py);

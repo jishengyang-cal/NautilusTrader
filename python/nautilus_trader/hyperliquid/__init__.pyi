@@ -11,6 +11,7 @@ __all__ = [
     "HyperliquidConditionalOrderType",
     "HyperliquidDataClientConfig",
     "HyperliquidDataClientFactory",
+    "HyperliquidEnvironment",
     "HyperliquidExecClientConfig",
     "HyperliquidExecFactoryConfig",
     "HyperliquidExecutionClientFactory",
@@ -32,7 +33,7 @@ HYPERLIQUID_POST_ONLY_WOULD_MATCH: str
 class HyperliquidDataClientConfig:
     def __init__(
         self,
-        is_testnet: bool | None = None,
+        environment: HyperliquidEnvironment | None = None,
         private_key: str | None = None,
         base_url_ws: str | None = None,
         base_url_http: str | None = None,
@@ -54,7 +55,7 @@ class HyperliquidExecClientConfig:
         private_key: str | None = None,
         vault_address: str | None = None,
         account_address: str | None = None,
-        is_testnet: bool | None = None,
+        environment: HyperliquidEnvironment | None = None,
         base_url_ws: str | None = None,
         base_url_http: str | None = None,
         base_url_exchange: str | None = None,
@@ -87,18 +88,18 @@ class HyperliquidHttpClient:
         private_key: str | None = None,
         vault_address: str | None = None,
         account_address: str | None = None,
-        is_testnet: bool = False,
+        environment: HyperliquidEnvironment = ...,
         timeout_secs: int = 60,
         proxy_url: str | None = None,
         normalize_prices: bool = True,
     ) -> None: ...
     @staticmethod
-    def from_env(is_testnet: bool = False) -> HyperliquidHttpClient: ...
+    def from_env(environment: HyperliquidEnvironment = ...) -> HyperliquidHttpClient: ...
     @staticmethod
     def from_credentials(
         private_key: str,
         vault_address: str | None = None,
-        is_testnet: bool = False,
+        environment: HyperliquidEnvironment = ...,
         timeout_secs: int = 60,
         proxy_url: str | None = None,
     ) -> HyperliquidHttpClient: ...
@@ -178,7 +179,10 @@ class HyperliquidRawHttpClient: ...
 @typing.final
 class HyperliquidWebSocketClient:
     def __init__(
-        self, url: str | None = None, testnet: bool = False, account_id: str | None = None
+        self,
+        url: str | None = None,
+        environment: HyperliquidEnvironment = ...,
+        account_id: str | None = None,
     ) -> None: ...
     @property
     def url(self) -> str: ...
@@ -241,6 +245,22 @@ class HyperliquidConditionalOrderType(enum.Enum):
     def from_str(cls, data: typing.Any) -> HyperliquidConditionalOrderType: ...
 
 @typing.final
+class HyperliquidEnvironment(enum.Enum):
+    MAINNET = ...
+    TESTNET = ...
+
+    def __init__(self, value: typing.Any) -> None: ...
+    def __hash__(self) -> int: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def value(self) -> int: ...
+    @classmethod
+    def variants(cls) -> list[str]: ...
+    @classmethod
+    def from_str(cls, data: typing.Any) -> HyperliquidEnvironment: ...
+
+@typing.final
 class HyperliquidProductType(enum.Enum):
     PERP = ...
     SPOT = ...
@@ -290,7 +310,7 @@ class HyperliquidTrailingOffsetType(enum.Enum):
     @classmethod
     def from_str(cls, data: typing.Any) -> HyperliquidTrailingOffsetType: ...
 
-def get_hyperliquid_http_base_url(is_testnet: bool) -> str: ...
-def get_hyperliquid_ws_url(is_testnet: bool) -> str: ...
+def get_hyperliquid_http_base_url(environment: HyperliquidEnvironment) -> str: ...
+def get_hyperliquid_ws_url(environment: HyperliquidEnvironment) -> str: ...
 def hyperliquid_cloid_from_client_order_id(client_order_id: model.ClientOrderId) -> str: ...
 def hyperliquid_product_type_from_symbol(symbol: str) -> HyperliquidProductType: ...

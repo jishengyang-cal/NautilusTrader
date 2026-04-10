@@ -112,10 +112,6 @@ impl DeribitWebSocketClient {
     /// Uses environment variables to load credentials:
     /// - Testnet: `DERIBIT_TESTNET_API_KEY` and `DERIBIT_TESTNET_API_SECRET`
     /// - Mainnet: `DERIBIT_API_KEY` and `DERIBIT_API_SECRET`
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if credentials are not found in environment variables.
     #[staticmethod]
     #[pyo3(name = "with_credentials", signature = (environment, account_id = None))]
     fn py_with_credentials(

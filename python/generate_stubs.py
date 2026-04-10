@@ -325,6 +325,9 @@ def post_process_stubs(root: Path) -> None:
         # Fix enum variant names in default values (signature defaults use Rust names)
         content = fix_enum_defaults_in_signatures(content, renamed_enums)
 
+        # Replace forward local class defaults that are invalid inside class bodies
+        content = elide_forward_class_defaults_in_signatures(content)
+
         # Import model symbols used without a module qualifier
         content = add_missing_model_imports(content)
 
@@ -639,6 +642,72 @@ def fix_enum_defaults_in_signatures(content: str, renamed_enums: set[str]) -> st
         content = re.sub(pattern, _replace, content)
 
     return content
+
+
+FORWARD_LOCAL_CLASS_DEFAULT_RE = re.compile(
+    r"=\s*(?P<class_name>[A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z_][A-Za-z0-9_]*\b",
+)
+
+
+def _replace_forward_local_class_default(
+    match: re.Match[str],
+    class_positions: dict[str, int],
+    current_index: int,
+) -> str:
+    class_name = match.group("class_name")
+    class_pos = class_positions.get(class_name)
+    if class_pos is None or class_pos < current_index:
+        return match.group(0)
+    return "= ..."
+
+
+def elide_forward_class_defaults_in_signatures(content: str) -> str:
+    """
+    Replace local class defaults with ``...`` when the class is declared later in the
+    same stub file.
+
+    This keeps the signature shape while avoiding invalid runtime expressions
+    like ``BitmexEnvironment.MAINNET`` inside a class body before
+    ``BitmexEnvironment`` is defined.
+
+    """
+    lines = content.split("\n")
+    class_positions = {
+        match.group(1): index
+        for index, line in enumerate(lines)
+        if (match := STUB_CLASS_RE.match(line.strip())) is not None
+    }
+
+    if not class_positions:
+        return content
+
+    result: list[str] = []
+    in_signature = False
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+
+        if STUB_DEF_RE.match(line):
+            in_signature = True
+
+        if in_signature:
+            updated_line = FORWARD_LOCAL_CLASS_DEFAULT_RE.sub(
+                lambda match, current_index=index: _replace_forward_local_class_default(
+                    match,
+                    class_positions,
+                    current_index,
+                ),
+                line,
+            )
+        else:
+            updated_line = line
+
+        if in_signature and stripped.endswith((":", "...")):
+            in_signature = False
+
+        result.append(updated_line)
+
+    return "\n".join(result)
 
 
 def _collect_pyclass_name_fixups(source: str, fixups: dict[str, ClassMethodFixup]) -> None:

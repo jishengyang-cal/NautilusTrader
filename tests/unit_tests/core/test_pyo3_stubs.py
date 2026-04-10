@@ -15,6 +15,9 @@
 """
 Tests to verify that nautilus_pyo3.pyi type stubs match the actual runtime bindings.
 
+This file validates the default legacy ``nautilus_pyo3`` extension surface. It does not validate
+feature-gated v2-only APIs that are unavailable from legacy Python at runtime.
+
 This catches misalignments between stubs and the actual PyO3 bindings, such as:
 - Enum variants declared in stubs but not exposed at runtime
 - Methods/properties declared in stubs but missing from bindings

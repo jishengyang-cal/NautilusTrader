@@ -68,7 +68,7 @@ impl HyperliquidHttpClient {
         Ok(client)
     }
 
-    /// Creates an authenticated client from environment variables for the specified environment.
+    /// Creates an authenticated client from environment variables for the specified network.
     ///
     /// # Errors
     ///

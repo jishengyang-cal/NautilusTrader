@@ -650,6 +650,50 @@ class Strategy:
     assert "Standard = ..." in updated
 
 
+def test_elide_forward_class_defaults_in_signatures():
+    content = """
+class Client:
+    def __init__(self, network: DydxNetwork = DydxNetwork.MAINNET) -> None: ...
+
+    @staticmethod
+    def from_env(
+        environment: HyperliquidEnvironment = HyperliquidEnvironment.MAINNET,
+        book_type: model.BookType = model.BookType.L1_MBP,
+    ) -> Client: ...
+
+class DydxNetwork(Enum):
+    MAINNET = ...
+
+class HyperliquidEnvironment(Enum):
+    MAINNET = ...
+""".strip()
+
+    updated = generate_stubs.elide_forward_class_defaults_in_signatures(content)
+
+    assert "network: DydxNetwork = ..." in updated
+    assert "environment: HyperliquidEnvironment = ..." in updated
+    assert "book_type: model.BookType = model.BookType.L1_MBP" in updated
+    assert "DydxNetwork.MAINNET" not in updated
+    assert "HyperliquidEnvironment.MAINNET" not in updated
+
+
+def test_elide_forward_class_defaults_in_signatures_keeps_earlier_local_defaults():
+    content = """
+class BitmexEnvironment(Enum):
+    MAINNET = ...
+
+class Client:
+    def __init__(
+        self,
+        environment: BitmexEnvironment = BitmexEnvironment.MAINNET,
+    ) -> None: ...
+""".strip()
+
+    updated = generate_stubs.elide_forward_class_defaults_in_signatures(content)
+
+    assert "environment: BitmexEnvironment = BitmexEnvironment.MAINNET" in updated
+
+
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 STUB_ROOT = WORKSPACE_ROOT / "python" / "nautilus_trader"
 

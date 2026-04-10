@@ -39,6 +39,31 @@ use crate::{
 #[pymethods]
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 impl Block {
+    /// Represents an Ethereum-compatible blockchain block with essential metadata.
+    #[new]
+    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    fn py_new(
+        chain: Blockchain,
+        hash: String,
+        parent_hash: String,
+        number: u64,
+        miner: String,
+        gas_limit: u64,
+        gas_used: u64,
+        timestamp: u64,
+    ) -> Self {
+        Self::new(
+            hash,
+            parent_hash,
+            number,
+            miner.into(),
+            gas_limit,
+            gas_used,
+            timestamp.into(),
+            Some(chain),
+        )
+    }
+
     /// Returns the blockchain for this block.
     #[getter]
     #[pyo3(name = "chain")]

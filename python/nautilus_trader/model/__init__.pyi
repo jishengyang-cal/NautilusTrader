@@ -491,6 +491,17 @@ class BlackScholesGreeksResult:
 
 @typing.final
 class Block:
+    def __init__(
+        self,
+        chain: Blockchain,
+        hash: str,
+        parent_hash: str,
+        number: int,
+        miner: str,
+        gas_limit: int,
+        gas_used: int,
+        timestamp: int,
+    ) -> None: ...
     @property
     def chain(self) -> Blockchain | None: ...
     @property
@@ -4507,6 +4518,10 @@ class PositionAdjusted:
 
 @typing.final
 class PositionChanged:
+    @staticmethod
+    def create(
+        position: Position, fill: OrderFilled, event_id: core.UUID4, ts_init: int
+    ) -> PositionChanged: ...
     @property
     def trader_id(self) -> TraderId: ...
     @property
@@ -4556,6 +4571,10 @@ class PositionChanged:
 
 @typing.final
 class PositionClosed:
+    @staticmethod
+    def create(
+        position: Position, fill: OrderFilled, event_id: core.UUID4, ts_init: int
+    ) -> PositionClosed: ...
     @property
     def trader_id(self) -> TraderId: ...
     @property
@@ -4623,6 +4642,10 @@ class PositionId:
 
 @typing.final
 class PositionOpened:
+    @staticmethod
+    def create(
+        position: Position, fill: OrderFilled, event_id: core.UUID4, ts_init: int
+    ) -> PositionOpened: ...
     @property
     def trader_id(self) -> TraderId: ...
     @property

@@ -32,7 +32,7 @@ class AxDataClientConfig:
         self,
         api_key: str | None = None,
         api_secret: str | None = None,
-        is_sandbox: bool | None = None,
+        environment: AxEnvironment | None = None,
         base_url_http: str | None = None,
         base_url_ws_public: str | None = None,
         base_url_ws_private: str | None = None,
@@ -56,7 +56,7 @@ class AxExecClientConfig:
         account_id: model.AccountId | None = None,
         api_key: str | None = None,
         api_secret: str | None = None,
-        is_sandbox: bool | None = None,
+        environment: AxEnvironment | None = None,
         base_url_http: str | None = None,
         base_url_orders: str | None = None,
         base_url_ws_private: str | None = None,
@@ -100,6 +100,7 @@ class AxHttpClient:
     @property
     def api_key_masked(self) -> str: ...
     def cancel_all_requests(self) -> None: ...
+    def cancel_all_orders(self, instrument_id: model.InstrumentId) -> typing.Any: ...
     def cache_instrument(self, instrument: typing.Any) -> None: ...
     def authenticate(
         self, api_key: str, api_secret: str, expiration_seconds: int
