@@ -428,7 +428,7 @@ impl BybitWebSocketClient {
         };
 
         self.connection_mode.store(client.connection_mode_atomic());
-        client.set_auth_tracker(self.auth_tracker.clone());
+        client.set_auth_tracker(self.auth_tracker.clone(), self.requires_auth);
 
         let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel::<BybitWsMessage>();
         self.out_rx = Some(Arc::new(out_rx));
