@@ -37,7 +37,9 @@ use nautilus_model::{
         TriggerType,
     },
     events::account::state::AccountState,
-    identifiers::{AccountId, ClientOrderId, InstrumentId, Symbol, TradeId, Venue, VenueOrderId},
+    identifiers::{
+        AccountId, ClientOrderId, InstrumentId, PositionId, Symbol, TradeId, Venue, VenueOrderId,
+    },
     instruments::{
         Instrument, any::InstrumentAny, crypto_future::CryptoFuture, crypto_option::CryptoOption,
         crypto_perpetual::CryptoPerpetual, currency_pair::CurrencyPair,
@@ -760,6 +762,24 @@ pub fn parse_kline_bar(
         .context("failed to construct Bar from Bybit kline entry")
 }
 
+/// Constructs a venue position ID from an instrument and Bybit position index.
+///
+/// Position index values: 0 = one-way mode, 1 = buy-side hedge, 2 = sell-side hedge.
+///
+/// Not currently wired into reports because Bybit defaults to netting mode where
+/// non-None `venue_position_id` overrides the computed netting position ID.
+/// Ready to activate when hedge-mode support is added.
+#[must_use]
+pub fn make_venue_position_id(instrument_id: InstrumentId, position_idx: i32) -> PositionId {
+    let side = match position_idx {
+        0 => "ONEWAY",
+        1 => "LONG",
+        2 => "SHORT",
+        _ => "UNKNOWN",
+    };
+    PositionId::new(format!("{instrument_id}-{side}"))
+}
+
 /// Parses a Bybit execution into a Nautilus FillReport.
 ///
 /// # Errors
@@ -832,7 +852,7 @@ pub fn parse_fill_report(
         commission,
         liquidity_side,
         client_order_id,
-        None, // venue_position_id not provided by Bybit executions
+        None, // venue_position_id: execution data lacks position_idx
         ts_event,
         ts_init,
         None, // Will generate a new UUID4
@@ -899,7 +919,7 @@ pub fn parse_position_status_report(
         ts_last,
         ts_init,
         None, // Will generate a new UUID4
-        None, // venue_position_id not used for now
+        None, // venue_position_id omitted: non-None triggers hedge-mode reconciliation
         avg_px_open,
     ))
 }
@@ -1247,6 +1267,9 @@ pub fn parse_order_status_report(
         report = report.with_trigger_type(trigger_type);
     }
 
+    // venue_position_id omitted: in netting mode, non-None values override the
+    // computed netting position ID and break position tracking.
+
     if order.reduce_only {
         report = report.with_reduce_only(true);
     }
@@ -1545,7 +1568,7 @@ mod tests {
         http::models::{
             BybitInstrumentInverseResponse, BybitInstrumentLinearResponse,
             BybitInstrumentOptionResponse, BybitInstrumentSpotResponse, BybitKlinesResponse,
-            BybitOpenOrdersResponse, BybitTradesResponse,
+            BybitOpenOrdersResponse, BybitTradeHistoryResponse, BybitTradesResponse,
         },
     };
 
@@ -2294,5 +2317,42 @@ mod tests {
         assert_eq!(report.price.unwrap(), Price::from_str("47500.0").unwrap());
         assert_eq!(report.trigger_type, Some(TriggerType::LastPrice));
         assert!(report.reduce_only);
+    }
+
+    #[rstest]
+    #[case::oneway(0, "BTCUSDT-LINEAR.BYBIT-ONEWAY")]
+    #[case::long(1, "BTCUSDT-LINEAR.BYBIT-LONG")]
+    #[case::short(2, "BTCUSDT-LINEAR.BYBIT-SHORT")]
+    #[case::unknown(99, "BTCUSDT-LINEAR.BYBIT-UNKNOWN")]
+    fn test_make_venue_position_id(#[case] position_idx: i32, #[case] expected: &str) {
+        let instrument_id = InstrumentId::from("BTCUSDT-LINEAR.BYBIT");
+        let result = make_venue_position_id(instrument_id, position_idx);
+        assert_eq!(result, PositionId::from(expected));
+    }
+
+    #[rstest]
+    fn test_parse_fill_report_venue_position_id_is_none() {
+        let instrument = linear_instrument();
+        let json = load_test_json("http_get_executions.json");
+        let response: BybitTradeHistoryResponse = serde_json::from_str(&json).unwrap();
+        let execution = &response.result.list[0];
+        let account_id = AccountId::new("BYBIT-001");
+
+        let report = parse_fill_report(execution, account_id, &instrument, TS).unwrap();
+
+        assert_eq!(report.venue_position_id, None);
+    }
+
+    #[rstest]
+    fn test_parse_order_status_report_venue_position_id_is_none() {
+        let instrument = linear_instrument();
+        let json = load_test_json("http_get_orders_realtime_tp_sl.json");
+        let response: BybitOpenOrdersResponse = serde_json::from_str(&json).unwrap();
+        let order = &response.result.list[0]; // TP order, positionIdx=0
+        let account_id = AccountId::new("BYBIT-001");
+
+        let report = parse_order_status_report(order, &instrument, account_id, TS).unwrap();
+
+        assert_eq!(report.venue_position_id, None);
     }
 }

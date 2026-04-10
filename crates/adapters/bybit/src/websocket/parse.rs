@@ -822,6 +822,9 @@ pub fn parse_ws_order_status_report(
         report = report.with_trigger_type(trigger_type);
     }
 
+    // venue_position_id omitted: in netting mode, non-None values override the
+    // computed netting position ID and break position tracking.
+
     if order.reduce_only {
         report = report.with_reduce_only(true);
     }
@@ -902,7 +905,7 @@ pub fn parse_ws_fill_report(
         commission,
         liquidity_side,
         client_order_id,
-        None, // venue_position_id
+        None, // venue_position_id: execution data lacks position_idx
         ts_event,
         ts_init,
         None, // report_id
@@ -945,7 +948,7 @@ pub fn parse_ws_position_status_report(
         ts_last,
         ts_init,
         None,                 // report_id
-        None,                 // venue_position_id
+        None, // venue_position_id omitted: non-None triggers hedge-mode reconciliation
         position.entry_price, // avg_px_open
     ))
 }
@@ -1323,6 +1326,34 @@ mod tests {
             "test-order-link-001"
         );
         assert_eq!(report.ts_event, UnixNanos::new(1_746_270_400_353_000_000));
+    }
+
+    #[rstest]
+    fn parse_ws_fill_report_venue_position_id_is_none() {
+        let instrument = linear_instrument();
+        let json = load_test_json("ws_account_execution.json");
+        let msg: crate::websocket::messages::BybitWsAccountExecutionMsg =
+            serde_json::from_str(&json).unwrap();
+        let execution = &msg.data[0];
+        let account_id = AccountId::new("BYBIT-001");
+
+        let report = parse_ws_fill_report(execution, account_id, &instrument, TS).unwrap();
+
+        assert_eq!(report.venue_position_id, None);
+    }
+
+    #[rstest]
+    fn parse_ws_order_status_report_venue_position_id_is_none_for_tp() {
+        let instrument = linear_instrument();
+        let json = load_test_json("ws_account_order_take_profit.json");
+        let msg: crate::websocket::messages::BybitWsAccountOrderMsg =
+            serde_json::from_str(&json).unwrap();
+        let order = &msg.data[0]; // positionIdx=0
+        let account_id = AccountId::new("BYBIT-001");
+
+        let report = parse_ws_order_status_report(order, &instrument, account_id, TS).unwrap();
+
+        assert_eq!(report.venue_position_id, None);
     }
 
     #[rstest]
