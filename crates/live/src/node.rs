@@ -276,6 +276,8 @@ impl LiveNode {
             }
         }
 
+        config.validate_runtime_support()?;
+
         let runner = AsyncRunner::new();
         runner.bind_senders();
 

@@ -371,6 +371,43 @@ impl Default for LiveNodeConfig {
     }
 }
 
+impl LiveNodeConfig {
+    /// Validates config fields that the Rust live runtime does not support yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a config field would otherwise be ignored at runtime.
+    pub(crate) fn validate_runtime_support(&self) -> anyhow::Result<()> {
+        if self.msgbus.is_some() {
+            anyhow::bail!("LiveNodeConfig.msgbus is not supported by the Rust live runtime yet");
+        }
+
+        if self.streaming.is_some() {
+            anyhow::bail!("LiveNodeConfig.streaming is not supported by the Rust live runtime yet");
+        }
+
+        if self.data_engine.qsize != LiveDataEngineConfig::default().qsize {
+            anyhow::bail!(
+                "LiveDataEngineConfig.qsize is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.risk_engine.qsize != LiveRiskEngineConfig::default().qsize {
+            anyhow::bail!(
+                "LiveRiskEngineConfig.qsize is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.exec_engine.qsize != LiveExecEngineConfig::default().qsize {
+            anyhow::bail!(
+                "LiveExecEngineConfig.qsize is not supported by the Rust live runtime yet"
+            );
+        }
+
+        Ok(())
+    }
+}
+
 impl NautilusKernelConfig for LiveNodeConfig {
     fn environment(&self) -> Environment {
         self.environment
@@ -451,6 +488,7 @@ impl NautilusKernelConfig for LiveNodeConfig {
 
 #[cfg(test)]
 mod tests {
+    use nautilus_system::config::RotationConfig;
     use rstest::rstest;
 
     use super::*;
@@ -481,6 +519,92 @@ mod tests {
         assert!(config.exec_engine().is_some());
         assert!(!config.load_state());
         assert!(!config.save_state());
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_with_defaults() {
+        let config = LiveNodeConfig::default();
+
+        assert!(config.validate_runtime_support().is_ok());
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_msgbus_config() {
+        let config = LiveNodeConfig {
+            msgbus: Some(MessageBusConfig::default()),
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "LiveNodeConfig.msgbus is not supported by the Rust live runtime yet"
+        );
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_streaming_config() {
+        let config = LiveNodeConfig {
+            streaming: Some(StreamingConfig::new(
+                "catalog".to_string(),
+                "file".to_string(),
+                1_000,
+                false,
+                RotationConfig::NoRotation,
+            )),
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "LiveNodeConfig.streaming is not supported by the Rust live runtime yet"
+        );
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_data_engine_qsize() {
+        let config = LiveNodeConfig {
+            data_engine: LiveDataEngineConfig { qsize: 1 },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "LiveDataEngineConfig.qsize is not supported by the Rust live runtime yet"
+        );
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_risk_engine_qsize() {
+        let config = LiveNodeConfig {
+            risk_engine: LiveRiskEngineConfig { qsize: 1 },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "LiveRiskEngineConfig.qsize is not supported by the Rust live runtime yet"
+        );
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_exec_engine_qsize() {
+        let config = LiveNodeConfig {
+            exec_engine: LiveExecEngineConfig {
+                qsize: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "LiveExecEngineConfig.qsize is not supported by the Rust live runtime yet"
+        );
     }
 
     #[rstest]
