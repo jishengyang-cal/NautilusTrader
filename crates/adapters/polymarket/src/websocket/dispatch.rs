@@ -46,7 +46,7 @@ use crate::{
         order_fill_tracker::OrderFillTrackerMap,
         parse::{
             build_maker_fill_report, compute_commission, determine_order_side,
-            make_composite_trade_id, parse_liquidity_side,
+            instrument_taker_fee, make_composite_trade_id, parse_liquidity_side,
         },
     },
 };
@@ -449,10 +449,10 @@ fn build_ws_taker_fill_report(
         instrument.price_precision(),
     );
 
-    let fee_bps: Decimal = trade.fee_rate_bps.parse().unwrap_or_default();
+    let fee_rate = instrument_taker_fee(instrument);
     let size: Decimal = trade.size.parse().unwrap_or_default();
     let price_dec: Decimal = trade.price.parse().unwrap_or_default();
-    let commission_value = compute_commission(fee_bps, size, price_dec);
+    let commission_value = compute_commission(fee_rate, size, price_dec, liquidity_side);
     let usdc = crate::execution::get_usdc_currency();
 
     FillReport {

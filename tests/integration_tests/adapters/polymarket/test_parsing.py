@@ -31,6 +31,7 @@ from nautilus_trader.adapters.polymarket.common.enums import PolymarketTradeStat
 from nautilus_trader.adapters.polymarket.common.parsing import basis_points_as_decimal
 from nautilus_trader.adapters.polymarket.common.parsing import calculate_commission
 from nautilus_trader.adapters.polymarket.common.parsing import determine_order_side
+from nautilus_trader.adapters.polymarket.common.parsing import extract_fee_rates
 from nautilus_trader.adapters.polymarket.common.parsing import parse_polymarket_instrument
 from nautilus_trader.adapters.polymarket.schemas.book import PolymarketBookLevel
 from nautilus_trader.adapters.polymarket.schemas.book import PolymarketBookSnapshot
@@ -52,6 +53,7 @@ from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BookType
+from nautilus_trader.model.enums import LiquiditySide
 from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import AccountId
@@ -83,6 +85,108 @@ def test_parse_instruments() -> None:
 
     # Assert
     assert len(instruments) == 198
+    # CLOB payloads in markets.json have no feeSchedule so fees default to zero
+    for instrument in instruments:
+        assert instrument.maker_fee == Decimal(0)
+        assert instrument.taker_fee == Decimal(0)
+
+
+@pytest.mark.parametrize(
+    ("market_info", "expected"),
+    [
+        ({}, (Decimal(0), Decimal(0))),
+        ({"feeSchedule": {"rate": 0.03}}, (Decimal(0), Decimal("0.03"))),
+        (
+            {"_gamma_original": {"feeSchedule": {"rate": 0.072}}},
+            (Decimal(0), Decimal("0.072")),
+        ),
+        ({"feeSchedule": {"rate": None}}, (Decimal(0), Decimal(0))),
+        ({"_gamma_original": {}}, (Decimal(0), Decimal(0))),
+        (
+            # Top-level feeSchedule takes precedence over _gamma_original
+            {
+                "feeSchedule": {"rate": 0.04},
+                "_gamma_original": {"feeSchedule": {"rate": 0.072}},
+            },
+            (Decimal(0), Decimal("0.04")),
+        ),
+    ],
+)
+def test_extract_fee_rates(
+    market_info: dict,
+    expected: tuple[Decimal, Decimal],
+) -> None:
+    """
+    Polymarket charges fees from feeSchedule.rate; maker is always zero.
+
+    References
+    ----------
+    https://docs.polymarket.com/trading/fees
+
+    """
+    assert extract_fee_rates(market_info) == expected
+
+
+def test_parse_polymarket_instrument_populates_taker_fee_from_fee_schedule() -> None:
+    """
+    parse_polymarket_instrument should populate taker_fee from an attached feeSchedule,
+    leaving maker_fee at zero.
+    """
+    # Arrange: CLOB-shaped payload with a Gamma feeSchedule stitched on
+    token_id = "21742633143463906290569050155826241533067272736897614950488156847949938836455"
+    market_info: dict[str, object] = {
+        "condition_id": "0xdd22472e552920b8438158ea7238bfadfa4f736aa4cee91a6b86c39ead110917",
+        "question": "Test market?",
+        "minimum_tick_size": 0.001,
+        "minimum_order_size": 5,
+        "end_date_iso": "2025-12-31T00:00:00Z",
+        "maker_base_fee": 1000,  # Max cap, must be ignored
+        "taker_base_fee": 1000,  # Max cap, must be ignored
+        "feeSchedule": {"rate": 0.03, "takerOnly": True, "exponent": 1, "rebateRate": 0.25},
+        "tokens": [{"token_id": token_id, "outcome": "Yes"}],
+    }
+
+    # Act
+    instrument = parse_polymarket_instrument(
+        market_info=market_info,
+        token_id=token_id,
+        outcome="Yes",
+        ts_init=0,
+    )
+
+    # Assert
+    assert instrument.maker_fee == Decimal(0)
+    assert instrument.taker_fee == Decimal("0.03")
+
+
+def test_parse_polymarket_instrument_defaults_fees_without_fee_schedule() -> None:
+    """
+    parse_polymarket_instrument leaves both fees at zero when feeSchedule is absent.
+    """
+    # Arrange
+    token_id = "21742633143463906290569050155826241533067272736897614950488156847949938836455"
+    market_info: dict[str, object] = {
+        "condition_id": "0xdd22472e552920b8438158ea7238bfadfa4f736aa4cee91a6b86c39ead110917",
+        "question": "Test market?",
+        "minimum_tick_size": 0.001,
+        "minimum_order_size": 5,
+        "end_date_iso": "2025-12-31T00:00:00Z",
+        "maker_base_fee": 1000,
+        "taker_base_fee": 1000,
+        "tokens": [{"token_id": token_id, "outcome": "Yes"}],
+    }
+
+    # Act
+    instrument = parse_polymarket_instrument(
+        market_info=market_info,
+        token_id=token_id,
+        outcome="Yes",
+        ts_init=0,
+    )
+
+    # Assert
+    assert instrument.maker_fee == Decimal(0)
+    assert instrument.taker_fee == Decimal(0)
 
 
 def test_parse_order_book_snapshots() -> None:
@@ -559,15 +663,42 @@ def test_parse_user_trade_to_fill_report_ts_event() -> None:
     assert fill_report.ts_event == 1725958681000000000  # September 10, 2024
 
 
+def _binary_option_with_taker_fee(taker_fee: Decimal) -> BinaryOption:
+    base = TestInstrumentProvider.binary_option()
+    return BinaryOption(
+        instrument_id=base.id,
+        raw_symbol=base.raw_symbol,
+        outcome=base.outcome,
+        description=base.description,
+        asset_class=base.asset_class,
+        currency=base.quote_currency,
+        price_precision=base.price_precision,
+        price_increment=base.price_increment,
+        size_precision=base.size_precision,
+        size_increment=base.size_increment,
+        activation_ns=base.activation_ns,
+        expiration_ns=base.expiration_ns,
+        max_quantity=base.max_quantity,
+        min_quantity=base.min_quantity,
+        maker_fee=Decimal(0),
+        taker_fee=taker_fee,
+        ts_event=base.ts_event,
+        ts_init=base.ts_init,
+    )
+
+
 def test_parse_user_trade_taker_commission_with_fees() -> None:
     """
-    Test that taker commission is correctly calculated from fee_rate_bps.
+    Test that taker commission uses the instrument's effective feeRate and follows the
+    Polymarket formula fee = C * feeRate * p * (1 - p).
 
-    This test uses a taker trade with 200 bps (2%) fees, as documented for Polymarket
-    15-minute crypto prediction markets.
+    Uses the sports-market rate (0.03) so the result matches docs example.
 
-    Commission = size * price * (fee_rate_bps / 10000)          = 100 * 0.50 * (200 /
-    10000)          = 50 * 0.02 = 1.0 USDC
+    Commission = 100 * 0.03 * 0.5 * 0.5 = 0.75 USDC
+
+    References
+    ----------
+    https://docs.polymarket.com/trading/fees
 
     """
     # Arrange
@@ -575,14 +706,14 @@ def test_parse_user_trade_taker_commission_with_fees() -> None:
         "event_type": "trade",
         "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
         "bucket_index": 0,
-        "fee_rate_bps": "200",  # 2% taker fee (Polymarket 15-min crypto markets)
+        "fee_rate_bps": "1000",  # Max fee cap from order signing; not used for commission
         "id": "test-taker-trade-001",
         "last_update": "1725958681",
         "maker_address": "0x1234567890123456789012345678901234567890",
         "maker_orders": [
             {
                 "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
-                "fee_rate_bps": "0",
+                "fee_rate_bps": "1000",
                 "maker_address": "0x1234567890123456789012345678901234567890",
                 "matched_amount": "100",
                 "order_id": "0xmaker_order_id",
@@ -608,7 +739,7 @@ def test_parse_user_trade_taker_commission_with_fees() -> None:
 
     decoder = msgspec.json.Decoder(PolymarketUserTrade)
     msg = decoder.decode(msgspec.json.encode(trade_data))
-    instrument = TestInstrumentProvider.binary_option()
+    instrument = _binary_option_with_taker_fee(Decimal("0.03"))
     account_id = AccountId("POLYMARKET-001")
 
     # Act
@@ -621,19 +752,18 @@ def test_parse_user_trade_taker_commission_with_fees() -> None:
     )
 
     # Assert
-    # Commission = 100 * 0.50 * (200 / 10000) = 1.0 USDC.e
-    assert fill_report.commission == Money(1.0, USDC_POS)
+    assert fill_report.commission == Money(0.75, USDC_POS)
 
 
-def test_parse_user_trade_maker_commission_with_fees() -> None:
+def test_parse_user_trade_maker_commission_is_zero() -> None:
     """
-    Test that maker commission is correctly calculated from maker order's fee_rate_bps.
+    Test that maker fills never pay commission, regardless of feeRate.
 
-    For maker fills, the fee_rate_bps is taken from the individual maker_order, not from
-    the top-level trade message.
+    Polymarket docs: "Makers are never charged fees. Only takers pay fees."
 
-    Commission = matched_amount * price * (fee_rate_bps / 10000)          = 50 * 0.60 *
-    (100 / 10000)          = 30 * 0.01 = 0.30 USDC
+    References
+    ----------
+    https://docs.polymarket.com/trading/fees
 
     """
     # Arrange
@@ -643,14 +773,14 @@ def test_parse_user_trade_maker_commission_with_fees() -> None:
         "event_type": "trade",
         "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
         "bucket_index": 0,
-        "fee_rate_bps": "200",  # Taker's fee (not used for maker calculation)
+        "fee_rate_bps": "1000",
         "id": "test-maker-trade-001",
         "last_update": "1725958681",
         "maker_address": "0x1234567890123456789012345678901234567890",
         "maker_orders": [
             {
                 "asset_id": "21742633143463906290569050155826241533067272736897614950488156847949938836455",
-                "fee_rate_bps": "100",  # 1% maker fee
+                "fee_rate_bps": "1000",
                 "maker_address": "0x1234567890123456789012345678901234567890",
                 "matched_amount": "50",
                 "order_id": maker_order_id,
@@ -676,7 +806,7 @@ def test_parse_user_trade_maker_commission_with_fees() -> None:
 
     decoder = msgspec.json.Decoder(PolymarketUserTrade)
     msg = decoder.decode(msgspec.json.encode(trade_data))
-    instrument = TestInstrumentProvider.binary_option()
+    instrument = _binary_option_with_taker_fee(Decimal("0.03"))
     account_id = AccountId("POLYMARKET-001")
 
     # Act
@@ -689,15 +819,15 @@ def test_parse_user_trade_maker_commission_with_fees() -> None:
     )
 
     # Assert
-    # Commission = 50 * 0.60 * (100 / 10000) = 0.30 USDC.e
-    assert fill_report.commission == Money(0.30, USDC_POS)
+    assert fill_report.commission == Money(0, USDC_POS)
 
 
 def test_parse_user_trade_zero_commission_with_no_fees() -> None:
     """
-    Test that commission is zero when fee_rate_bps is "0".
+    Test that commission is zero when the instrument has no taker fee.
 
-    This verifies the baseline case where no fees apply (most Polymarket markets).
+    This verifies the baseline case where no fees apply (CLOB-only instruments or
+    markets with a zero feeSchedule.rate).
 
     """
     # Arrange
@@ -770,31 +900,47 @@ def test_basis_points_as_decimal(basis_points: Decimal, expected: Decimal) -> No
 
 
 @pytest.mark.parametrize(
-    ("quantity", "price", "fee_rate_bps", "expected"),
+    ("quantity", "price", "fee_rate", "liquidity_side", "expected"),
     [
-        # Zero fee rate
-        (Decimal(100), Decimal("0.50"), Decimal(0), 0.0),
-        # Standard fee calculation: 100 * 0.50 * 0.02 = 1.0
-        (Decimal(100), Decimal("0.50"), Decimal(200), 1.0),
-        # Sub-minimum rounds to zero: 1 * 0.01 * 0.0001 = 0.000001 -> 0.0
-        (Decimal(1), Decimal("0.01"), Decimal(1), 0.0),
-        # Exactly at minimum: 1 * 1.0 * 0.0001 = 0.0001
-        (Decimal(1), Decimal("1.0"), Decimal(1), 0.0001),
-        # Rounding to 4 decimals: 123.45 * 0.6789 * 0.015 = 1.25727... -> 1.2572
-        (Decimal("123.45"), Decimal("0.6789"), Decimal(150), 1.2572),
+        # Maker fills never pay commission regardless of rate
+        (Decimal(100), Decimal("0.50"), Decimal("0.03"), LiquiditySide.MAKER, 0.0),
+        # Taker with zero rate
+        (Decimal(100), Decimal("0.50"), Decimal(0), LiquiditySide.TAKER, 0.0),
+        # Crypto rate at p=0.5 peaks fee: 100 * 0.072 * 0.5 * 0.5 = 1.8
+        (Decimal(100), Decimal("0.50"), Decimal("0.072"), LiquiditySide.TAKER, 1.8),
+        # Crypto rate symmetric around p=0.5: same at 0.3 and 0.7
+        (Decimal(100), Decimal("0.30"), Decimal("0.072"), LiquiditySide.TAKER, 1.512),
+        (Decimal(100), Decimal("0.70"), Decimal("0.072"), LiquiditySide.TAKER, 1.512),
+        # Sports rate at p=0.5: 100 * 0.03 * 0.5 * 0.5 = 0.75
+        (Decimal(100), Decimal("0.50"), Decimal("0.03"), LiquiditySide.TAKER, 0.75),
+        # Sub-minimum rounds to zero: 1 * 0.01 * 0.0001 * 0.99 = 9.9e-7 -> 0.0
+        (Decimal(1), Decimal("0.01"), Decimal("0.0001"), LiquiditySide.TAKER, 0.0),
+        # Exactly at 5-decimal minimum after rounding
+        (Decimal(1), Decimal("0.50"), Decimal("0.00004"), LiquiditySide.TAKER, 1e-05),
     ],
 )
 def test_calculate_commission(
     quantity: Decimal,
     price: Decimal,
-    fee_rate_bps: Decimal,
+    fee_rate: Decimal,
+    liquidity_side: LiquiditySide,
     expected: float,
 ) -> None:
     """
-    Test commission calculation rounds to 4 decimal places (0.0001 USDC minimum).
+    Polymarket fee formula: fee = C * feeRate * p * (1 - p).
+
+    References
+    ----------
+    https://docs.polymarket.com/trading/fees
+
     """
-    result = calculate_commission(quantity, price, fee_rate_bps)
-    assert result == expected
+    result = calculate_commission(
+        quantity=quantity,
+        price=price,
+        fee_rate=fee_rate,
+        liquidity_side=liquidity_side,
+    )
+    assert result == pytest.approx(expected, abs=1e-9)
 
 
 def test_parse_empty_book_snapshot_in_backtest_engine():

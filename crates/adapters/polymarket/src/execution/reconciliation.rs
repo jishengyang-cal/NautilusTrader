@@ -28,7 +28,8 @@ use rust_decimal::Decimal;
 use ustr::Ustr;
 
 use super::parse::{
-    build_maker_fill_report, parse_fill_report, parse_order_status_report, parse_timestamp,
+    build_maker_fill_report, instrument_taker_fee, parse_fill_report, parse_order_status_report,
+    parse_timestamp,
 };
 use crate::{
     common::{
@@ -110,8 +111,13 @@ pub(crate) fn build_fill_reports_from_trades(
         } else {
             let token_id = Ustr::from(trade.asset_id.as_str());
             let instrument = instruments.get_cloned(&token_id);
-            let (instrument_id, price_prec, size_prec) = match instrument {
-                Some(i) => (i.id(), i.price_precision(), i.size_precision()),
+            let (instrument_id, price_prec, size_prec, taker_fee_rate) = match instrument {
+                Some(i) => (
+                    i.id(),
+                    i.price_precision(),
+                    i.size_precision(),
+                    instrument_taker_fee(&i),
+                ),
                 None => {
                     filtered += 1;
                     continue;
@@ -132,6 +138,7 @@ pub(crate) fn build_fill_reports_from_trades(
                 price_prec,
                 size_prec,
                 ctx.usdc,
+                taker_fee_rate,
                 ts_init,
             );
             reports.push(report);

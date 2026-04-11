@@ -13,6 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -54,6 +55,22 @@ def instrument_provider(mock_clob_client, live_clock):
         client=mock_clob_client,
         clock=live_clock,
     )
+
+
+@pytest.fixture(autouse=True)
+def patch_fetch_fee_schedules():
+    """
+    Patch the Gamma `fetch_fee_schedules` helper used on the CLOB load path.
+
+    Polymarket provider CLOB methods enrich CLOB payloads with Gamma
+    `feeSchedule` data, which would otherwise hit the network here.
+
+    """
+    with patch(
+        "nautilus_trader.adapters.polymarket.providers.fetch_fee_schedules",
+        new=AsyncMock(return_value={}),
+    ) as mocked:
+        yield mocked
 
 
 # Sample market data with different states
@@ -313,6 +330,100 @@ async def test_load_markets_seq_without_filter_includes_closed_markets(
 
     condition_ids = {instr.info["condition_id"] for instr in instruments}
     assert ACTIVE_CLOSED_MARKET["condition_id"] in condition_ids
+
+
+@pytest.mark.asyncio
+async def test_enrich_with_gamma_fee_schedules_attaches_schedule(
+    instrument_provider,
+    patch_fetch_fee_schedules,
+):
+    """
+    _enrich_with_gamma_fee_schedules stitches feeSchedule onto each CLOB payload when
+    Gamma returns a schedule for every condition ID.
+    """
+    # Arrange
+    market_a = {"condition_id": "0xaaa"}
+    market_b = {"condition_id": "0xbbb"}
+    patch_fetch_fee_schedules.return_value = {
+        "0xaaa": {"rate": 0.03},
+        "0xbbb": {"rate": 0.072},
+    }
+
+    # Act
+    await instrument_provider._enrich_with_gamma_fee_schedules([market_a, market_b])
+
+    # Assert
+    assert market_a["feeSchedule"] == {"rate": 0.03}
+    assert market_b["feeSchedule"] == {"rate": 0.072}
+
+
+@pytest.mark.asyncio
+async def test_enrich_with_gamma_fee_schedules_partial_miss(
+    instrument_provider,
+    patch_fetch_fee_schedules,
+):
+    """
+    _enrich_with_gamma_fee_schedules populates resolved markets and leaves missing ones
+    untouched when Gamma only returns a subset.
+    """
+    # Arrange
+    market_a = {"condition_id": "0xaaa"}
+    market_b = {"condition_id": "0xbbb"}
+    patch_fetch_fee_schedules.return_value = {"0xaaa": {"rate": 0.03}}
+
+    # Act
+    await instrument_provider._enrich_with_gamma_fee_schedules([market_a, market_b])
+
+    # Assert
+    assert market_a["feeSchedule"] == {"rate": 0.03}
+    assert "feeSchedule" not in market_b
+
+
+@pytest.mark.asyncio
+async def test_enrich_with_gamma_fee_schedules_fetch_failure_is_logged(
+    instrument_provider,
+    patch_fetch_fee_schedules,
+):
+    """
+    _enrich_with_gamma_fee_schedules leaves payloads untouched and does not raise when
+    fetch_fee_schedules fails.
+    """
+    # Arrange
+    market_a = {"condition_id": "0xaaa"}
+    patch_fetch_fee_schedules.side_effect = RuntimeError("gamma unreachable")
+
+    # Act
+    await instrument_provider._enrich_with_gamma_fee_schedules([market_a])
+
+    # Assert
+    assert "feeSchedule" not in market_a
+
+
+@pytest.mark.asyncio
+async def test_enrich_with_gamma_fee_schedules_skips_empty_input(
+    instrument_provider,
+    patch_fetch_fee_schedules,
+):
+    # Act
+    await instrument_provider._enrich_with_gamma_fee_schedules([])
+
+    # Assert
+    patch_fetch_fee_schedules.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enrich_with_gamma_fee_schedules_skips_when_condition_ids_absent(
+    instrument_provider,
+    patch_fetch_fee_schedules,
+):
+    # Arrange
+    markets = [{}, {"condition_id": ""}]
+
+    # Act
+    await instrument_provider._enrich_with_gamma_fee_schedules(markets)
+
+    # Assert
+    patch_fetch_fee_schedules.assert_not_awaited()
 
 
 @pytest.mark.asyncio

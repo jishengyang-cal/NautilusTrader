@@ -26,7 +26,6 @@ from nautilus_trader.adapters.polymarket.common.enums import PolymarketOrderType
 from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_instrument_id
 from nautilus_trader.adapters.polymarket.common.symbol import get_polymarket_token_id
 from nautilus_trader.adapters.polymarket.schemas.book import PolymarketTickSizeChange
-from nautilus_trader.core.stats import basis_points_as_percentage
 from nautilus_trader.model.currencies import USDC_POS
 from nautilus_trader.model.enums import AssetClass
 from nautilus_trader.model.enums import LiquiditySide
@@ -172,8 +171,7 @@ def parse_polymarket_instrument(
         # end_date_iso can be missing in some conditions that are part of an event that has it
         expiration_ns = (pd.Timestamp.now(tz="UTC") + pd.DateOffset(years=10)).value
 
-    maker_fee = basis_points_as_decimal(Decimal(str(market_info["maker_base_fee"])))
-    taker_fee = basis_points_as_decimal(Decimal(str(market_info["taker_base_fee"])))
+    maker_fee, taker_fee = extract_fee_rates(market_info)
 
     ts_init = ts_init if ts_init is not None else time.time_ns()
 
@@ -248,30 +246,91 @@ def basis_points_as_decimal(basis_points: Decimal) -> Decimal:
     return basis_points / Decimal(10_000)
 
 
+def extract_fee_rates(market_info: dict[str, Any]) -> tuple[Decimal, Decimal]:
+    """
+    Extract effective maker and taker fee rates from Polymarket market info.
+
+    Polymarket charges fees using the `feeSchedule.rate` from the Gamma market
+    data. Only takers pay fees, so the maker rate is always zero. When the
+    feeSchedule is not present (e.g. CLOB-only flow), both rates default to
+    zero since there is no reliable source for the effective rate.
+
+    The `maker_base_fee` and `taker_base_fee` fields represent the maximum
+    fee cap used when signing orders (`fee_rate_bps`), not the effective fee
+    charged at settlement. See Polymarket docs for details.
+
+    Parameters
+    ----------
+    market_info : dict[str, Any]
+        The Polymarket market info dictionary (CLOB or normalized Gamma format).
+
+    Returns
+    -------
+    tuple[Decimal, Decimal]
+        A tuple of (maker_fee, taker_fee) as decimal fractions.
+
+    References
+    ----------
+    https://docs.polymarket.com/trading/fees
+
+    """
+    fee_schedule = market_info.get("feeSchedule")
+    if fee_schedule is None:
+        gamma_original = market_info.get("_gamma_original") or {}
+        fee_schedule = gamma_original.get("feeSchedule")
+
+    if fee_schedule is None:
+        return Decimal(0), Decimal(0)
+
+    rate = fee_schedule.get("rate")
+    if rate is None:
+        return Decimal(0), Decimal(0)
+
+    taker_fee = Decimal(str(rate))
+    return Decimal(0), taker_fee
+
+
 def calculate_commission(
     quantity: Decimal,
     price: Decimal,
-    fee_rate_bps: Decimal,
+    fee_rate: Decimal,
+    liquidity_side: LiquiditySide,
 ) -> float:
     """
-    Calculate commission from trade parameters and fee rate.
+    Calculate the Polymarket commission for a fill.
 
-    Polymarket rounds fees to 4 decimal places (0.0001 USDC minimum).
+    Polymarket fees follow the formula `fee = C * feeRate * p * (1 - p)`,
+    where C is the number of shares, feeRate is the effective taker rate from
+    the market's feeSchedule, and p is the share price. Fees peak at p=0.5
+    and decrease symmetrically toward both extremes. Only takers pay fees;
+    makers are always charged zero.
+
+    Fees are rounded to 5 decimal places (the smallest charged fee is
+    0.00001 USDC).
 
     Parameters
     ----------
     quantity : Decimal
-        The fill quantity.
+        The fill quantity (shares).
     price : Decimal
         The fill price.
-    fee_rate_bps : Decimal
-        The fee rate in basis points.
+    fee_rate : Decimal
+        The effective fee rate as a decimal fraction (e.g., 0.03 for 3%).
+    liquidity_side : LiquiditySide
+        The liquidity side for this fill.
 
     Returns
     -------
     float
-        The commission amount rounded to 4 decimal places.
+        The commission amount in USDC rounded to 5 decimal places.
+
+    References
+    ----------
+    https://docs.polymarket.com/trading/fees
 
     """
-    commission = float(quantity * price) * basis_points_as_percentage(fee_rate_bps)
-    return round(commission, 4)
+    if liquidity_side != LiquiditySide.TAKER or fee_rate == 0:
+        return 0.0
+
+    commission = quantity * price * fee_rate * (Decimal(1) - price)
+    return round(float(commission), 5)

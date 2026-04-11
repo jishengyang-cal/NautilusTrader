@@ -234,13 +234,6 @@ class PolymarketUserTrade(msgspec.Struct, tag="trade", tag_field="event_type", f
             order = self.get_maker_order(filled_user_order_id)
             return Decimal(order.matched_amount)
 
-    def get_fee_rate_bps(self, filled_user_order_id: str) -> Decimal:
-        if self.liquidity_side() == LiquiditySide.TAKER:
-            return Decimal(self.fee_rate_bps)
-        else:
-            order = self.get_maker_order(filled_user_order_id)
-            return Decimal(order.fee_rate_bps)
-
     def parse_to_fill_report(
         self,
         account_id: AccountId,
@@ -251,8 +244,13 @@ class PolymarketUserTrade(msgspec.Struct, tag="trade", tag_field="event_type", f
     ) -> FillReport:
         last_qty = instrument.make_qty(self.last_qty(filled_user_order_id))
         last_px = instrument.make_price(self.last_px(filled_user_order_id))
-        fee_rate_bps = self.get_fee_rate_bps(filled_user_order_id)
-        commission = calculate_commission(last_qty, last_px, fee_rate_bps)
+        liquidity_side = self.liquidity_side()
+        commission = calculate_commission(
+            quantity=last_qty.as_decimal(),
+            price=last_px.as_decimal(),
+            fee_rate=instrument.taker_fee,
+            liquidity_side=liquidity_side,
+        )
         venue_order_id = self.venue_order_id(filled_user_order_id)
         composite_trade_id = make_composite_trade_id(self.id, venue_order_id)
 
@@ -266,7 +264,7 @@ class PolymarketUserTrade(msgspec.Struct, tag="trade", tag_field="event_type", f
             last_qty=last_qty,
             last_px=last_px,
             commission=Money(commission, USDC_POS),
-            liquidity_side=self.liquidity_side(),
+            liquidity_side=liquidity_side,
             report_id=UUID4(),
             ts_event=secs_to_nanos(int(self.match_time)),
             ts_init=ts_init,

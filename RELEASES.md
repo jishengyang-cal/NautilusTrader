@@ -17,6 +17,7 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
+- Fixed Polymarket commission formula and fee source for fills (#3838), thanks for reporting @santivazq
 - Fixed WebSocket auth state during reconnection for Bybit, OKX, and Deribit (#3820), thanks for reporting @KaizynX
 - Fixed `stop_timer` in `TimeBarAggregator` (#3822), thanks @faysou
 - Fixed Rust book snapshot subscriptions to preserve exact `(instrument_id, interval_ms)` semantics for shared intervals and exact unsubscribe handling (#3823), thanks for reporting @dwolfesberger

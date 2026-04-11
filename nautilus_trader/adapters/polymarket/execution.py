@@ -2027,7 +2027,13 @@ class PolymarketExecutionClient(LiveExecutionClient):
         last_qty = instrument.make_qty(msg.last_qty(order_id))
         last_qty = self._fill_tracker.snap_fill_qty(venue_order_id, last_qty)
         last_px = instrument.make_price(msg.last_px(order_id))
-        commission = calculate_commission(last_qty, last_px, msg.get_fee_rate_bps(order_id))
+        liquidity_side = msg.liquidity_side()
+        commission = calculate_commission(
+            quantity=last_qty.as_decimal(),
+            price=last_px.as_decimal(),
+            fee_rate=instrument.taker_fee,
+            liquidity_side=liquidity_side,
+        )
         ts_event = secs_to_nanos(int(msg.match_time))
 
         self.generate_order_filled(
@@ -2043,7 +2049,7 @@ class PolymarketExecutionClient(LiveExecutionClient):
             last_px=last_px,
             quote_currency=USDC_POS,
             commission=Money(commission, USDC_POS),
-            liquidity_side=msg.liquidity_side(),
+            liquidity_side=liquidity_side,
             ts_event=ts_event,
             info=msg.to_dict(),
         )
