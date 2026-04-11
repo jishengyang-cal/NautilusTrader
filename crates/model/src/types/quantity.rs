@@ -51,8 +51,8 @@ use std::{
 use alloy_primitives::U256;
 use nautilus_core::{
     correctness::{
-        CorrectnessError, CorrectnessResult, FAILED, check_in_range_inclusive_f64,
-        check_predicate_true,
+        CorrectnessError, CorrectnessResult, CorrectnessResultExt, FAILED,
+        check_in_range_inclusive_f64, check_predicate_true,
     },
     formatting::Separable,
 };
@@ -148,15 +148,17 @@ impl Quantity {
     /// # Notes
     ///
     /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
-    pub fn new_checked(value: f64, precision: u8) -> anyhow::Result<Self> {
+    pub fn new_checked(value: f64, precision: u8) -> CorrectnessResult<Self> {
         check_in_range_inclusive_f64(value, QUANTITY_MIN, QUANTITY_MAX, "value")?;
 
         #[cfg(feature = "defi")]
         if precision > MAX_FLOAT_PRECISION {
             // Floats are only reliable up to ~16 decimal digits of precision regardless of feature flags
-            anyhow::bail!(
-                "`precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Quantity::from_wei()` for wei values instead"
-            );
+            return Err(CorrectnessError::PredicateViolation {
+                message: format!(
+                    "`precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Quantity::from_wei()` for wei values instead"
+                ),
+            });
         }
 
         check_fixed_precision(precision)?;
@@ -182,7 +184,7 @@ impl Quantity {
     /// # Notes
     ///
     /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
-    pub fn non_zero_checked(value: f64, precision: u8) -> anyhow::Result<Self> {
+    pub fn non_zero_checked(value: f64, precision: u8) -> CorrectnessResult<Self> {
         check_predicate_true(value != 0.0, "value was zero")?;
         check_fixed_precision(precision)?;
         let rounded_value =
@@ -201,7 +203,7 @@ impl Quantity {
     ///
     /// Panics if a correctness check fails. See [`Quantity::new_checked`] for more details.
     pub fn new(value: f64, precision: u8) -> Self {
-        Self::new_checked(value, precision).expect(FAILED)
+        Self::new_checked(value, precision).expect_display(FAILED)
     }
 
     /// Creates a new [`Quantity`] instance with a guaranteed non zero value.
@@ -210,7 +212,7 @@ impl Quantity {
     ///
     /// Panics if a correctness check fails. See [`Quantity::non_zero_checked`] for more details.
     pub fn non_zero(value: f64, precision: u8) -> Self {
-        Self::non_zero_checked(value, precision).expect(FAILED)
+        Self::non_zero_checked(value, precision).expect_display(FAILED)
     }
 
     /// Creates a new [`Quantity`] instance from the given `raw` fixed-point value and `precision`.
@@ -231,7 +233,7 @@ impl Quantity {
                 "`precision` must be 0 when `raw` is QUANTITY_UNDEF"
             );
         }
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
 
         // TODO: Enforce spurious bits validation in v2
         // if raw != QUANTITY_UNDEF && raw > 0 {
@@ -253,17 +255,19 @@ impl Quantity {
     /// - `precision` exceeds the maximum fixed precision.
     /// - `precision` is not 0 when `raw` is `QUANTITY_UNDEF`.
     /// - `raw` exceeds `QUANTITY_RAW_MAX` and is not a sentinel value.
-    pub fn from_raw_checked(raw: QuantityRaw, precision: u8) -> anyhow::Result<Self> {
-        if raw == QUANTITY_UNDEF {
-            anyhow::ensure!(
-                precision == 0,
-                "`precision` must be 0 when `raw` is QUANTITY_UNDEF"
-            );
+    pub fn from_raw_checked(raw: QuantityRaw, precision: u8) -> CorrectnessResult<Self> {
+        if raw == QUANTITY_UNDEF && precision != 0 {
+            return Err(CorrectnessError::PredicateViolation {
+                message: "`precision` must be 0 when `raw` is QUANTITY_UNDEF".to_string(),
+            });
         }
-        anyhow::ensure!(
-            raw == QUANTITY_UNDEF || raw <= QUANTITY_RAW_MAX,
-            "raw value {raw} exceeds QUANTITY_RAW_MAX={QUANTITY_RAW_MAX}"
-        );
+
+        if raw != QUANTITY_UNDEF && raw > QUANTITY_RAW_MAX {
+            return Err(CorrectnessError::PredicateViolation {
+                message: format!("raw value {raw} exceeds QUANTITY_RAW_MAX={QUANTITY_RAW_MAX}"),
+            });
+        }
+
         check_fixed_precision(precision)?;
 
         Ok(Self { raw, precision })
@@ -293,7 +297,7 @@ impl Quantity {
     /// Panics if a correctness check fails. See [`Quantity::new_checked`] for more details.
     #[must_use]
     pub fn zero(precision: u8) -> Self {
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
         Self::new(0.0, precision)
     }
 
@@ -426,7 +430,7 @@ impl Quantity {
     /// Panics if the resulting raw value exceeds [`QUANTITY_RAW_MAX`].
     #[must_use]
     pub fn from_mantissa_exponent(mantissa: u64, exponent: i8, precision: u8) -> Self {
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
 
         if mantissa == 0 {
             return Self { raw: 0, precision };
@@ -945,6 +949,36 @@ mod tests {
     #[rstest]
     fn test_negative_quantity_validation() {
         assert!(Quantity::new_checked(-1.0, FIXED_PRECISION).is_err());
+    }
+
+    #[rstest]
+    fn test_new_checked_returns_typed_error_with_stable_display() {
+        let error = Quantity::new_checked(QUANTITY_MAX + 1.0, FIXED_PRECISION).unwrap_err();
+
+        assert!(matches!(error, CorrectnessError::OutOfRange { .. }));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "invalid f64 for 'value' not in range [{QUANTITY_MIN}, {QUANTITY_MAX}], was {}",
+                QUANTITY_MAX + 1.0
+            )
+        );
+    }
+
+    #[rstest]
+    fn test_from_raw_checked_returns_typed_error_with_stable_display() {
+        let error = Quantity::from_raw_checked(QUANTITY_UNDEF, 3).unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::PredicateViolation {
+                message: "`precision` must be 0 when `raw` is QUANTITY_UNDEF".to_string(),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "`precision` must be 0 when `raw` is QUANTITY_UNDEF"
+        );
     }
 
     #[rstest]

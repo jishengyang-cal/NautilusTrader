@@ -60,7 +60,9 @@
 
 use std::fmt::Display;
 
-use nautilus_core::correctness::FAILED;
+use nautilus_core::correctness::{
+    CorrectnessError, CorrectnessResult, CorrectnessResultExt, FAILED,
+};
 
 use crate::types::{price::PriceRaw, quantity::QuantityRaw};
 
@@ -189,17 +191,21 @@ pub const MAX_FLOAT_PRECISION: u8 = 16;
 /// Returns an error if `precision` exceeds the maximum allowed:
 /// - With `defi` feature: [`WEI_PRECISION`](crate::defi::WEI_PRECISION) (18)
 /// - Without `defi` feature: [`FIXED_PRECISION`]
-pub fn check_fixed_precision(precision: u8) -> anyhow::Result<()> {
+pub fn check_fixed_precision(precision: u8) -> CorrectnessResult<()> {
     #[cfg(feature = "defi")]
     if precision > crate::defi::WEI_PRECISION {
-        anyhow::bail!("`precision` exceeded maximum `WEI_PRECISION` (18), was {precision}")
+        return Err(CorrectnessError::PredicateViolation {
+            message: format!("`precision` exceeded maximum `WEI_PRECISION` (18), was {precision}"),
+        });
     }
 
     #[cfg(not(feature = "defi"))]
     if precision > FIXED_PRECISION {
-        anyhow::bail!(
-            "`precision` exceeded maximum `FIXED_PRECISION` ({FIXED_PRECISION}), was {precision}"
-        )
+        return Err(CorrectnessError::PredicateViolation {
+            message: format!(
+                "`precision` exceeded maximum `FIXED_PRECISION` ({FIXED_PRECISION}), was {precision}"
+            ),
+        });
     }
 
     Ok(())
@@ -632,7 +638,7 @@ pub fn mantissa_exponent_to_fixed_i128(
 /// Panics if `precision` exceeds [`FIXED_PRECISION`].
 #[must_use]
 pub fn f64_to_fixed_i64(value: f64, precision: u8) -> i64 {
-    check_fixed_precision(precision).expect(FAILED);
+    check_fixed_precision(precision).expect_display(FAILED);
     let pow1 = 10_i64.pow(u32::from(precision));
     let pow2 = 10_i64.pow(u32::from(FIXED_PRECISION - precision));
     let rounded = (value * pow1 as f64).round() as i64;
@@ -645,7 +651,7 @@ pub fn f64_to_fixed_i64(value: f64, precision: u8) -> i64 {
 ///
 /// Panics if `precision` exceeds [`FIXED_PRECISION`].
 pub fn f64_to_fixed_i128(value: f64, precision: u8) -> i128 {
-    check_fixed_precision(precision).expect(FAILED);
+    check_fixed_precision(precision).expect_display(FAILED);
     let pow1 = 10_i128.pow(u32::from(precision));
     let pow2 = 10_i128.pow(u32::from(FIXED_PRECISION - precision));
     let rounded = (value * pow1 as f64).round() as i128;
@@ -659,7 +665,7 @@ pub fn f64_to_fixed_i128(value: f64, precision: u8) -> i128 {
 /// Panics if `precision` exceeds [`FIXED_PRECISION`].
 #[must_use]
 pub fn f64_to_fixed_u64(value: f64, precision: u8) -> u64 {
-    check_fixed_precision(precision).expect(FAILED);
+    check_fixed_precision(precision).expect_display(FAILED);
     let pow1 = 10_u64.pow(u32::from(precision));
     let pow2 = 10_u64.pow(u32::from(FIXED_PRECISION - precision));
     let rounded = (value * pow1 as f64).round() as u64;
@@ -673,7 +679,7 @@ pub fn f64_to_fixed_u64(value: f64, precision: u8) -> u64 {
 /// Panics if `precision` exceeds [`FIXED_PRECISION`].
 #[must_use]
 pub fn f64_to_fixed_u128(value: f64, precision: u8) -> u128 {
-    check_fixed_precision(precision).expect(FAILED);
+    check_fixed_precision(precision).expect_display(FAILED);
     let pow1 = 10_u128.pow(u32::from(precision));
     let pow2 = 10_u128.pow(u32::from(FIXED_PRECISION - precision));
     let rounded = (value * pow1 as f64).round() as u128;
@@ -813,6 +819,54 @@ mod tests {
         let precision = WEI_PRECISION + 1;
         let result = check_fixed_precision(precision);
         assert!(result.is_err());
+    }
+
+    #[cfg(not(feature = "defi"))]
+    #[rstest]
+    fn test_check_fixed_precision_returns_typed_error_with_stable_display() {
+        let error = check_fixed_precision(FIXED_PRECISION + 1).unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::PredicateViolation {
+                message: format!(
+                    "`precision` exceeded maximum `FIXED_PRECISION` ({FIXED_PRECISION}), was {}",
+                    FIXED_PRECISION + 1
+                ),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "`precision` exceeded maximum `FIXED_PRECISION` ({FIXED_PRECISION}), was {}",
+                FIXED_PRECISION + 1
+            )
+        );
+    }
+
+    #[cfg(feature = "defi")]
+    #[rstest]
+    fn test_check_fixed_precision_returns_typed_error_with_stable_display() {
+        use crate::defi::WEI_PRECISION;
+
+        let error = check_fixed_precision(WEI_PRECISION + 1).unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::PredicateViolation {
+                message: format!(
+                    "`precision` exceeded maximum `WEI_PRECISION` (18), was {}",
+                    WEI_PRECISION + 1
+                ),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "`precision` exceeded maximum `WEI_PRECISION` (18), was {}",
+                WEI_PRECISION + 1
+            )
+        );
     }
 
     #[rstest]

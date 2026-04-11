@@ -48,7 +48,10 @@ use std::{
 };
 
 use nautilus_core::{
-    correctness::{CorrectnessError, CorrectnessResult, FAILED, check_in_range_inclusive_f64},
+    correctness::{
+        CorrectnessError, CorrectnessResult, CorrectnessResultExt, FAILED,
+        check_in_range_inclusive_f64,
+    },
     formatting::Separable,
 };
 use rust_decimal::Decimal;
@@ -184,15 +187,17 @@ impl Price {
     /// # Notes
     ///
     /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
-    pub fn new_checked(value: f64, precision: u8) -> anyhow::Result<Self> {
+    pub fn new_checked(value: f64, precision: u8) -> CorrectnessResult<Self> {
         check_in_range_inclusive_f64(value, PRICE_MIN, PRICE_MAX, "value")?;
 
         #[cfg(feature = "defi")]
         if precision > MAX_FLOAT_PRECISION {
             // Floats are only reliable up to ~16 decimal digits of precision regardless of feature flags
-            anyhow::bail!(
-                "`precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Price::from_wei()` for wei values instead"
-            );
+            return Err(CorrectnessError::PredicateViolation {
+                message: format!(
+                    "`precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Price::from_wei()` for wei values instead"
+                ),
+            });
         }
 
         check_fixed_precision(precision)?;
@@ -212,7 +217,7 @@ impl Price {
     ///
     /// Panics if a correctness check fails. See [`Price::new_checked`] for more details.
     pub fn new(value: f64, precision: u8) -> Self {
-        Self::new_checked(value, precision).expect(FAILED)
+        Self::new_checked(value, precision).expect_display(FAILED)
     }
 
     /// Creates a new [`Price`] instance from the given `raw` fixed-point value and `precision`.
@@ -235,7 +240,7 @@ impl Price {
                 "`precision` must be 0 when `raw` is PRICE_UNDEF"
             );
         }
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
 
         // TODO: Enforce spurious bits validation in v2
         // if !matches!(raw, PRICE_UNDEF | PRICE_ERROR) && raw != 0 {
@@ -258,19 +263,22 @@ impl Price {
     /// - `precision` is not 0 when `raw` is `PRICE_UNDEF`.
     /// - `raw` is outside the valid range `[PRICE_RAW_MIN, PRICE_RAW_MAX]`
     ///   and is not a sentinel value.
-    pub fn from_raw_checked(raw: PriceRaw, precision: u8) -> anyhow::Result<Self> {
-        if raw == PRICE_UNDEF {
-            anyhow::ensure!(
-                precision == 0,
-                "`precision` must be 0 when `raw` is PRICE_UNDEF"
-            );
+    pub fn from_raw_checked(raw: PriceRaw, precision: u8) -> CorrectnessResult<Self> {
+        if raw == PRICE_UNDEF && precision != 0 {
+            return Err(CorrectnessError::PredicateViolation {
+                message: "`precision` must be 0 when `raw` is PRICE_UNDEF".to_string(),
+            });
         }
-        anyhow::ensure!(
-            raw == PRICE_ERROR
-                || raw == PRICE_UNDEF
-                || (raw >= PRICE_RAW_MIN && raw <= PRICE_RAW_MAX),
-            "raw value {raw} outside valid range [{PRICE_RAW_MIN}, {PRICE_RAW_MAX}]"
-        );
+
+        if raw != PRICE_ERROR && raw != PRICE_UNDEF && (raw < PRICE_RAW_MIN || raw > PRICE_RAW_MAX)
+        {
+            return Err(CorrectnessError::PredicateViolation {
+                message: format!(
+                    "raw value {raw} outside valid range [{PRICE_RAW_MIN}, {PRICE_RAW_MAX}]"
+                ),
+            });
+        }
+
         check_fixed_precision(precision)?;
 
         Ok(Self { raw, precision })
@@ -283,7 +291,7 @@ impl Price {
     /// Panics if a correctness check fails. See [`Price::new_checked`] for more details.
     #[must_use]
     pub fn zero(precision: u8) -> Self {
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
         Self { raw: 0, precision }
     }
 
@@ -294,7 +302,7 @@ impl Price {
     /// Panics if a correctness check fails. See [`Price::new_checked`] for more details.
     #[must_use]
     pub fn max(precision: u8) -> Self {
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
         Self {
             raw: PRICE_RAW_MAX,
             precision,
@@ -308,7 +316,7 @@ impl Price {
     /// Panics if a correctness check fails. See [`Price::new_checked`] for more details.
     #[must_use]
     pub fn min(precision: u8) -> Self {
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
         Self {
             raw: PRICE_RAW_MIN,
             precision,
@@ -437,7 +445,7 @@ impl Price {
     /// Panics if the resulting raw value exceeds [`PRICE_RAW_MAX`] or [`PRICE_RAW_MIN`].
     #[must_use]
     pub fn from_mantissa_exponent(mantissa: i64, exponent: i8, precision: u8) -> Self {
-        check_fixed_precision(precision).expect(FAILED);
+        check_fixed_precision(precision).expect_display(FAILED);
 
         if mantissa == 0 {
             return Self { raw: 0, precision };
@@ -870,6 +878,36 @@ mod tests {
         assert!(Price::new_checked(1.0, FIXED_PRECISION).is_ok());
         assert!(Price::new_checked(f64::NAN, FIXED_PRECISION).is_err());
         assert!(Price::new_checked(f64::INFINITY, FIXED_PRECISION).is_err());
+    }
+
+    #[rstest]
+    fn test_new_checked_returns_typed_error_with_stable_display() {
+        let error = Price::new_checked(PRICE_MAX + 1.0, FIXED_PRECISION).unwrap_err();
+
+        assert!(matches!(error, CorrectnessError::OutOfRange { .. }));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "invalid f64 for 'value' not in range [{PRICE_MIN}, {PRICE_MAX}], was {}",
+                PRICE_MAX + 1.0
+            )
+        );
+    }
+
+    #[rstest]
+    fn test_from_raw_checked_returns_typed_error_with_stable_display() {
+        let error = Price::from_raw_checked(PRICE_UNDEF, 3).unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::PredicateViolation {
+                message: "`precision` must be 0 when `raw` is PRICE_UNDEF".to_string(),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "`precision` must be 0 when `raw` is PRICE_UNDEF"
+        );
     }
 
     #[rstest]

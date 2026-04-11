@@ -17,7 +17,11 @@
 
 use std::hash::{Hash, Hasher};
 
-use nautilus_core::{UnixNanos, datetime::NANOSECONDS_IN_MILLISECOND};
+use nautilus_core::{
+    UnixNanos,
+    correctness::{CorrectnessError, CorrectnessResult},
+    datetime::NANOSECONDS_IN_MILLISECOND,
+};
 use nautilus_model::{
     data::{BookOrder, OrderBookDelta, OrderBookDeltas, QuoteTick, TradeTick},
     enums::{AggressorSide, BookAction, OrderSide, RecordFlag},
@@ -40,17 +44,21 @@ pub fn parse_timestamp_ms(ts: &str) -> anyhow::Result<UnixNanos> {
     Ok(UnixNanos::from(ns))
 }
 
-pub(crate) fn parse_price(s: &str, precision: u8) -> anyhow::Result<Price> {
+pub(crate) fn parse_price(s: &str, precision: u8) -> CorrectnessResult<Price> {
     let value: f64 = s
         .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid price '{s}': {e}"))?;
+        .map_err(|e| CorrectnessError::PredicateViolation {
+            message: format!("Invalid price '{s}': {e}"),
+        })?;
     Price::new_checked(value, precision)
 }
 
-pub(crate) fn parse_quantity(s: &str, precision: u8) -> anyhow::Result<Quantity> {
+pub(crate) fn parse_quantity(s: &str, precision: u8) -> CorrectnessResult<Quantity> {
     let value: f64 = s
         .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid quantity '{s}': {e}"))?;
+        .map_err(|e| CorrectnessError::PredicateViolation {
+            message: format!("Invalid quantity '{s}': {e}"),
+        })?;
     Quantity::new_checked(value, precision)
 }
 

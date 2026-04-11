@@ -53,7 +53,10 @@ use std::{
 };
 
 use nautilus_core::{
-    correctness::{CorrectnessError, CorrectnessResult, FAILED, check_in_range_inclusive_f64},
+    correctness::{
+        CorrectnessError, CorrectnessResult, CorrectnessResultExt, FAILED,
+        check_in_range_inclusive_f64,
+    },
     formatting::Separable,
 };
 use rust_decimal::Decimal;
@@ -169,7 +172,7 @@ impl Money {
     /// # Notes
     ///
     /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
-    pub fn new_checked(amount: f64, currency: Currency) -> anyhow::Result<Self> {
+    pub fn new_checked(amount: f64, currency: Currency) -> CorrectnessResult<Self> {
         // check_in_range_inclusive_f64 already validates that amount is finite
         // (not NaN or infinite) as part of its range validation logic, so no additional
         // infinity checks are needed here.
@@ -178,9 +181,11 @@ impl Money {
         #[cfg(feature = "defi")]
         if currency.precision > MAX_FLOAT_PRECISION {
             // Floats are only reliable up to ~16 decimal digits of precision regardless of feature flags
-            anyhow::bail!(
-                "`currency.precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Money::from_wei()` for wei values instead"
-            );
+            return Err(CorrectnessError::PredicateViolation {
+                message: format!(
+                    "`currency.precision` exceeded maximum float precision ({MAX_FLOAT_PRECISION}), use `Money::from_wei()` for wei values instead"
+                ),
+            });
         }
 
         #[cfg(feature = "high-precision")]
@@ -198,7 +203,7 @@ impl Money {
     ///
     /// Panics if a correctness check fails. See [`Money::new_checked`] for more details.
     pub fn new(amount: f64, currency: Currency) -> Self {
-        Self::new_checked(amount, currency).expect(FAILED)
+        Self::new_checked(amount, currency).expect_display(FAILED)
     }
 
     /// Creates a new [`Money`] instance from the given `raw` fixed-point value and the specified `currency`.
@@ -213,7 +218,7 @@ impl Money {
             raw >= MONEY_RAW_MIN && raw <= MONEY_RAW_MAX,
             "`raw` value {raw} exceeded bounds [{MONEY_RAW_MIN}, {MONEY_RAW_MAX}] for Money"
         );
-        check_fixed_precision(currency.precision).expect(FAILED);
+        check_fixed_precision(currency.precision).expect_display(FAILED);
 
         // TODO: Enforce spurious bits validation in v2
         // Validate raw value has no spurious bits beyond the precision scale
@@ -237,7 +242,7 @@ impl Money {
     /// Panics if the resulting raw value exceeds [`MONEY_RAW_MAX`] or [`MONEY_RAW_MIN`].
     #[must_use]
     pub fn from_mantissa_exponent(mantissa: i64, exponent: i8, currency: Currency) -> Self {
-        check_fixed_precision(currency.precision).expect(FAILED);
+        check_fixed_precision(currency.precision).expect_display(FAILED);
 
         if mantissa == 0 {
             return Self { raw: 0, currency };
@@ -745,6 +750,20 @@ mod tests {
     fn test_with_minimum_value() {
         let money = Money::new_checked(MONEY_MIN, Currency::USD());
         assert!(money.is_ok());
+    }
+
+    #[rstest]
+    fn test_new_checked_returns_typed_error_with_stable_display() {
+        let error = Money::new_checked(MONEY_MAX + 1.0, Currency::USD()).unwrap_err();
+
+        assert!(matches!(error, CorrectnessError::OutOfRange { .. }));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "invalid f64 for 'amount' not in range [{MONEY_MIN}, {MONEY_MAX}], was {}",
+                MONEY_MAX + 1.0
+            )
+        );
     }
 
     #[rstest]
