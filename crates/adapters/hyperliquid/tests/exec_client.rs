@@ -45,7 +45,10 @@ use nautilus_common::{
     cache::Cache,
     clients::ExecutionClient,
     live::runner::set_exec_event_sender,
-    messages::{ExecutionEvent, execution::QueryAccount},
+    messages::{
+        ExecutionEvent,
+        execution::{ModifyOrder, QueryAccount, SubmitOrder},
+    },
     testing::wait_until_async,
 };
 use nautilus_core::{UUID4, UnixNanos};
@@ -56,10 +59,13 @@ use nautilus_hyperliquid::{
 use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::{AccountAny, MarginAccount},
-    enums::{AccountType, OmsType},
+    enums::{AccountType, OmsType, OrderSide, TimeInForce},
     events::AccountState,
-    identifiers::{AccountId, ClientId, TraderId, Venue},
-    types::{AccountBalance, Money},
+    identifiers::{
+        AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, TraderId, Venue, VenueOrderId,
+    },
+    orders::{LimitOrder, Order, OrderAny},
+    types::{AccountBalance, Money, Price, Quantity},
 };
 use nautilus_network::http::{HttpClient, Method};
 use rstest::rstest;
@@ -70,6 +76,11 @@ struct TestServerState {
     exchange_request_count: Arc<tokio::sync::Mutex<usize>>,
     last_exchange_action: Arc<tokio::sync::Mutex<Option<Value>>>,
     reject_next_order: Arc<std::sync::atomic::AtomicBool>,
+    /// Returns a `status="ok"` envelope whose inner `statuses[0]` carries a
+    /// per-order `error` object on the next exchange call. This exercises
+    /// the `extract_inner_error` path in the execution client, which is
+    /// distinct from the top-level `status="err"` handled by `reject_next_order`.
+    inner_order_error_next: Arc<std::sync::atomic::AtomicBool>,
     rate_limit_after: Arc<AtomicUsize>,
 }
 
@@ -79,6 +90,7 @@ impl Default for TestServerState {
             exchange_request_count: Arc::new(tokio::sync::Mutex::new(0)),
             last_exchange_action: Arc::new(tokio::sync::Mutex::new(None)),
             reject_next_order: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            inner_order_error_next: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             rate_limit_after: Arc::new(AtomicUsize::new(usize::MAX)),
         }
     }
@@ -236,6 +248,21 @@ async fn handle_exchange(
             "response": {
                 "type": "error",
                 "data": "Order rejected: insufficient margin"
+            }
+        }))
+        .into_response();
+    }
+
+    if state.inner_order_error_next.swap(false, Ordering::Relaxed) {
+        return Json(json!({
+            "status": "ok",
+            "response": {
+                "type": "order",
+                "data": {
+                    "statuses": [{
+                        "error": "Order rejected: insufficient margin"
+                    }]
+                }
             }
         }))
         .into_response();
@@ -790,4 +817,227 @@ async fn test_query_account_does_not_block_within_runtime() {
         .expect("channel closed without event");
 
     assert!(matches!(event, ExecutionEvent::Account(_)));
+}
+
+const HYPERLIQUID_TEST_INSTRUMENT: &str = "BTC-USD-PERP.HYPERLIQUID";
+
+fn make_limit_order(id: &str) -> OrderAny {
+    OrderAny::Limit(LimitOrder::new(
+        TraderId::from("TESTER-001"),
+        StrategyId::from("S-001"),
+        InstrumentId::from(HYPERLIQUID_TEST_INSTRUMENT),
+        ClientOrderId::from(id),
+        OrderSide::Buy,
+        Quantity::from("0.0001"),
+        Price::from("56730.0"),
+        TimeInForce::Gtc,
+        None,
+        false,
+        false,
+        false,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+    ))
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_submit_order_inner_error_cleans_up_dispatch_state() {
+    // When the exchange accepts the request envelope but rejects the
+    // individual order via `statuses[0].error`, the submit-order spawn task
+    // must run `cleanup_terminal` on the dispatch state so the identity
+    // registered at submission time is not left behind. A regression here
+    // would leak an order identity per failed submission in long-running
+    // sessions.
+    //
+    // The top-level `status="err"` envelope (`reject_next_order`) is
+    // intentionally NOT used: `post_action_exec` converts that shape into
+    // a transport-level `Err` which is left alone because the venue may
+    // still have accepted the order (periodic reconciliation resolves it).
+    let state = TestServerState::default();
+    state.inner_order_error_next.store(true, Ordering::Relaxed);
+    let addr = start_mock_server(state).await;
+
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let order = make_limit_order("O-SUB-REJ");
+    cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .unwrap();
+
+    assert!(
+        client
+            .ws_dispatch_state()
+            .lookup_identity(&order.client_order_id())
+            .is_none(),
+        "identity should not be registered before submit",
+    );
+
+    let cmd = SubmitOrder::from_order(
+        &order,
+        order.trader_id(),
+        Some(ClientId::from("HYPERLIQUID")),
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+    );
+
+    client.submit_order(&cmd).unwrap();
+
+    // Identity is registered synchronously inside submit_order before the
+    // spawn_task fires.
+    assert!(
+        client
+            .ws_dispatch_state()
+            .lookup_identity(&order.client_order_id())
+            .is_some(),
+        "identity should be registered immediately on submit",
+    );
+
+    // The spawn task runs the HTTP call and, on rejection, invokes
+    // `cleanup_terminal`. Poll until the identity is gone.
+    let dispatch = client.ws_dispatch_state().clone();
+    let cid = order.client_order_id();
+    wait_until_async(
+        move || {
+            let dispatch = dispatch.clone();
+            async move { dispatch.lookup_identity(&cid).is_none() }
+        },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_modify_order_success_marks_pending_modify() {
+    // After a successful modify HTTP round-trip, the dispatch state must
+    // carry a pending-modify marker keyed on `client_order_id` and pointing
+    // at the OLD venue order id. The cancel-before-accept branch in dispatch
+    // relies on this marker to suppress an early CANCELED(old_voi); a
+    // regression here would let the stale cancel leg leak to strategies.
+    let state = TestServerState::default();
+    let addr = start_mock_server(state).await;
+
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let order = make_limit_order("O-MOD-OK");
+    cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .unwrap();
+
+    let old_voi = VenueOrderId::from("99999");
+    let cmd = ModifyOrder::new(
+        order.trader_id(),
+        Some(ClientId::from("HYPERLIQUID")),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        Some(old_voi),
+        Some(Quantity::from("0.0002")),
+        Some(Price::from("56800.0")),
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    );
+
+    client.modify_order(&cmd).unwrap();
+
+    let dispatch = client.ws_dispatch_state().clone();
+    let cid = order.client_order_id();
+    wait_until_async(
+        move || {
+            let dispatch = dispatch.clone();
+            async move { dispatch.pending_modify(&cid).is_some() }
+        },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    assert_eq!(
+        client.ws_dispatch_state().pending_modify(&cid),
+        Some(old_voi),
+    );
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_modify_order_rejection_does_not_mark_pending_modify() {
+    // A rejected modify (HTTP error branch) must leave no marker, so that a
+    // later legitimate CANCELED for the same `client_order_id` is not
+    // wrongly suppressed by the cancel-before-accept branch.
+    let state = TestServerState::default();
+    state.reject_next_order.store(true, Ordering::Relaxed);
+    let addr = start_mock_server(state).await;
+
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let order = make_limit_order("O-MOD-REJ");
+    cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .unwrap();
+
+    let old_voi = VenueOrderId::from("77777");
+    let cmd = ModifyOrder::new(
+        order.trader_id(),
+        Some(ClientId::from("HYPERLIQUID")),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        Some(old_voi),
+        Some(Quantity::from("0.0002")),
+        Some(Price::from("56800.0")),
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    );
+
+    client.modify_order(&cmd).unwrap();
+
+    // Wait for the spawn task to drain fully so we know the HTTP round-trip
+    // AND the client's response-handling continuation have both run. Only
+    // then is a negative assertion on the marker meaningful: asserting
+    // earlier could race past the rejection branch and silently accept a
+    // bug that erroneously set the marker on failure.
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    assert!(
+        client
+            .ws_dispatch_state()
+            .pending_modify(&order.client_order_id())
+            .is_none(),
+        "failed modify must not leave a pending-modify marker",
+    );
+
+    client.disconnect().await.unwrap();
 }

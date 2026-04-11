@@ -435,30 +435,48 @@ The modify HTTP response only confirms success. The
 then delivers an `ACCEPTED(new_oid)` status report, followed by a `CANCELED(old_oid)` for the
 original leg.
 
-The adapter detects the replacement leg by comparing the report's `venue_order_id` against the
-cached `venue_order_id` for the `cloid`. When they differ, the adapter overwrites the cache and
-emits a single `OrderUpdated` event to the strategy:
+The Rust-native `HyperliquidExecutionClient` (used through
+`HyperliquidExecutionClientFactory`) runs detection, deduplication, and event promotion on the
+Rust side via the
+[`WsDispatchState`](https://github.com/nautechsystems/nautilus_trader/tree/develop/crates/adapters/hyperliquid/src/websocket/dispatch.rs)
+owned by the execution client. On submission the client registers an `OrderIdentity` (strategy,
+instrument, side, type, quantity, last-known price) keyed by `client_order_id`. Each inbound
+status report or fill is routed through the dispatch: tracked orders emit typed
+`OrderEventAny::*` events via `ExecutionEventEmitter::send_order_event`; external orders fall
+back to the raw `OrderStatusReport` / `FillReport` so the engine can reconcile. The dispatch
+compares the report's `venue_order_id` against the last cached value for the `cloid`; when
+they differ it promotes the `ACCEPTED` to `OrderUpdated` and suppresses the paired stale cancel:
+
+:::note
+The Python `HyperliquidExecutionClient` in `nautilus_trader/adapters/hyperliquid/execution.py`
+still runs its own equivalent detection inside `_handle_order_status_report_pyo3` because the
+pyo3 WebSocket binding forwards raw reports to Python. The Rust dispatch described below is
+additive, for the Rust-native execution client.
+:::
 
 ```mermaid
 sequenceDiagram
     participant Strategy
-    participant ExecClient as HyperliquidExecutionClient
+    participant ExecClient as HyperliquidExecutionClient (Rust)
+    participant Dispatch as WsDispatchState (Rust)
     participant HTTP as Hyperliquid HTTP
     participant WS as Hyperliquid WS
 
     Strategy->>ExecClient: ModifyOrder(cloid, old_oid)
     ExecClient->>HTTP: POST /exchange { action: "modify", oid: old_oid }
     HTTP-->>ExecClient: { status: "ok" }
-    ExecClient->>ExecClient: mark cloid pending modify (old_oid)
+    ExecClient->>Dispatch: mark_pending_modify(cloid, old_oid)
     WS-->>ExecClient: ACCEPTED(new_oid, cloid)
-    ExecClient->>ExecClient: cache.add_venue_order_id(cloid, new_oid, overwrite=True)
-    ExecClient-->>Strategy: OrderUpdated(venue_order_id=new_oid)
+    ExecClient->>Dispatch: dispatch_order_status_report()
+    Dispatch->>Dispatch: cached_voi != new_oid -> promote to OrderUpdated,<br/>clear_pending_modify, record_venue_order_id(new_oid)
+    Dispatch-->>Strategy: OrderUpdated(venue_order_id=new_oid)
     WS-->>ExecClient: CANCELED(old_oid, cloid)
-    ExecClient->>ExecClient: suppress (cached voi != old_oid)
+    ExecClient->>Dispatch: dispatch_order_status_report()
+    Dispatch->>Dispatch: cached_voi != old_oid -> Skip (stale cancel)
 ```
 
 If Hyperliquid delivers `CANCELED(old_oid)` before `ACCEPTED(new_oid)` for an in-flight modify,
-the pending-modify marker lets the adapter drop the old leg's cancel and still route the
+the pending-modify marker lets the dispatch drop the old leg's cancel and still route the
 subsequent `ACCEPTED` through the `OrderUpdated` path. The marker is only set after a confirmed
 HTTP success, so a failed modify never leaves stale race state. Because detection otherwise
 relies on the cached `venue_order_id`, the adapter also recovers a modify that times out on the

@@ -17,7 +17,7 @@
 
 use std::{
     str::FromStr,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -69,7 +69,14 @@ use crate::{
             HyperliquidExecGrouping, HyperliquidExecModifyOrderRequest, HyperliquidExecOrderKind,
         },
     },
-    websocket::{ExecutionReport, NautilusWsMessage, client::HyperliquidWebSocketClient},
+    websocket::{
+        ExecutionReport, NautilusWsMessage,
+        client::HyperliquidWebSocketClient,
+        dispatch::{
+            DispatchOutcome, OrderIdentity, WsDispatchState, dispatch_fill_report,
+            dispatch_order_status_report,
+        },
+    },
 };
 
 #[derive(Debug)]
@@ -82,12 +89,41 @@ pub struct HyperliquidExecutionClient {
     ws_client: HyperliquidWebSocketClient,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
     ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
+    ws_dispatch_state: Arc<WsDispatchState>,
 }
 
 impl HyperliquidExecutionClient {
     /// Returns a reference to the configuration.
     pub fn config(&self) -> &HyperliquidExecClientConfig {
         &self.config
+    }
+
+    /// Returns a reference to the shared WebSocket dispatch state.
+    ///
+    /// Exposes the identity map, pending-modify markers, and cached venue
+    /// order ids used by the two-tier dispatch contract. The state is
+    /// read-write via an [`Arc`]; callers must not mutate it directly, but
+    /// it is useful for inspection in tests and for live debugging.
+    #[must_use]
+    pub fn ws_dispatch_state(&self) -> &Arc<WsDispatchState> {
+        &self.ws_dispatch_state
+    }
+
+    /// Returns `true` when every background task spawned via `spawn_task`
+    /// has completed.
+    ///
+    /// Used in tests to wait for submit / modify / cancel HTTP round-trips
+    /// that fire on the runtime to finish before asserting on dispatch
+    /// state, avoiding bare `sleep` calls when a negative condition needs
+    /// to be checked after the spawned work is done.
+    #[allow(
+        clippy::missing_panics_doc,
+        reason = "pending_tasks mutex poisoning is not expected"
+    )]
+    #[must_use]
+    pub fn pending_tasks_all_finished(&self) -> bool {
+        let tasks = self.pending_tasks.lock().expect(MUTEX_POISONED);
+        tasks.iter().all(|h| h.is_finished())
     }
 
     fn validate_order_submission(&self, order: &OrderAny) -> anyhow::Result<()> {
@@ -202,7 +238,12 @@ impl HyperliquidExecutionClient {
             ws_client,
             pending_tasks: Mutex::new(Vec::new()),
             ws_stream_handle: Mutex::new(None),
+            ws_dispatch_state: Arc::new(WsDispatchState::new()),
         })
+    }
+
+    fn register_order_identity(&self, order: &OrderAny) {
+        register_order_identity_into(&self.ws_dispatch_state, order);
     }
 
     async fn ensure_instruments_initialized_async(&self) -> anyhow::Result<()> {
@@ -508,12 +549,16 @@ impl ExecutionClient for HyperliquidExecutionClient {
         self.ws_client
             .cache_cloid_mapping(Ustr::from(&cloid.to_hex()), order.client_order_id());
 
+        self.register_order_identity(&order);
+
         self.emitter.emit_order_submitted(&order);
 
         let emitter = self.emitter.clone();
         let clock = self.clock;
         let ws_client = self.ws_client.clone();
         let cloid_hex = Ustr::from(&cloid.to_hex());
+        let dispatch_state = self.ws_dispatch_state.clone();
+        let client_order_id = order.client_order_id();
 
         // Vaults cannot approve builder fees, so skip builder attribution
         // for vault orders to avoid "Builder fee has not been approved" rejection
@@ -541,6 +586,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
                             let ts = clock.get_time_ns();
                             emitter.emit_order_rejected(&order, &inner_error, ts, false);
                             ws_client.remove_cloid_mapping(&cloid_hex);
+                            dispatch_state.cleanup_terminal(&client_order_id);
                         } else {
                             log::info!("Order submitted successfully: {response:?}");
                         }
@@ -550,6 +596,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
                         let ts = clock.get_time_ns();
                         emitter.emit_order_rejected(&order, &error_msg, ts, false);
                         ws_client.remove_cloid_mapping(&cloid_hex);
+                        dispatch_state.cleanup_terminal(&client_order_id);
                     }
                 }
                 Err(e) => {
@@ -622,16 +669,20 @@ impl ExecutionClient for HyperliquidExecutionClient {
             let cloid = Cloid::from_client_order_id(order.client_order_id());
             self.ws_client
                 .cache_cloid_mapping(Ustr::from(&cloid.to_hex()), order.client_order_id());
+            self.register_order_identity(order);
             self.emitter.emit_order_submitted(order);
         }
 
         let emitter = self.emitter.clone();
         let clock = self.clock;
         let ws_client = self.ws_client.clone();
+        let dispatch_state = self.ws_dispatch_state.clone();
         let cloid_hexes: Vec<Ustr> = valid_orders
             .iter()
             .map(|o| Ustr::from(&Cloid::from_client_order_id(o.client_order_id()).to_hex()))
             .collect();
+        let client_order_ids: Vec<ClientOrderId> =
+            valid_orders.iter().map(|o| o.client_order_id()).collect();
 
         let builder = if self.http_client.has_vault_address() {
             None
@@ -663,8 +714,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
                             if let Some(error_msg) = inner_errors.iter().find_map(|e| e.as_ref()) {
                                 let ts = clock.get_time_ns();
 
-                                for (order, cloid_hex) in
-                                    valid_orders.iter().zip(cloid_hexes.iter())
+                                for ((order, cloid_hex), cid) in valid_orders
+                                    .iter()
+                                    .zip(cloid_hexes.iter())
+                                    .zip(client_order_ids.iter())
                                 {
                                     log::warn!(
                                         "Order {} rejected by exchange: {error_msg}",
@@ -672,6 +725,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
                                     );
                                     emitter.emit_order_rejected(order, error_msg, ts, false);
                                     ws_client.remove_cloid_mapping(cloid_hex);
+                                    dispatch_state.cleanup_terminal(cid);
                                 }
                             } else {
                                 log::info!("Order list submitted successfully: {response:?}");
@@ -692,6 +746,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
                                     if let Some(cloid_hex) = cloid_hexes.get(i) {
                                         ws_client.remove_cloid_mapping(cloid_hex);
                                     }
+
+                                    if let Some(cid) = client_order_ids.get(i) {
+                                        dispatch_state.cleanup_terminal(cid);
+                                    }
                                 }
                             }
                         } else {
@@ -707,6 +765,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
 
                         for cloid_hex in &cloid_hexes {
                             ws_client.remove_cloid_mapping(cloid_hex);
+                        }
+
+                        for cid in &client_order_ids {
+                            dispatch_state.cleanup_terminal(cid);
                         }
                     }
                 }
@@ -846,6 +908,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
             }
         };
 
+        let dispatch_state = self.ws_dispatch_state.clone();
+        let client_order_id = cmd.client_order_id;
+        let old_venue_order_id = venue_order_id;
+
         self.spawn_task("modify_order", async move {
             let action = HyperliquidExecAction::Modify {
                 modify: HyperliquidExecModifyOrderRequest {
@@ -860,6 +926,12 @@ impl ExecutionClient for HyperliquidExecutionClient {
                         if let Some(inner_error) = extract_inner_error(&response) {
                             log::warn!("Order modification rejected by exchange: {inner_error}");
                         } else {
+                            // Mark the old venue_order_id as in-flight only
+                            // after a confirmed HTTP success. A failed modify
+                            // never leaves stale race state behind, so the
+                            // cancel-before-accept branch never fires on a
+                            // cancel following an independent failed modify.
+                            dispatch_state.mark_pending_modify(client_order_id, old_venue_order_id);
                             log::info!("Order modified successfully: {response:?}");
                         }
                     } else {
@@ -1469,78 +1541,54 @@ impl HyperliquidExecutionClient {
         }
 
         let emitter = self.emitter.clone();
+        let dispatch_state = self.ws_dispatch_state.clone();
+        let clock = self.clock;
         let runtime = get_runtime();
         let handle = runtime.spawn(async move {
-            // Deferred cloid cleanup for FILLED orders. We keep the
-            // mapping alive until a fill arrives after the FILLED
-            // status so partial fills don't lose client_order_id.
-            // Auto-eviction at capacity bounds orphaned entries.
-            let mut pending_filled: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
+            // Cloids for external / untracked orders that reach a terminal
+            // state: we evict their mapping immediately so long-running
+            // sessions do not leak. Tracked orders clear their own cloid
+            // mapping from the dispatch `cleanup_terminal` path below.
+            //
+            // For a tracked order that hits a status-only `FILLED` marker
+            // without an accompanying fill, we defer the cloid cleanup until
+            // the matching `FillReport` arrives so partial fills do not lose
+            // their `client_order_id` link. The bounded FIFO cache keeps
+            // orphaned entries from growing unbounded.
+            let mut pending_filled_cloids: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
 
             loop {
                 let event = ws_client.next_event().await;
 
                 match event {
-                    Some(msg) => {
-                        match msg {
-                            NautilusWsMessage::ExecutionReports(reports) => {
-                                let mut immediate_cleanup: Vec<ClientOrderId> = Vec::new();
-
-                                for report in &reports {
-                                    if let ExecutionReport::Order(order_report) = report
-                                        && let Some(id) = order_report.client_order_id
-                                        && !order_report.order_status.is_open()
-                                    {
-                                        if order_report.order_status == OrderStatus::Filled {
-                                            pending_filled.add(id);
-                                        } else {
-                                            immediate_cleanup.push(id);
-                                        }
-                                    }
-                                }
-
-                                for report in &reports {
-                                    if let ExecutionReport::Fill(fill_report) = report
-                                        && let Some(id) = fill_report.client_order_id
-                                        && pending_filled.contains(&id)
-                                    {
-                                        pending_filled.remove(&id);
-                                        immediate_cleanup.push(id);
-                                    }
-                                }
-
-                                for report in reports {
-                                    match report {
-                                        ExecutionReport::Order(r) => {
-                                            emitter.send_order_status_report(r);
-                                        }
-                                        ExecutionReport::Fill(r) => {
-                                            emitter.send_fill_report(r);
-                                        }
-                                    }
-                                }
-
-                                for id in immediate_cleanup {
-                                    let cloid = Cloid::from_client_order_id(id);
-                                    ws_client.remove_cloid_mapping(&Ustr::from(&cloid.to_hex()));
-                                }
+                    Some(msg) => match msg {
+                        NautilusWsMessage::ExecutionReports(reports) => {
+                            for report in reports {
+                                handle_execution_report(
+                                    report,
+                                    &dispatch_state,
+                                    &emitter,
+                                    &ws_client,
+                                    &mut pending_filled_cloids,
+                                    clock.get_time_ns(),
+                                );
                             }
-                            // Reconnected is handled by WS client internally
-                            // (resubscribe_all) and never forwarded here
-                            NautilusWsMessage::Reconnected => {}
-                            NautilusWsMessage::Error(e) => {
-                                log::error!("WebSocket error: {e}");
-                            }
-                            // Handled by data client
-                            NautilusWsMessage::Trades(_)
-                            | NautilusWsMessage::Quote(_)
-                            | NautilusWsMessage::Deltas(_)
-                            | NautilusWsMessage::Candle(_)
-                            | NautilusWsMessage::MarkPrice(_)
-                            | NautilusWsMessage::IndexPrice(_)
-                            | NautilusWsMessage::FundingRate(_) => {}
                         }
-                    }
+                        // Reconnected is handled by WS client internally
+                        // (resubscribe_all) and never forwarded here
+                        NautilusWsMessage::Reconnected => {}
+                        NautilusWsMessage::Error(e) => {
+                            log::error!("WebSocket error: {e}");
+                        }
+                        // Handled by data client
+                        NautilusWsMessage::Trades(_)
+                        | NautilusWsMessage::Quote(_)
+                        | NautilusWsMessage::Deltas(_)
+                        | NautilusWsMessage::Candle(_)
+                        | NautilusWsMessage::MarkPrice(_)
+                        | NautilusWsMessage::IndexPrice(_)
+                        | NautilusWsMessage::FundingRate(_) => {}
+                    },
                     None => {
                         log::debug!("WebSocket next_event returned None, stream closed");
                         break;
@@ -1555,20 +1603,238 @@ impl HyperliquidExecutionClient {
     }
 }
 
+/// Registers an order's identity in the dispatch state so its subsequent
+/// WebSocket lifecycle can route through the typed-event path.
+///
+/// Quote-quantity orders submit a quote amount (e.g. 100 USD) but the venue
+/// reports fills in base units. Comparing those two when deciding whether an
+/// order is fully filled would leave the order stuck "open" forever, so they
+/// flow through the untracked path and the engine reconciles them from
+/// status reports instead.
+fn register_order_identity_into(state: &WsDispatchState, order: &OrderAny) {
+    if order.is_quote_quantity() {
+        return;
+    }
+    state.register_identity(
+        order.client_order_id(),
+        OrderIdentity {
+            strategy_id: order.strategy_id(),
+            instrument_id: order.instrument_id(),
+            order_side: order.order_side(),
+            order_type: order.order_type(),
+            quantity: order.quantity(),
+            price: order.price(),
+        },
+    );
+}
+
+/// Routes a single execution report through the two-tier dispatch.
+///
+/// For tracked orders this emits typed `OrderEventAny` events via the
+/// dispatch module; external / untracked orders fall back to the raw report
+/// so the engine can reconcile. Cloid-mapping cleanup is handled here so
+/// long-running sessions do not leak mapping entries.
+fn handle_execution_report(
+    report: ExecutionReport,
+    dispatch_state: &WsDispatchState,
+    emitter: &ExecutionEventEmitter,
+    ws_client: &HyperliquidWebSocketClient,
+    pending_filled_cloids: &mut FifoCache<ClientOrderId, 10_000>,
+    ts_init: UnixNanos,
+) {
+    match report {
+        ExecutionReport::Order(order_report) => {
+            let is_filled_marker = matches!(order_report.order_status, OrderStatus::Filled);
+            let is_open = order_report.order_status.is_open();
+            let client_order_id = order_report.client_order_id;
+
+            let outcome =
+                dispatch_order_status_report(&order_report, dispatch_state, emitter, ts_init);
+
+            if outcome == DispatchOutcome::External {
+                emitter.send_order_status_report(order_report);
+            }
+
+            // Cloid cleanup:
+            //
+            // * `Skip` (stale cancel leg of a cancel-replace, cancel-before-accept
+            //   race, or replay after terminal): leave the mapping intact. The
+            //   still-open replacement order depends on it for subsequent events,
+            //   and a genuinely terminal replay had its mapping evicted earlier.
+            // * `Tracked` + status-only FILLED marker: defer the eviction until
+            //   the matching `FillReport` lands so the partial fill preceding it
+            //   keeps its client-order-id link.
+            // * `Tracked` non-marker terminal and `External` terminal: evict now
+            //   so long-running sessions do not leak cloid mappings.
+            if let Some(id) = client_order_id
+                && !is_open
+            {
+                match outcome {
+                    DispatchOutcome::Skip => {}
+                    DispatchOutcome::Tracked if is_filled_marker => {
+                        pending_filled_cloids.add(id);
+                    }
+                    DispatchOutcome::Tracked | DispatchOutcome::External => {
+                        let cloid = Cloid::from_client_order_id(id);
+                        ws_client.remove_cloid_mapping(&Ustr::from(&cloid.to_hex()));
+                    }
+                }
+            }
+        }
+        ExecutionReport::Fill(fill_report) => {
+            let client_order_id = fill_report.client_order_id;
+
+            let outcome = dispatch_fill_report(&fill_report, dispatch_state, emitter, ts_init);
+
+            if outcome == DispatchOutcome::External {
+                emitter.send_fill_report(fill_report);
+            }
+
+            // If this fill matches a deferred FILLED marker, drop the cloid
+            // mapping now that the fill has landed.
+            if let Some(id) = client_order_id
+                && pending_filled_cloids.contains(&id)
+            {
+                pending_filled_cloids.remove(&id);
+                let cloid = Cloid::from_client_order_id(id);
+                ws_client.remove_cloid_mapping(&Ustr::from(&cloid.to_hex()));
+            }
+        }
+    }
+}
+
 use crate::common::parse::determine_order_list_grouping;
 
 #[cfg(test)]
 mod tests {
+    use nautilus_common::messages::ExecutionEvent;
+    use nautilus_core::{UUID4, UnixNanos, time::get_atomic_clock_realtime};
+    use nautilus_live::ExecutionEventEmitter;
     use nautilus_model::{
-        enums::{ContingencyType, OrderSide, TimeInForce, TriggerType},
-        identifiers::{ClientOrderId, InstrumentId, StrategyId, TraderId},
+        enums::{
+            AccountType, ContingencyType, LiquiditySide, OrderSide, OrderStatus, OrderType,
+            TimeInForce, TriggerType,
+        },
+        events::OrderEventAny,
+        identifiers::{
+            AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, VenueOrderId,
+        },
         orders::{OrderAny, limit::LimitOrder, stop_market::StopMarketOrder},
-        types::{Price, Quantity},
+        reports::{FillReport, OrderStatusReport},
+        types::{Currency, Money, Price, Quantity},
     };
     use rstest::rstest;
+    use ustr::Ustr;
 
-    use super::determine_order_list_grouping;
-    use crate::http::models::HyperliquidExecGrouping;
+    use super::{
+        Cloid, ExecutionReport, FifoCache, HyperliquidWebSocketClient, OrderIdentity,
+        WsDispatchState, determine_order_list_grouping, handle_execution_report,
+        register_order_identity_into,
+    };
+    use crate::{common::enums::HyperliquidEnvironment, http::models::HyperliquidExecGrouping};
+
+    const TEST_INSTRUMENT_ID: &str = "BTC-USD-PERP.HYPERLIQUID";
+
+    fn test_emitter() -> (
+        ExecutionEventEmitter,
+        tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,
+    ) {
+        let clock = get_atomic_clock_realtime();
+        let mut emitter = ExecutionEventEmitter::new(
+            clock,
+            TraderId::from("TESTER-001"),
+            AccountId::from("HYPERLIQUID-001"),
+            AccountType::Margin,
+            None,
+        );
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        emitter.set_sender(tx);
+        (emitter, rx)
+    }
+
+    fn drain_events(
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,
+    ) -> Vec<ExecutionEvent> {
+        let mut out = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            out.push(e);
+        }
+        out
+    }
+
+    fn make_ws_client() -> HyperliquidWebSocketClient {
+        // `HyperliquidWebSocketClient::new` does not connect, so this is a
+        // cheap unit-test shim that still exercises the real `cloid_cache`
+        // mapping APIs used by `handle_execution_report`.
+        HyperliquidWebSocketClient::new(
+            Some("wss://test.invalid".to_string()),
+            HyperliquidEnvironment::Testnet,
+            None,
+        )
+    }
+
+    fn test_identity() -> OrderIdentity {
+        OrderIdentity {
+            strategy_id: StrategyId::from("S-001"),
+            instrument_id: InstrumentId::from(TEST_INSTRUMENT_ID),
+            order_side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            quantity: Quantity::from("0.0001"),
+            price: Some(Price::from("56730.0")),
+        }
+    }
+
+    fn make_status_report(
+        client_order_id: Option<&str>,
+        venue_order_id: &str,
+        status: OrderStatus,
+    ) -> OrderStatusReport {
+        OrderStatusReport::new(
+            AccountId::from("HYPERLIQUID-001"),
+            InstrumentId::from(TEST_INSTRUMENT_ID),
+            client_order_id.map(ClientOrderId::new),
+            VenueOrderId::new(venue_order_id),
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            status,
+            Quantity::from("0.0001"),
+            Quantity::from("0"),
+            UnixNanos::default(),
+            UnixNanos::default(),
+            UnixNanos::default(),
+            Some(UUID4::new()),
+        )
+        .with_price(Price::from("56730.0"))
+    }
+
+    fn make_fill_report(
+        client_order_id: Option<&str>,
+        venue_order_id: &str,
+        trade_id: &str,
+    ) -> FillReport {
+        FillReport::new(
+            AccountId::from("HYPERLIQUID-001"),
+            InstrumentId::from(TEST_INSTRUMENT_ID),
+            VenueOrderId::new(venue_order_id),
+            TradeId::new(trade_id),
+            OrderSide::Buy,
+            Quantity::from("0.0001"),
+            Price::from("56730.0"),
+            Money::new(0.0, Currency::USD()),
+            LiquiditySide::Taker,
+            client_order_id.map(ClientOrderId::new),
+            None,
+            UnixNanos::default(),
+            UnixNanos::default(),
+            Some(UUID4::new()),
+        )
+    }
+
+    fn cloid_for(id: &str) -> Ustr {
+        let cloid = Cloid::from_client_order_id(ClientOrderId::from(id));
+        Ustr::from(&cloid.to_hex())
+    }
 
     fn limit_order(
         id: &str,
@@ -1711,5 +1977,302 @@ mod tests {
     ) {
         let result = determine_order_list_grouping(&orders);
         assert_eq!(result, expected);
+    }
+
+    fn limit_order_with_quote_quantity(id: &str, quote_quantity: bool) -> OrderAny {
+        OrderAny::Limit(LimitOrder::new(
+            TraderId::from("TESTER-001"),
+            StrategyId::from("S-001"),
+            InstrumentId::from(TEST_INSTRUMENT_ID),
+            ClientOrderId::from(id),
+            OrderSide::Buy,
+            Quantity::from("0.0001"),
+            Price::from("56730.0"),
+            TimeInForce::Gtc,
+            None,
+            false,
+            false,
+            quote_quantity,
+            None,
+            None,
+            None,
+            Some(ContingencyType::NoContingency),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Default::default(),
+            Default::default(),
+        ))
+    }
+
+    #[rstest]
+    fn test_register_order_identity_registers_regular_order() {
+        let state = WsDispatchState::new();
+        let order = limit_order_with_quote_quantity("O-REG-001", false);
+
+        register_order_identity_into(&state, &order);
+
+        let found = state
+            .lookup_identity(&ClientOrderId::from("O-REG-001"))
+            .expect("identity should be registered");
+        assert_eq!(found.strategy_id, StrategyId::from("S-001"));
+        assert_eq!(found.instrument_id, InstrumentId::from(TEST_INSTRUMENT_ID));
+        assert_eq!(found.order_side, OrderSide::Buy);
+        assert_eq!(found.order_type, OrderType::Limit);
+        assert_eq!(found.quantity, Quantity::from("0.0001"));
+        assert_eq!(found.price, Some(Price::from("56730.0")));
+    }
+
+    #[rstest]
+    fn test_register_order_identity_skips_quote_quantity_order() {
+        let state = WsDispatchState::new();
+        let order = limit_order_with_quote_quantity("O-QQ-001", true);
+
+        register_order_identity_into(&state, &order);
+
+        // Quote-quantity orders flow through the untracked path so the engine
+        // reconciles them from status reports; registering would make the
+        // cumulative-fill comparison mismatch base-unit fills against the
+        // quote-unit tracked quantity and leave the order stuck "open".
+        assert!(
+            state
+                .lookup_identity(&ClientOrderId::from("O-QQ-001"))
+                .is_none()
+        );
+    }
+
+    #[rstest]
+    fn test_handle_execution_report_skip_keeps_cloid_mapping() {
+        // Regression guard for GH-3827: when the dispatch returns Skip (e.g.
+        // the stale cancel leg of a cancel-replace), the cloid mapping must
+        // stay in place so the still-open replacement order can still be
+        // resolved by subsequent events.
+        let ws_client = make_ws_client();
+        let (emitter, mut rx) = test_emitter();
+        let state = WsDispatchState::new();
+        let mut pending_cloids: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
+
+        let cid = ClientOrderId::from("O-HER-SKIP");
+        state.register_identity(cid, test_identity());
+        // Prime state so the later CANCELED(old_voi) is classified as stale.
+        state.insert_accepted(cid);
+        state.record_venue_order_id(cid, VenueOrderId::new("new-voi"));
+
+        ws_client.cache_cloid_mapping(cloid_for("O-HER-SKIP"), cid);
+
+        let stale_cancel = make_status_report(Some("O-HER-SKIP"), "old-voi", OrderStatus::Canceled);
+        handle_execution_report(
+            ExecutionReport::Order(stale_cancel),
+            &state,
+            &emitter,
+            &ws_client,
+            &mut pending_cloids,
+            UnixNanos::default(),
+        );
+
+        assert!(drain_events(&mut rx).is_empty());
+        // Cloid mapping preserved; the replacement order still resolves.
+        assert_eq!(
+            ws_client.get_cloid_mapping(&cloid_for("O-HER-SKIP")),
+            Some(cid)
+        );
+        // Identity is still tracked (the skip path did not clean up).
+        assert!(state.lookup_identity(&cid).is_some());
+    }
+
+    #[rstest]
+    fn test_handle_execution_report_tracked_terminal_evicts_cloid() {
+        // A tracked CANCELED that reaches a genuine terminal state should
+        // emit OrderCanceled and evict the cloid mapping so long-running
+        // sessions do not leak.
+        let ws_client = make_ws_client();
+        let (emitter, mut rx) = test_emitter();
+        let state = WsDispatchState::new();
+        let mut pending_cloids: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
+
+        let cid = ClientOrderId::from("O-HER-CANCEL");
+        state.register_identity(cid, test_identity());
+        state.insert_accepted(cid);
+        state.record_venue_order_id(cid, VenueOrderId::new("v-cancel"));
+
+        ws_client.cache_cloid_mapping(cloid_for("O-HER-CANCEL"), cid);
+
+        let report = make_status_report(Some("O-HER-CANCEL"), "v-cancel", OrderStatus::Canceled);
+        handle_execution_report(
+            ExecutionReport::Order(report),
+            &state,
+            &emitter,
+            &ws_client,
+            &mut pending_cloids,
+            UnixNanos::default(),
+        );
+
+        let events = drain_events(&mut rx);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0],
+            ExecutionEvent::Order(OrderEventAny::Canceled(_))
+        ));
+        assert_eq!(
+            ws_client.get_cloid_mapping(&cloid_for("O-HER-CANCEL")),
+            None
+        );
+        assert!(state.filled_orders.contains(&cid));
+    }
+
+    #[rstest]
+    fn test_handle_execution_report_filled_marker_then_fill_evicts_on_fill() {
+        // The status-only FILLED marker defers the cloid eviction to the
+        // pending cache; the matching FillReport emits OrderFilled and then
+        // evicts the cloid mapping as part of the deferred-cleanup path.
+        let ws_client = make_ws_client();
+        let (emitter, mut rx) = test_emitter();
+        let state = WsDispatchState::new();
+        let mut pending_cloids: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
+
+        let cid = ClientOrderId::from("O-HER-FILL");
+        state.register_identity(cid, test_identity());
+        state.insert_accepted(cid);
+        state.record_venue_order_id(cid, VenueOrderId::new("v-fill"));
+
+        ws_client.cache_cloid_mapping(cloid_for("O-HER-FILL"), cid);
+
+        let status_marker = make_status_report(Some("O-HER-FILL"), "v-fill", OrderStatus::Filled);
+        handle_execution_report(
+            ExecutionReport::Order(status_marker),
+            &state,
+            &emitter,
+            &ws_client,
+            &mut pending_cloids,
+            UnixNanos::default(),
+        );
+
+        // Marker arrived: no event, cloid cleanup deferred, mapping retained.
+        assert!(drain_events(&mut rx).is_empty());
+        assert_eq!(
+            ws_client.get_cloid_mapping(&cloid_for("O-HER-FILL")),
+            Some(cid)
+        );
+
+        let fill = make_fill_report(Some("O-HER-FILL"), "v-fill", "trade-fill");
+        handle_execution_report(
+            ExecutionReport::Fill(fill),
+            &state,
+            &emitter,
+            &ws_client,
+            &mut pending_cloids,
+            UnixNanos::default(),
+        );
+
+        let events = drain_events(&mut rx);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0],
+            ExecutionEvent::Order(OrderEventAny::Filled(_))
+        ));
+        // Deferred cleanup fires once the fill lands.
+        assert_eq!(ws_client.get_cloid_mapping(&cloid_for("O-HER-FILL")), None);
+    }
+
+    #[rstest]
+    fn test_handle_execution_report_external_terminal_evicts_cloid() {
+        // External (untracked) terminal reports forward to the engine via
+        // send_order_status_report and immediately evict the cloid mapping
+        // so the client does not leak mappings for orders it does not own.
+        let ws_client = make_ws_client();
+        let (emitter, mut rx) = test_emitter();
+        let state = WsDispatchState::new();
+        let mut pending_cloids: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
+
+        let cid = ClientOrderId::from("O-HER-EXT");
+        ws_client.cache_cloid_mapping(cloid_for("O-HER-EXT"), cid);
+
+        let report = make_status_report(Some("O-HER-EXT"), "v-ext", OrderStatus::Canceled);
+        handle_execution_report(
+            ExecutionReport::Order(report),
+            &state,
+            &emitter,
+            &ws_client,
+            &mut pending_cloids,
+            UnixNanos::default(),
+        );
+
+        let events = drain_events(&mut rx);
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(events[0], ExecutionEvent::Report(_)),
+            "external terminal report should forward to the engine as a report",
+        );
+        assert_eq!(ws_client.get_cloid_mapping(&cloid_for("O-HER-EXT")), None);
+    }
+
+    #[rstest]
+    fn test_handle_execution_report_open_status_preserves_cloid() {
+        // An open (non-terminal) status must never touch the cloid mapping.
+        let ws_client = make_ws_client();
+        let (emitter, _rx) = test_emitter();
+        let state = WsDispatchState::new();
+        let mut pending_cloids: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
+
+        let cid = ClientOrderId::from("O-HER-OPEN");
+        state.register_identity(cid, test_identity());
+        ws_client.cache_cloid_mapping(cloid_for("O-HER-OPEN"), cid);
+
+        let report = make_status_report(Some("O-HER-OPEN"), "v-open", OrderStatus::Accepted);
+        handle_execution_report(
+            ExecutionReport::Order(report),
+            &state,
+            &emitter,
+            &ws_client,
+            &mut pending_cloids,
+            UnixNanos::default(),
+        );
+
+        // Accepted is open → no cloid eviction regardless of outcome.
+        assert_eq!(
+            ws_client.get_cloid_mapping(&cloid_for("O-HER-OPEN")),
+            Some(cid)
+        );
+    }
+
+    #[rstest]
+    fn test_handle_execution_report_tracked_accepted_emits_typed_event() {
+        // A tracked open ACCEPTED must flow through the typed-event path,
+        // NOT the raw report fallback. Catches a mutation that swaps the
+        // branch polarity inside `handle_execution_report`.
+        let ws_client = make_ws_client();
+        let (emitter, mut rx) = test_emitter();
+        let state = WsDispatchState::new();
+        let mut pending_cloids: FifoCache<ClientOrderId, 10_000> = FifoCache::new();
+
+        let cid = ClientOrderId::from("O-HER-ACC");
+        state.register_identity(cid, test_identity());
+        ws_client.cache_cloid_mapping(cloid_for("O-HER-ACC"), cid);
+
+        let report = make_status_report(Some("O-HER-ACC"), "v-acc", OrderStatus::Accepted);
+        handle_execution_report(
+            ExecutionReport::Order(report),
+            &state,
+            &emitter,
+            &ws_client,
+            &mut pending_cloids,
+            UnixNanos::default(),
+        );
+
+        let events = drain_events(&mut rx);
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(events[0], ExecutionEvent::Order(OrderEventAny::Accepted(_))),
+            "tracked accepted should route through the typed-event path",
+        );
+        // Mapping is unchanged because the status is still open.
+        assert_eq!(
+            ws_client.get_cloid_mapping(&cloid_for("O-HER-ACC")),
+            Some(cid)
+        );
     }
 }
