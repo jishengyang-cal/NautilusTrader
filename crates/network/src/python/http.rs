@@ -143,7 +143,7 @@ impl HttpClient {
     /// # Examples
     ///
     /// If requesting `/foo/bar`, pass rate-limit keys `["foo/bar", "foo"]`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(name = "request")]
     #[pyo3(signature = (method, url, params=None, headers=None, body=None, keys=None, timeout_secs=None))]
     fn py_request<'py>(
@@ -201,7 +201,7 @@ impl HttpClient {
     }
 
     /// Sends an HTTP POST request.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(name = "post")]
     #[pyo3(signature = (url, params=None, headers=None, body=None, keys=None, timeout_secs=None))]
     fn py_post<'py>(
@@ -225,7 +225,7 @@ impl HttpClient {
     }
 
     /// Sends an HTTP PATCH request.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(name = "patch")]
     #[pyo3(signature = (url, params=None, headers=None, body=None, keys=None, timeout_secs=None))]
     fn py_patch<'py>(

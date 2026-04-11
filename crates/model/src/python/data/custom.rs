@@ -34,7 +34,6 @@ impl CustomData {
     /// Custom data is always Rust-defined (optionally with PyO3 bindings).
     #[new]
     #[pyo3(signature = (data_type, data))]
-    #[allow(clippy::needless_pass_by_value)]
     fn py_new(py: Python<'_>, data_type: DataType, data: &Bound<'_, PyAny>) -> PyResult<Self> {
         let type_name = data_type.type_name();
         if let Some(arc) = try_extract_from_py(type_name, data) {
@@ -69,7 +68,7 @@ impl CustomData {
         serde_json::to_vec(self).map_err(to_pyvalue_err)
     }
 
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn __richcmp__(
         &self,
         other: pyo3::Bound<'_, PyAny>,

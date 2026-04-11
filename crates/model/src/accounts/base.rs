@@ -333,7 +333,7 @@ impl BaseAccount {
     /// # Panics
     ///
     /// Panics if instrument fees cannot be converted to f64, or if base currency is unavailable for inverse instruments.
-    #[allow(
+    #[expect(
         clippy::missing_errors_doc,
         reason = "Error conditions documented inline"
     )]

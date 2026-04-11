@@ -348,14 +348,14 @@ impl RiskEngine {
     }
 
     /// Executes a trading command through the risk management pipeline.
-    #[allow(clippy::needless_pass_by_value)] // Required by message bus dispatch
+    // Required by message bus dispatch
     pub fn execute(&mut self, command: TradingCommand) {
         // This will extend to other commands such as `RiskCommand`
         self.handle_command(command);
     }
 
     /// Processes an order event for risk monitoring and state updates.
-    #[allow(clippy::needless_pass_by_value)] // Required by message bus dispatch
+    #[expect(clippy::needless_pass_by_value)] // Required by message bus dispatch
     pub fn process(&mut self, event: OrderEventAny) {
         // This will extend to other events such as `RiskEvent`
         self.handle_event(&event);

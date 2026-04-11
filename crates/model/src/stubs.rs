@@ -138,7 +138,7 @@ pub fn stub_order_book_mbp_appl_xnas() -> OrderBook {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 #[must_use]
 pub fn stub_order_book_mbp(
     instrument_id: InstrumentId,

@@ -503,7 +503,7 @@ pub fn book_deltas_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn book_depth10_to_arrow_record_batch_bytes(
     data: &[OrderBookDepth10],
 ) -> Result<RecordBatch, EncodingError> {
@@ -524,7 +524,7 @@ pub fn book_depth10_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn quotes_to_arrow_record_batch_bytes(
     data: &[QuoteTick],
 ) -> Result<RecordBatch, EncodingError> {
@@ -545,7 +545,7 @@ pub fn quotes_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn trades_to_arrow_record_batch_bytes(
     data: &[TradeTick],
 ) -> Result<RecordBatch, EncodingError> {
@@ -566,7 +566,7 @@ pub fn trades_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn bars_to_arrow_record_batch_bytes(data: &[Bar]) -> Result<RecordBatch, EncodingError> {
     if data.is_empty() {
         return Err(EncodingError::EmptyData);
@@ -585,7 +585,7 @@ pub fn bars_to_arrow_record_batch_bytes(data: &[Bar]) -> Result<RecordBatch, Enc
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn mark_prices_to_arrow_record_batch_bytes(
     data: &[MarkPriceUpdate],
 ) -> Result<RecordBatch, EncodingError> {
@@ -606,7 +606,7 @@ pub fn mark_prices_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn index_prices_to_arrow_record_batch_bytes(
     data: &[IndexPriceUpdate],
 ) -> Result<RecordBatch, EncodingError> {
@@ -627,7 +627,7 @@ pub fn index_prices_to_arrow_record_batch_bytes(
 /// Returns an error if:
 /// - `data` is empty: `EncodingError::EmptyData`.
 /// - Encoding fails: `EncodingError::ArrowError`.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
 pub fn instrument_closes_to_arrow_record_batch_bytes(
     data: &[InstrumentClose],
 ) -> Result<RecordBatch, EncodingError> {

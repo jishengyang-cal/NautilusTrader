@@ -560,7 +560,7 @@ pub fn parse_candlestick(
 /// # Errors
 ///
 /// Returns an error if the average price cannot be converted to a valid `Decimal`.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 pub fn parse_order_status_report(
     order: &OKXOrderHistory,
     account_id: AccountId,
@@ -911,7 +911,6 @@ pub fn parse_spot_margin_position_from_balance(
 /// # Errors
 ///
 /// Returns an error if any numeric fields cannot be parsed into their target types.
-#[allow(clippy::too_many_lines)]
 pub fn parse_position_status_report(
     position: &OKXPosition,
     account_id: AccountId,

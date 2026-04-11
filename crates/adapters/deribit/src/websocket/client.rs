@@ -1512,7 +1512,7 @@ impl DeribitWebSocketClient {
     /// Returns an error if:
     /// - The client is not authenticated
     /// - The command fails to send
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
         order_id: &str,

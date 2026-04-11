@@ -41,7 +41,7 @@ impl KrakenDataClientConfig {
         heartbeat_interval_secs = None,
         max_requests_per_second = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         product_type: Option<KrakenProductType>,
         environment: Option<KrakenEnvironment>,
@@ -97,7 +97,7 @@ impl KrakenExecClientConfig {
         heartbeat_interval_secs = None,
         max_requests_per_second = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         trader_id: TraderId,
         account_id: AccountId,

@@ -108,7 +108,7 @@ pub struct Block {
 
 impl Block {
     /// Creates a new [`Block`] instance with the specified properties.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         hash: String,
         parent_hash: String,

@@ -1578,7 +1578,7 @@ impl TimeBarAggregator {
     /// # Panics
     ///
     /// Panics if `bar_type.aggregation_source` is not `AggregationSource::Internal`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new<H: FnMut(Bar) + 'static>(
         bar_type: BarType,
         price_precision: u8,
@@ -1910,7 +1910,7 @@ impl BarAggregator for TimeBarAggregator {
         // Delegate to the implementation method
         // We use the struct name here to disambiguate from the trait method
         {
-            #[allow(clippy::use_self)]
+            #[expect(clippy::use_self)]
             TimeBarAggregator::build_bar(self, event);
         }
     }
@@ -2072,7 +2072,7 @@ impl SpreadQuoteAggregator {
     /// # Panics
     ///
     /// Panics if `legs` has fewer than 2 entries or any ratio is zero.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         spread_instrument_id: InstrumentId,
         legs: &[(InstrumentId, i64)],
@@ -5363,7 +5363,7 @@ mod tests {
             Box::new(move |q: QuoteTick| {
                 handler_clone.lock().expect(MUTEX_POISONED).push(q);
             }),
-            #[allow(clippy::redundant_clone)] // need clock for set_clock after
+            // need clock for set_clock after
             clock.clone(),
             true,
             Some(1),
@@ -5437,7 +5437,7 @@ mod tests {
             Box::new(move |q: QuoteTick| {
                 handler_clone.lock().expect(MUTEX_POISONED).push(q);
             }),
-            #[allow(clippy::redundant_clone)] // need clock for set_clock after
+            // need clock for set_clock after
             clock.clone(),
             true,
             Some(1),

@@ -82,7 +82,7 @@ impl OptionChainManager {
     ///
     /// Returns the manager wrapped in `Rc<RefCell<>>` (needed for `WeakCell`
     /// handler pattern).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn create_and_setup(
         series_id: OptionSeriesId,
         cache: &Rc<RefCell<Cache>>,

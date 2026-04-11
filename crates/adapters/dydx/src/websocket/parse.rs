@@ -625,7 +625,6 @@ pub fn parse_orderbook_deltas(
 /// # Errors
 ///
 /// Returns an error if price/size parsing fails.
-#[allow(clippy::too_many_arguments)]
 pub fn parse_orderbook_deltas_with_flag(
     instrument_id: &InstrumentId,
     contents: &DydxOrderbookContents,

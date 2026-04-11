@@ -48,7 +48,7 @@ pub struct OrderMatchingEngineConfig {
 impl OrderMatchingEngineConfig {
     /// Creates a new default [`OrderMatchingEngineConfig`] instance.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub const fn new(
         bar_execution: bool,
         bar_adaptive_high_low_ordering: bool,

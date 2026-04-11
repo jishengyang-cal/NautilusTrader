@@ -367,7 +367,7 @@ impl BetfairExecutionClient {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn create_ocm_handler(
         emitter: ExecutionEventEmitter,
         account_id: AccountId,
@@ -499,7 +499,7 @@ impl BetfairExecutionClient {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn process_unmatched_order(
         uo: &crate::stream::messages::UnmatchedOrder,
         instrument_id: InstrumentId,

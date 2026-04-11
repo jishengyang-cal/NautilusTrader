@@ -417,7 +417,7 @@ mod tests {
 
     #[allow(unsafe_code)]
     impl TestThrottler {
-        #[allow(clippy::mut_from_ref)]
+        #[expect(clippy::mut_from_ref)]
         pub fn get_throttler(&self) -> &mut Throttler<u64, Box<dyn Fn(u64)>> {
             unsafe { &mut *self.throttler.get() }
         }

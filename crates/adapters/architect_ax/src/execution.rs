@@ -1238,7 +1238,7 @@ fn dispatch_order_event(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_fill_event(
     order: &AxWsOrder,
     execution: &AxWsTradeExecution,
@@ -1550,7 +1550,7 @@ pub(crate) fn cleanup_terminal_order_tracking(order: &AxWsOrder, caches: &Orders
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn create_order_status_report(
     order: &AxWsOrder,
     order_status: OrderStatus,
@@ -1607,7 +1607,7 @@ fn create_order_status_report(
     Some(report)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn create_fill_report(
     order: &AxWsOrder,
     execution: &AxWsTradeExecution,

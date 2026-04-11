@@ -273,7 +273,7 @@ impl Visitor<'_> for BoolVisitor {
         Ok(u8::from(value))
     }
 
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Intentional for parsing, value range validated"
     )]

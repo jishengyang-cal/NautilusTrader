@@ -1513,7 +1513,7 @@ impl BybitWebSocketClient {
     /// # Errors
     ///
     /// Returns an error if order submission fails or if not authenticated.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         product_type: BybitProductType,
@@ -1558,7 +1558,6 @@ impl BybitWebSocketClient {
     /// # Errors
     ///
     /// Returns an error if modification fails or if not authenticated.
-    #[allow(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
         product_type: BybitProductType,
@@ -1603,7 +1602,7 @@ impl BybitWebSocketClient {
     }
 
     /// Builds order params for placing an order.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn build_place_order_params(
         &self,
         product_type: BybitProductType,
@@ -1734,7 +1733,6 @@ impl BybitWebSocketClient {
     }
 
     /// Builds order params for amending an order.
-    #[allow(clippy::too_many_arguments)]
     pub fn build_amend_order_params(
         &self,
         product_type: BybitProductType,

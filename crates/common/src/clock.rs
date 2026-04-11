@@ -84,7 +84,6 @@ pub trait Clock: Debug + Any {
     ///
     /// Returns an error if `name` is invalid, `alert_time` is in the past when not allowed,
     /// or any predicate check fails.
-    #[allow(clippy::too_many_arguments)]
     fn set_time_alert(
         &mut self,
         name: &str,
@@ -115,7 +114,6 @@ pub trait Clock: Debug + Any {
     ///
     /// Returns an error if `name` is invalid, `alert_time_ns` is earlier than now when not allowed,
     /// or any predicate check fails.
-    #[allow(clippy::too_many_arguments)]
     fn set_time_alert_ns(
         &mut self,
         name: &str,
@@ -139,7 +137,7 @@ pub trait Clock: Debug + Any {
     ///
     /// Returns an error if `name` is invalid, `interval` is not positive,
     /// or if any predicate check fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn set_timer(
         &mut self,
         name: &str,
@@ -188,7 +186,7 @@ pub trait Clock: Debug + Any {
     ///
     /// Returns an error if `name` is invalid, `interval_ns` is not positive,
     /// or if any predicate check fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn set_timer_ns(
         &mut self,
         name: &str,

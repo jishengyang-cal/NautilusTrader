@@ -27,7 +27,7 @@ use crate::algorithm::ImportableExecAlgorithmConfig;
 impl ImportableExecAlgorithmConfig {
     /// Configuration for creating execution algorithms from importable paths.
     #[new]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_new(
         exec_algorithm_path: String,
         config_path: String,

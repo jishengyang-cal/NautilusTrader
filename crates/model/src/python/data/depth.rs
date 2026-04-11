@@ -56,7 +56,7 @@ impl OrderBookDepth10 {
     ///
     /// Note: This type is not compatible with `OrderBookDelta` or `OrderBookDeltas` due to
     /// its specialized structure and limited depth use case.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[new]
     fn py_new(
         instrument_id: InstrumentId,

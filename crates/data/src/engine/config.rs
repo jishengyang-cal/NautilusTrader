@@ -59,7 +59,7 @@ pub struct DataEngineConfig {
 }
 
 impl DataEngineConfig {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub const fn new(
         time_bars_build_with_no_updates: bool,

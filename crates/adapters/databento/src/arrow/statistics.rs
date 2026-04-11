@@ -269,7 +269,7 @@ pub fn decode_statistics_batch(
 /// # Errors
 ///
 /// Returns an error if `data` is empty or encoding fails.
-#[allow(clippy::missing_panics_doc)] // Guarded by empty check
+// Guarded by empty check
 pub fn statistics_to_arrow_record_batch(
     data: &[DatabentoStatistics],
 ) -> Result<RecordBatch, EncodingError> {

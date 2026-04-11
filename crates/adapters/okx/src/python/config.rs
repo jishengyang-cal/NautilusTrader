@@ -45,7 +45,7 @@ impl OKXDataClientConfig {
         update_instruments_interval_mins = None,
         vip_level = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         instrument_types: Option<Vec<OKXInstrumentType>>,
         environment: Option<OKXEnvironment>,
@@ -116,7 +116,7 @@ impl OKXExecClientConfig {
         retry_delay_max_ms = None,
         margin_mode = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         trader_id: TraderId,
         account_id: AccountId,

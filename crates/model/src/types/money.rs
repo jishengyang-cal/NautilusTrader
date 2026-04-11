@@ -252,7 +252,7 @@ impl Money {
             mantissa_exponent_to_fixed_i128(mantissa as i128, exponent, currency.precision)
                 .expect("Overflow in Money::from_mantissa_exponent");
 
-        #[allow(clippy::useless_conversion)]
+        #[expect(clippy::useless_conversion)]
         let raw: MoneyRaw = raw_i128
             .try_into()
             .expect("Raw value exceeds MoneyRaw range in Money::from_mantissa_exponent");
@@ -340,7 +340,7 @@ impl Money {
         // to the currency's actual precision for decimal conversion.
         let rescaled_raw = self.raw / MoneyRaw::pow(10, u32::from(precision_diff));
 
-        #[allow(clippy::useless_conversion)]
+        #[expect(clippy::useless_conversion)]
         Decimal::from_i128_with_scale(i128::from(rescaled_raw), u32::from(precision))
     }
 
@@ -367,7 +367,7 @@ impl Money {
         let raw_i128 =
             mantissa_exponent_to_fixed_i128(decimal.mantissa(), exponent, currency.precision)?;
 
-        #[allow(clippy::useless_conversion)]
+        #[expect(clippy::useless_conversion)]
         let raw: MoneyRaw = raw_i128.try_into().map_err(|_| {
             anyhow::anyhow!(
                 "Decimal value exceeds MoneyRaw range [{MONEY_RAW_MIN}, {MONEY_RAW_MAX}]"

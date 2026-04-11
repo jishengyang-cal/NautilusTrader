@@ -53,8 +53,6 @@ pub fn encode(data: impl AsRef<[u8]>) -> String {
     for &b in bytes {
         buf.extend_from_slice(&ENCODE_PAIR[b as usize]);
     }
-    // SAFETY: buf contains only ASCII hex digits from ENCODE_PAIR
-    #[allow(clippy::unnecessary_safety_comment)]
     String::from_utf8(buf).unwrap()
 }
 
@@ -67,8 +65,6 @@ pub fn encode_prefixed(data: impl AsRef<[u8]>) -> String {
     for &b in bytes {
         buf.extend_from_slice(&ENCODE_PAIR[b as usize]);
     }
-    // SAFETY: buf contains only ASCII from "0x" prefix and ENCODE_PAIR
-    #[allow(clippy::unnecessary_safety_comment)]
     String::from_utf8(buf).unwrap()
 }
 

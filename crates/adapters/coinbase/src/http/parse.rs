@@ -445,7 +445,7 @@ pub fn parse_product_book_snapshot(
     OrderBookDeltas::new_checked(instrument_id, deltas)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn parse_book_delta(
     level: &BookLevel,
     side: OrderSide,

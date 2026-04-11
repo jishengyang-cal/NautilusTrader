@@ -686,7 +686,7 @@ mod tests {
         }
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     fn create_test_components() -> (
         Rc<RefCell<dyn Clock>>,
         Rc<RefCell<Cache>>,

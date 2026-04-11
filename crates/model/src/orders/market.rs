@@ -64,7 +64,7 @@ impl MarketOrder {
     /// Returns an error if:
     /// - The `quantity` is not positive.
     /// - The `time_in_force` is GTD (invalid for market orders).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_checked(
         trader_id: TraderId,
         strategy_id: StrategyId,
@@ -139,7 +139,7 @@ impl MarketOrder {
     /// # Panics
     ///
     /// Panics if any order validation fails (see [`MarketOrder::new_checked`]).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

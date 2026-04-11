@@ -40,7 +40,7 @@ impl TokenizedAsset {
     /// Covers tokenized equities, ETFs, commodities, and other asset classes where the
     /// underlying is represented as a base token traded against a quote currency.
     /// The `asset_class` field identifies the underlying asset type.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[new]
     #[pyo3(signature = (instrument_id, raw_symbol, asset_class, base_currency, quote_currency, price_precision, size_precision, price_increment, size_increment, ts_event, ts_init, isin=None, multiplier=None, lot_size=None, max_quantity=None, min_quantity=None, max_notional=None, min_notional=None, max_price=None, min_price=None, margin_init=None, margin_maint=None, maker_fee=None, taker_fee=None, info=None))]
     fn py_new(

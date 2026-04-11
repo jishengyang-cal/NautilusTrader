@@ -248,7 +248,6 @@ impl Log for Logger {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 impl Logger {
     /// Initializes the logger based on the `NAUTILUS_LOG` environment variable.
     ///
@@ -342,7 +341,7 @@ impl Logger {
             .ok_or_else(|| anyhow::anyhow!("Failed to create LogGuard from global sender"))
     }
 
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn handle_messages(
         trader_id: String,
         instance_id: String,

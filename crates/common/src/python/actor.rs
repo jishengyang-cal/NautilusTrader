@@ -82,7 +82,7 @@ impl DataActorConfig {
 impl ImportableActorConfig {
     /// Configuration for creating actors from importable paths.
     #[new]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_new(actor_path: String, config_path: String, config: Py<PyDict>) -> PyResult<Self> {
         let json_config = Python::attach(|py| -> PyResult<HashMap<String, serde_json::Value>> {
             let kwargs = PyDict::new(py);
@@ -170,7 +170,7 @@ impl DerefMut for PyDataActorInner {
     }
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)]
+#[expect(clippy::needless_pass_by_ref_mut)]
 impl PyDataActorInner {
     fn dispatch_on_start(&self) -> PyResult<()> {
         if let Some(ref py_self) = self.py_self {
@@ -1182,7 +1182,7 @@ impl PyDataActor {
 
     #[pyo3(name = "subscribe_book_deltas")]
     #[pyo3(signature = (instrument_id, book_type, depth=None, client_id=None, managed=false, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_subscribe_book_deltas(
         &mut self,
         py: Python<'_>,
@@ -1209,7 +1209,7 @@ impl PyDataActor {
 
     #[pyo3(name = "subscribe_book_at_interval")]
     #[pyo3(signature = (instrument_id, book_type, interval_ms, depth=None, client_id=None, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_subscribe_book_at_interval(
         &mut self,
         py: Python<'_>,
@@ -1628,7 +1628,7 @@ impl PyDataActor {
 
     #[pyo3(name = "request_data")]
     #[pyo3(signature = (data_type, client_id, start=None, end=None, limit=None, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_data(
         &mut self,
         py: Python<'_>,
@@ -1731,7 +1731,7 @@ impl PyDataActor {
 
     #[pyo3(name = "request_quotes")]
     #[pyo3(signature = (instrument_id, start=None, end=None, limit=None, client_id=None, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_quotes(
         &mut self,
         py: Python<'_>,
@@ -1762,7 +1762,7 @@ impl PyDataActor {
 
     #[pyo3(name = "request_trades")]
     #[pyo3(signature = (instrument_id, start=None, end=None, limit=None, client_id=None, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_trades(
         &mut self,
         py: Python<'_>,
@@ -1793,7 +1793,7 @@ impl PyDataActor {
 
     #[pyo3(name = "request_funding_rates")]
     #[pyo3(signature = (instrument_id, start=None, end=None, limit=None, client_id=None, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_funding_rates(
         &mut self,
         py: Python<'_>,
@@ -1824,7 +1824,7 @@ impl PyDataActor {
 
     #[pyo3(name = "request_bars")]
     #[pyo3(signature = (bar_type, start=None, end=None, limit=None, client_id=None, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_bars(
         &mut self,
         py: Python<'_>,

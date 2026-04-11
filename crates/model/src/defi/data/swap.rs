@@ -105,7 +105,7 @@ pub struct PoolSwap {
 impl PoolSwap {
     /// Creates a new [`PoolSwap`] instance with the specified properties.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         chain: SharedChain,
         dex: SharedDex,

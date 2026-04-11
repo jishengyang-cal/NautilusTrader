@@ -872,7 +872,7 @@ mod tests {
 
     /// Mock executor for testing.
     #[derive(Clone)]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     struct MockExecutor {
         handler: Arc<
             dyn Fn(

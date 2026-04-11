@@ -196,7 +196,7 @@ impl AtomicTime {
 
     /// Returns the current time as seconds.
     #[must_use]
-    #[allow(
+    #[expect(
         clippy::cast_precision_loss,
         reason = "Precision loss acceptable for time conversion"
     )]
@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[rstest]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_possible_wrap,
         reason = "Intentional cast for Python interop"

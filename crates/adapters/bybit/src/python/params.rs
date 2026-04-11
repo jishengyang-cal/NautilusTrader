@@ -93,7 +93,7 @@ pub struct BybitWsPlaceOrderParams {
 impl BybitWsPlaceOrderParams {
     /// Parameters for placing an order via WebSocket.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         category: BybitProductType,
         symbol: String,
@@ -406,7 +406,7 @@ pub struct BybitWsAmendOrderParams {
 impl BybitWsAmendOrderParams {
     /// Parameters for amending an order via WebSocket.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         category: BybitProductType,
         symbol: String,

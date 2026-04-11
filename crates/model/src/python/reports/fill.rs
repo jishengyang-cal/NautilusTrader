@@ -31,7 +31,7 @@ use crate::{
 impl FillReport {
     /// Represents a fill report of a single order execution.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(signature = (
         account_id,
         instrument_id,

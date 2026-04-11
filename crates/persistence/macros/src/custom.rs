@@ -487,7 +487,7 @@ fn gen_new_fn(ctx: &ExpansionContext<'_>) -> TokenStream {
     quote! {
         impl #generics #name #generics {
             #[allow(dead_code)]
-            #[allow(clippy::too_many_arguments)]
+            #[expect(clippy::too_many_arguments)]
             #[doc = #rust_ctor_doc]
             #vis fn #rust_ctor_name(#(#constructor_params),*) -> Self {
                 Self { #(#constructor_fields),* }
@@ -866,9 +866,9 @@ fn gen_pymethods_impl(ctx: &ExpansionContext<'_>) -> TokenStream {
         /// PyO3 bindings (constructor, getters, to_json, from_json, record batch encode/decode). Only compiled when `feature = "python"`.
         #[cfg(feature = "python")]
         #[pyo3::pymethods]
-        #[allow(clippy::needless_pass_by_value)]
+        #[expect(clippy::needless_pass_by_value)]
         impl #generics #name #generics {
-            #[allow(clippy::too_many_arguments)]
+            #[expect(clippy::too_many_arguments)]
             #[new]
             #[pyo3(signature = (#(#py_new_call_args),*))]
             fn py_new(#(#py_new_params),*) -> pyo3::PyResult<Self> {
@@ -983,7 +983,7 @@ fn gen_pymethods_impl(ctx: &ExpansionContext<'_>) -> TokenStream {
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 pub fn expand_custom_data(attr: TokenStream, item: TokenStream) -> TokenStream {
     let options = match parse_options(&attr) {
         Ok(o) => o,

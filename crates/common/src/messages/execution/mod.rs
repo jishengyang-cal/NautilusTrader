@@ -51,7 +51,7 @@ pub enum ExecutionReport {
 }
 
 // TODO
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq, Display)]
 pub enum TradingCommand {
     SubmitOrder(SubmitOrder),

@@ -102,7 +102,7 @@ impl StrategyConfig {
         log_rejected_due_post_only_as_warning=true,
         **_kwargs
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         strategy_id: Option<StrategyId>,
         order_id_tag: Option<String>,
@@ -198,7 +198,7 @@ impl StrategyConfig {
 impl ImportableStrategyConfig {
     /// Configuration for creating strategies from importable paths.
     #[new]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_new(strategy_path: String, config_path: String, config: Py<PyDict>) -> PyResult<Self> {
         let json_config = Python::attach(|py| -> PyResult<HashMap<String, serde_json::Value>> {
             let kwargs = PyDict::new(py);
@@ -266,7 +266,7 @@ impl Debug for PyStrategyInner {
     }
 }
 
-#[allow(clippy::needless_pass_by_ref_mut)]
+#[expect(clippy::needless_pass_by_ref_mut)]
 impl PyStrategyInner {
     fn dispatch_on_start(&self) -> PyResult<()> {
         if let Some(ref py_self) = self.py_self {
@@ -1336,7 +1336,7 @@ impl PyStrategy {
 
     #[pyo3(name = "modify_order")]
     #[pyo3(signature = (order, quantity=None, price=None, trigger_price=None, client_id=None, params=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order(
         &mut self,
         py: Python<'_>,
@@ -1474,7 +1474,7 @@ impl PyStrategy {
 
     #[pyo3(name = "close_all_positions")]
     #[pyo3(signature = (instrument_id, position_side=None, client_id=None, tags=None, time_in_force=None, reduce_only=None, quote_quantity=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_close_all_positions(
         &mut self,
         instrument_id: InstrumentId,

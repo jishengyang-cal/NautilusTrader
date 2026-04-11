@@ -92,7 +92,7 @@ trait SubmitExecutor: Send + Sync {
     fn health_check(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + '_>>;
 
     /// Submits a single order.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn submit_order(
         &self,
         instrument_id: InstrumentId,
@@ -130,7 +130,6 @@ impl SubmitExecutor for BitmexHttpClient {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn submit_order(
         &self,
         instrument_id: InstrumentId,
@@ -323,7 +322,7 @@ impl TransportClient {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     async fn submit_order(
         &self,
         instrument_id: InstrumentId,
@@ -644,7 +643,7 @@ impl SubmitBroadcaster {
     /// # Errors
     ///
     /// Returns an error if all submit requests fail or no healthy clients are available.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn broadcast_submit(
         &self,
         instrument_id: InstrumentId,
@@ -859,7 +858,7 @@ mod tests {
 
     /// Mock executor for testing.
     #[derive(Clone)]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     struct MockExecutor {
         handler: Arc<
             dyn Fn() -> Pin<Box<dyn Future<Output = anyhow::Result<OrderStatusReport>> + Send>>
@@ -885,7 +884,6 @@ mod tests {
             Box::pin(async { Ok(()) })
         }
 
-        #[allow(clippy::too_many_arguments)]
         fn submit_order(
             &self,
             _instrument_id: InstrumentId,
@@ -1564,7 +1562,6 @@ mod tests {
                 Box::pin(async { Ok(()) })
             }
 
-            #[allow(clippy::too_many_arguments)]
             fn submit_order(
                 &self,
                 _instrument_id: InstrumentId,
@@ -1690,7 +1687,6 @@ mod tests {
                 Box::pin(async { Ok(()) })
             }
 
-            #[allow(clippy::too_many_arguments)]
             fn submit_order(
                 &self,
                 _instrument_id: InstrumentId,

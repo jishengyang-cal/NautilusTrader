@@ -177,7 +177,7 @@ impl DydxWebSocketClient {
     /// raw messages into venue-specific `DydxWsOutputMessage` values.
     #[pyo3(name = "connect")]
     #[pyo3(signature = (loop_, instruments, callback, trader_id=None))]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -1218,7 +1218,7 @@ fn handle_markets_trading_data(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn ensure_accepted_to_python(
     client_order_id: ClientOrderId,
     account_id: AccountId,

@@ -188,7 +188,7 @@ pub fn parse_book_deltas(
     Ok(deltas)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn parse_book_level(
     level: &KrakenWsBookLevel,
     side: OrderSide,

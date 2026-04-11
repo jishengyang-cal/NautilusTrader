@@ -56,7 +56,7 @@ impl CancelBroadcaster {
         idempotent_success_patterns=None,
         proxy_urls=None
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         pool_size: usize,
         api_key: Option<String>,

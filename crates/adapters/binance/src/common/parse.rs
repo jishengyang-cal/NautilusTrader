@@ -575,7 +575,6 @@ pub const fn map_time_in_force_sbe(tif: SbeTimeInForce) -> TimeInForce {
 /// # Errors
 ///
 /// Returns an error if any field cannot be parsed.
-#[allow(clippy::too_many_arguments)]
 pub fn parse_order_status_report_sbe(
     order: &BinanceOrderResponse,
     account_id: AccountId,

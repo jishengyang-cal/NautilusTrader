@@ -150,7 +150,7 @@ pub struct OrderStateSnapshot {
 /// # Errors
 ///
 /// Returns an error if parsing order identifiers or numeric fields fails.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn parse_order_event(
     msg: &OKXOrderMsg,
     client_order_id: ClientOrderId,
@@ -1867,7 +1867,7 @@ pub fn parse_option_summary_greeks(
 /// Panics only in the case where `okx_channel_to_bar_spec(channel)` returns
 /// `None` after a prior `is_some` check – an unreachable scenario indicating a
 /// logic error.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn parse_ws_message_data(
     channel: &OKXWsChannel,
     data: serde_json::Value,

@@ -196,7 +196,7 @@ fn pricing_kernel_price_vega<T: BlackScholesReal>(
     (price, vega)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 #[inline(always)]
 fn pricing_kernel<T: BlackScholesReal>(
     s_forward: T,
@@ -297,7 +297,7 @@ pub fn compute_greeks<T: BlackScholesReal>(
 /// With a good initial guess (within ~25% of true vol), one Halley step typically achieves
 /// ~1% relative error. For deep ITM/OTM options or poor initial guesses, multiple iterations
 /// or a better initial estimate may be required.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 #[inline(always)]
 pub fn compute_iv_and_greeks<T: BlackScholesReal>(
     mkt_price: T,

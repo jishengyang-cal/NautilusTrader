@@ -95,7 +95,7 @@ pub const WEEKDAYS: [Weekday; 5] = [
 
 /// Converts seconds to nanoseconds (ns).
 ///
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "Intentional for unit conversion, may lose precision after clamping"
@@ -115,7 +115,7 @@ pub fn secs_to_nanos(secs: f64) -> anyhow::Result<u64> {
 
 /// Converts seconds to milliseconds (ms).
 ///
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "Intentional for unit conversion, may lose precision after clamping"
@@ -158,7 +158,7 @@ pub const fn mins_to_nanos(mins: u64) -> u64 {
 ///
 /// Casting f64 to u64 by truncating the fractional part is intentional for unit conversion,
 /// which may lose precision and drop negative values after clamping.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "Intentional for unit conversion, may lose precision after clamping"
@@ -190,7 +190,7 @@ pub fn millis_to_nanos_unchecked(millis: f64) -> u64 {
 ///
 /// Casting f64 to u64 by truncating the fractional part is intentional for unit conversion,
 /// which may lose precision and drop negative values after clamping.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     reason = "Intentional for unit conversion, may lose precision after clamping"
@@ -222,7 +222,7 @@ pub fn micros_to_nanos_unchecked(micros: f64) -> u64 {
 ///
 /// Casting u64 to f64 may lose precision for large values,
 /// but is acceptable when computing fractional seconds.
-#[allow(
+#[expect(
     clippy::cast_precision_loss,
     reason = "Precision loss acceptable for time conversion"
 )]
@@ -541,7 +541,7 @@ pub fn datetime_to_unix_nanos(value: Option<DateTime<Utc>>) -> Option<UnixNanos>
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::float_cmp,
     reason = "Exact float comparisons acceptable in tests"
 )]

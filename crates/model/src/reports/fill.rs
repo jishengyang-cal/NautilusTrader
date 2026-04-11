@@ -68,7 +68,7 @@ pub struct FillReport {
 
 impl FillReport {
     /// Creates a new [`FillReport`] instance with required fields.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub fn new(
         account_id: AccountId,

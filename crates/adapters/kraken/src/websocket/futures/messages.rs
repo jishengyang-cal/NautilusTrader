@@ -38,7 +38,7 @@ where
 
 /// Output message types from the Futures WebSocket handler.
 #[derive(Clone, Debug)]
-#[allow(
+#[expect(
     clippy::large_enum_variant,
     reason = "Messages are ephemeral and immediately consumed"
 )]

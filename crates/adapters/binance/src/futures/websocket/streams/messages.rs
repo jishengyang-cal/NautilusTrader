@@ -43,7 +43,6 @@ use crate::{
 /// events. The data and execution client layers convert these to Nautilus
 /// domain types using parse functions with instrument context.
 #[derive(Debug, Clone)]
-#[allow(clippy::large_enum_variant)]
 pub enum BinanceFuturesWsStreamsMessage {
     /// Aggregate trade stream.
     AggTrade(BinanceFuturesAggTradeMsg),
@@ -90,10 +89,6 @@ pub struct BinanceFuturesWsErrorMsg {
 
 /// Handler command for data client-handler communication.
 #[derive(Debug)]
-#[allow(
-    clippy::large_enum_variant,
-    reason = "Commands are ephemeral and immediately consumed"
-)]
 pub enum BinanceFuturesWsStreamsCommand {
     /// Set the WebSocket client reference.
     SetClient(WebSocketClient),
@@ -107,7 +102,7 @@ pub enum BinanceFuturesWsStreamsCommand {
 
 /// Handler command for execution client-handler communication.
 #[derive(Debug)]
-#[allow(
+#[expect(
     clippy::large_enum_variant,
     reason = "Commands are ephemeral and immediately consumed"
 )]

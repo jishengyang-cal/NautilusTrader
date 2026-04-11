@@ -171,7 +171,7 @@ impl Dex {
     ///
     /// Panics if the provided factory address is invalid.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         chain: Chain,
         name: DexType,

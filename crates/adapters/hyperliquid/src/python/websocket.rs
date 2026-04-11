@@ -129,7 +129,7 @@ impl HyperliquidWebSocketClient {
 
     /// Establishes WebSocket connection and spawns the message handler.
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &self,
         py: Python<'py>,

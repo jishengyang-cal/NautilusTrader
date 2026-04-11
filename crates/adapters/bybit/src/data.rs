@@ -286,11 +286,10 @@ fn send_data(sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>, data: Data)
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Cached funding state per symbol: (funding_rate, next_funding_time, funding_interval_hour).
 type FundingCacheEntry = (Option<String>, Option<String>, Option<String>);
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_ws_message(
     message: &BybitWsMessage,
     data_sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
@@ -1927,7 +1926,7 @@ mod tests {
         map
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     fn empty_subs() -> (
         Arc<AtomicSet<InstrumentId>>,
         Arc<AtomicMap<InstrumentId, AHashSet<&'static str>>>,

@@ -55,7 +55,7 @@ impl SubmitBroadcaster {
         health_check_timeout_secs=5,
         expected_reject_patterns=None
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         pool_size: usize,
         api_key: Option<String>,
@@ -147,7 +147,7 @@ impl SubmitBroadcaster {
         peg_price_type=None,
         peg_offset_value=None
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_broadcast_submit<'py>(
         &self,
         py: Python<'py>,

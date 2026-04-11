@@ -72,7 +72,7 @@ pub struct SwapQuote {
 }
 
 impl SwapQuote {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     /// Creates a [`SwapQuote`] instance with swap simulation results.
     ///
     /// The `trade_info` field is initialized to `None` and must be populated by calling
@@ -261,7 +261,6 @@ impl SwapQuote {
     ///
     /// # Returns
     /// A [`PoolSwap`] event containing both the quote data and provided metadata
-    #[allow(clippy::too_many_arguments)]
     pub fn to_swap_event(
         &self,
         chain: SharedChain,

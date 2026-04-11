@@ -39,7 +39,7 @@ impl DexPoolFilters {
 impl BlockchainDataClientConfig {
     /// Configuration for blockchain data clients.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(signature = (chain, dex_ids, http_rpc_url, rpc_requests_per_second=None, multicall_calls_per_rpc_request=None, wss_rpc_url=None, use_hypersync_for_live_data=true, from_block=None, pool_filters=None, postgres_cache_database_config=None))]
     fn py_new(
         #[gen_stub(
@@ -123,7 +123,7 @@ impl BlockchainDataClientConfig {
 
     /// Returns the starting block for sync.
     #[getter]
-    #[allow(clippy::wrong_self_convention)]
+    #[expect(clippy::wrong_self_convention)]
     const fn from_block(&self) -> Option<u64> {
         self.from_block
     }

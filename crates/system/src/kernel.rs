@@ -555,7 +555,7 @@ impl NautilusKernel {
     ///
     /// Data clients are connected first so that instruments are published
     /// and can be drained into the cache before execution clients connect.
-    #[allow(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
+    #[expect(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
     pub async fn connect_data_clients(&mut self) {
         log::info!("Connecting data clients...");
         self.data_engine.borrow_mut().connect().await;
@@ -565,7 +565,7 @@ impl NautilusKernel {
     ///
     /// Must be called after data clients are connected and instrument events
     /// have been drained into the cache, so execution clients can load instruments.
-    #[allow(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
+    #[expect(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
     pub async fn connect_exec_clients(&mut self) {
         log::info!("Connecting execution clients...");
         self.exec_engine.borrow_mut().connect().await;
@@ -576,7 +576,7 @@ impl NautilusKernel {
     /// # Errors
     ///
     /// Returns an error if any client fails to disconnect.
-    #[allow(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
+    #[expect(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
     pub async fn disconnect_clients(&mut self) -> anyhow::Result<()> {
         log::info!("Disconnecting clients...");
         self.data_engine.borrow_mut().disconnect().await?;

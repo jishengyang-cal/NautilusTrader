@@ -1592,7 +1592,7 @@ impl ExecutionManager {
 
     /// Handles position reconciliation when position flips sign, splitting into two
     /// fills: close existing position then open new position in opposite direction.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn reconcile_cross_zero_position(
         &mut self,
         instrument: &InstrumentAny,

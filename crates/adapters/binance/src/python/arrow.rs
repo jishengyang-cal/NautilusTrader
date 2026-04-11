@@ -61,7 +61,7 @@ pub fn get_binance_arrow_schema_map(
 ///
 /// Returns a `PyErr` if encoding fails.
 #[pyfunction(name = "binance_bar_to_arrow_record_batch_bytes")]
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 pub fn py_binance_bar_to_arrow_record_batch_bytes(
     py: Python,
     data: Vec<BinanceBar>,

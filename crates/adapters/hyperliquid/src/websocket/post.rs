@@ -340,7 +340,7 @@ impl OrderBuilder {
     }
 
     /// Create a limit order with individual parameters (legacy method)
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub fn push_limit(
         self,
@@ -380,7 +380,7 @@ impl OrderBuilder {
     }
 
     /// Create a trigger order with individual parameters (legacy method)
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub fn push_trigger(
         self,

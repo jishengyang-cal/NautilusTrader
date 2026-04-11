@@ -15,11 +15,6 @@
 
 //! Python bindings for the Binance adapter.
 
-#![allow(
-    clippy::missing_errors_doc,
-    reason = "errors documented on underlying Rust methods"
-)]
-
 pub mod arrow;
 pub mod config;
 pub mod enums;
@@ -46,7 +41,7 @@ use crate::{
     factories::{BinanceDataClientFactory, BinanceExecutionClientFactory},
 };
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_binance_data_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -59,7 +54,7 @@ fn extract_binance_data_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_binance_exec_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -72,7 +67,7 @@ fn extract_binance_exec_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_binance_data_config(
     py: Python<'_>,
     config: Py<PyAny>,
@@ -85,7 +80,7 @@ fn extract_binance_data_config(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_binance_exec_config(
     py: Python<'_>,
     config: Py<PyAny>,

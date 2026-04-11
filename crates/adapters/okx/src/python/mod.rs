@@ -15,7 +15,7 @@
 
 //! Python bindings from `pyo3`.
 
-#![allow(
+#![expect(
     clippy::missing_errors_doc,
     reason = "errors documented on underlying Rust methods"
 )]
@@ -65,7 +65,7 @@ pub(super) fn extract_optional_trigger_type(
         .transpose()
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_okx_data_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -78,7 +78,7 @@ fn extract_okx_data_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_okx_exec_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -91,7 +91,7 @@ fn extract_okx_exec_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_okx_data_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<dyn ClientConfig>> {
     match config.extract::<OKXDataClientConfig>(py) {
         Ok(c) => Ok(Box::new(c)),
@@ -101,7 +101,7 @@ fn extract_okx_data_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<dy
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_okx_exec_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<dyn ClientConfig>> {
     match config.extract::<OKXExecClientConfig>(py) {
         Ok(c) => Ok(Box::new(c)),

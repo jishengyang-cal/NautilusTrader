@@ -222,7 +222,7 @@ pub fn stub_depth10() -> OrderBookDepth10 {
     let mut quantity = 100.0;
     let mut order_id = 1;
 
-    #[allow(clippy::needless_range_loop)]
+    #[expect(clippy::needless_range_loop)]
     for i in 0..DEPTH10_LEN {
         let order = BookOrder::new(
             OrderSide::Buy,
@@ -243,7 +243,7 @@ pub fn stub_depth10() -> OrderBookDepth10 {
     let mut quantity = 100.0;
     let mut order_id = 11;
 
-    #[allow(clippy::needless_range_loop)]
+    #[expect(clippy::needless_range_loop)]
     for i in 0..DEPTH10_LEN {
         let order = BookOrder::new(
             OrderSide::Sell,

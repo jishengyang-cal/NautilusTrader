@@ -69,7 +69,7 @@ impl PolymarketOrderBuilder {
     }
 
     /// Builds and signs a limit order for submission.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn build_limit_order(
         &self,
         token_id: &str,
@@ -99,7 +99,7 @@ impl PolymarketOrderBuilder {
     /// `amount` semantics differ by side:
     /// - BUY: `amount` is USDC to spend
     /// - SELL: `amount` is shares to sell
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn build_market_order(
         &self,
         token_id: &str,
@@ -201,7 +201,7 @@ impl PolymarketOrderBuilder {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn build_and_sign(
         &self,
         token_id: &str,

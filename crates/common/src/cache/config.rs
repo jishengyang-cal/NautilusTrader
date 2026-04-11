@@ -73,7 +73,7 @@ impl Default for CacheConfig {
 
 impl CacheConfig {
     /// Creates a new [`CacheConfig`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub const fn new(
         database: Option<DatabaseConfig>,

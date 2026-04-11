@@ -32,7 +32,7 @@ use crate::opt::DatabaseConfig;
 /// # Errors
 ///
 /// Returns an error if the chain or DEX parameters are invalid.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub async fn run_analyze_pool(
     chain: String,
     dex: String,

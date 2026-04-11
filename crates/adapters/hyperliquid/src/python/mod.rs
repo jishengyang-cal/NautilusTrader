@@ -15,7 +15,7 @@
 
 //! Python bindings from `pyo3`.
 
-#![allow(
+#![expect(
     clippy::missing_errors_doc,
     reason = "errors documented on underlying Rust methods"
 )]
@@ -75,7 +75,7 @@ fn py_hyperliquid_product_type_from_symbol(symbol: &str) -> PyResult<Hyperliquid
     HyperliquidProductType::from_symbol(symbol).map_err(to_pyvalue_err)
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_hyperliquid_data_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -88,7 +88,7 @@ fn extract_hyperliquid_data_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_hyperliquid_exec_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -101,7 +101,7 @@ fn extract_hyperliquid_exec_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_hyperliquid_data_config(
     py: Python<'_>,
     config: Py<PyAny>,
@@ -114,7 +114,7 @@ fn extract_hyperliquid_data_config(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_hyperliquid_exec_config(
     py: Python<'_>,
     config: Py<PyAny>,

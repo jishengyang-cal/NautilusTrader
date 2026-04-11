@@ -175,7 +175,7 @@ impl Debug for BybitRawHttpClient {
 
 impl BybitRawHttpClient {
     /// Cancels all pending HTTP requests.
-    #[allow(clippy::missing_panics_doc, reason = "mutex poisoning is not expected")]
+    #[expect(clippy::missing_panics_doc, reason = "mutex poisoning is not expected")]
     pub fn cancel_all_requests(&self) {
         self.cancellation_token
             .lock()
@@ -185,7 +185,7 @@ impl BybitRawHttpClient {
 
     /// Replaces the cancelled token with a fresh one so subsequent
     /// requests are not immediately short-circuited.
-    #[allow(clippy::missing_panics_doc, reason = "mutex poisoning is not expected")]
+    #[expect(clippy::missing_panics_doc, reason = "mutex poisoning is not expected")]
     pub fn reset_cancellation_token(&self) {
         let mut guard = self
             .cancellation_token
@@ -195,7 +195,7 @@ impl BybitRawHttpClient {
     }
 
     /// Returns a clone of the current cancellation token.
-    #[allow(clippy::missing_panics_doc, reason = "mutex poisoning is not expected")]
+    #[expect(clippy::missing_panics_doc, reason = "mutex poisoning is not expected")]
     pub fn cancellation_token(&self) -> CancellationToken {
         self.cancellation_token
             .lock()
@@ -208,7 +208,6 @@ impl BybitRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         timeout_secs: u64,
@@ -257,7 +256,7 @@ impl BybitRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -314,7 +313,7 @@ impl BybitRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_with_env(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -772,7 +771,7 @@ impl BybitRawHttpClient {
     /// # References
     ///
     /// - <https://bybit-exchange.github.io/docs/v5/order/open-order>
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn get_open_orders(
         &self,
         category: BybitProductType,
@@ -1282,7 +1281,6 @@ impl BybitHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         timeout_secs: u64,
@@ -1314,7 +1312,7 @@ impl BybitHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1357,7 +1355,7 @@ impl BybitHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_with_env(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -1624,7 +1622,7 @@ impl BybitHttpClient {
     /// # References
     ///
     /// - <https://bybit-exchange.github.io/docs/v5/order/open-order>
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn get_open_orders(
         &self,
         category: BybitProductType,
@@ -2050,7 +2048,7 @@ impl BybitHttpClient {
     /// - Order validation fails.
     /// - The order is rejected.
     /// - The API returns an error.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         account_id: AccountId,
@@ -2412,7 +2410,7 @@ impl BybitHttpClient {
     /// - The order doesn't exist.
     /// - The order is already closed.
     /// - The API returns an error.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
         account_id: AccountId,
@@ -3491,7 +3489,7 @@ impl BybitHttpClient {
     /// - Credentials are missing.
     /// - The request fails.
     /// - The API returns an error.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn request_order_status_reports(
         &self,
         account_id: AccountId,

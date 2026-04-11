@@ -1229,7 +1229,7 @@ mod tests {
 
     nautilus_strategy!(TestStrategy);
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     fn create_trader_components() -> (
         Rc<RefCell<MessageBus>>,
         Rc<RefCell<Cache>>,

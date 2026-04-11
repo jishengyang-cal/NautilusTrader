@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-#![allow(clippy::too_many_arguments)] // Test functions with many fixtures
+#![expect(clippy::too_many_arguments)] // Test functions with many fixtures
 
 use std::{cell::RefCell, rc::Rc, str::FromStr};
 

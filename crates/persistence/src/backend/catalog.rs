@@ -1871,7 +1871,7 @@ impl ParquetDataCatalog {
     /// - File discovery fails.
     /// - Data decoding fails.
     /// - Query execution fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn query_custom_data_dynamic(
         &mut self,
         type_name: &str,

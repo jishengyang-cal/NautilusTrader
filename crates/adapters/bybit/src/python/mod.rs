@@ -15,11 +15,6 @@
 
 //! Python bindings from `pyo3`.
 
-#![allow(
-    clippy::missing_errors_doc,
-    reason = "errors documented on underlying Rust methods"
-)]
-
 pub mod config;
 pub mod enums;
 pub mod factories;
@@ -96,7 +91,7 @@ fn py_bybit_product_type_from_symbol(
     Ok(bybit_symbol.product_type())
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_bybit_data_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -109,7 +104,7 @@ fn extract_bybit_data_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_bybit_exec_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -122,7 +117,7 @@ fn extract_bybit_exec_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_bybit_data_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<dyn ClientConfig>> {
     match config.extract::<BybitDataClientConfig>(py) {
         Ok(c) => Ok(Box::new(c)),
@@ -132,7 +127,7 @@ fn extract_bybit_data_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_bybit_exec_config(py: Python<'_>, config: Py<PyAny>) -> PyResult<Box<dyn ClientConfig>> {
     match config.extract::<BybitExecClientConfig>(py) {
         Ok(c) => Ok(Box::new(c)),

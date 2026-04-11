@@ -1281,7 +1281,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_ws_trading_message(
     msg: BinanceSpotWsTradingMessage,
     emitter: &ExecutionEventEmitter,
@@ -1619,7 +1619,6 @@ fn build_cancel_replace_params(
 ///
 /// Tracked orders (with registered identity) produce proper order events.
 /// Untracked orders fall back to execution reports for reconciliation.
-#[allow(clippy::too_many_arguments)]
 fn dispatch_execution_report(
     report: &BinanceSpotExecutionReport,
     emitter: &ExecutionEventEmitter,
@@ -1675,7 +1674,7 @@ fn dispatch_execution_report(
 }
 
 /// Dispatches a tracked execution report as proper order events.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_tracked_execution_report(
     report: &BinanceSpotExecutionReport,
     emitter: &ExecutionEventEmitter,
@@ -1874,7 +1873,7 @@ fn dispatch_tracked_execution_report(
 }
 
 /// Dispatches an untracked execution report as execution reports for reconciliation.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_untracked_execution_report(
     report: &BinanceSpotExecutionReport,
     emitter: &ExecutionEventEmitter,

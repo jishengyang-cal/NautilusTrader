@@ -248,7 +248,7 @@ pub fn status_msg(instrument_id: u32) -> StatusMsg {
     }
 }
 
-#[allow(
+#[expect(
     clippy::field_reassign_with_default,
     reason = "conditional fields (options) prevent struct init syntax"
 )]

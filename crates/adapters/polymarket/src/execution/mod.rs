@@ -120,7 +120,6 @@ impl PolymarketExecutionClient {
     /// # Errors
     ///
     /// Returns an error if credentials cannot be resolved or clients fail to construct.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         core: ExecutionClientCore,
         config: PolymarketExecClientConfig,
@@ -1297,7 +1296,7 @@ fn process_cancel_result(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_order_response(
     result: crate::http::error::Result<OrderResponse>,
     order: &OrderAny,
@@ -1480,7 +1479,7 @@ async fn execute_deferred_cancel(
 /// If the order has reached a terminal state that the WS stream missed
 /// (e.g. UNMATCHED for an unfilled FOK), emits an order status report
 /// so the engine can reconcile it.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 async fn check_fok_status(
     submitter: &OrderSubmitter,
     order_id: &str,

@@ -15,11 +15,6 @@
 
 //! Python bindings for the Betfair adapter.
 
-#![allow(
-    clippy::missing_errors_doc,
-    reason = "errors documented on underlying Rust methods"
-)]
-
 pub mod config;
 pub mod factories;
 
@@ -35,7 +30,7 @@ use crate::{
     factories::{BetfairDataClientFactory, BetfairExecutionClientFactory},
 };
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_betfair_data_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -48,7 +43,7 @@ fn extract_betfair_data_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_betfair_exec_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -61,7 +56,7 @@ fn extract_betfair_exec_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_betfair_data_config(
     py: Python<'_>,
     config: Py<PyAny>,
@@ -74,7 +69,7 @@ fn extract_betfair_data_config(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_betfair_exec_config(
     py: Python<'_>,
     config: Py<PyAny>,

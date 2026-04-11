@@ -380,7 +380,7 @@ impl Price {
         // Scale down the raw value to match the precision
         let precision_diff = FIXED_PRECISION.saturating_sub(self.precision);
         let rescaled_raw = self.raw / PriceRaw::pow(10, u32::from(precision_diff));
-        #[allow(clippy::unnecessary_cast)]
+        #[expect(clippy::unnecessary_cast)]
         Decimal::from_i128_with_scale(rescaled_raw as i128, u32::from(self.precision))
     }
 
@@ -405,7 +405,7 @@ impl Price {
         let exponent = -(decimal.scale() as i8);
         let raw_i128 = mantissa_exponent_to_fixed_i128(decimal.mantissa(), exponent, precision)?;
 
-        #[allow(clippy::useless_conversion)]
+        #[expect(clippy::useless_conversion)]
         let raw: PriceRaw = raw_i128.try_into().map_err(|_| {
             anyhow::anyhow!(
                 "Decimal value exceeds PriceRaw range [{PRICE_RAW_MIN}, {PRICE_RAW_MAX}]"
@@ -454,7 +454,7 @@ impl Price {
         let raw_i128 = mantissa_exponent_to_fixed_i128(mantissa as i128, exponent, precision)
             .expect("Overflow in Price::from_mantissa_exponent");
 
-        #[allow(clippy::useless_conversion)]
+        #[expect(clippy::useless_conversion)]
         let raw: PriceRaw = raw_i128
             .try_into()
             .expect("Raw value exceeds PriceRaw range in Price::from_mantissa_exponent");
@@ -1418,7 +1418,7 @@ mod property_tests {
 
     const DECIMAL_MAX_MANTISSA: i128 = 79_228_162_514_264_337_593_543_950_335;
 
-    #[allow(
+    #[expect(
         clippy::useless_conversion,
         reason = "PriceRaw is i64 or i128 depending on feature"
     )]

@@ -57,7 +57,7 @@ impl DeribitHttpClient {
         retry_delay_max_ms=10_000,
         proxy_url=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[allow(unused_variables)]
     fn py_new(
         api_key: Option<String>,

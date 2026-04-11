@@ -66,7 +66,6 @@ pub struct OrderEmulated {
 
 impl OrderEmulated {
     /// Creates a new [`OrderEmulated`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

@@ -65,7 +65,7 @@ pub fn get_databento_arrow_schema_map(
 ///
 /// Returns a `PyErr` if encoding fails.
 #[pyfunction(name = "databento_imbalance_to_arrow_record_batch_bytes")]
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 pub fn py_databento_imbalance_to_arrow_record_batch_bytes(
     py: Python,
     data: Vec<DatabentoImbalance>,
@@ -107,7 +107,7 @@ pub fn py_databento_imbalance_from_arrow_record_batch_bytes(
 ///
 /// Returns a `PyErr` if encoding fails.
 #[pyfunction(name = "databento_statistics_to_arrow_record_batch_bytes")]
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 pub fn py_databento_statistics_to_arrow_record_batch_bytes(
     py: Python,
     data: Vec<DatabentoStatistics>,

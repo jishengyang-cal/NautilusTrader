@@ -179,7 +179,7 @@ impl BitmexRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         timeout_secs: u64,
@@ -230,7 +230,7 @@ impl BitmexRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -852,7 +852,7 @@ impl BitmexHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         api_key: Option<String>,
@@ -940,7 +940,7 @@ impl BitmexHttpClient {
     /// # Errors
     ///
     /// Returns an error if one credential is provided without the other.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -1565,7 +1565,7 @@ impl BitmexHttpClient {
     ///
     /// Returns an error if credentials are missing, the request fails, order validation fails,
     /// the order is rejected, or the API returns an error.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         instrument_id: InstrumentId,

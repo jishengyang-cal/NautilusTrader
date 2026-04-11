@@ -247,7 +247,6 @@ pub fn parse_trade_bin_msg_vec(
 }
 
 /// Converts a BitMEX order book row into a Nautilus order-book delta.
-#[allow(clippy::too_many_arguments)]
 #[must_use]
 pub fn parse_book_msg(
     msg: &BitmexOrderBookMsg,
@@ -288,7 +287,6 @@ pub fn parse_book_msg(
 /// # Errors
 ///
 /// Returns an error if the bid or ask arrays are not exactly 10 elements.
-#[allow(clippy::too_many_arguments)]
 pub fn parse_book10_msg(
     msg: &BitmexOrderBook10Msg,
     instrument: &InstrumentAny,

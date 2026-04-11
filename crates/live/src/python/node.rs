@@ -149,7 +149,7 @@ impl LiveNode {
         reason = "Required for Python actor component registration"
     )]
     #[pyo3(name = "add_actor_from_config")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_actor_from_config(
         &mut self,
         _py: Python,
@@ -299,7 +299,7 @@ impl LiveNode {
         reason = "Required for Python strategy component registration"
     )]
     #[pyo3(name = "add_strategy_from_config")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_strategy_from_config(
         &mut self,
         _py: Python,
@@ -466,7 +466,7 @@ impl LiveNode {
         reason = "Required for Python exec algorithm component registration"
     )]
     #[pyo3(name = "add_exec_algorithm_from_config")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_exec_algorithm_from_config(
         &mut self,
         _py: Python,
@@ -802,7 +802,7 @@ impl LiveNodeBuilderPy {
     }
 
     #[pyo3(name = "add_data_client")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_data_client(
         &self,
         name: Option<String>,
@@ -842,7 +842,7 @@ impl LiveNodeBuilderPy {
     }
 
     #[pyo3(name = "add_exec_client")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_exec_client(
         &self,
         name: Option<String>,

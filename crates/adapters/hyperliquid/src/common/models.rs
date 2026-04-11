@@ -360,7 +360,7 @@ impl HyperliquidDataConverter {
 
     /// Convert price/size changes to OrderBookDeltas
     /// This would be used for incremental WebSocket updates if Hyperliquid provided them
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn convert_delta_update(
         &self,
         instrument_id: InstrumentId,

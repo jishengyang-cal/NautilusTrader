@@ -58,7 +58,6 @@ impl OrderFillTrackerMap {
     }
 
     /// Register an order after HTTP accept.
-    #[allow(clippy::too_many_arguments)]
     pub fn register(
         &self,
         venue_order_id: VenueOrderId,
@@ -163,7 +162,7 @@ impl OrderFillTrackerMap {
     /// Returns `Some(FillReport)` if a synthetic fill should be emitted.
     /// Removes the entry on dust settlement to prevent duplicate synthetic
     /// fills from repeated MATCHED events.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn check_dust_and_build_fill(
         &self,
         venue_order_id: &VenueOrderId,

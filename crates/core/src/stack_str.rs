@@ -830,7 +830,7 @@ mod tests {
     #[rstest]
     fn test_clone_equals_original() {
         let a = StackStr::new("test");
-        #[allow(clippy::clone_on_copy)]
+        #[expect(clippy::clone_on_copy)]
         let b = a.clone();
         assert_eq!(a, b);
     }

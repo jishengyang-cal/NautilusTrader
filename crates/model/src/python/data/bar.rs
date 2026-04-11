@@ -477,7 +477,7 @@ impl Bar {
 
 #[pymethods]
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 impl Bar {
     /// Represents an aggregated bar.
     #[new]

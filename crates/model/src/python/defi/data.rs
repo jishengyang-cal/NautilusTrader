@@ -41,7 +41,7 @@ use crate::{
 impl Block {
     /// Represents an Ethereum-compatible blockchain block with essential metadata.
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         chain: Blockchain,
         hash: String,
@@ -173,7 +173,7 @@ impl PoolSwap {
     /// optionally includes computed market-oriented trade information. It serves as
     /// the primary data structure for tracking and analyzing DEX swap activity.
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         dex: Dex,
@@ -314,7 +314,7 @@ impl PoolSwap {
 impl PoolLiquidityUpdate {
     /// Represents a liquidity update event in a decentralized exchange (DEX) pool.
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         dex: Dex,
@@ -502,7 +502,7 @@ impl PoolLiquidityUpdate {
 impl PoolFeeCollect {
     /// Represents a fee collection event in a decentralized exchange (DEX) pool.
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         dex: Dex,
@@ -665,7 +665,7 @@ impl PoolFlash {
     /// within the same transaction. Fees are paid on the borrowed amount, which are added to
     /// the pool's fee growth accumulators.
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         dex: Dex,
@@ -829,7 +829,7 @@ impl PoolFlash {
 impl Transaction {
     /// Represents a transaction on an EVM based blockchain.
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         hash: String,

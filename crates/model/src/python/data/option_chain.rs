@@ -90,7 +90,7 @@ impl OptionGreeks {
     /// Exchange-provided option Greeks and implied volatility for a single instrument.
     #[new]
     #[pyo3(signature = (instrument_id, delta, gamma, vega, theta, rho=0.0, mark_iv=None, bid_iv=None, ask_iv=None, underlying_price=None, open_interest=None, ts_event=0, ts_init=0))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         instrument_id: InstrumentId,
         delta: f64,

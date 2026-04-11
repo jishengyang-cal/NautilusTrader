@@ -58,7 +58,7 @@ impl BybitRawHttpClient {
     /// returning venue-specific response types. It does not parse to Nautilus domain types.
     #[new]
     #[pyo3(signature = (api_key=None, api_secret=None, base_url=None, demo=false, testnet=false, timeout_secs=60, max_retries=3, retry_delay_ms=1000, retry_delay_max_ms=10_000, recv_window_ms=5_000, proxy_url=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -147,7 +147,7 @@ impl BybitRawHttpClient {
     /// - <https://bybit-exchange.github.io/docs/v5/order/open-order>
     #[pyo3(name = "get_open_orders")]
     #[pyo3(signature = (category, symbol=None, base_coin=None, settle_coin=None, order_id=None, order_link_id=None, open_only=None, order_filter=None, limit=None, cursor=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_get_open_orders<'py>(
         &self,
         py: Python<'py>,
@@ -200,7 +200,7 @@ impl BybitHttpClient {
     /// into Nautilus domain objects.
     #[new]
     #[pyo3(signature = (api_key=None, api_secret=None, base_url=None, demo=false, testnet=false, timeout_secs=60, max_retries=3, retry_delay_ms=1000, retry_delay_max_ms=10_000, recv_window_ms=5_000, proxy_url=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -566,7 +566,7 @@ impl BybitHttpClient {
         is_quote_quantity = false,
         is_leverage = false
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -623,7 +623,7 @@ impl BybitHttpClient {
         quantity=None,
         price=None
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,
@@ -861,7 +861,7 @@ impl BybitHttpClient {
     /// <https://bybit-exchange.github.io/docs/v5/market/kline>
     #[pyo3(name = "request_bars")]
     #[pyo3(signature = (product_type, bar_type, start=None, end=None, limit=None, timestamp_on_close=true))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_bars<'py>(
         &self,
         py: Python<'py>,
@@ -958,7 +958,7 @@ impl BybitHttpClient {
     /// Orders for instruments not currently loaded in cache will be skipped.
     #[pyo3(name = "request_order_status_reports")]
     #[pyo3(signature = (account_id, product_type, instrument_id=None, open_only=false, start=None, end=None, limit=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_order_status_reports<'py>(
         &self,
         py: Python<'py>,
@@ -1006,7 +1006,7 @@ impl BybitHttpClient {
     /// <https://bybit-exchange.github.io/docs/v5/order/execution>
     #[pyo3(name = "request_fill_reports")]
     #[pyo3(signature = (account_id, product_type, instrument_id=None, start=None, end=None, limit=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_fill_reports<'py>(
         &self,
         py: Python<'py>,

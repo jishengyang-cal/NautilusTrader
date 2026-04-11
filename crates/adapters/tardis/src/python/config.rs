@@ -104,10 +104,6 @@ impl TardisDataClientConfig {
         options = None,
         stream_options = None,
     ))]
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "Python constructor mirrors config fields"
-    )]
     fn py_new(
         api_key: Option<String>,
         tardis_ws_url: Option<String>,

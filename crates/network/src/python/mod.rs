@@ -20,7 +20,7 @@
 // memory leak), so the compiler raises an error about an unknown cfg feature.
 // This attribute prevents those errors without actually enabling `gil-refs`.
 #![allow(unexpected_cfgs)]
-#![allow(
+#![expect(
     clippy::missing_errors_doc,
     reason = "errors documented on underlying Rust methods"
 )]

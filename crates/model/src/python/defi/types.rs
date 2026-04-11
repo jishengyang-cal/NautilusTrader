@@ -127,7 +127,7 @@ impl Chain {
 impl Token {
     /// Represents a cryptocurrency token on a blockchain network.
     #[new]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         address: String,
@@ -198,7 +198,7 @@ impl Token {
 impl Dex {
     /// Represents a decentralized exchange (DEX) in a blockchain ecosystem.
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         name: String,
@@ -335,7 +335,7 @@ impl Pool {
     ///
     /// Example: `0x11b815efB8f581194ae79006d24E0d814B7697F6.Ethereum:UniswapV3`
     #[new]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
         chain: Chain,
         dex: Dex,

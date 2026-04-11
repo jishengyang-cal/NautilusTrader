@@ -76,7 +76,7 @@ pub struct OrderModifyRejected {
 
 impl OrderModifyRejected {
     /// Creates a new [`OrderModifyRejected`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

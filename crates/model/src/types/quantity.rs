@@ -362,7 +362,6 @@ impl Quantity {
         // The raw value is guaranteed to be within i128 range after scaling
         // because our quantity constraints ensure the maximum raw value times the scaling
         // factor cannot exceed i128::MAX (high-precision) or i64::MAX (standard-precision).
-        #[allow(clippy::useless_conversion)]
         Decimal::from_i128_with_scale(rescaled_raw as i128, u32::from(self.precision))
     }
 
@@ -610,7 +609,7 @@ impl Sub for Quantity {
     }
 }
 
-#[allow(
+#[expect(
     clippy::suspicious_arithmetic_impl,
     reason = "Can use division to scale back"
 )]

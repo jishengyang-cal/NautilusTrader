@@ -52,7 +52,7 @@ impl BacktestEngineConfig {
         logging = None,
         instance_id = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         trader_id: Option<TraderId>,
         load_state: Option<bool>,
@@ -161,7 +161,7 @@ impl BacktestVenueConfig {
         leverages = None,
         price_protection_points = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         name: &str,
         oms_type: OmsType,
@@ -286,7 +286,7 @@ impl BacktestDataConfig {
         bar_types = None,
         optimize_file_loading = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         data_type: &str,
         catalog_path: String,
@@ -365,7 +365,7 @@ impl BacktestRunConfig {
         start = None,
         end = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         venues: Vec<BacktestVenueConfig>,
         data: Vec<BacktestDataConfig>,

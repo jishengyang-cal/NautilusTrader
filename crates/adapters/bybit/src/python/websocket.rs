@@ -248,7 +248,7 @@ impl BybitWebSocketClient {
 
     /// Disconnects the WebSocket client and stops the background task.
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)] // PyO3 extracted parameter
+    #[expect(clippy::needless_pass_by_value)] // PyO3 extracted parameter
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -825,7 +825,7 @@ impl BybitWebSocketClient {
         reduce_only=None,
         is_leverage=false,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -896,7 +896,7 @@ impl BybitWebSocketClient {
         quantity=None,
         price=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,
@@ -949,7 +949,7 @@ impl BybitWebSocketClient {
         client_order_id,
         venue_order_id=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_cancel_order<'py>(
         &self,
         py: Python<'py>,
@@ -1003,7 +1003,7 @@ impl BybitWebSocketClient {
         take_profit=None,
         stop_loss=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_build_place_order_params(
         &self,
         product_type: BybitProductType,
@@ -1084,7 +1084,6 @@ impl BybitWebSocketClient {
 
     /// Builds order params for amending an order.
     #[pyo3(name = "build_amend_order_params")]
-    #[allow(clippy::too_many_arguments)]
     fn py_build_amend_order_params(
         &self,
         product_type: BybitProductType,
@@ -1379,7 +1378,7 @@ fn handle_trade(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_kline(
     msg: &crate::websocket::messages::BybitWsKlineMsg,
     product_type: Option<BybitProductType>,
@@ -1421,7 +1420,7 @@ fn handle_kline(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_ticker_linear(
     msg: &crate::websocket::messages::BybitWsTickerLinearMsg,
     product_type: Option<BybitProductType>,
@@ -1499,7 +1498,7 @@ fn handle_ticker_linear(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_ticker_option(
     msg: &crate::websocket::messages::BybitWsTickerOptionMsg,
     product_type: Option<BybitProductType>,

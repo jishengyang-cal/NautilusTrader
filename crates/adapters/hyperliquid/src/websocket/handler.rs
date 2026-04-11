@@ -53,7 +53,7 @@ use super::{
 
 /// Commands sent from the outer client to the inner message handler.
 #[derive(Debug)]
-#[allow(
+#[expect(
     clippy::large_enum_variant,
     reason = "Commands are ephemeral and immediately consumed"
 )]
@@ -332,7 +332,7 @@ impl FeedHandler {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn parse_to_nautilus_messages(
         msg: HyperliquidWsMessage,
         instruments: &AHashMap<Ustr, InstrumentAny>,

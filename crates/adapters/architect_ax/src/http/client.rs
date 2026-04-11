@@ -177,7 +177,6 @@ impl AxRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         orders_base_url: Option<String>,
@@ -224,7 +223,7 @@ impl AxRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1087,7 +1086,6 @@ impl AxHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         orders_base_url: Option<String>,
@@ -1118,7 +1116,7 @@ impl AxHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1573,7 +1571,7 @@ impl AxHttpClient {
     /// Returns an error if:
     /// - Neither `venue_order_id` nor `client_order_id` is provided.
     /// - The HTTP request fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn request_order_status(
         &self,
         account_id: AccountId,

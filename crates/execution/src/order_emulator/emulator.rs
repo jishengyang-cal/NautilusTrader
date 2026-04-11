@@ -1260,7 +1260,6 @@ impl OrderEmulator {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn update_trailing_stop_order(&self, order: &mut OrderAny) {
         let Some(matching_core) = self.matching_cores.get(&order.instrument_id()) else {
             log::error!(
@@ -1362,7 +1361,7 @@ mod tests {
         crypto_perpetual_ethusdt()
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     fn create_emulator() -> (
         Rc<RefCell<dyn Clock>>,
         Rc<RefCell<Cache>>,

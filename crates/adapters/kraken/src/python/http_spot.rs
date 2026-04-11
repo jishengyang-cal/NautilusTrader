@@ -49,7 +49,7 @@ impl KrakenSpotHttpClient {
     /// into Nautilus domain objects.
     #[new]
     #[pyo3(signature = (api_key=None, api_secret=None, base_url=None, demo=false, timeout_secs=60, max_retries=None, retry_delay_ms=None, retry_delay_max_ms=None, proxy_url=None, max_requests_per_second=5))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -398,7 +398,7 @@ impl KrakenSpotHttpClient {
     /// Returns the venue order ID on success. WebSocket handles all execution events.
     #[pyo3(name = "submit_order")]
     #[pyo3(signature = (account_id, instrument_id, client_order_id, order_side, order_type, quantity, time_in_force, expire_time=None, price=None, trigger_price=None, trigger_type=None, trailing_offset=None, limit_offset=None, reduce_only=false, post_only=false, quote_quantity=false, display_qty=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -522,7 +522,7 @@ impl KrakenSpotHttpClient {
     /// keeping the same order ID and queue position.
     #[pyo3(name = "modify_order")]
     #[pyo3(signature = (instrument_id, client_order_id=None, venue_order_id=None, quantity=None, price=None, trigger_price=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,
@@ -561,7 +561,7 @@ impl KrakenSpotHttpClient {
     ///
     /// GTD and trailing-stop variants are not exposed through this helper.
     #[pyo3(name = "submit_orders_batch")]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     fn py_submit_orders_batch<'py>(
         &self,
         py: Python<'py>,

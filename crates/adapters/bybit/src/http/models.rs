@@ -1070,7 +1070,7 @@ impl BybitOrder {
 
     #[getter]
     #[must_use]
-    #[allow(
+    #[expect(
         clippy::missing_panics_doc,
         reason = "serialization of a simple enum cannot fail"
     )]

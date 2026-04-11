@@ -280,7 +280,7 @@ impl AxDataClient {
         self.tasks.push(handle);
     }
 
-    #[allow(
+    #[expect(
         clippy::unnecessary_wraps,
         reason = "callers forward Result to trait methods"
     )]
@@ -1052,7 +1052,7 @@ fn drain_status_invalidations(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_ws_message(
     msg: AxDataWsMessage,
     sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
@@ -1087,7 +1087,7 @@ fn handle_ws_message(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_md_message(
     message: AxMdMessage,
     sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,

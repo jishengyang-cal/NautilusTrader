@@ -298,7 +298,7 @@ impl OKXWebSocketClient {
     }
 
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -1114,7 +1114,7 @@ impl OKXWebSocketClient {
         px_usd=None,
         px_vol=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -1174,7 +1174,6 @@ impl OKXWebSocketClient {
         client_order_id=None,
         venue_order_id=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
     fn py_cancel_order<'py>(
         &self,
         py: Python<'py>,
@@ -1212,7 +1211,7 @@ impl OKXWebSocketClient {
         new_px_usd=None,
         new_px_vol=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,
@@ -1246,7 +1245,7 @@ impl OKXWebSocketClient {
         })
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     #[pyo3(name = "batch_submit_orders")]
     fn py_batch_submit_orders<'py>(
         &self,
@@ -1459,7 +1458,7 @@ fn handle_book_data(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_channel_data(
     channel: &OKXWsChannel,
     inst_id: Option<Ustr>,
@@ -1582,7 +1581,7 @@ fn handle_channel_data(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_bbo_tbt(
     data: serde_json::Value,
     instrument_id: InstrumentId,
@@ -1681,7 +1680,7 @@ fn handle_instruments(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_orders(
     order_msgs: &[OKXOrderMsg],
     account_id: AccountId,
@@ -1783,7 +1782,7 @@ fn handle_positions(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_order_response(
     id: Option<&str>,
     op: &OKXWsOperation,
@@ -1940,7 +1939,7 @@ fn handle_order_response(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_send_failed(
     request_id: &str,
     client_order_id: Option<ClientOrderId>,

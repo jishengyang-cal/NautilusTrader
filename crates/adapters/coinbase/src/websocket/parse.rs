@@ -175,7 +175,6 @@ pub fn parse_ws_l2_update(
 }
 
 /// Parses a single L2 snapshot level into an [`OrderBookDelta`].
-#[allow(clippy::too_many_arguments)]
 fn parse_l2_delta(
     update: &WsL2Update,
     instrument_id: InstrumentId,

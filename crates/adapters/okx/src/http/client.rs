@@ -428,7 +428,7 @@ impl OKXRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the retry manager cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1291,7 +1291,7 @@ impl OKXHttpClient {
     /// # Errors
     ///
     /// Returns an error if the operation fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -2119,8 +2119,6 @@ impl OKXHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP request fails or trade parsing fails.
-    // Guarded by is_empty check
-    #[allow(clippy::missing_panics_doc)]
     pub async fn request_trades(
         &self,
         instrument_id: InstrumentId,
@@ -2482,8 +2480,6 @@ impl OKXHttpClient {
     ///
     /// - <https://tr.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks>
     /// - <https://tr.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history>
-    // Guarded by non-empty page check
-    #[allow(clippy::missing_panics_doc)]
     pub async fn request_bars(
         &self,
         bar_type: BarType,
@@ -3093,7 +3089,7 @@ impl OKXHttpClient {
     ///
     /// - <https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-order-history-last-7-days>.
     /// - <https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-order-history-last-3-months>.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn request_order_status_reports(
         &self,
         account_id: AccountId,
@@ -4002,7 +3998,7 @@ impl OKXHttpClient {
     /// # Errors
     ///
     /// Returns an error if the request fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn amend_algo_order_with_domain_types(
         &self,
         instrument_id: InstrumentId,
@@ -4037,7 +4033,7 @@ impl OKXHttpClient {
     /// # Errors
     ///
     /// Returns an error if the request fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn place_order_with_domain_types(
         &self,
         instrument_id: InstrumentId,
@@ -4210,7 +4206,7 @@ impl OKXHttpClient {
     /// # Errors
     ///
     /// Returns an error if the request fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn place_algo_order_with_domain_types(
         &self,
         instrument_id: InstrumentId,
@@ -4413,7 +4409,7 @@ impl OKXHttpClient {
     /// # Errors
     ///
     /// Returns an error if the request fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn request_algo_order_status_reports(
         &self,
         account_id: AccountId,

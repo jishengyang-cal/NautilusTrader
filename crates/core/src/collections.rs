@@ -93,7 +93,7 @@ where
     }
 
     /// Inserts a key-value pair (clone-and-swap).
-    #[allow(
+    #[expect(
         clippy::needless_pass_by_value,
         reason = "by-value matches HashMap::insert; clone needed because rcu may retry"
     )]
@@ -201,7 +201,7 @@ where
     }
 
     /// Inserts a key (clone-and-swap).
-    #[allow(
+    #[expect(
         clippy::needless_pass_by_value,
         reason = "by-value matches HashSet::insert; clone needed because rcu may retry"
     )]
@@ -406,7 +406,7 @@ where
 }
 
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::unnecessary_to_owned,
     reason = "Required for trait bound satisfaction"
 )]

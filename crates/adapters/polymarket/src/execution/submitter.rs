@@ -117,7 +117,7 @@ impl OrderSubmitter {
     ///
     /// Converts Nautilus types to Polymarket types, calculates expiration,
     /// builds and signs the order, then submits via HTTP.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_limit_order(
         &self,
         token_id: &str,

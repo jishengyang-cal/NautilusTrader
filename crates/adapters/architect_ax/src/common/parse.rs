@@ -117,7 +117,6 @@ pub fn quantity_to_contracts(quantity: Quantity) -> anyhow::Result<u64> {
         );
     }
 
-    #[allow(clippy::unnecessary_cast)]
     let contracts = (raw / scale) as u64;
     if contracts == 0 {
         anyhow::bail!("Order quantity must be at least 1 contract");

@@ -283,7 +283,7 @@ impl HyperliquidHttpClient {
         post_only=false,
         reduce_only=false,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -353,7 +353,7 @@ impl HyperliquidHttpClient {
     /// The HL modify API requires a full replacement order spec plus the
     /// venue order ID. The caller must provide all order fields.
     #[pyo3(name = "modify_order")]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,

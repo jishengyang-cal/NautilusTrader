@@ -100,7 +100,7 @@ impl PyStreamingFeatherWriter {
         flush_interval_ms=None,
         replace=false
     ))]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     pub fn new(
         path: String,
         cache: PyCache,
@@ -257,7 +257,7 @@ impl PyStreamingFeatherWriter {
     ///
     /// - `data`: The data object to write (must be a Nautilus data type from pyo3).
     ///
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     pub fn write(&self, py: Python, data: Py<PyAny>) -> PyResult<()> {
         macro_rules! try_write {
             ($type:ty, $name:literal) => {

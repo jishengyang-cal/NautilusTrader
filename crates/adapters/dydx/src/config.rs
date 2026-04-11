@@ -130,7 +130,7 @@ fn default_retry_delay_max_ms() -> u64 {
     10000
 }
 
-#[allow(
+#[expect(
     clippy::unnecessary_wraps,
     reason = "serde default must match field type Option<u32>"
 )]

@@ -3786,7 +3786,7 @@ fn test_pool_snapshot_request_routing_by_client_id(
 
 #[rstest]
 #[tokio::test]
-#[allow(clippy::await_holding_refcell_ref)] // Single-threaded test
+#[expect(clippy::await_holding_refcell_ref)] // Single-threaded test
 async fn test_data_engine_connect_continues_with_failing_client(
     #[from(data_engine)] data_engine: Rc<RefCell<DataEngine>>,
 ) {
@@ -3806,7 +3806,7 @@ async fn test_data_engine_connect_continues_with_failing_client(
 
 #[rstest]
 #[tokio::test]
-#[allow(clippy::await_holding_refcell_ref)] // Single-threaded test
+#[expect(clippy::await_holding_refcell_ref)] // Single-threaded test
 async fn test_data_engine_connect_succeeds_with_working_client(
     clock: Rc<RefCell<TestClock>>,
     cache: Rc<RefCell<Cache>>,

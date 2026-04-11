@@ -1813,7 +1813,7 @@ mod tests {
         client.instrument_cache.insert_instruments_only(vec![]);
 
         // Clone after initialization
-        #[allow(clippy::redundant_clone)]
+        #[expect(clippy::redundant_clone)]
         let cloned_after = client.clone();
         assert!(cloned_after.is_cache_initialized());
     }

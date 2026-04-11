@@ -36,7 +36,7 @@ impl PositionAdjusted {
     /// order fills, such as:
     /// - Commission adjustments that affect the actual quantity held (e.g., crypto spot commissions)
     /// - Funding payments that affect realized PnL (e.g., perpetual futures funding)
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[new]
     #[pyo3(signature = (trader_id, strategy_id, instrument_id, position_id, account_id, adjustment_type, quantity_change, pnl_change, reason, event_id, ts_event, ts_init))]
     fn py_new(

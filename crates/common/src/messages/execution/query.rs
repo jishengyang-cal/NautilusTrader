@@ -34,7 +34,6 @@ pub struct QueryAccount {
 
 impl QueryAccount {
     /// Creates a new [`QueryAccount`] instance.
-    #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub const fn new(
         trader_id: TraderId,
@@ -78,7 +77,7 @@ pub struct QueryOrder {
 
 impl QueryOrder {
     /// Creates a new [`QueryOrder`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub const fn new(
         trader_id: TraderId,

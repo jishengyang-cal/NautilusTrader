@@ -40,7 +40,7 @@ use crate::{
 impl OrderStatusReport {
     /// Represents an order status at a point in time.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(signature = (
         account_id,
         instrument_id,

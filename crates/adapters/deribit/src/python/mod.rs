@@ -15,7 +15,7 @@
 
 //! Python bindings from `pyo3`.
 
-#![allow(
+#![expect(
     clippy::missing_errors_doc,
     reason = "errors documented on underlying Rust methods"
 )]
@@ -39,7 +39,7 @@ use crate::{
     factories::{DeribitDataClientFactory, DeribitExecutionClientFactory},
 };
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_deribit_data_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -52,7 +52,7 @@ fn extract_deribit_data_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_deribit_exec_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -65,7 +65,7 @@ fn extract_deribit_exec_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_deribit_data_config(
     py: Python<'_>,
     config: Py<PyAny>,
@@ -78,7 +78,7 @@ fn extract_deribit_data_config(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_deribit_exec_config(
     py: Python<'_>,
     config: Py<PyAny>,

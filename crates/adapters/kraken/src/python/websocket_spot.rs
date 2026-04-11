@@ -169,7 +169,7 @@ impl KrakenSpotWebSocketClient {
 
     /// Connects to the WebSocket server.
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -491,7 +491,6 @@ impl KrakenSpotWebSocketClient {
 
     /// Caches an instrument for execution report parsing.
     #[pyo3(name = "cache_instrument")]
-    #[allow(clippy::needless_pass_by_value)]
     fn py_cache_instrument(&self, py: Python, instrument: Py<PyAny>) -> PyResult<()> {
         let inst_any = pyobject_to_instrument_any(py, instrument)?;
         self.cache_instrument(inst_any);

@@ -76,7 +76,7 @@ impl Clone for ExecutionClientCore {
 
 impl ExecutionClientCore {
     /// Creates a new [`ExecutionClientCore`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub fn new(
         trader_id: TraderId,

@@ -1006,7 +1006,6 @@ impl WebSocketClient {
     /// # Errors
     ///
     /// Returns an error if the connection cannot be established.
-    #[allow(clippy::too_many_arguments)]
     pub async fn connect_stream(
         config: WebSocketConfig,
         keyed_quotas: Vec<(String, Quota)>,
@@ -1654,7 +1653,7 @@ mod tests {
     }
 
     impl Callback for TestCallback {
-        #[allow(clippy::panic_in_result_fn)]
+        #[expect(clippy::panic_in_result_fn)]
         fn on_request(
             self,
             request: &server::Request,

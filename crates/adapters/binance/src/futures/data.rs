@@ -211,7 +211,7 @@ impl BinanceFuturesDataClient {
         });
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn handle_ws_message(
         msg: BinanceFuturesWsStreamsMessage,
         data_sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
@@ -391,7 +391,7 @@ impl BinanceFuturesDataClient {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     async fn fetch_and_emit_snapshot(
         http: BinanceFuturesHttpClient,
         sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
@@ -416,7 +416,7 @@ impl BinanceFuturesDataClient {
         .await;
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     async fn fetch_and_emit_snapshot_inner(
         http: BinanceFuturesHttpClient,
         sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,

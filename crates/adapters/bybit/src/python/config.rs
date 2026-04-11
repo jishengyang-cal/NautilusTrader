@@ -46,7 +46,7 @@ impl BybitDataClientConfig {
         update_instruments_interval_mins = None,
         instrument_status_poll_secs = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         product_types: Option<Vec<BybitProductType>>,
         environment: Option<BybitEnvironment>,
@@ -120,7 +120,7 @@ impl BybitExecClientConfig {
         use_spot_position_reports = None,
         margin_mode = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         product_types: Option<Vec<BybitProductType>>,
         environment: Option<BybitEnvironment>,

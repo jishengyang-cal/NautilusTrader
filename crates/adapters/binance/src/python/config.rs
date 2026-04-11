@@ -95,7 +95,7 @@ impl BinanceExecClientConfig {
         futures_margin_types = None,
         treat_expired_as_canceled = false,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         trader_id: TraderId,
         account_id: AccountId,

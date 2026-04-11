@@ -107,7 +107,7 @@ impl Default for LoggerConfig {
 impl LoggerConfig {
     /// Creates a new [`LoggerConfig`] instance.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         stdout_level: LevelFilter,
         fileout_level: LevelFilter,

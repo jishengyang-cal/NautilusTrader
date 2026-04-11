@@ -50,7 +50,7 @@ use crate::websocket::futures::{
 /// `partial_fill`) are skipped — the corresponding `FillsDelta` carries the
 /// real fill, so emitting a synthetic Canceled here would race with the
 /// genuine `OrderFilled`.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn open_orders_delta(
     delta: &KrakenFuturesOpenOrdersDelta,
     state: &WsDispatchState,
@@ -142,7 +142,7 @@ pub fn open_orders_delta(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn delta_tracked(
     delta: &KrakenFuturesOpenOrdersDelta,
     client_order_id: ClientOrderId,
@@ -255,7 +255,7 @@ fn delta_tracked(
 }
 
 /// Dispatches a Kraken Futures `OpenOrdersCancel` (cancel-only) message.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn open_orders_cancel(
     cancel: &KrakenFuturesOpenOrdersCancel,
     state: &WsDispatchState,
@@ -361,7 +361,7 @@ pub fn open_orders_cancel(
 }
 
 /// Dispatches a Kraken Futures `FillsDelta` message.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn fills_delta(
     fills_delta: &KrakenFuturesFillsDelta,
     state: &WsDispatchState,
@@ -386,7 +386,7 @@ pub fn fills_delta(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn single_fill(
     fill: &KrakenFuturesFill,
     state: &WsDispatchState,

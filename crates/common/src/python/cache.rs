@@ -549,7 +549,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "orders", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders(
         &self,
         py: Python,
@@ -574,7 +573,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "orders_open", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_open(
         &self,
         py: Python,
@@ -599,7 +597,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "orders_closed", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_closed(
         &self,
         py: Python,
@@ -624,7 +621,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "orders_emulated", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_emulated(
         &self,
         py: Python,
@@ -649,7 +645,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "orders_inflight", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_inflight(
         &self,
         py: Python,
@@ -846,7 +841,7 @@ impl PyCache {
     }
 
     #[pyo3(name = "orders_for_exec_algorithm", signature = (exec_algorithm_id, venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_orders_for_exec_algorithm(
         &self,
         py: Python,
@@ -947,7 +942,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "positions", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_positions(
         &self,
         py: Python,
@@ -972,7 +966,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "positions_open", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_positions_open(
         &self,
         py: Python,
@@ -997,7 +990,6 @@ impl PyCache {
     }
 
     #[pyo3(name = "positions_closed", signature = (venue=None, instrument_id=None, strategy_id=None, account_id=None, side=None))]
-    #[allow(clippy::too_many_arguments)]
     fn py_positions_closed(
         &self,
         py: Python,
@@ -1138,7 +1130,7 @@ impl PyCache {
 impl CacheConfig {
     /// Configuration for `Cache` instances.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         encoding: Option<SerializationEncoding>,
         timestamps_as_iso8601: Option<bool>,
@@ -1497,7 +1489,7 @@ impl Cache {
 
     /// Adds the `position` to the cache.
     #[pyo3(name = "add_position")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_position(
         &mut self,
         py: Python,
@@ -1945,7 +1937,6 @@ impl Cache {
 
     /// Returns references to all orders matching the optional filter parameters.
     #[pyo3(name = "orders")]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders(
         &self,
         py: Python,
@@ -1969,7 +1960,6 @@ impl Cache {
 
     /// Returns references to all open orders matching the optional filter parameters.
     #[pyo3(name = "orders_open")]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_open(
         &self,
         py: Python,
@@ -1993,7 +1983,6 @@ impl Cache {
 
     /// Returns references to all closed orders matching the optional filter parameters.
     #[pyo3(name = "orders_closed")]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_closed(
         &self,
         py: Python,
@@ -2017,7 +2006,6 @@ impl Cache {
 
     /// Returns references to all emulated orders matching the optional filter parameters.
     #[pyo3(name = "orders_emulated")]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_emulated(
         &self,
         py: Python,
@@ -2041,7 +2029,6 @@ impl Cache {
 
     /// Returns references to all in-flight orders matching the optional filter parameters.
     #[pyo3(name = "orders_inflight")]
-    #[allow(clippy::too_many_arguments)]
     fn py_orders_inflight(
         &self,
         py: Python,
@@ -2167,7 +2154,7 @@ impl Cache {
     /// Returns references to all orders associated with the `exec_algorithm_id` matching the
     /// optional filter parameters.
     #[pyo3(name = "orders_for_exec_algorithm")]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_orders_for_exec_algorithm(
         &self,
         py: Python,
@@ -2255,7 +2242,6 @@ impl Cache {
 
     /// Returns a reference to all positions matching the optional filter parameters.
     #[pyo3(name = "positions")]
-    #[allow(clippy::too_many_arguments)]
     fn py_positions(
         &self,
         py: Python,
@@ -2279,7 +2265,6 @@ impl Cache {
 
     /// Returns a reference to all open positions matching the optional filter parameters.
     #[pyo3(name = "positions_open")]
-    #[allow(clippy::too_many_arguments)]
     fn py_positions_open(
         &self,
         py: Python,
@@ -2303,7 +2288,6 @@ impl Cache {
 
     /// Returns a reference to all closed positions matching the optional filter parameters.
     #[pyo3(name = "positions_closed")]
-    #[allow(clippy::too_many_arguments)]
     fn py_positions_closed(
         &self,
         py: Python,
@@ -2430,7 +2414,7 @@ impl Cache {
 
     /// Calculates the unrealized PnL for the given position.
     #[pyo3(name = "calculate_unrealized_pnl")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_calculate_unrealized_pnl(
         &self,
         py: Python,

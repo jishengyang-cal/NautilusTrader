@@ -2173,7 +2173,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_ws_message(
     msg: BinanceFuturesWsStreamsMessage,
     emitter: &ExecutionEventEmitter,
@@ -2269,7 +2269,7 @@ fn dispatch_ws_message(
 ///
 /// Tracked orders produce proper order events. Untracked orders fall back
 /// to execution reports for reconciliation.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_order_update(
     msg: &BinanceFuturesOrderUpdateMsg,
     emitter: &ExecutionEventEmitter,
@@ -2702,7 +2702,7 @@ fn make_venue_position_id(
 }
 
 /// Skips events with zero fill quantity (pending liquidation notifications).
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_exchange_generated_fill(
     msg: &BinanceFuturesOrderUpdateMsg,
     emitter: &ExecutionEventEmitter,
@@ -2788,7 +2788,7 @@ fn dispatch_exchange_generated_fill(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn dispatch_algo_update(
     msg: &BinanceFuturesAlgoUpdateMsg,
     emitter: &ExecutionEventEmitter,

@@ -892,10 +892,6 @@ impl OKXWebSocketClient {
             .to_string()
     }
 
-    #[allow(
-        clippy::result_large_err,
-        reason = "OKXWsError contains large tungstenite::Error variant"
-    )]
     async fn subscribe(&self, args: Vec<OKXSubscriptionArg>) -> Result<(), OKXWsError> {
         // Send the command first; only update local state on success
         self.cmd_tx
@@ -940,7 +936,7 @@ impl OKXWebSocketClient {
         Ok(())
     }
 
-    #[allow(clippy::collapsible_if)]
+    #[expect(clippy::collapsible_if)]
     async fn unsubscribe(&self, args: Vec<OKXSubscriptionArg>) -> Result<(), OKXWsError> {
         // Send the command first; only update local state on success
         self.cmd_tx
@@ -1947,7 +1943,7 @@ impl OKXWebSocketClient {
     ///
     /// - Regular orders: <https://www.okx.com/docs-v5/en/#order-book-trading-trade-ws-place-order>
     /// - Algo orders: <https://www.okx.com/docs-v5/en/#order-book-trading-algo-trading-post-place-algo-order>
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         trader_id: TraderId,
@@ -2215,7 +2211,7 @@ impl OKXWebSocketClient {
     /// # References
     ///
     /// <https://www.okx.com/docs-v5/en/#order-book-trading-trade-ws-amend-order>.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
         trader_id: TraderId,
@@ -2312,7 +2308,6 @@ impl OKXWebSocketClient {
     /// # References
     ///
     /// <https://www.okx.com/docs-v5/en/#order-book-trading-trade-ws-cancel-order>.
-    #[allow(clippy::too_many_arguments)]
     pub async fn cancel_order(
         &self,
         trader_id: TraderId,
@@ -2461,8 +2456,7 @@ impl OKXWebSocketClient {
     ///
     /// Returns an error if any batch order parameters are invalid or if the
     /// batch request fails to send.
-    #[allow(clippy::type_complexity)]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::type_complexity)]
     pub async fn batch_submit_orders(
         &self,
         orders: Vec<(
@@ -2569,8 +2563,7 @@ impl OKXWebSocketClient {
     ///
     /// Returns an error if amend parameters are invalid or if the batch request
     /// fails to send.
-    #[allow(clippy::type_complexity)]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::type_complexity)]
     pub async fn batch_modify_orders(
         &self,
         orders: Vec<(
@@ -2629,7 +2622,6 @@ impl OKXWebSocketClient {
     /// # References
     ///
     /// <https://www.okx.com/docs-v5/en/#order-book-trading-websocket-batch-cancel-orders>
-    #[allow(clippy::type_complexity)]
     pub async fn batch_cancel_orders(
         &self,
         orders: Vec<(InstrumentId, Option<ClientOrderId>, Option<VenueOrderId>)>,
@@ -2676,7 +2668,7 @@ impl OKXWebSocketClient {
     /// # References
     ///
     /// <https://www.okx.com/docs-v5/en/#order-book-trading-algo-trading-post-place-algo-order>
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_algo_order(
         &self,
         _trader_id: TraderId,

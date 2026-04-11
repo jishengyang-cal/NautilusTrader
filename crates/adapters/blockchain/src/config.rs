@@ -107,7 +107,7 @@ pub struct BlockchainDataClientConfig {
 
 impl BlockchainDataClientConfig {
     /// Creates a new [`BlockchainDataClientConfig`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[must_use]
     pub fn new(
         chain: SharedChain,

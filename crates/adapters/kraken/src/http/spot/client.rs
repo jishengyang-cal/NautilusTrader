@@ -157,7 +157,7 @@ impl Debug for KrakenSpotRawHttpClient {
 
 impl KrakenSpotRawHttpClient {
     /// Creates a new [`KrakenSpotRawHttpClient`].
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         environment: KrakenEnvironment,
         base_url_override: Option<String>,
@@ -204,7 +204,7 @@ impl KrakenSpotRawHttpClient {
     }
 
     /// Creates a new [`KrakenSpotRawHttpClient`] with credentials.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1114,7 +1114,7 @@ impl Debug for KrakenSpotHttpClient {
 
 impl KrakenSpotHttpClient {
     /// Creates a new [`KrakenSpotHttpClient`].
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         environment: KrakenEnvironment,
         base_url_override: Option<String>,
@@ -1145,7 +1145,7 @@ impl KrakenSpotHttpClient {
     }
 
     /// Creates a new [`KrakenSpotHttpClient`] with credentials.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1186,7 +1186,7 @@ impl KrakenSpotHttpClient {
     /// Note: Kraken Spot does not have a testnet/demo environment.
     ///
     /// Falls back to unauthenticated client if credentials are not set.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn from_env(
         environment: KrakenEnvironment,
         base_url_override: Option<String>,
@@ -1893,7 +1893,7 @@ impl KrakenSpotHttpClient {
     /// - The order type or time in force is not supported.
     /// - The request fails.
     /// - The order is rejected.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         _account_id: AccountId,
@@ -1946,7 +1946,7 @@ impl KrakenSpotHttpClient {
     ///
     /// Automatically groups orders by pair and chunks batch requests at the venue
     /// limit. Single-order groups fall back to `AddOrder`.
-    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub async fn submit_orders_batch(
         &self,
         orders: Vec<(
@@ -2222,7 +2222,7 @@ impl KrakenSpotHttpClient {
         Ok(total_cancelled)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn build_add_order_params(
         &self,
         instrument_id: InstrumentId,

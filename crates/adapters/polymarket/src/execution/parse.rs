@@ -168,7 +168,7 @@ pub fn parse_order_status_report(
 /// Produces one fill report for the overall trade. The `trade_id` is
 /// derived from the Polymarket trade ID. Commission is computed from the
 /// instrument's effective taker fee rate and the fill notional.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn parse_fill_report(
     trade: &PolymarketTradeReport,
     instrument_id: InstrumentId,
@@ -222,7 +222,7 @@ pub fn parse_fill_report(
 /// Used by both the WS stream handler and REST fill report generation since both
 /// share the same [`PolymarketMakerOrder`] type for maker fills. Maker fills never
 /// pay commission per Polymarket's fee rules.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn build_maker_fill_report(
     mo: &PolymarketMakerOrder,
     trade_id: &str,

@@ -208,7 +208,7 @@ impl ExecutionEventEmitter {
     }
 
     /// Generates and emits an order updated event.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn emit_order_updated(
         &self,
         order: &OrderAny,
@@ -272,7 +272,7 @@ impl ExecutionEventEmitter {
     }
 
     /// Generates and emits an order filled event.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn emit_order_filled(
         &self,
         order: &OrderAny,
@@ -303,7 +303,6 @@ impl ExecutionEventEmitter {
     }
 
     /// Constructs and emits an order rejected event from raw fields.
-    #[allow(clippy::too_many_arguments)]
     pub fn emit_order_rejected_event(
         &self,
         strategy_id: StrategyId,
@@ -330,7 +329,6 @@ impl ExecutionEventEmitter {
     }
 
     /// Constructs and emits an order modify rejected event from raw fields.
-    #[allow(clippy::too_many_arguments)]
     pub fn emit_order_modify_rejected_event(
         &self,
         strategy_id: StrategyId,
@@ -357,7 +355,6 @@ impl ExecutionEventEmitter {
     }
 
     /// Constructs and emits an order cancel rejected event from raw fields.
-    #[allow(clippy::too_many_arguments)]
     pub fn emit_order_cancel_rejected_event(
         &self,
         strategy_id: StrategyId,

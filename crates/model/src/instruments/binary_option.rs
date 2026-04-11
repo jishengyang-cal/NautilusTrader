@@ -108,7 +108,7 @@ impl BinaryOption {
     /// # Errors
     ///
     /// Returns an error if any input validation fails (e.g., invalid precision or increments).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_checked(
         instrument_id: InstrumentId,
         raw_symbol: Symbol,
@@ -185,7 +185,7 @@ impl BinaryOption {
     /// # Panics
     ///
     /// Panics if parameter validation fails during `new_checked`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         raw_symbol: Symbol,

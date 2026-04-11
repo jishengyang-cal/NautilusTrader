@@ -36,7 +36,7 @@ use crate::{
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 impl Equity {
     /// Represents a generic equity instrument.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[new]
     #[pyo3(signature = (instrument_id, raw_symbol, currency, price_precision, price_increment, ts_event, ts_init, isin=None, lot_size=None, max_quantity=None, min_quantity=None, max_price=None, min_price=None, margin_init=None, margin_maint=None, maker_fee=None, taker_fee=None, info=None))]
     fn py_new(

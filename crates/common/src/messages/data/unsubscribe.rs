@@ -36,7 +36,6 @@ pub struct UnsubscribeCustomData {
 
 impl UnsubscribeCustomData {
     /// Creates a new [`UnsubscribeCustomData`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         client_id: Option<ClientId>,
         venue: Option<Venue>,
@@ -72,7 +71,6 @@ pub struct UnsubscribeInstrument {
 
 impl UnsubscribeInstrument {
     /// Creates a new [`UnsubscribeInstrument`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -139,7 +137,6 @@ pub struct UnsubscribeBookDeltas {
 
 impl UnsubscribeBookDeltas {
     /// Creates a new [`UnsubscribeBookDeltas`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -175,7 +172,6 @@ pub struct UnsubscribeBookDepth10 {
 
 impl UnsubscribeBookDepth10 {
     /// Creates a new [`UnsubscribeBookDepth10`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -212,7 +208,7 @@ pub struct UnsubscribeBookSnapshots {
 
 impl UnsubscribeBookSnapshots {
     /// Creates a new [`UnsubscribeBookSnapshots`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         interval_ms: NonZeroUsize,
@@ -250,7 +246,6 @@ pub struct UnsubscribeQuotes {
 
 impl UnsubscribeQuotes {
     /// Creates a new [`UnsubscribeQuotes`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -286,7 +281,6 @@ pub struct UnsubscribeTrades {
 
 impl UnsubscribeTrades {
     /// Creates a new [`UnsubscribeTrades`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -322,7 +316,6 @@ pub struct UnsubscribeBars {
 
 impl UnsubscribeBars {
     /// Creates a new [`UnsubscribeBars`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         bar_type: BarType,
         client_id: Option<ClientId>,
@@ -358,7 +351,6 @@ pub struct UnsubscribeMarkPrices {
 
 impl UnsubscribeMarkPrices {
     /// Creates a new [`UnsubscribeMarkPrices`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -394,7 +386,6 @@ pub struct UnsubscribeIndexPrices {
 
 impl UnsubscribeIndexPrices {
     /// Creates a new [`UnsubscribeIndexPrices`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -430,7 +421,6 @@ pub struct UnsubscribeFundingRates {
 
 impl UnsubscribeFundingRates {
     /// Creates a new [`UnsubscribeFundingRates`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -466,7 +456,6 @@ pub struct UnsubscribeInstrumentStatus {
 
 impl UnsubscribeInstrumentStatus {
     /// Creates a new [`UnsubscribeInstrumentStatus`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -502,7 +491,6 @@ pub struct UnsubscribeOptionGreeks {
 
 impl UnsubscribeOptionGreeks {
     /// Creates a new [`UnsubscribeOptionGreeks`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,
@@ -538,7 +526,6 @@ pub struct UnsubscribeInstrumentClose {
 
 impl UnsubscribeInstrumentClose {
     /// Creates a new [`UnsubscribeInstrumentClose`] instance.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         client_id: Option<ClientId>,

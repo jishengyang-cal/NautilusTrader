@@ -242,7 +242,7 @@ impl KrakenFuturesDataClient {
         instruments.load().get(&instrument_id).cloned()
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn handle_ws_message(
         msg: KrakenFuturesWsMessage,
         sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,

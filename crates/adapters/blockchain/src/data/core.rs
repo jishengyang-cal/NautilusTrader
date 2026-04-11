@@ -657,7 +657,7 @@ impl BlockchainDataClientCore {
         sync_result
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     async fn flush_event_batches(
         &self,
         event_batch_size: usize,

@@ -15,7 +15,7 @@
 
 //! Python bindings from `pyo3`.
 
-#![allow(
+#![expect(
     clippy::missing_errors_doc,
     reason = "errors documented on underlying Rust methods"
 )]
@@ -35,7 +35,7 @@ use crate::{
     factories::{PolymarketDataClientFactory, PolymarketExecutionClientFactory},
 };
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_polymarket_data_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -48,7 +48,7 @@ fn extract_polymarket_data_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_polymarket_exec_factory(
     py: Python<'_>,
     factory: Py<PyAny>,
@@ -61,7 +61,7 @@ fn extract_polymarket_exec_factory(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_polymarket_data_config(
     py: Python<'_>,
     config: Py<PyAny>,
@@ -74,7 +74,7 @@ fn extract_polymarket_data_config(
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn extract_polymarket_exec_config(
     py: Python<'_>,
     config: Py<PyAny>,

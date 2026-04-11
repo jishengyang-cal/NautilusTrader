@@ -135,7 +135,7 @@ impl BettingInstrument {
     /// # Errors
     ///
     /// Returns an error if any input validation fails (precision mismatches or non-positive increments).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_checked(
         instrument_id: InstrumentId,
         raw_symbol: Symbol,
@@ -234,7 +234,7 @@ impl BettingInstrument {
     /// # Panics
     ///
     /// Panics if any required parameter is invalid or parsing fails during `new_checked`.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         instrument_id: InstrumentId,
         raw_symbol: Symbol,

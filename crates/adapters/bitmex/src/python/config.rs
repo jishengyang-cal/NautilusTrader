@@ -46,7 +46,7 @@ impl BitmexDataClientConfig {
         max_requests_per_second = None,
         max_requests_per_minute = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -123,7 +123,7 @@ impl BitmexExecClientConfig {
         canceller_proxy_urls = None,
         deadmans_switch_timeout_secs = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         api_key: Option<String>,
         api_secret: Option<String>,

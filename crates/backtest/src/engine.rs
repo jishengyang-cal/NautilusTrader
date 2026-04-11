@@ -183,7 +183,7 @@ impl BacktestEngine {
     /// # Errors
     ///
     /// Returns an error if initializing the simulated exchange for the venue fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn add_venue(
         &mut self,
         venue: Venue,

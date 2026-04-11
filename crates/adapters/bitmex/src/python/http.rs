@@ -43,7 +43,7 @@ impl BitmexHttpClient {
     /// Nautilus-specific functionality for trading operations.
     #[new]
     #[pyo3(signature = (api_key=None, api_secret=None, base_url=None, environment=BitmexEnvironment::Mainnet, timeout_secs=60, max_retries=3, retry_delay_ms=1_000, retry_delay_max_ms=10_000, recv_window_ms=10_000, max_requests_per_second=10, max_requests_per_minute=120, proxy_url=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         api_key: Option<&str>,
         api_secret: Option<&str>,
@@ -383,7 +383,7 @@ impl BitmexHttpClient {
         peg_price_type = None,
         peg_offset_value = None
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -533,7 +533,7 @@ impl BitmexHttpClient {
         price=None,
         trigger_price=None
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,

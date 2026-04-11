@@ -245,7 +245,7 @@ impl BetPosition {
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "calc_bets_pnl")]
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 pub fn py_calc_bets_pnl(bets: Vec<Bet>) -> PyResult<Decimal> {
     Ok(calc_bets_pnl(&bets))
 }

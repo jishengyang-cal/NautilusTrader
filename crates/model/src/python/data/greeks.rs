@@ -273,7 +273,6 @@ impl BlackScholesGreeksResult {
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "black_scholes_greeks")]
-#[allow(clippy::too_many_arguments)]
 pub fn py_black_scholes_greeks(
     s: f64,
     r: f64,
@@ -312,7 +311,6 @@ pub fn py_imply_vol(
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "imply_vol_and_greeks")]
-#[allow(clippy::too_many_arguments)]
 pub fn py_imply_vol_and_greeks(
     s: f64,
     r: f64,
@@ -331,7 +329,7 @@ pub fn py_imply_vol_and_greeks(
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "refine_vol_and_greeks")]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn py_refine_vol_and_greeks(
     s: f64,
     r: f64,

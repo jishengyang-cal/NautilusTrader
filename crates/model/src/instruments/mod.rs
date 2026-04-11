@@ -80,7 +80,7 @@ use crate::{
     },
 };
 
-#[allow(clippy::missing_errors_doc, clippy::too_many_arguments)]
+#[expect(clippy::missing_errors_doc, clippy::too_many_arguments)]
 pub fn validate_instrument_common(
     price_precision: u8,
     size_precision: u8,

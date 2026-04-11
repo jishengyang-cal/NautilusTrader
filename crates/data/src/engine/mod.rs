@@ -942,7 +942,7 @@ impl DataEngine {
     }
 
     /// Processes a `DataResponse`, handling and publishing the response message.
-    #[allow(clippy::needless_pass_by_value)] // Required by message bus dispatch
+    #[expect(clippy::needless_pass_by_value)] // Required by message bus dispatch
     pub fn response(&mut self, resp: DataResponse) {
         log::debug!("{RECV}{RES} {resp:?}");
 
@@ -1963,7 +1963,6 @@ impl DataEngine {
 
     // -- INTERNAL --------------------------------------------------------------------------------
 
-    #[allow(clippy::too_many_arguments)]
     fn setup_book_updater(
         &mut self,
         instrument_id: &InstrumentId,

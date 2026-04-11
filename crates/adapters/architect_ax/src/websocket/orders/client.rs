@@ -512,7 +512,7 @@ impl AxOrdersWebSocketClient {
     /// - A limit order is missing a price.
     /// - A stop-loss order is missing a trigger price.
     /// - The order command cannot be sent.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         trader_id: TraderId,

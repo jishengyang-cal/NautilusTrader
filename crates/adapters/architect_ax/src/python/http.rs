@@ -52,7 +52,6 @@ impl AxHttpClient {
         retry_delay_max_ms=10_000,
         proxy_url=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
     fn py_new(
         base_url: Option<String>,
         orders_base_url: Option<String>,
@@ -88,7 +87,7 @@ impl AxHttpClient {
         retry_delay_max_ms=10_000,
         proxy_url=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_with_credentials(
         api_key: String,
         api_secret: String,
@@ -369,7 +368,7 @@ impl AxHttpClient {
         client_order_id=None,
         venue_order_id=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_order_status<'py>(
         &self,
         py: Python<'py>,

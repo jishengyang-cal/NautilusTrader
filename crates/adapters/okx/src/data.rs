@@ -230,7 +230,7 @@ impl OKXDataClient {
         });
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn handle_ws_message(
         message: OKXWsMessage,
         data_sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,

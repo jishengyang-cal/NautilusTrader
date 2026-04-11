@@ -84,7 +84,7 @@ pub struct OwnBookOrder {
 impl OwnBookOrder {
     /// Creates a new [`OwnBookOrder`] instance.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         trader_id: TraderId,
         client_order_id: ClientOrderId,

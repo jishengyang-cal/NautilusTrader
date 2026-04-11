@@ -98,7 +98,7 @@ fn create_order_book_depth10(ts_init: u64) -> OrderBookDepth10 {
     let mut quantity = 100.0;
     let mut order_id = 1;
 
-    #[allow(clippy::needless_range_loop)]
+    #[expect(clippy::needless_range_loop)]
     for i in 0..DEPTH10_LEN {
         let order = BookOrder::new(
             OrderSide::Buy,
@@ -119,7 +119,7 @@ fn create_order_book_depth10(ts_init: u64) -> OrderBookDepth10 {
     quantity = 100.0;
     order_id = 11;
 
-    #[allow(clippy::needless_range_loop)]
+    #[expect(clippy::needless_range_loop)]
     for i in 0..DEPTH10_LEN {
         let order = BookOrder::new(
             OrderSide::Sell,
@@ -1748,7 +1748,7 @@ fn test_prepare_consolidation_queries_basic_moved() {
 }
 
 #[rstest]
-#[allow(clippy::needless_collect)] // Collect needed for .len() and .iter().find()
+#[expect(clippy::needless_collect)] // Collect needed for .len() and .iter().find()
 fn test_prepare_consolidation_queries_with_splits_moved() {
     let tmp = tempfile::tempdir().unwrap();
     let base_dir = tmp.path().join("catalog");

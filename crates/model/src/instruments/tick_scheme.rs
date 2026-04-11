@@ -67,7 +67,7 @@ impl PartialEq for FixedTickScheme {
 impl Eq for FixedTickScheme {}
 
 impl FixedTickScheme {
-    #[allow(clippy::missing_errors_doc)]
+    #[expect(clippy::missing_errors_doc)]
     pub fn new(tick: f64) -> anyhow::Result<Self> {
         check_predicate_true(tick > 0.0, "tick must be positive")?;
         Ok(Self { tick })

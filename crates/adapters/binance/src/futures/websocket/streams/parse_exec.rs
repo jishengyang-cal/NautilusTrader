@@ -172,7 +172,7 @@ pub fn resolve_commission(
 /// # Errors
 ///
 /// Returns an error if report construction fails.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn parse_futures_order_update_to_fill(
     msg: &BinanceFuturesOrderUpdateMsg,
     account_id: AccountId,

@@ -61,7 +61,6 @@ pub struct LimitIfTouchedOrder {
     core: OrderCore,
 }
 
-#[allow(clippy::too_many_arguments)]
 impl LimitIfTouchedOrder {
     /// Creates a new [`LimitIfTouchedOrder`] instance.
     ///
@@ -71,7 +70,7 @@ impl LimitIfTouchedOrder {
     /// - The `quantity` is not positive.
     /// - The `display_qty` (when provided) exceeds `quantity`.
     /// - The `time_in_force` is GTD and the `expire_time` is `None` or zero.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_checked(
         trader_id: TraderId,
         strategy_id: StrategyId,
@@ -170,7 +169,7 @@ impl LimitIfTouchedOrder {
     /// # Panics
     ///
     /// Panics if any order validation fails (see [`LimitIfTouchedOrder::new_checked`]).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

@@ -150,7 +150,7 @@ impl PyAxMdWebSocketClient {
     }
 
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -521,7 +521,7 @@ impl PyAxOrdersWebSocketClient {
     }
 
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -612,7 +612,7 @@ impl PyAxOrdersWebSocketClient {
         trigger_price=None,
         post_only=false,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -701,7 +701,7 @@ impl PyAxOrdersWebSocketClient {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_md_message(
     message: AxMdMessage,
     instruments: &Arc<AtomicMap<Ustr, InstrumentAny>>,

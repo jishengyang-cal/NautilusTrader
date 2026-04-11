@@ -137,7 +137,7 @@ impl Debug for OrderMatchingEngine {
 
 impl OrderMatchingEngine {
     /// Creates a new [`OrderMatchingEngine`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         instrument: InstrumentAny,
         raw_id: u32,
@@ -1789,7 +1789,6 @@ impl OrderMatchingEngine {
     /// # Panics
     ///
     /// Panics if an OTO child order references a missing or non-OTO parent.
-    #[allow(clippy::needless_return)]
     pub fn process_order(&mut self, order: &mut OrderAny, account_id: AccountId) {
         // Validate inside a cache borrow scope, collecting any rejection
         // reason rather than emitting events while the borrow is held.
@@ -4389,7 +4388,7 @@ impl OrderMatchingEngine {
         self.dispatch_order_event(event);
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn generate_order_modify_rejected(
         &self,
         trader_id: TraderId,
@@ -4417,7 +4416,7 @@ impl OrderMatchingEngine {
         self.dispatch_order_event(event);
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn generate_order_cancel_rejected(
         &self,
         trader_id: TraderId,
@@ -4526,7 +4525,7 @@ impl OrderMatchingEngine {
         self.dispatch_order_event(event);
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn generate_order_filled(
         &mut self,
         order: &OrderAny,

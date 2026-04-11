@@ -154,7 +154,6 @@ impl WsDispatchState {
 /// proper order events (OrderAccepted, OrderCanceled, OrderFilled, etc.).
 /// For untracked orders (external or pre-existing), falls back to execution
 /// reports for downstream reconciliation.
-#[allow(clippy::too_many_arguments)]
 pub fn dispatch_ws_message(
     message: &BybitWsMessage,
     emitter: &ExecutionEventEmitter,
@@ -783,7 +782,7 @@ fn dispatch_order_response(
 }
 
 /// Emits the appropriate rejection event based on the pending operation type.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn emit_rejection_for_op(
     pending_op: &PendingOperation,
     client_order_id: ClientOrderId,

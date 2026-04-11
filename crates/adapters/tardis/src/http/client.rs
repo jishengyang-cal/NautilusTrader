@@ -206,7 +206,7 @@ impl TardisHttpClient {
     /// Returns an error if fetching instrument info or parsing into domain types fails.
     ///
     /// See <https://docs.tardis.dev/api/instruments-metadata-api>.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn instruments(
         &self,
         exchange: TardisExchange,

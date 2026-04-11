@@ -27,7 +27,7 @@ impl PolymarketDataClientConfig {
     /// Configuration for the Polymarket data client.
     #[new]
     #[pyo3(signature = (base_url_http=None, base_url_ws=None, base_url_gamma=None, base_url_data_api=None, http_timeout_secs=None, ws_timeout_secs=None, ws_max_subscriptions=None, update_instruments_interval_mins=None, subscribe_new_markets=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         base_url_http: Option<String>,
         base_url_ws: Option<String>,
@@ -70,7 +70,7 @@ impl PolymarketDataClientConfig {
 impl PolymarketExecClientConfig {
     /// Configuration for the Polymarket execution client.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(signature = (trader_id=None, account_id=None, private_key=None, api_key=None, api_secret=None, passphrase=None, funder=None, signature_type=None, base_url_http=None, base_url_ws=None, base_url_data_api=None, http_timeout_secs=None, max_retries=None, retry_delay_initial_ms=None, retry_delay_max_ms=None, ack_timeout_secs=None))]
     fn py_new(
         trader_id: Option<String>,

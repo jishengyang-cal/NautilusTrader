@@ -283,7 +283,7 @@ impl QuoteTick {
 
     #[staticmethod]
     #[pyo3(name = "from_raw")]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_from_raw(
         instrument_id: InstrumentId,
         bid_price_raw: PriceRaw,

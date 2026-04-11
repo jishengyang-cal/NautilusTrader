@@ -187,7 +187,6 @@ impl DeribitRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         environment: DeribitEnvironment,
@@ -320,7 +319,7 @@ impl DeribitRawHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -377,7 +376,7 @@ impl DeribitRawHttpClient {
     /// Returns an error if:
     /// - The HTTP client cannot be created
     /// - Credentials are not provided and environment variables are not set
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_with_env(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -885,7 +884,6 @@ impl DeribitHttpClient {
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be created.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         base_url: Option<String>,
         environment: DeribitEnvironment,
@@ -924,7 +922,7 @@ impl DeribitHttpClient {
     /// Returns an error if:
     /// - The HTTP client cannot be created
     /// - Credentials are not provided and environment variables are not set
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_with_env(
         api_key: Option<String>,
         api_secret: Option<String>,

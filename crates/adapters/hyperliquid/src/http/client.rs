@@ -1490,7 +1490,7 @@ impl HyperliquidHttpClient {
     ///
     /// Returns an error if the asset index is not found, the venue order ID
     /// is invalid, or the API returns an error.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
         instrument_id: InstrumentId,
@@ -2169,7 +2169,7 @@ impl HyperliquidHttpClient {
     ///
     /// Returns an error if credentials are missing, order validation fails, serialization fails,
     /// or the API returns an error.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         instrument_id: InstrumentId,
@@ -2427,7 +2427,7 @@ impl HyperliquidHttpClient {
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn create_order_status_report(
         &self,
         instrument_id: InstrumentId,

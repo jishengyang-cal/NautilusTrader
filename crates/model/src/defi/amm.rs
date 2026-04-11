@@ -107,7 +107,7 @@ pub type SharedPool = Arc<Pool>;
 impl Pool {
     /// Creates a new [`Pool`] instance with the specified properties.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         chain: SharedChain,
         dex: SharedDex,

@@ -343,7 +343,7 @@ pub trait ExecutionAlgorithm: DataActor {
     /// by the spawned quantity. If the spawned order is subsequently denied or
     /// rejected (before acceptance), the deducted quantity is automatically
     /// restored to the primary order.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn spawn_limit(
         &mut self,
         primary: &mut OrderAny,
@@ -411,7 +411,7 @@ pub trait ExecutionAlgorithm: DataActor {
     /// by the spawned quantity. If the spawned order is subsequently denied or
     /// rejected (before acceptance), the deducted quantity is automatically
     /// restored to the primary order.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn spawn_market_to_limit(
         &mut self,
         primary: &mut OrderAny,

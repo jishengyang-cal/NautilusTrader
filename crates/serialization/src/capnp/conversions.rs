@@ -441,7 +441,7 @@ impl<'a> FromCapnp<'a> for InstrumentId {
 impl<'a> ToCapnp<'a> for Price {
     type Builder = types_capnp::price::Builder<'a>;
 
-    #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
+    #[expect(clippy::useless_conversion)] // Needed for non-high-precision builds
     fn to_capnp(&self, mut builder: Self::Builder) {
         let raw_i128: i128 = self.raw.into();
         let lo = raw_i128 as u64;
@@ -477,7 +477,7 @@ impl<'a> FromCapnp<'a> for Price {
         #[cfg(feature = "high-precision")]
         let raw = raw_i128;
 
-        #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
+        #[expect(clippy::useless_conversion)] // Needed for non-high-precision builds
         Ok(Self::from_raw(raw.into(), precision))
     }
 }
@@ -485,7 +485,7 @@ impl<'a> FromCapnp<'a> for Price {
 impl<'a> ToCapnp<'a> for Quantity {
     type Builder = types_capnp::quantity::Builder<'a>;
 
-    #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
+    #[expect(clippy::useless_conversion)] // Needed for non-high-precision builds
     fn to_capnp(&self, mut builder: Self::Builder) {
         let raw_u128: u128 = self.raw.into();
         let lo = raw_u128 as u64;
@@ -519,7 +519,7 @@ impl<'a> FromCapnp<'a> for Quantity {
         #[cfg(feature = "high-precision")]
         let raw = raw_u128;
 
-        #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
+        #[expect(clippy::useless_conversion)] // Needed for non-high-precision builds
         Ok(Self::from_raw(raw.into(), precision))
     }
 }
@@ -1179,7 +1179,7 @@ impl<'a> FromCapnp<'a> for Currency {
 impl<'a> ToCapnp<'a> for Money {
     type Builder = types_capnp::money::Builder<'a>;
 
-    #[allow(clippy::useless_conversion)] // Needed for non-high-precision builds
+    #[expect(clippy::useless_conversion)] // Needed for non-high-precision builds
     fn to_capnp(&self, mut builder: Self::Builder) {
         let mut raw_builder = builder.reborrow().init_raw();
 

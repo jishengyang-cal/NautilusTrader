@@ -96,7 +96,7 @@ impl OKXHttpClient {
         environment=OKXEnvironment::Live,
         proxy_url=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         api_key: Option<String>,
         api_secret: Option<String>,
@@ -494,7 +494,7 @@ impl OKXHttpClient {
     /// - <https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-order-history-last-3-months>.
     #[pyo3(name = "request_order_status_reports")]
     #[pyo3(signature = (account_id, instrument_type=None, instrument_id=None, start=None, end=None, open_only=false, limit=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_order_status_reports<'py>(
         &self,
         py: Python<'py>,
@@ -533,7 +533,7 @@ impl OKXHttpClient {
     /// Requests algo order status reports.
     #[pyo3(name = "request_algo_order_status_reports")]
     #[pyo3(signature = (account_id, instrument_type=None, instrument_id=None, algo_id=None, algo_client_order_id=None, state=None, limit=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_algo_order_status_reports<'py>(
         &self,
         py: Python<'py>,
@@ -600,7 +600,7 @@ impl OKXHttpClient {
     /// <https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-transaction-details-last-3-days>.
     #[pyo3(name = "request_fill_reports")]
     #[pyo3(signature = (account_id, instrument_type=None, instrument_id=None, start=None, end=None, limit=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_request_fill_reports<'py>(
         &self,
         py: Python<'py>,
@@ -705,7 +705,7 @@ impl OKXHttpClient {
         px_usd=None,
         px_vol=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_place_order<'py>(
         &self,
         py: Python<'py>,
@@ -802,7 +802,7 @@ impl OKXHttpClient {
         callback_spread=None,
         activation_price=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_place_algo_order<'py>(
         &self,
         py: Python<'py>,
@@ -912,7 +912,7 @@ impl OKXHttpClient {
     /// # References
     ///
     /// <https://www.okx.com/docs-v5/en/#order-book-trading-algo-trading-post-amend-algo-order>
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(name = "amend_algo_order")]
     #[pyo3(signature = (
         instrument_id,

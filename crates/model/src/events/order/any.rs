@@ -31,7 +31,7 @@ use crate::{
 };
 
 /// Wraps an `OrderEvent` allowing polymorphism.
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum OrderEventAny {
     Initialized(OrderInitialized),

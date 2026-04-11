@@ -467,7 +467,7 @@ mod tests {
         self_trade_prevention_mode::SelfTradePreventionMode, time_in_force::TimeInForce as SbeTif,
     };
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn encode_execution_report(
         symbol: &str,
         client_order_id: &str,

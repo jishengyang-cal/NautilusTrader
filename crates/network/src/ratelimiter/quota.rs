@@ -107,7 +107,7 @@ impl Quota {
         if replenish_1_per.as_nanos() == 0 {
             None
         } else {
-            #[allow(clippy::missing_panics_doc)]
+            #[expect(clippy::missing_panics_doc)]
             Some(Self {
                 max_burst: NonZeroU32::new(1).unwrap(),
                 replenish_1_per,

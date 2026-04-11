@@ -118,7 +118,7 @@ impl PyBacktestEngine {
             price_protection_points = None,
         )
     )]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_add_venue(
         &mut self,
         venue: Venue,
@@ -218,7 +218,7 @@ impl PyBacktestEngine {
 
     /// Changes the fill model for a venue.
     #[pyo3(name = "change_fill_model")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_change_fill_model(
         &mut self,
         py: Python,
@@ -266,7 +266,7 @@ impl PyBacktestEngine {
         reason = "Required for Python actor component registration"
     )]
     #[pyo3(name = "add_actor_from_config")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_actor_from_config(
         &mut self,
         _py: Python,
@@ -406,7 +406,7 @@ impl PyBacktestEngine {
         reason = "Required for Python strategy component registration"
     )]
     #[pyo3(name = "add_strategy_from_config")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_add_strategy_from_config(
         &mut self,
         _py: Python,

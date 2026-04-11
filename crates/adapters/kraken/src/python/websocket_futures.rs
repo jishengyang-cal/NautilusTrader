@@ -150,7 +150,7 @@ impl KrakenFuturesWebSocketClient {
 
     /// Connects to the WebSocket server.
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -292,7 +292,6 @@ impl KrakenFuturesWebSocketClient {
 
     /// Caches an instrument for execution report parsing.
     #[pyo3(name = "cache_instrument")]
-    #[allow(clippy::needless_pass_by_value)]
     fn py_cache_instrument(&self, py: Python, instrument: Py<PyAny>) -> PyResult<()> {
         let inst_any = pyobject_to_instrument_any(py, instrument)?;
         self.cache_instrument(inst_any);
@@ -301,7 +300,6 @@ impl KrakenFuturesWebSocketClient {
 
     /// Caches multiple instruments for execution report parsing.
     #[pyo3(name = "cache_instruments")]
-    #[allow(clippy::needless_pass_by_value)]
     fn py_cache_instruments(&self, py: Python, instruments: Vec<Py<PyAny>>) -> PyResult<()> {
         let mut inst_vec = Vec::with_capacity(instruments.len());
         for inst in instruments {
@@ -701,7 +699,7 @@ fn dispatch_fill_to_python(report: FillReport, call_soon: &Py<PyAny>, callback: 
     });
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_open_orders_delta(
     delta: &KrakenFuturesOpenOrdersDelta,
     instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
@@ -763,7 +761,7 @@ fn handle_open_orders_delta(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_open_orders_cancel(
     cancel: &KrakenFuturesOpenOrdersCancel,
     account_id: &Arc<RwLock<Option<AccountId>>>,
@@ -845,7 +843,6 @@ fn handle_open_orders_cancel(
     dispatch_report_to_python(report, call_soon, callback);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn handle_fills_delta(
     fills_delta: &KrakenFuturesFillsDelta,
     instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
@@ -942,7 +939,7 @@ fn handle_trade(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_book_snapshot(
     snapshot: &KrakenFuturesBookSnapshot,
     instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
@@ -1004,7 +1001,7 @@ fn handle_book_snapshot(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_book_delta(
     delta: &KrakenFuturesBookDelta,
     instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,

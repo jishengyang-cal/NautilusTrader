@@ -641,7 +641,7 @@ impl ExecutionEngine {
     }
 
     /// Starts the purge timers if configured.
-    #[allow(
+    #[expect(
         clippy::missing_panics_doc,
         reason = "timer registration is not expected to fail"
     )]
@@ -812,7 +812,7 @@ impl ExecutionEngine {
         }
     }
 
-    #[allow(clippy::await_holding_refcell_ref)]
+    #[expect(clippy::await_holding_refcell_ref)]
     /// Loads persistent state into cache and rebuilds indices.
     ///
     /// # Errors

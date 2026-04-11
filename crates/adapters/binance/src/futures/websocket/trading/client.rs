@@ -66,7 +66,7 @@ pub static BINANCE_FUTURES_WS_RATE_LIMIT_KEY_ORDER: LazyLock<[Ustr; 1]> =
 
 /// Returns the Binance Futures WebSocket API order rate limit quota (1200 per minute).
 // Constant values are provably valid
-#[allow(clippy::missing_panics_doc)]
+#[expect(clippy::missing_panics_doc)]
 #[must_use]
 pub fn binance_futures_ws_order_quota() -> Quota {
     Quota::per_second(NonZeroU32::new(20).expect("non-zero")).expect("valid constant")
@@ -159,7 +159,7 @@ impl BinanceFuturesWsTradingClient {
     ///
     /// Returns an error if connection fails.
     // Mutex poisoning is not documented individually
-    #[allow(clippy::missing_panics_doc)]
+    #[expect(clippy::missing_panics_doc)]
     pub async fn connect(&mut self) -> BinanceFuturesWsApiResult<()> {
         self.signal.store(false, Ordering::Relaxed);
         self.cancellation_token = CancellationToken::new();

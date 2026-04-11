@@ -28,7 +28,7 @@
 #[cfg(feature = "ffi")]
 use std::env;
 
-#[allow(
+#[expect(
     clippy::expect_used,
     reason = "Build script may panic on misconfiguration"
 )]

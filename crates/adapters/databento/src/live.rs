@@ -126,7 +126,7 @@ impl DatabentoFeedHandler {
     ///
     /// Panics if exponential backoff creation fails (should never happen with valid hardcoded parameters).
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         credential: Credential,
         dataset: String,
@@ -198,7 +198,6 @@ impl DatabentoFeedHandler {
     /// # Errors
     ///
     /// Returns an error if any client operation or message handling fails.
-    #[allow(clippy::blocks_in_conditions)]
     pub async fn run(&mut self) -> anyhow::Result<()> {
         log::debug!("Running feed handler");
 
@@ -811,7 +810,7 @@ fn handle_status_msg(
     decode_status_msg(msg, instrument_id, Some(ts_init))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_imbalance_msg(
     msg: &dbn::ImbalanceMsg,
     record: &dbn::RecordRef,
@@ -838,7 +837,7 @@ fn handle_imbalance_msg(
     decode_imbalance_msg(msg, instrument_id, price_precision, Some(ts_init))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_statistics_msg(
     msg: &dbn::StatMsg,
     record: &dbn::RecordRef,
@@ -865,7 +864,7 @@ fn handle_statistics_msg(
     decode_statistics_msg(msg, instrument_id, price_precision, Some(ts_init))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_record(
     record: dbn::RecordRef,
     symbol_map: &PitSymbolMap,

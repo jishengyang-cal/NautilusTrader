@@ -46,7 +46,7 @@ use crate::websocket::spot_v2::{
 };
 
 /// Dispatches a Kraken Spot v2 execution message.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn execution(
     exec: &KrakenWsExecutionData,
     state: &WsDispatchState,
@@ -163,7 +163,7 @@ pub fn execution(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn status_tracked(
     report: &OrderStatusReport,
     exec_type: KrakenExecType,
@@ -329,7 +329,7 @@ fn status_tracked(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn fill_tracked(
     report: &FillReport,
     client_order_id: ClientOrderId,

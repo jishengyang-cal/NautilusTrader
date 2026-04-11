@@ -626,7 +626,7 @@ pub struct BarTypeParseError {
 impl FromStr for BarType {
     type Err = BarTypeParseError;
 
-    #[allow(clippy::needless_collect)] // Collect needed for .rev() and indexing
+    #[expect(clippy::needless_collect)] // Collect needed for .rev() and indexing
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('@').collect();
         let standard = parts[0];
@@ -827,7 +827,7 @@ impl Bar {
     /// # Notes
     ///
     /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new_checked(
         bar_type: BarType,
         open: Price,
@@ -864,7 +864,7 @@ impl Bar {
     /// - `high` is not >= `low`.
     /// - `high` is not >= `close`.
     /// - `low` is not <= `close.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         bar_type: BarType,
         open: Price,

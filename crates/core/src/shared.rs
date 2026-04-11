@@ -235,7 +235,7 @@ mod tests {
     }
 
     #[rstest]
-    #[allow(clippy::redundant_clone, reason = "Clone is the behavior under test")]
+    #[expect(clippy::redundant_clone, reason = "Clone is the behavior under test")]
     fn test_weak_cell_clone() {
         let cell = SharedCell::new(5);
         let weak1 = cell.downgrade();

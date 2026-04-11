@@ -15,8 +15,6 @@
 
 //! Python bindings for dYdX HTTP client.
 
-#![allow(clippy::missing_errors_doc)]
-
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};

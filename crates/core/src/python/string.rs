@@ -13,8 +13,6 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-#![allow(clippy::doc_markdown, reason = "Python docstrings")]
-
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyfunction;
 
@@ -32,7 +30,7 @@ use pyo3_stub_gen::derive::gen_stub_pyfunction;
 /// ```
 #[pyfunction(name = "mask_api_key")]
 #[gen_stub_pyfunction(module = "nautilus_trader.core")]
-#[allow(
+#[expect(
     clippy::needless_pass_by_value,
     reason = "Python FFI requires owned types"
 )]

@@ -217,7 +217,7 @@ impl PyBitmexWebSocketClient {
 
     #[pyo3(name = "connect")]
     #[pyo3(signature = (loop_, instruments, callback, trader_id=None))]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -788,7 +788,7 @@ impl PyBitmexWebSocketClient {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_table_message(
     table_msg: BitmexTableMessage,
     instruments_cache: &Arc<AtomicMap<Ustr, InstrumentAny>>,
@@ -1077,7 +1077,7 @@ fn handle_instrument_messages(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_order_messages(
     data: Vec<OrderData>,
     instruments: &AHashMap<Ustr, InstrumentAny>,
@@ -1241,7 +1241,7 @@ fn handle_order_messages(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn handle_execution_messages(
     data: Vec<BitmexExecutionMsg>,
     instruments: &AHashMap<Ustr, InstrumentAny>,
@@ -1334,7 +1334,7 @@ fn handle_execution_messages(
 }
 
 /// Dispatches a parsed order event to Python with lifecycle synthesis and deduplication.
-#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+#[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 fn dispatch_order_event_to_python(
     event: ParsedOrderEvent,
     client_order_id: ClientOrderId,
@@ -1431,7 +1431,7 @@ fn dispatch_order_event_to_python(
 }
 
 /// Synthesizes and sends `OrderAccepted` to Python if one has not yet been emitted.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn ensure_accepted_to_python(
     client_order_id: ClientOrderId,
     account_id: AccountId,

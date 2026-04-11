@@ -1259,7 +1259,7 @@ impl ParquetDataCatalog {
     /// 3. Identifies and creates split operations for data preservation.
     /// 4. Generates period-based consolidation queries.
     /// 5. Checks for existing target files.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn prepare_consolidation_queries(
         &self,
         type_name: &str,

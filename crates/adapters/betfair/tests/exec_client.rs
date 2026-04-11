@@ -65,7 +65,6 @@ use serde_json::Value;
 
 use crate::common::*;
 
-#[allow(clippy::type_complexity)]
 fn create_test_execution_client(
     addr: SocketAddr,
     stream_port: u16,

@@ -37,7 +37,7 @@ impl HyperliquidDataClientConfig {
         ws_timeout_secs = None,
         update_instruments_interval_mins = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         environment: Option<HyperliquidEnvironment>,
         private_key: Option<String>,
@@ -88,7 +88,7 @@ impl HyperliquidExecClientConfig {
         retry_delay_max_ms = None,
         normalize_prices = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         private_key: Option<String>,
         vault_address: Option<String>,

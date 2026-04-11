@@ -71,7 +71,7 @@ pub struct OrderDenied {
 
 impl OrderDenied {
     /// Creates a new [`OrderDenied`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

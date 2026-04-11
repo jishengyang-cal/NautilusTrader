@@ -209,7 +209,7 @@ impl WsDispatchState {
     /// duplicate), `false` otherwise. When the dedup set is at capacity the
     /// oldest entry is evicted to make room, preserving the `DEDUP_CAPACITY`
     /// most recently seen trade IDs.
-    #[allow(
+    #[expect(
         clippy::missing_panics_doc,
         reason = "dedup mutex poisoning is not expected"
     )]
@@ -309,7 +309,7 @@ pub(crate) fn resolve_client_order_id(
 /// Updated) so that strategies always observe the canonical
 /// `Submitted -> Accepted -> ...` lifecycle even when the venue compresses
 /// the acceptance and follow-up event into a single message (fast fills).
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub(crate) fn ensure_accepted_emitted(
     client_order_id: ClientOrderId,
     venue_order_id: VenueOrderId,

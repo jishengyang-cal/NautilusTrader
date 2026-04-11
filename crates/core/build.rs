@@ -13,8 +13,6 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-#![allow(clippy::needless_return)]
-
 //! Build script for the `nautilus-core` crate.
 //!
 //! This script is executed by Cargo during compilation and is responsible for the ancillary
@@ -38,7 +36,7 @@
 
 use std::{env, path::PathBuf};
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn main() {
     // Ensure the build script runs on changes
     println!("cargo:rerun-if-env-changed=HIGH_PRECISION");

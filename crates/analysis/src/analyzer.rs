@@ -350,7 +350,7 @@ impl PortfolioAnalyzer {
     /// - No currency is specified in a multi-currency portfolio.
     /// - The specified currency is not found in account balances.
     /// - The unrealized PnL currency does not match the specified currency.
-    #[allow(clippy::missing_panics_doc)] // Guarded by length check
+    #[expect(clippy::missing_panics_doc)] // Guarded by length check
     pub fn total_pnl(
         &self,
         currency: Option<&Currency>,
@@ -398,7 +398,7 @@ impl PortfolioAnalyzer {
     /// - No currency is specified in a multi-currency portfolio.
     /// - The specified currency is not found in account balances.
     /// - The unrealized PnL currency does not match the specified currency.
-    #[allow(clippy::missing_panics_doc)] // Guarded by length check
+    #[expect(clippy::missing_panics_doc)] // Guarded by length check
     pub fn total_pnl_percentage(
         &self,
         currency: Option<&Currency>,

@@ -214,7 +214,7 @@ impl DeribitWebSocketClient {
 
     /// Connects to the Deribit WebSocket API.
     #[pyo3(name = "connect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_connect<'py>(
         &mut self,
         py: Python<'py>,
@@ -1125,7 +1125,7 @@ impl DeribitWebSocketClient {
         trigger_price=None,
         trigger_type=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_submit_order<'py>(
         &self,
         py: Python<'py>,
@@ -1192,7 +1192,7 @@ impl DeribitWebSocketClient {
     /// The order parameters are sent using the `private/edit` JSON-RPC method.
     /// Requires authentication (call `authenticate_session()` first).
     #[pyo3(name = "modify_order")]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,

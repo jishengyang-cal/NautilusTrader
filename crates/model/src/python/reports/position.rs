@@ -33,7 +33,7 @@ impl PositionStatusReport {
     /// Represents a position status at a point in time.
     #[new]
     #[pyo3(signature = (account_id, instrument_id, position_side, quantity, ts_last, ts_init, report_id=None, venue_position_id=None, avg_px_open=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         account_id: AccountId,
         instrument_id: InstrumentId,

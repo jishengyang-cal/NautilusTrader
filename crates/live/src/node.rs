@@ -490,7 +490,7 @@ impl LiveNode {
     /// # Errors
     ///
     /// Returns an error if reconciliation fails or times out.
-    #[allow(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
+    #[expect(clippy::await_holding_refcell_ref)] // Single-threaded runtime, intentional design
     async fn perform_startup_reconciliation(&mut self) -> anyhow::Result<()> {
         if !self.config.exec_engine.reconciliation {
             log::info!("Startup reconciliation disabled");
@@ -1323,8 +1323,7 @@ impl LiveNode {
     // get_all_clients() returns references into the engine's client map.
     // This is safe: select! runs one branch to completion, so no other
     // branch can borrow the same RefCells concurrently.
-    #[allow(clippy::await_holding_refcell_ref)]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::await_holding_refcell_ref)]
     async fn run_reconciliation_checks(
         &mut self,
         inflight_interval_ns: u64,

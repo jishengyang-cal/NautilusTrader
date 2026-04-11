@@ -127,7 +127,7 @@ impl Debug for KrakenFuturesRawHttpClient {
 
 impl KrakenFuturesRawHttpClient {
     /// Creates a new [`KrakenFuturesRawHttpClient`].
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         environment: KrakenEnvironment,
         base_url_override: Option<String>,
@@ -174,7 +174,7 @@ impl KrakenFuturesRawHttpClient {
     }
 
     /// Creates a new [`KrakenFuturesRawHttpClient`] with credentials.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1019,7 +1019,7 @@ impl Debug for KrakenFuturesHttpClient {
 
 impl KrakenFuturesHttpClient {
     /// Creates a new [`KrakenFuturesHttpClient`].
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         environment: KrakenEnvironment,
         base_url_override: Option<String>,
@@ -1048,7 +1048,7 @@ impl KrakenFuturesHttpClient {
     }
 
     /// Creates a new [`KrakenFuturesHttpClient`] with credentials.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn with_credentials(
         api_key: String,
         api_secret: String,
@@ -1086,7 +1086,7 @@ impl KrakenFuturesHttpClient {
     /// or `KRAKEN_FUTURES_DEMO_API_KEY` and `KRAKEN_FUTURES_DEMO_API_SECRET` (demo).
     ///
     /// Falls back to unauthenticated client if credentials are not set.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn from_env(
         environment: KrakenEnvironment,
         base_url_override: Option<String>,
@@ -1778,7 +1778,7 @@ impl KrakenFuturesHttpClient {
         Ok(all_reports)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn build_send_order_params(
         &self,
         instrument_id: InstrumentId,
@@ -1904,7 +1904,7 @@ impl KrakenFuturesHttpClient {
     /// - The order type or time in force is not supported.
     /// - The request fails.
     /// - The order is rejected.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
         &self,
         account_id: AccountId,
@@ -2199,7 +2199,7 @@ impl KrakenFuturesHttpClient {
     /// # Errors
     ///
     /// Returns an error if the batch request fails at the API level.
-    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub async fn submit_orders_batch(
         &self,
         orders: Vec<(
@@ -2332,7 +2332,7 @@ impl KrakenFuturesHttpClient {
     }
 
     /// Modifies multiple orders in a single batch request.
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub async fn edit_orders_batch(
         &self,
         orders: Vec<(

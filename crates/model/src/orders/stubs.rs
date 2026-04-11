@@ -396,7 +396,7 @@ impl TestOrderEventStubs {
     /// # Panics
     ///
     /// Panics if parsing the fallback price string fails or unwrapping default values fails.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn filled(
         order: &OrderAny,
         instrument: &InstrumentAny,

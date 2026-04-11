@@ -289,7 +289,7 @@ pub fn parse_book_snapshot_msg_as_depth10(
 }
 
 /// Parse raw book levels into order book deltas, returning error for invalid timestamps.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 /// Parse raw book levels into order book deltas.
 ///
 /// # Errors
@@ -381,7 +381,7 @@ pub fn parse_book_msg_as_deltas(
 /// # Errors
 ///
 /// Returns an error if a non-delete action has a zero size after normalization.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn parse_book_level(
     instrument_id: InstrumentId,
     price_precision: u8,

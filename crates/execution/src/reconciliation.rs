@@ -316,7 +316,7 @@ pub fn calculate_reconciliation_price(
 /// Returns `FillAdjustmentResult` indicating what adjustments (if any) are needed.
 ///
 #[must_use]
-#[allow(clippy::missing_panics_doc)] // All unwraps guarded by prior checks
+#[expect(clippy::missing_panics_doc)] // All unwraps guarded by prior checks
 pub fn adjust_fills_for_partial_window(
     fills: &[FillSnapshot],
     venue_position: &VenuePositionSnapshot,
@@ -1745,7 +1745,7 @@ pub fn is_within_single_unit_tolerance(value1: Decimal, value2: Decimal, precisi
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 mod tests {
     use nautilus_model::{
         enums::TimeInForce,

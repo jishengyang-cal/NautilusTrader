@@ -73,7 +73,7 @@ pub struct OrderCanceled {
 
 impl OrderCanceled {
     /// Creates a new [`OrderCanceled`] instance.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

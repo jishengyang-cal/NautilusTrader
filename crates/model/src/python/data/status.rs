@@ -99,7 +99,7 @@ impl InstrumentStatus {
 impl InstrumentStatus {
     /// Represents an event that indicates a change in an instrument market status.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(signature = (instrument_id, action, ts_event, ts_init, reason=None, trading_event=None, is_trading=None, is_quoting=None, is_short_sell_restricted=None))]
     fn py_new(
         instrument_id: InstrumentId,

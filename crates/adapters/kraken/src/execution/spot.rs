@@ -480,7 +480,7 @@ impl KrakenSpotExecutionClient {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn handle_ws_message(
         msg: KrakenSpotWsMessage,
         emitter: &ExecutionEventEmitter,

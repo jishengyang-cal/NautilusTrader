@@ -169,7 +169,7 @@ impl SimulatedExchange {
     /// Returns an error if:
     /// - `starting_balances` is empty.
     /// - `base_currency` is `Some` but `starting_balances` contains multiple currencies.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         venue: Venue,
         oms_type: OmsType,

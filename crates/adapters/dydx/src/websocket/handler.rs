@@ -728,7 +728,6 @@ impl FeedHandler {
     /// # Errors
     ///
     /// Returns an error if the message cannot be processed.
-    #[allow(clippy::result_large_err)]
     pub async fn handle_message(
         &mut self,
         msg: DydxWsMessage,

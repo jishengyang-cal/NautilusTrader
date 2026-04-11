@@ -255,7 +255,7 @@ impl FillTracker {
     ///
     /// Returns `None` if no new fill occurred (size matched unchanged,
     /// duplicate trade ID, or overfill detected).
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn maybe_fill_report(
         &mut self,
         uo: &UnmatchedOrder,
@@ -562,7 +562,7 @@ fn uses_liability_based_stream_quantity(uo: &UnmatchedOrder) -> bool {
 /// Betfair charges commission on net winnings, not per-fill, so commission
 /// is set to zero. The `liquidity_side` is unknown from the stream.
 #[must_use]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn make_fill_report(
     account_id: AccountId,
     instrument_id: InstrumentId,

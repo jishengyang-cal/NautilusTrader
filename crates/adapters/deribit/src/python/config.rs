@@ -43,7 +43,7 @@ impl DeribitDataClientConfig {
         heartbeat_interval_secs = None,
         update_instruments_interval_mins = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         product_types: Option<Vec<DeribitProductType>>,
         environment: Option<DeribitEnvironment>,
@@ -102,7 +102,7 @@ impl DeribitExecClientConfig {
         retry_delay_initial_ms = None,
         retry_delay_max_ms = None,
     ))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         trader_id: TraderId,
         account_id: AccountId,

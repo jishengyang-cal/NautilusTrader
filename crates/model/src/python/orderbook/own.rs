@@ -40,7 +40,7 @@ impl OwnBookOrder {
     /// depending on the value of the `status` field.
     #[pyo3(signature = (trader_id, client_order_id, side, price, size, order_type, time_in_force, status, ts_last, ts_accepted, ts_submitted, ts_init, venue_order_id=None))]
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     fn py_new(
         trader_id: TraderId,
         client_order_id: ClientOrderId,

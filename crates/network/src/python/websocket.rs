@@ -40,7 +40,7 @@ use crate::{
 
 create_exception!(network, WebSocketClientError, PyException);
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn to_websocket_pyerr(e: tokio_tungstenite::tungstenite::Error) -> PyErr {
     PyErr::new::<WebSocketClientError, _>(e.to_string())
 }
@@ -72,7 +72,7 @@ impl WebSocketConfig {
     /// - Reconnection config fields are ignored.
     /// - On disconnect, client transitions to CLOSED state and caller must manually reconnect.
     #[new]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     #[pyo3(signature = (
         url,
         headers,
@@ -131,7 +131,7 @@ impl WebSocketClient {
     /// See `WebSocketConfig` documentation for comparison with stream mode.
     #[staticmethod]
     #[pyo3(name = "connect", signature = (loop_, config, handler, ping_handler = None, post_reconnection = None, keyed_quotas = Vec::new(), default_quota = None))]
-    #[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
+    #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_connect(
         loop_: Py<PyAny>,
         config: WebSocketConfig,
@@ -209,7 +209,7 @@ impl WebSocketClient {
     /// Controller task will periodically check the disconnect mode
     /// and shutdown the client if it is alive
     #[pyo3(name = "disconnect")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_disconnect<'py>(slf: PyRef<'_, Self>, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let connection_mode = slf.connection_mode.clone();
         let state_notify = slf.state_notify.clone();
@@ -251,7 +251,7 @@ impl WebSocketClient {
     /// Returns `true` if the client is connected and has not been signalled to disconnect.
     /// The client will automatically retry connection based on its configuration.
     #[pyo3(name = "is_active")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_is_active(slf: PyRef<'_, Self>) -> bool {
         !slf.controller_task.is_finished()
     }
@@ -261,7 +261,7 @@ impl WebSocketClient {
     /// Returns `true` if the client lost connection and is attempting to reestablish it.
     /// The client will automatically retry connection based on its configuration.
     #[pyo3(name = "is_reconnecting")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_is_reconnecting(slf: PyRef<'_, Self>) -> bool {
         slf.is_reconnecting()
     }
@@ -270,7 +270,7 @@ impl WebSocketClient {
     ///
     /// Returns `true` if the client is in disconnect mode.
     #[pyo3(name = "is_disconnecting")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_is_disconnecting(slf: PyRef<'_, Self>) -> bool {
         slf.is_disconnecting()
     }
@@ -281,7 +281,7 @@ impl WebSocketClient {
     /// maximum reconnection attempts. In this state, the client cannot be reused
     /// and a new client must be created for further connections.
     #[pyo3(name = "is_closed")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_is_closed(slf: PyRef<'_, Self>) -> bool {
         slf.is_closed()
     }
@@ -293,7 +293,7 @@ impl WebSocketClient {
     /// - Raises `PyRuntimeError` if not able to send data.
     #[pyo3(name = "send")]
     #[pyo3(signature = (data, keys=None))]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_send<'py>(
         slf: PyRef<'_, Self>,
         data: Vec<u8>,
@@ -341,7 +341,7 @@ impl WebSocketClient {
     /// message. During reconnection, messages are buffered and replayed on the new connection.
     #[pyo3(name = "send_text")]
     #[pyo3(signature = (data, keys=None))]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_send_text<'py>(
         slf: PyRef<'_, Self>,
         data: Vec<u8>,
@@ -385,7 +385,7 @@ impl WebSocketClient {
 
     /// Sends a pong frame back to the server.
     #[pyo3(name = "send_pong")]
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn py_send_pong<'py>(
         slf: PyRef<'_, Self>,
         data: Vec<u8>,
@@ -462,7 +462,7 @@ mod tests {
     }
 
     impl Callback for TestCallback {
-        #[allow(clippy::panic_in_result_fn)]
+        #[expect(clippy::panic_in_result_fn)]
         fn on_request(
             self,
             request: &server::Request,
