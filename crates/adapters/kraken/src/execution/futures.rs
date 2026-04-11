@@ -40,8 +40,8 @@ use nautilus_core::{
 use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{AccountType, OmsType, OrderSide, OrderStatus, OrderType, TimeInForce},
-    identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, Symbol, Venue, VenueOrderId},
+    enums::{AccountType, OmsType, OrderSide, OrderType},
+    identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
     orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
@@ -56,10 +56,9 @@ use crate::{
     http::{
         KrakenFuturesHttpClient, futures::client::KRAKEN_FUTURES_DEFAULT_RATE_LIMIT_PER_SECOND,
     },
-    websocket::futures::{
-        client::KrakenFuturesWebSocketClient,
-        messages::KrakenFuturesWsMessage,
-        parse::{parse_futures_ws_fill_report, parse_futures_ws_order_status_report},
+    websocket::{
+        dispatch::{self, OrderIdentity, WsDispatchState},
+        futures::{client::KrakenFuturesWebSocketClient, messages::KrakenFuturesWsMessage},
     },
 };
 
@@ -84,6 +83,7 @@ pub struct KrakenFuturesExecutionClient {
     order_instrument_map: Arc<AtomicMap<String, InstrumentId>>,
     venue_client_map: Arc<AtomicMap<String, ClientOrderId>>,
     venue_order_qty: Arc<AtomicMap<String, Quantity>>,
+    ws_dispatch_state: Arc<WsDispatchState>,
 }
 
 impl KrakenFuturesExecutionClient {
@@ -137,7 +137,21 @@ impl KrakenFuturesExecutionClient {
             order_instrument_map: Arc::new(AtomicMap::new()),
             venue_client_map: Arc::new(AtomicMap::new()),
             venue_order_qty: Arc::new(AtomicMap::new()),
+            ws_dispatch_state: Arc::new(WsDispatchState::new()),
         })
+    }
+
+    fn register_order_identity(&self, order: &OrderAny) {
+        self.ws_dispatch_state.register_identity(
+            order.client_order_id(),
+            OrderIdentity {
+                strategy_id: order.strategy_id(),
+                instrument_id: order.instrument_id(),
+                order_side: order.order_side(),
+                order_type: order.order_type(),
+                quantity: order.quantity(),
+            },
+        );
     }
 
     /// Returns a reference to the clock.
@@ -192,6 +206,7 @@ impl KrakenFuturesExecutionClient {
         let is_post_only = order.is_post_only();
 
         log::debug!("OrderSubmitted: client_order_id={client_order_id}");
+        self.register_order_identity(order);
         self.emitter.emit_order_submitted(order);
 
         let kraken_cl_ord_id = truncate_cl_ord_id(&client_order_id);
@@ -204,6 +219,7 @@ impl KrakenFuturesExecutionClient {
         let http = self.http.clone();
         let emitter = self.emitter.clone();
         let clock = self.clock;
+        let dispatch_state = self.ws_dispatch_state.clone();
 
         self.spawn_task(task_name, async move {
             let result = http
@@ -229,6 +245,9 @@ impl KrakenFuturesExecutionClient {
                     let ts_event = clock.get_time_ns();
                     let error_msg = format!("{task_name} error: {e}");
                     let due_post_only = error_msg.contains("POST_ONLY_REJECTED");
+                    // The order will never appear on the wire, so its
+                    // dispatch identity has to be cleaned up here.
+                    dispatch_state.cleanup_terminal(&client_order_id);
                     emitter.emit_order_rejected_event(
                         strategy_id,
                         instrument_id,
@@ -294,6 +313,7 @@ impl KrakenFuturesExecutionClient {
         let order_instrument_map = self.order_instrument_map.clone();
         let venue_client_map = self.venue_client_map.clone();
         let venue_order_qty = self.venue_order_qty.clone();
+        let dispatch_state = self.ws_dispatch_state.clone();
         let account_id = self.core.account_id;
         let clock = self.clock;
         let cancellation_token = self.cancellation_token.clone();
@@ -311,6 +331,7 @@ impl KrakenFuturesExecutionClient {
                                 Self::handle_ws_message(
                                     ws_msg,
                                     &emitter,
+                                    &dispatch_state,
                                     &instruments,
                                     &truncated_id_map,
                                     &order_instrument_map,
@@ -334,29 +355,11 @@ impl KrakenFuturesExecutionClient {
         Ok(())
     }
 
-    fn lookup_instrument(
-        instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
-        product_id: &str,
-    ) -> Option<InstrumentAny> {
-        let instrument_id = InstrumentId::new(Symbol::new(product_id), *KRAKEN_VENUE);
-        instruments.load().get(&instrument_id).cloned()
-    }
-
-    fn resolve_client_order_id(
-        truncated: &str,
-        truncated_id_map: &Arc<AtomicMap<String, ClientOrderId>>,
-    ) -> ClientOrderId {
-        truncated_id_map
-            .load()
-            .get(truncated)
-            .copied()
-            .unwrap_or_else(|| ClientOrderId::new(truncated))
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn handle_ws_message(
         msg: KrakenFuturesWsMessage,
         emitter: &ExecutionEventEmitter,
+        dispatch_state: &Arc<WsDispatchState>,
         instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
         truncated_id_map: &Arc<AtomicMap<String, ClientOrderId>>,
         order_instrument_map: &Arc<AtomicMap<String, InstrumentId>>,
@@ -369,143 +372,43 @@ impl KrakenFuturesExecutionClient {
 
         match msg {
             KrakenFuturesWsMessage::OpenOrdersDelta(delta) => {
-                // The fills delta carries the real fill; skip the cancel-shaped delta
-                // Kraken emits when an order leaves the book because it filled.
-                if delta.is_fill_driven_cancel() {
-                    log::debug!(
-                        "Skipping fill-driven open_orders delta: order_id={}, reason={:?}",
-                        delta.order.order_id,
-                        delta.reason,
-                    );
-                    return;
-                }
-
-                let product_id = delta.order.instrument.as_str();
-
-                let Some(instrument) = Self::lookup_instrument(instruments, product_id) else {
-                    log::warn!("No instrument for product_id: {product_id}");
-                    return;
-                };
-
-                // Cache order_id -> instrument_id for cancel-only messages
-                order_instrument_map.insert(delta.order.order_id.clone(), instrument.id());
-
-                let qty = Quantity::new(delta.order.qty, instrument.size_precision());
-                venue_order_qty.insert(delta.order.order_id.clone(), qty);
-
-                match parse_futures_ws_order_status_report(
-                    &delta.order,
-                    delta.is_cancel,
-                    delta.reason.as_deref(),
-                    &instrument,
+                dispatch::futures::open_orders_delta(
+                    &delta,
+                    dispatch_state,
+                    emitter,
+                    instruments,
+                    truncated_id_map,
+                    order_instrument_map,
+                    venue_client_map,
+                    venue_order_qty,
                     account_id,
                     ts_init,
-                ) {
-                    Ok(mut report) => {
-                        if let Some(ref cl_ord_id) = delta.order.cli_ord_id {
-                            let full_id =
-                                Self::resolve_client_order_id(cl_ord_id, truncated_id_map);
-                            report = report.with_client_order_id(full_id);
-
-                            venue_client_map.insert(delta.order.order_id.clone(), full_id);
-                        }
-                        emitter.send_order_status_report(report);
-                    }
-                    Err(e) => log::error!("Failed to parse futures order status report: {e}"),
-                }
+                );
             }
             KrakenFuturesWsMessage::OpenOrdersCancel(cancel) => {
-                if let Some(ref reason) = cancel.reason
-                    && (reason == "full_fill" || reason == "partial_fill")
-                {
-                    log::debug!(
-                        "Skipping fill-driven cancel: order_id={}, reason={reason}",
-                        cancel.order_id,
-                    );
-                    return;
-                }
-
-                let venue_order_id = VenueOrderId::new(&cancel.order_id);
-
-                let instrument_id = order_instrument_map.load().get(&cancel.order_id).copied();
-
-                let Some(instrument_id) = instrument_id else {
-                    log::warn!(
-                        "Cannot resolve instrument for cancel: order_id={}, \
-                         order not seen in previous delta",
-                        cancel.order_id
-                    );
-                    return;
-                };
-
-                let client_order_id = cancel
-                    .cli_ord_id
-                    .as_ref()
-                    .map(|id| Self::resolve_client_order_id(id, truncated_id_map))
-                    .or_else(|| venue_client_map.load().get(&cancel.order_id).copied());
-
-                let Some(quantity) = venue_order_qty.load().get(&cancel.order_id).copied() else {
-                    log::warn!(
-                        "Cannot resolve quantity for cancel: order_id={}, skipping",
-                        cancel.order_id
-                    );
-                    return;
-                };
-
-                let report = OrderStatusReport::new(
+                dispatch::futures::open_orders_cancel(
+                    &cancel,
+                    dispatch_state,
+                    emitter,
+                    truncated_id_map,
+                    order_instrument_map,
+                    venue_client_map,
+                    venue_order_qty,
                     account_id,
-                    instrument_id,
-                    client_order_id,
-                    venue_order_id,
-                    OrderSide::NoOrderSide,
-                    OrderType::Limit,
-                    TimeInForce::Gtc,
-                    OrderStatus::Canceled,
-                    quantity,
-                    Quantity::zero(0),
                     ts_init,
-                    ts_init,
-                    ts_init,
-                    None,
                 );
-
-                let report = if let Some(ref reason) = cancel.reason
-                    && !reason.is_empty()
-                {
-                    report.with_cancel_reason(reason.clone())
-                } else {
-                    report
-                };
-
-                emitter.send_order_status_report(report);
             }
             KrakenFuturesWsMessage::FillsDelta(fills_delta) => {
-                for fill in &fills_delta.fills {
-                    let product_id = match &fill.instrument {
-                        Some(id) => id.as_str(),
-                        None => {
-                            log::warn!("Fill missing instrument field: fill_id={}", fill.fill_id);
-                            continue;
-                        }
-                    };
-
-                    let Some(instrument) = Self::lookup_instrument(instruments, product_id) else {
-                        log::warn!("No instrument for product_id: {product_id}");
-                        continue;
-                    };
-
-                    match parse_futures_ws_fill_report(fill, &instrument, account_id, ts_init) {
-                        Ok(mut report) => {
-                            if let Some(ref cl_ord_id) = fill.cli_ord_id {
-                                let full_id =
-                                    Self::resolve_client_order_id(cl_ord_id, truncated_id_map);
-                                report.client_order_id = Some(full_id);
-                            }
-                            emitter.send_fill_report(report);
-                        }
-                        Err(e) => log::error!("Failed to parse futures fill report: {e}"),
-                    }
-                }
+                dispatch::futures::fills_delta(
+                    &fills_delta,
+                    dispatch_state,
+                    emitter,
+                    instruments,
+                    truncated_id_map,
+                    venue_client_map,
+                    account_id,
+                    ts_init,
+                );
             }
             KrakenFuturesWsMessage::Challenge(challenge) => {
                 log::debug!("Received challenge: length={}", challenge.len());
@@ -955,6 +858,7 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
                     .insert(kraken_cl_ord_id, client_order_id);
             }
 
+            self.register_order_identity(order);
             self.emitter.emit_order_submitted(order);
 
             order_tuples.push((
@@ -981,6 +885,7 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
         let http = self.http.clone();
         let emitter = self.emitter.clone();
         let clock = self.clock;
+        let dispatch_state = self.ws_dispatch_state.clone();
 
         self.spawn_task("submit_order_list", async move {
             match http.submit_orders_batch(order_tuples).await {
@@ -996,6 +901,7 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
                                 "submit_order_list batch item rejected: {}",
                                 status.status,
                             );
+                            dispatch_state.cleanup_terminal(client_order_id);
                             emitter.emit_order_rejected_event(
                                 *strategy_id,
                                 *instrument_id,
@@ -1013,6 +919,7 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
 
                     for (strategy_id, instrument_id, client_order_id) in &order_meta {
                         let error_msg = format!("submit_order_list batch error: {e}");
+                        dispatch_state.cleanup_terminal(client_order_id);
                         emitter.emit_order_rejected_event(
                             *strategy_id,
                             *instrument_id,

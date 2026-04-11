@@ -30,6 +30,9 @@ Released on TBD (UTC).
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed IB Gateway Docker image failing on ARM64 hosts (#3813), thanks for reporting @Baki-0501
+- Fixed Kraken Futures limit order `OrderUpdated` panic from wire `stop_price: 0.0` treated as trigger price
+- Fixed Kraken Spot quote-quantity orders never reaching terminal state from base/quote size mismatch
+- Fixed Kraken trade dedup clearing the entire set at capacity instead of evicting the oldest entry
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
 - Fixed Polymarket commission formula and fee source for fills (#3838), thanks for reporting @santivazq
 
@@ -38,6 +41,7 @@ Released on TBD (UTC).
 - Added `CorrectnessResultExt::expect_display` for display-formatted panics on typed correctness errors (Rust)
 - Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
 - Refined Interactive Brokers combo fill average price calculation (#3834), thanks @faysou
+- Refined Kraken WebSocket execution dispatch to emit typed events for tracked orders via per-product modules
 - Upgraded `databento` crate to v0.46.0
 - Upgraded `tokio` crate to v1.51.1
 

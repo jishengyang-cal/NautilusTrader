@@ -42,7 +42,7 @@ use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
     enums::{AccountType, OmsType, OrderSide, OrderType, TimeInForce, TrailingOffsetType},
-    identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, Symbol, Venue},
+    identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
     orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
@@ -58,10 +58,9 @@ use crate::{
     },
     config::KrakenExecClientConfig,
     http::{KrakenSpotHttpClient, spot::client::KRAKEN_SPOT_DEFAULT_RATE_LIMIT_PER_SECOND},
-    websocket::spot_v2::{
-        client::KrakenSpotWebSocketClient,
-        messages::KrakenSpotWsMessage,
-        parse::{parse_ws_fill_report, parse_ws_order_status_report},
+    websocket::{
+        dispatch::{self, OrderIdentity, WsDispatchState},
+        spot_v2::{client::KrakenSpotWebSocketClient, messages::KrakenSpotWsMessage},
     },
 };
 
@@ -83,6 +82,7 @@ pub struct KrakenSpotExecutionClient {
     instruments: Arc<AtomicMap<InstrumentId, InstrumentAny>>,
     order_qty_cache: Arc<AtomicMap<String, f64>>,
     truncated_id_map: Arc<AtomicMap<String, ClientOrderId>>,
+    ws_dispatch_state: Arc<WsDispatchState>,
 }
 
 impl KrakenSpotExecutionClient {
@@ -143,7 +143,30 @@ impl KrakenSpotExecutionClient {
             instruments: Arc::new(AtomicMap::new()),
             order_qty_cache: Arc::new(AtomicMap::new()),
             truncated_id_map: Arc::new(AtomicMap::new()),
+            ws_dispatch_state: Arc::new(WsDispatchState::new()),
         })
+    }
+
+    fn register_order_identity(&self, order: &OrderAny) {
+        // Quote-quantity orders submit a quote amount (e.g. 100 USD), but the
+        // venue reports fills in base units (e.g. 0.001 BTC). Registering the
+        // raw `order.quantity()` would make the cumulative-fill comparison in
+        // the fill-side dispatch mismatch base against quote, leaving the
+        // order "open" forever. These orders instead flow through the
+        // untracked path and the engine reconciles them from status reports.
+        if order.is_quote_quantity() {
+            return;
+        }
+        self.ws_dispatch_state.register_identity(
+            order.client_order_id(),
+            OrderIdentity {
+                strategy_id: order.strategy_id(),
+                instrument_id: order.instrument_id(),
+                order_side: order.order_side(),
+                order_type: order.order_type(),
+                quantity: order.quantity(),
+            },
+        );
     }
 
     /// Returns a reference to the clock.
@@ -229,6 +252,7 @@ impl KrakenSpotExecutionClient {
         let display_qty = order.display_qty();
 
         log::debug!("OrderSubmitted: client_order_id={client_order_id}");
+        self.register_order_identity(order);
         self.emitter.emit_order_submitted(order);
 
         let kraken_cl_ord_id = truncate_cl_ord_id(&client_order_id);
@@ -248,6 +272,7 @@ impl KrakenSpotExecutionClient {
         let http = self.http.clone();
         let emitter = self.emitter.clone();
         let clock = self.clock;
+        let dispatch_state = self.ws_dispatch_state.clone();
 
         self.spawn_task(task_name, async move {
             let result = http
@@ -277,6 +302,9 @@ impl KrakenSpotExecutionClient {
                 let error_msg = format!("{task_name} error: {e}");
                 let due_post_only = error_msg.contains("POST_ONLY_REJECTED")
                     || error_msg.contains(KRAKEN_SPOT_POST_ONLY_ERROR);
+                // The order will never appear on the wire, so its dispatch
+                // identity has to be cleaned up here.
+                dispatch_state.cleanup_terminal(&client_order_id);
                 emitter.emit_order_rejected_event(
                     strategy_id,
                     instrument_id,
@@ -338,6 +366,7 @@ impl KrakenSpotExecutionClient {
         let instruments = self.instruments.clone();
         let order_qty_cache = self.order_qty_cache.clone();
         let truncated_id_map = self.truncated_id_map.clone();
+        let dispatch_state = self.ws_dispatch_state.clone();
         let account_id = self.core.account_id;
         let clock = self.clock;
         let cancellation_token = self.cancellation_token.clone();
@@ -357,6 +386,7 @@ impl KrakenSpotExecutionClient {
                                 Self::handle_ws_message(
                                     ws_msg,
                                     &emitter,
+                                    &dispatch_state,
                                     &instruments,
                                     &order_qty_cache,
                                     &truncated_id_map,
@@ -450,28 +480,11 @@ impl KrakenSpotExecutionClient {
         }
     }
 
-    fn lookup_instrument(
-        instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
-        symbol: &str,
-    ) -> Option<InstrumentAny> {
-        let instrument_id = InstrumentId::new(Symbol::new(symbol), *KRAKEN_VENUE);
-        instruments.load().get(&instrument_id).cloned()
-    }
-
-    fn resolve_client_order_id(
-        truncated: &str,
-        truncated_id_map: &Arc<AtomicMap<String, ClientOrderId>>,
-    ) -> ClientOrderId {
-        truncated_id_map
-            .load()
-            .get(truncated)
-            .copied()
-            .unwrap_or_else(|| ClientOrderId::new(truncated))
-    }
-
+    #[allow(clippy::too_many_arguments)]
     fn handle_ws_message(
         msg: KrakenSpotWsMessage,
         emitter: &ExecutionEventEmitter,
+        dispatch_state: &Arc<WsDispatchState>,
         instruments: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
         order_qty_cache: &Arc<AtomicMap<String, f64>>,
         truncated_id_map: &Arc<AtomicMap<String, ClientOrderId>>,
@@ -483,67 +496,16 @@ impl KrakenSpotExecutionClient {
                 let ts_init = clock.get_time_ns();
 
                 for exec in &executions {
-                    let symbol = match &exec.symbol {
-                        Some(s) => s.as_str(),
-                        None => {
-                            log::debug!(
-                                "Execution message without symbol: exec_type={:?}, order_id={}",
-                                exec.exec_type,
-                                exec.order_id
-                            );
-                            continue;
-                        }
-                    };
-
-                    let Some(instrument) = Self::lookup_instrument(instruments, symbol) else {
-                        log::warn!("No instrument for symbol: {symbol}");
-                        continue;
-                    };
-
-                    let cached_qty = exec
-                        .cl_ord_id
-                        .as_ref()
-                        .and_then(|id| order_qty_cache.load().get(id).copied());
-
-                    if let (Some(qty), Some(cl_ord_id)) = (exec.order_qty, &exec.cl_ord_id) {
-                        order_qty_cache.insert(cl_ord_id.clone(), qty);
-                    }
-
-                    match parse_ws_order_status_report(
+                    dispatch::spot::execution(
                         exec,
-                        &instrument,
+                        dispatch_state,
+                        emitter,
+                        instruments,
+                        truncated_id_map,
+                        order_qty_cache,
                         account_id,
-                        cached_qty,
                         ts_init,
-                    ) {
-                        Ok(mut report) => {
-                            if let Some(ref cl_ord_id) = exec.cl_ord_id {
-                                let full_id =
-                                    Self::resolve_client_order_id(cl_ord_id, truncated_id_map);
-                                report = report.with_client_order_id(full_id);
-                            }
-                            emitter.send_order_status_report(report);
-                        }
-                        Err(e) => {
-                            log::error!("Failed to parse order status report: {e}");
-                        }
-                    }
-
-                    if exec.exec_id.is_some() {
-                        match parse_ws_fill_report(exec, &instrument, account_id, ts_init) {
-                            Ok(mut report) => {
-                                if let Some(ref cl_ord_id) = exec.cl_ord_id {
-                                    let full_id =
-                                        Self::resolve_client_order_id(cl_ord_id, truncated_id_map);
-                                    report.client_order_id = Some(full_id);
-                                }
-                                emitter.send_fill_report(report);
-                            }
-                            Err(e) => {
-                                log::error!("Failed to parse fill report: {e}");
-                            }
-                        }
-                    }
+                    );
                 }
             }
             KrakenSpotWsMessage::Reconnected => {
@@ -935,6 +897,7 @@ impl ExecutionClient for KrakenSpotExecutionClient {
             let client_order_id = order.client_order_id();
             let kraken_cl_ord_id = truncate_cl_ord_id(&client_order_id);
 
+            self.register_order_identity(order);
             self.emitter.emit_order_submitted(order);
 
             if !order.is_quote_quantity() {
@@ -976,6 +939,7 @@ impl ExecutionClient for KrakenSpotExecutionClient {
         let http = self.http.clone();
         let emitter = self.emitter.clone();
         let clock = self.clock;
+        let dispatch_state = self.ws_dispatch_state.clone();
 
         self.spawn_task("submit_order_list", async move {
             match http.submit_orders_batch(order_tuples).await {
@@ -989,6 +953,7 @@ impl ExecutionClient for KrakenSpotExecutionClient {
                             let ts_event = clock.get_time_ns();
                             let due_post_only = status.contains("POST_ONLY_REJECTED")
                                 || status.contains(KRAKEN_SPOT_POST_ONLY_ERROR);
+                            dispatch_state.cleanup_terminal(client_order_id);
                             emitter.emit_order_rejected_event(
                                 *strategy_id,
                                 *instrument_id,
@@ -1006,6 +971,7 @@ impl ExecutionClient for KrakenSpotExecutionClient {
                     let error_msg = format!("submit_order_list batch error: {e}");
 
                     for (strategy_id, instrument_id, client_order_id) in &order_meta {
+                        dispatch_state.cleanup_terminal(client_order_id);
                         emitter.emit_order_rejected_event(
                             *strategy_id,
                             *instrument_id,

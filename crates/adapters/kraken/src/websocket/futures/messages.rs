@@ -15,12 +15,26 @@
 
 //! Data models for Kraken Futures WebSocket v1 API messages.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use strum::{AsRefStr, EnumString};
 use ustr::Ustr;
 
 use crate::common::enums::{KrakenFillType, KrakenFuturesOrderType, KrakenOrderSide};
+
+// Normalizes a float price field so `0.0` is treated as "no price set".
+// Kraken Futures wire messages send a literal `0.0` for absent prices
+// (e.g. `stop_price: 0.0` on pure limit orders) rather than omitting the
+// field or sending `null`. Without this, downstream code would see
+// `Some(0.0)` and emit bogus trigger prices on `OrderUpdated` events,
+// which the order model rejects for non-stop order types.
+fn deserialize_optional_price_zero_as_none<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<f64>::deserialize(deserializer)?;
+    Ok(value.filter(|v| *v != 0.0))
+}
 
 /// Output message types from the Futures WebSocket handler.
 #[derive(Clone, Debug)]
@@ -345,9 +359,9 @@ pub struct KrakenFuturesOpenOrder {
     pub qty: f64,
     pub filled: f64,
     /// Limit price. Optional for stop/trigger orders which only have stop_price.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_price_zero_as_none")]
     pub limit_price: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_price_zero_as_none")]
     pub stop_price: Option<f64>,
     #[serde(rename = "type")]
     pub order_type: KrakenFuturesOrderType,
@@ -588,6 +602,10 @@ mod tests {
         assert_eq!(delta.order.instrument, Ustr::from("PI_XBTUSD"));
         assert_eq!(delta.order.qty, 304.0);
         assert_eq!(delta.order.limit_price, Some(10640.0));
+        // Kraken sends stop_price: 0.0 on pure limit orders. The zero-as-none
+        // deserializer maps that back to None so downstream code does not emit
+        // a bogus trigger_price, which the order model rejects for limit types.
+        assert_eq!(delta.order.stop_price, None);
     }
 
     #[rstest]
