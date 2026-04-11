@@ -15,10 +15,7 @@
 
 use std::fmt::Display;
 
-use nautilus_core::{
-    UnixNanos,
-    correctness::{FAILED, check_in_range_inclusive_f64},
-};
+use nautilus_core::{UnixNanos, correctness::check_in_range_inclusive_f64};
 use nautilus_model::{
     data::order::BookOrder,
     enums::{BookType, OrderSide},
@@ -76,18 +73,13 @@ impl ProbabilisticFillState {
     /// # Errors
     ///
     /// Returns an error if probability parameters are not in range [0, 1].
-    ///
-    /// # Panics
-    ///
-    /// Panics if the range check assertions fail.
     pub fn new(
         prob_fill_on_limit: f64,
         prob_slippage: f64,
         random_seed: Option<u64>,
     ) -> anyhow::Result<Self> {
-        check_in_range_inclusive_f64(prob_fill_on_limit, 0.0, 1.0, "prob_fill_on_limit")
-            .expect(FAILED);
-        check_in_range_inclusive_f64(prob_slippage, 0.0, 1.0, "prob_slippage").expect(FAILED);
+        check_in_range_inclusive_f64(prob_fill_on_limit, 0.0, 1.0, "prob_fill_on_limit")?;
+        check_in_range_inclusive_f64(prob_slippage, 0.0, 1.0, "prob_slippage")?;
         let rng = match random_seed {
             Some(seed) => StdRng::seed_from_u64(seed),
             None => StdRng::from_rng(&mut rand::rng()),
@@ -1378,6 +1370,7 @@ impl Display for FillModelAny {
 
 #[cfg(test)]
 mod tests {
+    use nautilus_core::correctness::CorrectnessError;
     use nautilus_model::{
         enums::OrderType, instruments::stubs::audusd_sim, orders::builder::OrderTestBuilder,
     };
@@ -1392,19 +1385,43 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic(
-        expected = "Condition failed: invalid f64 for 'prob_fill_on_limit' not in range [0, 1], was 1.1"
-    )]
     fn test_fill_model_param_prob_fill_on_limit_error() {
-        let _ = DefaultFillModel::new(1.1, 0.1, None).unwrap();
+        let error = DefaultFillModel::new(1.1, 0.1, None).unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<CorrectnessError>(),
+            Some(&CorrectnessError::OutOfRange {
+                param: "prob_fill_on_limit".to_string(),
+                min: "0".to_string(),
+                max: "1".to_string(),
+                value: "1.1".to_string(),
+                type_name: "f64",
+            })
+        );
+        assert_eq!(
+            error.to_string(),
+            "invalid f64 for 'prob_fill_on_limit' not in range [0, 1], was 1.1"
+        );
     }
 
     #[rstest]
-    #[should_panic(
-        expected = "Condition failed: invalid f64 for 'prob_slippage' not in range [0, 1], was 1.1"
-    )]
     fn test_fill_model_param_prob_slippage_error() {
-        let _ = DefaultFillModel::new(0.5, 1.1, None).unwrap();
+        let error = DefaultFillModel::new(0.5, 1.1, None).unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<CorrectnessError>(),
+            Some(&CorrectnessError::OutOfRange {
+                param: "prob_slippage".to_string(),
+                min: "0".to_string(),
+                max: "1".to_string(),
+                value: "1.1".to_string(),
+                type_name: "f64",
+            })
+        );
+        assert_eq!(
+            error.to_string(),
+            "invalid f64 for 'prob_slippage' not in range [0, 1], was 1.1"
+        );
     }
 
     #[rstest]

@@ -31,7 +31,7 @@ use nautilus_common::{
 };
 use nautilus_core::{
     UnixNanos,
-    correctness::{FAILED, check_equal},
+    correctness::{CorrectnessResultExt, FAILED, check_equal},
 };
 use nautilus_execution::{
     matching_core::OrderMatchInfo,
@@ -322,6 +322,7 @@ impl SimulatedExchange {
         }
     }
 
+    // panics-doc-ok (transitive via expect_display on venue mismatch)
     /// Adds an instrument to the simulated exchange and initializes its matching engine.
     ///
     /// # Errors
@@ -338,7 +339,7 @@ impl SimulatedExchange {
             "Venue of instrument id",
             "Venue of simulated exchange",
         )
-        .expect(FAILED);
+        .expect_display(FAILED);
 
         if self.account_type == AccountType::Cash
             && (matches!(instrument, InstrumentAny::CryptoPerpetual(_))

@@ -50,7 +50,10 @@ use std::{
 #[cfg(feature = "defi")]
 use alloy_primitives::U256;
 use nautilus_core::{
-    correctness::{FAILED, check_in_range_inclusive_f64, check_predicate_true},
+    correctness::{
+        CorrectnessError, CorrectnessResult, FAILED, check_in_range_inclusive_f64,
+        check_predicate_true,
+    },
     formatting::Separable,
 };
 use rust_decimal::Decimal;
@@ -786,9 +789,13 @@ impl<'de> Deserialize<'de> for Quantity {
 /// # Errors
 ///
 /// Returns an error if `value` is not positive.
-pub fn check_positive_quantity(value: Quantity, param: &str) -> anyhow::Result<()> {
+pub fn check_positive_quantity(value: Quantity, param: &str) -> CorrectnessResult<()> {
     if !value.is_positive() {
-        anyhow::bail!("invalid `Quantity` for '{param}' not positive, was {value}")
+        return Err(CorrectnessError::NotPositive {
+            param: param.to_string(),
+            value: value.to_string(),
+            type_name: "`Quantity`",
+        });
     }
     Ok(())
 }
@@ -797,17 +804,29 @@ pub fn check_positive_quantity(value: Quantity, param: &str) -> anyhow::Result<(
 mod tests {
     use std::str::FromStr;
 
-    use nautilus_core::approx_eq;
+    use nautilus_core::{approx_eq, correctness::CorrectnessError};
     use rstest::rstest;
     use rust_decimal_macros::dec;
 
     use super::*;
 
     #[rstest]
-    #[should_panic(expected = "invalid `Quantity` for 'qty' not positive, was 0")]
     fn test_check_quantity_positive() {
         let qty = Quantity::new(0.0, 0);
-        check_positive_quantity(qty, "qty").unwrap();
+        let error = check_positive_quantity(qty, "qty").unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::NotPositive {
+                param: "qty".to_string(),
+                value: "0".to_string(),
+                type_name: "`Quantity`",
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "invalid `Quantity` for 'qty' not positive, was 0"
+        );
     }
 
     #[rstest]

@@ -36,7 +36,7 @@ use std::{
 };
 
 use ahash::AHashMap;
-use nautilus_core::correctness::{FAILED, check_positive_decimal};
+use nautilus_core::correctness::{CorrectnessResultExt, FAILED, check_positive_decimal};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -105,7 +105,7 @@ impl MarginAccount {
     ///
     /// Panics if `leverage` is not positive.
     pub fn set_default_leverage(&mut self, leverage: Decimal) {
-        check_positive_decimal(leverage, "leverage").expect(FAILED);
+        check_positive_decimal(leverage, "leverage").expect_display(FAILED);
         self.default_leverage = leverage;
     }
 
@@ -115,7 +115,7 @@ impl MarginAccount {
     ///
     /// Panics if `leverage` is not positive.
     pub fn set_leverage(&mut self, instrument_id: InstrumentId, leverage: Decimal) {
-        check_positive_decimal(leverage, "leverage").expect(FAILED);
+        check_positive_decimal(leverage, "leverage").expect_display(FAILED);
         self.leverages.insert(instrument_id, leverage);
     }
 

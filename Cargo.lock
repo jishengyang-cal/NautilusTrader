@@ -5452,6 +5452,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.28.0",
+ "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
  "ustr",
  "uuid",

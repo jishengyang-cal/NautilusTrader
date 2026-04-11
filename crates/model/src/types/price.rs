@@ -48,7 +48,7 @@ use std::{
 };
 
 use nautilus_core::{
-    correctness::{FAILED, check_in_range_inclusive_f64},
+    correctness::{CorrectnessError, CorrectnessResult, FAILED, check_in_range_inclusive_f64},
     formatting::Separable,
 };
 use rust_decimal::Decimal;
@@ -699,13 +699,21 @@ impl<'de> Deserialize<'de> for Price {
 /// # Errors
 ///
 /// Returns an error if `value` is `PRICE_UNDEF` or not positive.
-pub fn check_positive_price(value: Price, param: &str) -> anyhow::Result<()> {
+pub fn check_positive_price(value: Price, param: &str) -> CorrectnessResult<()> {
     if value.raw == PRICE_UNDEF {
-        anyhow::bail!("invalid `Price` for '{param}', was PRICE_UNDEF")
+        return Err(CorrectnessError::InvalidValue {
+            param: param.to_string(),
+            value: "PRICE_UNDEF".to_string(),
+            type_name: "`Price`",
+        });
     }
 
     if !value.is_positive() {
-        anyhow::bail!("invalid `Price` for '{param}' not positive, was {value}")
+        return Err(CorrectnessError::NotPositive {
+            param: param.to_string(),
+            value: value.to_string(),
+            type_name: "`Price`",
+        });
     }
     Ok(())
 }
@@ -724,7 +732,7 @@ pub fn decode_raw_price_i64(value: i64) -> PriceRaw {
 
 #[cfg(test)]
 mod tests {
-    use nautilus_core::approx_eq;
+    use nautilus_core::{approx_eq, correctness::CorrectnessError};
     use rstest::rstest;
     use rust_decimal_macros::dec;
 
@@ -801,19 +809,43 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic(expected = "invalid `Price` for 'price' not positive")]
     fn test_is_positive_rejects_non_positive() {
         // Zero is NOT positive.
         let zero = Price::zero(2);
-        check_positive_price(zero, "price").unwrap();
+        let error = check_positive_price(zero, "price").unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::NotPositive {
+                param: "price".to_string(),
+                value: "0.00".to_string(),
+                type_name: "`Price`",
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "invalid `Price` for 'price' not positive, was 0.00"
+        );
     }
 
     #[rstest]
-    #[should_panic(expected = "invalid `Price` for 'price', was PRICE_UNDEF")]
     fn test_is_positive_rejects_undefined() {
         // PRICE_UNDEF must also be rejected.
         let undef = Price::from_raw(PRICE_UNDEF, 0);
-        check_positive_price(undef, "price").unwrap();
+        let error = check_positive_price(undef, "price").unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::InvalidValue {
+                param: "price".to_string(),
+                value: "PRICE_UNDEF".to_string(),
+                type_name: "`Price`",
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "invalid `Price` for 'price', was PRICE_UNDEF"
+        );
     }
 
     #[rstest]

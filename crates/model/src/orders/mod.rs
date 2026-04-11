@@ -36,7 +36,10 @@ pub mod stubs;
 use ahash::AHashSet;
 use enum_dispatch::enum_dispatch;
 use indexmap::IndexMap;
-use nautilus_core::{UUID4, UnixNanos};
+use nautilus_core::{
+    UUID4, UnixNanos,
+    correctness::{CorrectnessError, check_predicate_false},
+};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
@@ -153,7 +156,7 @@ pub enum OrderError {
     #[error("Duplicate fill: trade_id {0} already applied to order")]
     DuplicateFill(TradeId),
     #[error("{0}")]
-    Invariant(#[from] anyhow::Error),
+    Invariant(#[from] CorrectnessError),
 }
 
 /// Converts an IndexMap with `Ustr` keys and values to `String` keys and values.
@@ -177,12 +180,8 @@ pub(crate) fn check_display_qty(
     display_qty: Option<Quantity>,
     quantity: Quantity,
 ) -> Result<(), OrderError> {
-    if let Some(q) = display_qty
-        && q > quantity
-    {
-        return Err(OrderError::Invariant(anyhow::anyhow!(
-            "`display_qty` may not exceed `quantity`"
-        )));
+    if let Some(q) = display_qty {
+        check_predicate_false(q > quantity, "`display_qty` may not exceed `quantity`")?;
     }
     Ok(())
 }
@@ -192,11 +191,10 @@ pub(crate) fn check_time_in_force(
     time_in_force: TimeInForce,
     expire_time: Option<UnixNanos>,
 ) -> Result<(), OrderError> {
-    if time_in_force == TimeInForce::Gtd && expire_time.unwrap_or_default() == 0 {
-        return Err(OrderError::Invariant(anyhow::anyhow!(
-            "`expire_time` is required for `GTD` order"
-        )));
-    }
+    check_predicate_false(
+        time_in_force == TimeInForce::Gtd && expire_time.unwrap_or_default() == 0,
+        "`expire_time` is required for `GTD` order",
+    )?;
     Ok(())
 }
 
@@ -676,19 +674,25 @@ impl OrderCore {
     /// `event.client_order_id()` or `event.strategy_id()` does not match the order.
     pub fn apply(&mut self, event: OrderEventAny) -> Result<(), OrderError> {
         if self.client_order_id != event.client_order_id() {
-            return Err(OrderError::Invariant(anyhow::anyhow!(
-                "Event client_order_id {} does not match order client_order_id {}",
-                event.client_order_id(),
-                self.client_order_id
-            )));
+            return Err(CorrectnessError::PredicateViolation {
+                message: format!(
+                    "Event client_order_id {} does not match order client_order_id {}",
+                    event.client_order_id(),
+                    self.client_order_id
+                ),
+            }
+            .into());
         }
 
         if self.strategy_id != event.strategy_id() {
-            return Err(OrderError::Invariant(anyhow::anyhow!(
-                "Event strategy_id {} does not match order strategy_id {}",
-                event.strategy_id(),
-                self.strategy_id
-            )));
+            return Err(CorrectnessError::PredicateViolation {
+                message: format!(
+                    "Event strategy_id {} does not match order strategy_id {}",
+                    event.strategy_id(),
+                    self.strategy_id
+                ),
+            }
+            .into());
         }
 
         // Save current status as previous_status for ALL transitions except:
@@ -1545,6 +1549,37 @@ mod tests {
         // Order state should be unchanged after rejected duplicate
         assert_eq!(order.filled_qty(), Quantity::from(50_000));
         assert_eq!(order.status(), OrderStatus::PartiallyFilled);
+    }
+
+    #[rstest]
+    fn test_check_display_qty_returns_typed_invariant_with_stable_display() {
+        let error = check_display_qty(Some(Quantity::from(2)), Quantity::from(1)).unwrap_err();
+
+        match error {
+            OrderError::Invariant(CorrectnessError::PredicateViolation { ref message }) => {
+                assert_eq!(message, "`display_qty` may not exceed `quantity`");
+            }
+            other => panic!("Expected typed invariant error, was: {other:?}"),
+        }
+
+        assert_eq!(error.to_string(), "`display_qty` may not exceed `quantity`");
+    }
+
+    #[rstest]
+    fn test_check_time_in_force_returns_typed_invariant_with_stable_display() {
+        let error = check_time_in_force(TimeInForce::Gtd, None).unwrap_err();
+
+        match error {
+            OrderError::Invariant(CorrectnessError::PredicateViolation { ref message }) => {
+                assert_eq!(message, "`expire_time` is required for `GTD` order");
+            }
+            other => panic!("Expected typed invariant error, was: {other:?}"),
+        }
+
+        assert_eq!(
+            error.to_string(),
+            "`expire_time` is required for `GTD` order"
+        );
     }
 
     #[rstest]

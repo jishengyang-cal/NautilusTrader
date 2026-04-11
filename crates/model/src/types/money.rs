@@ -53,7 +53,7 @@ use std::{
 };
 
 use nautilus_core::{
-    correctness::{FAILED, check_in_range_inclusive_f64},
+    correctness::{CorrectnessError, CorrectnessResult, FAILED, check_in_range_inclusive_f64},
     formatting::Separable,
 };
 use rust_decimal::Decimal;
@@ -623,16 +623,20 @@ impl<'de> Deserialize<'de> for Money {
 ///
 /// Returns an error if `value` is not positive.
 #[inline(always)]
-pub fn check_positive_money(value: Money, param: &str) -> anyhow::Result<()> {
+pub fn check_positive_money(value: Money, param: &str) -> CorrectnessResult<()> {
     if value.raw <= 0 {
-        anyhow::bail!("invalid `Money` for '{param}' not positive, was {value}");
+        return Err(CorrectnessError::NotPositive {
+            param: param.to_string(),
+            value: value.to_string(),
+            type_name: "`Money`",
+        });
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use nautilus_core::approx_eq;
+    use nautilus_core::{approx_eq, correctness::CorrectnessError};
     use rstest::rstest;
     use rust_decimal_macros::dec;
 
@@ -1090,6 +1094,24 @@ mod tests {
                 "error message should mention positivity; got: {msg:?}"
             );
         }
+    }
+
+    #[rstest]
+    fn test_check_positive_money_returns_typed_error_with_stable_display() {
+        let error = check_positive_money(Money::new(0.0, Currency::USD()), "money").unwrap_err();
+
+        assert_eq!(
+            error,
+            CorrectnessError::NotPositive {
+                param: "money".to_string(),
+                value: "0.00 USD".to_string(),
+                type_name: "`Money`",
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            "invalid `Money` for 'money' not positive, was 0.00 USD"
+        );
     }
 }
 
