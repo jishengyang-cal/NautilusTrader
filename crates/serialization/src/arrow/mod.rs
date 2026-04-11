@@ -15,15 +15,23 @@
 
 //! Defines the Apache Arrow schema for Nautilus types.
 
+pub mod account_state;
 pub mod bar;
 pub mod close;
 pub mod custom;
 pub mod delta;
 pub mod depth;
+pub mod funding;
 pub mod index_price;
 pub mod instrument;
+pub mod instrument_status;
+pub mod json;
 pub mod mark_price;
+pub mod order_event;
+pub mod position_event;
 pub mod quote;
+pub mod report;
+pub mod snapshot;
 pub mod trade;
 
 use std::{
@@ -302,6 +310,34 @@ where
         metadata: &HashMap<String, String>,
         record_batch: RecordBatch,
     ) -> Result<Vec<Self>, EncodingError>;
+}
+
+/// Decodes strongly typed values from Apache Arrow RecordBatch format.
+pub trait DecodeTypedFromRecordBatch
+where
+    Self: Sized + ArrowSchemaProvider,
+{
+    /// Decodes a `RecordBatch` into a vector of values of the implementing type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `EncodingError` if the decoding fails.
+    fn decode_typed_batch(
+        metadata: &HashMap<String, String>,
+        record_batch: RecordBatch,
+    ) -> Result<Vec<Self>, EncodingError>;
+}
+
+impl<T> DecodeTypedFromRecordBatch for T
+where
+    T: DecodeFromRecordBatch,
+{
+    fn decode_typed_batch(
+        metadata: &HashMap<String, String>,
+        record_batch: RecordBatch,
+    ) -> Result<Vec<Self>, EncodingError> {
+        Self::decode_batch(metadata, record_batch)
+    }
 }
 
 /// Decodes raw Data objects from Apache Arrow RecordBatch format.

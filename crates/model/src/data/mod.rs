@@ -396,6 +396,8 @@ impl_catalog_path_prefix!(OrderBookDepth10, "order_book_depths");
 impl_catalog_path_prefix!(Bar, "bars");
 impl_catalog_path_prefix!(IndexPriceUpdate, "index_prices");
 impl_catalog_path_prefix!(MarkPriceUpdate, "mark_prices");
+impl_catalog_path_prefix!(FundingRateUpdate, "funding_rate_update");
+impl_catalog_path_prefix!(InstrumentStatus, "instrument_status");
 impl_catalog_path_prefix!(InstrumentClose, "instrument_closes");
 
 use crate::instruments::InstrumentAny;

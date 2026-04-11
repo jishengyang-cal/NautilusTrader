@@ -33,11 +33,20 @@ use nautilus_common::{
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     data::{
-        Bar, CatalogPathPrefix, CustomData, CustomDataTrait, Data, IndexPriceUpdate,
-        MarkPriceUpdate, OrderBookDelta, OrderBookDeltas, OrderBookDepth10, QuoteTick, TradeTick,
-        close::InstrumentClose, encode_custom_to_arrow, get_arrow_schema,
+        Bar, CatalogPathPrefix, CustomData, CustomDataTrait, Data, FundingRateUpdate,
+        IndexPriceUpdate, InstrumentStatus, MarkPriceUpdate, OrderBookDelta, OrderBookDeltas,
+        OrderBookDepth10, QuoteTick, TradeTick, close::InstrumentClose, encode_custom_to_arrow,
+        get_arrow_schema,
+    },
+    events::{
+        AccountState, OrderAccepted, OrderCancelRejected, OrderCanceled, OrderDenied,
+        OrderEmulated, OrderExpired, OrderFilled, OrderInitialized, OrderModifyRejected,
+        OrderPendingCancel, OrderPendingUpdate, OrderRejected, OrderReleased, OrderSnapshot,
+        OrderSubmitted, OrderTriggered, OrderUpdated, PositionAdjusted, PositionChanged,
+        PositionClosed, PositionOpened, PositionSnapshot,
     },
     instruments::InstrumentAny,
+    reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
 };
 use nautilus_serialization::arrow::{EncodeToRecordBatch, KEY_INSTRUMENT_ID};
 use object_store::{ObjectStore, ObjectStoreExt, path::Path};
@@ -648,8 +657,7 @@ impl FeatherWriter {
     /// Writes a Data enum value to the appropriate writer.
     ///
     /// This is a convenience method that routes the Data enum to the appropriate
-    /// typed write method. FundingRateUpdate is intentionally not supported and
-    /// is not a variant of the Data enum here; it is not written to feather.
+    /// typed write method.
     pub async fn write_data(&mut self, data: Data) -> Result<(), Box<dyn std::error::Error>> {
         match data {
             Data::Quote(quote) => self.write(quote).await,
@@ -723,8 +731,7 @@ impl FeatherWriter {
     /// Subscribes to all messages on the message bus (pattern "*").
     ///
     /// This will automatically write all supported data types that are published
-    /// on the message bus to the feather files. FundingRateUpdate is intentionally
-    /// not written; messages of that type are ignored (no downcast handler).
+    /// on the message bus to the feather files.
     ///
     /// The writer must be wrapped in `Rc<RefCell<>>` to be shareable with the message bus handler.
     ///
@@ -743,47 +750,57 @@ impl FeatherWriter {
             let _guard = runtime.enter();
 
             // Try to downcast to various data types and write them
-            if let Some(quote) = message.downcast_ref::<QuoteTick>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*quote)) {
-                    log::warn!("Failed to write QuoteTick: {e}");
-                }
-            } else if let Some(trade) = message.downcast_ref::<TradeTick>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*trade)) {
-                    log::warn!("Failed to write TradeTick: {e}");
-                }
-            } else if let Some(bar) = message.downcast_ref::<Bar>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*bar)) {
-                    log::warn!("Failed to write Bar: {e}");
-                }
-            } else if let Some(delta) = message.downcast_ref::<OrderBookDelta>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*delta)) {
-                    log::warn!("Failed to write OrderBookDelta: {e}");
-                }
-            } else if let Some(depth) = message.downcast_ref::<OrderBookDepth10>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*depth)) {
-                    log::warn!("Failed to write OrderBookDepth10: {e}");
-                }
-            } else if let Some(price) = message.downcast_ref::<IndexPriceUpdate>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*price)) {
-                    log::warn!("Failed to write IndexPriceUpdate: {e}");
-                }
-            } else if let Some(price) = message.downcast_ref::<MarkPriceUpdate>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*price)) {
-                    log::warn!("Failed to write MarkPriceUpdate: {e}");
-                }
-            } else if let Some(close) = message.downcast_ref::<InstrumentClose>() {
-                let mut writer = writer.borrow_mut();
-                if let Err(e) = runtime.block_on(writer.write(*close)) {
-                    log::warn!("Failed to write InstrumentClose: {e}");
-                }
-            } else if let Some(deltas) = message.downcast_ref::<OrderBookDeltas>() {
+            macro_rules! try_write {
+                ($message:expr, $type:ty, $name:literal) => {
+                    if let Some(value) = $message.downcast_ref::<$type>() {
+                        let mut writer = writer.borrow_mut();
+                        if let Err(e) = runtime.block_on(writer.write(value.clone())) {
+                            log::warn!("Failed to write {}: {e}", $name);
+                        }
+                        return;
+                    }
+                };
+            }
+
+            try_write!(message, QuoteTick, "QuoteTick");
+            try_write!(message, TradeTick, "TradeTick");
+            try_write!(message, Bar, "Bar");
+            try_write!(message, OrderBookDelta, "OrderBookDelta");
+            try_write!(message, OrderBookDepth10, "OrderBookDepth10");
+            try_write!(message, IndexPriceUpdate, "IndexPriceUpdate");
+            try_write!(message, MarkPriceUpdate, "MarkPriceUpdate");
+            try_write!(message, InstrumentClose, "InstrumentClose");
+            try_write!(message, FundingRateUpdate, "FundingRateUpdate");
+            try_write!(message, InstrumentStatus, "InstrumentStatus");
+            try_write!(message, AccountState, "AccountState");
+            try_write!(message, OrderInitialized, "OrderInitialized");
+            try_write!(message, OrderDenied, "OrderDenied");
+            try_write!(message, OrderEmulated, "OrderEmulated");
+            try_write!(message, OrderSubmitted, "OrderSubmitted");
+            try_write!(message, OrderAccepted, "OrderAccepted");
+            try_write!(message, OrderRejected, "OrderRejected");
+            try_write!(message, OrderPendingCancel, "OrderPendingCancel");
+            try_write!(message, OrderCanceled, "OrderCanceled");
+            try_write!(message, OrderCancelRejected, "OrderCancelRejected");
+            try_write!(message, OrderExpired, "OrderExpired");
+            try_write!(message, OrderTriggered, "OrderTriggered");
+            try_write!(message, OrderPendingUpdate, "OrderPendingUpdate");
+            try_write!(message, OrderReleased, "OrderReleased");
+            try_write!(message, OrderModifyRejected, "OrderModifyRejected");
+            try_write!(message, OrderUpdated, "OrderUpdated");
+            try_write!(message, OrderFilled, "OrderFilled");
+            try_write!(message, PositionOpened, "PositionOpened");
+            try_write!(message, PositionChanged, "PositionChanged");
+            try_write!(message, PositionClosed, "PositionClosed");
+            try_write!(message, PositionAdjusted, "PositionAdjusted");
+            try_write!(message, OrderSnapshot, "OrderSnapshot");
+            try_write!(message, PositionSnapshot, "PositionSnapshot");
+            try_write!(message, OrderStatusReport, "OrderStatusReport");
+            try_write!(message, FillReport, "FillReport");
+            try_write!(message, PositionStatusReport, "PositionStatusReport");
+            try_write!(message, ExecutionMassStatus, "ExecutionMassStatus");
+
+            if let Some(deltas) = message.downcast_ref::<OrderBookDeltas>() {
                 // OrderBookDeltas contains multiple deltas - write each one individually
                 let mut writer = writer.borrow_mut();
                 for delta in &deltas.deltas {
@@ -802,7 +819,7 @@ impl FeatherWriter {
                     log::warn!("Failed to write InstrumentAny: {e}");
                 }
             }
-            // Silently ignore other message types (events, commands, etc.)
+            // Silently ignore unsupported message types.
         });
 
         // Subscribe to all messages using wildcard pattern

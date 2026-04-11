@@ -17,7 +17,8 @@ use std::{sync::Arc, vec::IntoIter};
 
 use ahash::{AHashMap, AHashSet};
 use datafusion::{
-    error::Result, logical_expr::expr::Sort, physical_plan::SendableRecordBatchStream, prelude::*,
+    arrow::record_batch::RecordBatch, error::Result, logical_expr::expr::Sort,
+    physical_plan::SendableRecordBatchStream, prelude::*,
 };
 use futures::StreamExt;
 use nautilus_core::{UnixNanos, ffi::cvec::CVec};
@@ -198,6 +199,46 @@ impl DataBackendSession {
         }
 
         Ok(())
+    }
+
+    /// Registers a Parquet file and executes a query, returning the raw record batches.
+    pub fn collect_query_batches(
+        &mut self,
+        table_name: &str,
+        file_path: &str,
+        sql_query: Option<&str>,
+    ) -> Result<Vec<RecordBatch>> {
+        if !self.registered_tables.contains(table_name) {
+            let parquet_options = ParquetReadOptions::<'_> {
+                skip_metadata: Some(false),
+                file_sort_order: vec![vec![Sort {
+                    expr: col("ts_init"),
+                    asc: true,
+                    nulls_first: false,
+                }]],
+                ..Default::default()
+            };
+            self.runtime.block_on(self.session_ctx.register_parquet(
+                table_name,
+                file_path,
+                parquet_options,
+            ))?;
+
+            self.registered_tables.insert(table_name.to_string());
+        }
+
+        let default_query = format!("SELECT * FROM {table_name} ORDER BY ts_init");
+        let sql_query = sql_query.unwrap_or(&default_query);
+        let query = self.runtime.block_on(self.session_ctx.sql(sql_query))?;
+        let mut batch_stream = self.runtime.block_on(query.execute_stream())?;
+
+        self.runtime.block_on(async {
+            let mut batches = Vec::new();
+            while let Some(batch) = batch_stream.next().await {
+                batches.push(batch?);
+            }
+            Ok::<_, datafusion::error::DataFusionError>(batches)
+        })
     }
 
     fn add_batch_stream<T>(
