@@ -7,6 +7,7 @@ Released on TBD (UTC).
 - Added `BybitEnvironment` to `BybitDataClientConfig` and `BybitExecClientConfig`
 - Added Betfair tiered tick scheme to `BettingInstrument` for ladder-snapped pricing
 - Added Polymarket game_id and fee_schedule to instrument info (#3811), thanks @Javdu10
+- Added missing config values to `LiveExecEngineConfig` (#3841), thanks @Javdu10
 
 ### Breaking Changes
 - Changed `get_cached_bybit_http_client` signature: replaced `demo`/`testnet` bools with `environment: BybitEnvironment`
@@ -24,6 +25,7 @@ Released on TBD (UTC).
 - Fixed PyO3 `DataActor` missing `on_historical_funding_rates` and `on_historical_data` forwarding `None`
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Bybit position deserialization for closed positions (#3836), thanks for reporting @pusteckiy
+- Fixed Bybit perpetual instrument status to emit `PreClose` when scheduled for delisting (#3829), thanks @dxwil
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed IB Gateway Docker image failing on ARM64 hosts (#3813), thanks for reporting @Baki-0501
@@ -31,11 +33,13 @@ Released on TBD (UTC).
 
 ### Internal Improvements
 - Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
+- Refined Interactive Brokers combo fill average price calculation (#3834), thanks @faysou
 - Upgraded `databento` crate to v0.46.0
 - Upgraded `tokio` crate to v1.51.1
 
 ### Documentation Updates
-- Refined IB documentation regarding UTC timestamps (#3826), thanks @faysou
+- Refined docs to follow style guide for symbols and filler words (#3830), thanks @JKDasondee
+- Refined Interactive Brokers documentation regarding UTC timestamps (#3826), thanks @faysou
 
 ### Deprecations
 - Deprecated `demo`/`testnet` bools on `BybitDataClientConfig`/`BybitExecClientConfig` - use `environment`

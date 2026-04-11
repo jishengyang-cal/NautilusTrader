@@ -646,7 +646,7 @@ version = "0.29.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
-version = "1.2.59"
+version = "1.2.60"
 criteria = "safe-to-deploy"
 
 [[exemptions.cesu8]]
@@ -1406,7 +1406,7 @@ version = "0.1.34"
 criteria = "safe-to-deploy"
 
 [[exemptions.js-sys]]
-version = "0.3.94"
+version = "0.3.95"
 criteria = "safe-to-deploy"
 
 [[exemptions.json-writer]]
@@ -1462,7 +1462,7 @@ version = "0.2.16"
 criteria = "safe-to-deploy"
 
 [[exemptions.libredox]]
-version = "0.1.15"
+version = "0.1.16"
 criteria = "safe-to-deploy"
 
 [[exemptions.libsqlite3-sys]]
@@ -1966,7 +1966,7 @@ version = "0.5.18"
 criteria = "safe-to-deploy"
 
 [[exemptions.redox_syscall]]
-version = "0.7.3"
+version = "0.7.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.ref-cast]]
@@ -2106,7 +2106,7 @@ version = "0.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-webpki]]
-version = "0.103.9"
+version = "0.103.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustpython-ast]]
@@ -2626,23 +2626,23 @@ version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen]]
-version = "0.2.117"
+version = "0.2.118"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-futures]]
-version = "0.4.67"
+version = "0.4.68"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-macro]]
-version = "0.2.117"
+version = "0.2.118"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-macro-support]]
-version = "0.2.117"
+version = "0.2.118"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-bindgen-shared]]
-version = "0.2.117"
+version = "0.2.118"
 criteria = "safe-to-deploy"
 
 [[exemptions.wasm-streams]]
@@ -2658,7 +2658,7 @@ version = "0.4.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.web-sys]]
-version = "0.3.94"
+version = "0.3.95"
 criteria = "safe-to-deploy"
 
 [[exemptions.web-time]]
