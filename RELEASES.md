@@ -29,6 +29,7 @@ Released on TBD (UTC).
 - Fixed Bybit perpetual instrument status to emit `PreClose` when scheduled for delisting (#3829), thanks @dxwil
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
+- Fixed Hyperliquid order modification handling to translate the exchange cancel-replace sequence into a single `OrderUpdated` event and suppress the stale `OrderCanceled` for the replaced `venue_order_id` (#3827), thanks for reporting @P1YU5H-50N1
 - Fixed IB Gateway Docker image failing on ARM64 hosts (#3813), thanks for reporting @Baki-0501
 - Fixed Kraken Futures limit order `OrderUpdated` panic from wire `stop_price: 0.0` treated as trigger price
 - Fixed Kraken Spot quote-quantity orders never reaching terminal state from base/quote size mismatch

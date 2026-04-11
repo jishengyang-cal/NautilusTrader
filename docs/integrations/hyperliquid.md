@@ -423,6 +423,60 @@ are detected and tracked as external orders. They appear in order status reports
 reconciliation.
 :::
 
+### Modify as cancel-replace
+
+Hyperliquid implements order modification as a **cancel-replace**. The `modify` action on the
+[exchange endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#modify-an-order)
+cancels the original order (old `oid`) and opens a replacement with a new `oid`. Both legs
+share the same client order ID (`cloid`).
+
+The modify HTTP response only confirms success. The
+[`orderUpdates` WebSocket subscription](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions)
+then delivers an `ACCEPTED(new_oid)` status report, followed by a `CANCELED(old_oid)` for the
+original leg.
+
+The adapter detects the replacement leg by comparing the report's `venue_order_id` against the
+cached `venue_order_id` for the `cloid`. When they differ, the adapter overwrites the cache and
+emits a single `OrderUpdated` event to the strategy:
+
+```mermaid
+sequenceDiagram
+    participant Strategy
+    participant ExecClient as HyperliquidExecutionClient
+    participant HTTP as Hyperliquid HTTP
+    participant WS as Hyperliquid WS
+
+    Strategy->>ExecClient: ModifyOrder(cloid, old_oid)
+    ExecClient->>HTTP: POST /exchange { action: "modify", oid: old_oid }
+    HTTP-->>ExecClient: { status: "ok" }
+    ExecClient->>ExecClient: mark cloid pending modify (old_oid)
+    WS-->>ExecClient: ACCEPTED(new_oid, cloid)
+    ExecClient->>ExecClient: cache.add_venue_order_id(cloid, new_oid, overwrite=True)
+    ExecClient-->>Strategy: OrderUpdated(venue_order_id=new_oid)
+    WS-->>ExecClient: CANCELED(old_oid, cloid)
+    ExecClient->>ExecClient: suppress (cached voi != old_oid)
+```
+
+If Hyperliquid delivers `CANCELED(old_oid)` before `ACCEPTED(new_oid)` for an in-flight modify,
+the pending-modify marker lets the adapter drop the old leg's cancel and still route the
+subsequent `ACCEPTED` through the `OrderUpdated` path. The marker is only set after a confirmed
+HTTP success, so a failed modify never leaves stale race state. Because detection otherwise
+relies on the cached `venue_order_id`, the adapter also recovers a modify that times out on the
+HTTP call but still reaches the venue: the eventual WS `ACCEPTED(new_oid)` sees the old cached
+`oid` and translates to `OrderUpdated`. See [GH-3827](https://github.com/nautechsystems/nautilus_trader/issues/3827).
+
+:::note
+One narrow edge case remains when all three conditions occur together:
+
+1. The modify HTTP call raises (transport timeout or connection error).
+2. Hyperliquid still processes the modify on the exchange side.
+3. Hyperliquid delivers `CANCELED(old_oid)` before `ACCEPTED(new_oid)` on the WebSocket.
+
+Under (1) the pending-modify marker is not installed, so the early `CANCELED(old_oid)` emits as
+`OrderCanceled` before the replacement `ACCEPTED(new_oid)` arrives. The periodic reconciliation
+cycle restores the correct order state against the exchange.
+:::
+
 ## Order books
 
 Order books are maintained via L2 WebSocket subscription. Each message delivers a full-depth
