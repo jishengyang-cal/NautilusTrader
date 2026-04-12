@@ -96,7 +96,7 @@ pub const LIMIT_ORDER_TYPES: &[OrderType] = &[
 
 /// Order types that support the TRIGGERED order status.
 ///
-/// Market-style stops (StopMarket, MarketIfTouched, TrailingStopMarket) execute
+/// Market-style stops (`StopMarket`, `MarketIfTouched`, `TrailingStopMarket`) execute
 /// immediately on trigger and have no intermediate TRIGGERED state.
 pub const TRIGGERABLE_ORDER_TYPES: &[OrderType] = &[
     OrderType::StopLimit,
@@ -159,7 +159,7 @@ pub enum OrderError {
     Invariant(#[from] CorrectnessError),
 }
 
-/// Converts an IndexMap with `Ustr` keys and values to `String` keys and values.
+/// Converts an `IndexMap` with `Ustr` keys and values to `String` keys and values.
 #[must_use]
 pub fn ustr_indexmap_to_str(h: IndexMap<Ustr, Ustr>) -> IndexMap<String, String> {
     h.into_iter()
@@ -167,7 +167,7 @@ pub fn ustr_indexmap_to_str(h: IndexMap<Ustr, Ustr>) -> IndexMap<String, String>
         .collect()
 }
 
-/// Converts an IndexMap with `String` keys and values to `Ustr` keys and values.
+/// Converts an `IndexMap` with `String` keys and values to `Ustr` keys and values.
 #[must_use]
 pub fn str_indexmap_to_ustr(h: IndexMap<String, String>) -> IndexMap<Ustr, Ustr> {
     h.into_iter()
@@ -375,7 +375,7 @@ pub trait Order: 'static + Send {
 
     fn has_price(&self) -> bool;
 
-    /// Returns `true` if a fill with matching trade_id, side, qty, and price already exists.
+    /// Returns `true` if a fill with matching `trade_id`, side, qty, and price already exists.
     fn is_duplicate_fill(&self, fill: &OrderFilled) -> bool {
         self.events().iter().any(|event| {
             if let OrderEventAny::Filled(existing) = event {
@@ -617,6 +617,7 @@ pub struct OrderCore {
 
 impl OrderCore {
     /// Creates a new [`OrderCore`] instance.
+    #[must_use]
     pub fn new(init: OrderInitialized) -> Self {
         let events: Vec<OrderEventAny> = vec![OrderEventAny::Initialized(init.clone())];
         Self {
@@ -924,7 +925,7 @@ impl OrderCore {
         match self.side {
             OrderSide::Buy => self.quantity.as_decimal(),
             OrderSide::Sell => -self.quantity.as_decimal(),
-            _ => panic!("Invalid order side"),
+            OrderSide::NoOrderSide => panic!("Invalid order side"),
         }
     }
 

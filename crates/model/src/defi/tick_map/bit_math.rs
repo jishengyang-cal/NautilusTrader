@@ -16,6 +16,7 @@
 use alloy_primitives::U256;
 
 /// Returns the position of the most significant bit (highest set bit) in a U256 number.
+#[must_use]
 pub fn most_significant_bit(x: U256) -> i32 {
     if x.is_zero() {
         return 0;
@@ -25,6 +26,7 @@ pub fn most_significant_bit(x: U256) -> i32 {
 }
 
 /// Returns the position of the least significant bit (lowest set bit) in a U256 number.
+#[must_use]
 pub fn least_significant_bit(x: U256) -> i32 {
     if x.is_zero() {
         return 0;

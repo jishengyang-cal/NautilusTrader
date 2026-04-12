@@ -320,9 +320,9 @@ impl Pool {
     /// - `address` = pool contract address
     /// - `pool_identifier` = same as address (hex string)
     ///
-    /// **UniswapV4**: All pools share a singleton PoolManager contract. Pools are distinguished
+    /// **`UniswapV4`**: All pools share a singleton `PoolManager` contract. Pools are distinguished
     /// by a unique Pool ID (keccak256 hash of currencies, fee, tick spacing, and hooks).
-    /// - `address` = PoolManager contract address (shared by all pools)
+    /// - `address` = `PoolManager` contract address (shared by all pools)
     /// - `pool_identifier` = Pool ID (bytes32 as hex string)
     ///
     /// ## Instrument ID Format

@@ -237,18 +237,21 @@ impl OwnOrderBook {
 
     /// Returns the client order IDs currently on the bid side.
     #[pyo3(name = "bid_client_order_ids")]
+    #[must_use]
     pub fn py_bid_client_order_ids(&self) -> Vec<ClientOrderId> {
         self.bid_client_order_ids()
     }
 
     /// Returns the client order IDs currently on the ask side.
     #[pyo3(name = "ask_client_order_ids")]
+    #[must_use]
     pub fn py_ask_client_order_ids(&self) -> Vec<ClientOrderId> {
         self.ask_client_order_ids()
     }
 
     /// Return whether the given client order ID is in the own book.
     #[pyo3(name = "is_order_in_book")]
+    #[must_use]
     pub fn py_is_order_in_book(&self, client_order_id: &ClientOrderId) -> bool {
         self.is_order_in_book(client_order_id)
     }

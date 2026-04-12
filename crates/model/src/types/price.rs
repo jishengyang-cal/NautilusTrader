@@ -86,9 +86,9 @@ pub type PriceRaw = i64;
 ///
 /// # Safety
 ///
-/// This value is computed at compile time from PRICE_MAX * FIXED_SCALAR.
-/// The multiplication is guaranteed not to overflow because PRICE_MAX and FIXED_SCALAR
-/// are chosen such that their product fits within PriceRaw's range in both
+/// This value is computed at compile time from `PRICE_MAX` * `FIXED_SCALAR`.
+/// The multiplication is guaranteed not to overflow because `PRICE_MAX` and `FIXED_SCALAR`
+/// are chosen such that their product fits within `PriceRaw`'s range in both
 /// high-precision (i128) and standard-precision (i64) modes.
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
@@ -98,9 +98,9 @@ pub static PRICE_RAW_MAX: PriceRaw = (PRICE_MAX * FIXED_SCALAR) as PriceRaw;
 ///
 /// # Safety
 ///
-/// This value is computed at compile time from PRICE_MIN * FIXED_SCALAR.
-/// The multiplication is guaranteed not to overflow because PRICE_MIN and FIXED_SCALAR
-/// are chosen such that their product fits within PriceRaw's range in both
+/// This value is computed at compile time from `PRICE_MIN` * `FIXED_SCALAR`.
+/// The multiplication is guaranteed not to overflow because `PRICE_MIN` and `FIXED_SCALAR`
+/// are chosen such that their product fits within `PriceRaw`'s range in both
 /// high-precision (i128) and standard-precision (i64) modes.
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
@@ -182,7 +182,7 @@ impl Price {
     ///
     /// Returns an error if:
     /// - `value` is invalid outside the representable range [`PRICE_MIN`, `PRICE_MAX`].
-    /// - `precision` is invalid outside the representable range [0, `FIXED_PRECISION``].
+    /// - `precision` is invalid outside the representable range [0, `FIXED_PRECISION`].
     ///
     /// # Notes
     ///
@@ -216,6 +216,7 @@ impl Price {
     /// # Panics
     ///
     /// Panics if a correctness check fails. See [`Price::new_checked`] for more details.
+    #[must_use]
     pub fn new(value: f64, precision: u8) -> Self {
         Self::new_checked(value, precision).expect_display(FAILED)
     }
@@ -226,6 +227,7 @@ impl Price {
     ///
     /// Panics if `raw` is outside the valid range and is not a sentinel value.
     /// Panics if `precision` exceeds [`FIXED_PRECISION`].
+    #[must_use]
     pub fn from_raw(raw: PriceRaw, precision: u8) -> Self {
         assert!(
             raw == PRICE_ERROR
@@ -454,7 +456,7 @@ impl Price {
             return Self { raw: 0, precision };
         }
 
-        let raw_i128 = mantissa_exponent_to_fixed_i128(mantissa as i128, exponent, precision)
+        let raw_i128 = mantissa_exponent_to_fixed_i128(i128::from(mantissa), exponent, precision)
             .expect("Overflow in Price::from_mantissa_exponent");
 
         #[allow(
@@ -698,11 +700,11 @@ impl Serialize for Price {
 }
 
 impl<'de> Deserialize<'de> for Price {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let price_str: &str = Deserialize::deserialize(_deserializer)?;
+        let price_str: &str = Deserialize::deserialize(deserializer)?;
         let price: Self = price_str.into();
         Ok(price)
     }
@@ -735,8 +737,9 @@ pub fn check_positive_price(value: Price, param: &str) -> CorrectnessResult<()> 
 #[cfg(feature = "high-precision")]
 /// The raw i64 price has already been scaled by 10^9. Further scale it by the difference to
 /// `FIXED_PRECISION` to make it high/defi-precision raw price.
+#[must_use]
 pub fn decode_raw_price_i64(value: i64) -> PriceRaw {
-    value as PriceRaw * PRECISION_DIFF_SCALAR as PriceRaw
+    PriceRaw::from(value) * PRECISION_DIFF_SCALAR as PriceRaw
 }
 
 #[cfg(not(feature = "high-precision"))]
@@ -803,13 +806,13 @@ mod tests {
     #[rstest]
     #[should_panic(expected = "Condition failed: invalid f64 for 'value' not in range")]
     fn test_max_value_exceeded() {
-        Price::new(PRICE_MAX + 0.1, FIXED_PRECISION);
+        let _ = Price::new(PRICE_MAX + 0.1, FIXED_PRECISION);
     }
 
     #[rstest]
     #[should_panic(expected = "Condition failed: invalid f64 for 'value' not in range")]
     fn test_min_value_exceeded() {
-        Price::new(PRICE_MIN - 0.1, FIXED_PRECISION);
+        let _ = Price::new(PRICE_MIN - 0.1, FIXED_PRECISION);
     }
 
     #[rstest]
@@ -1010,7 +1013,7 @@ mod tests {
 
     #[rstest]
     #[case("1_234.56", 2, 1234.56)]
-    #[case("1_000_000", 0, 1_000_000.0)]
+    #[case("1000000", 0, 1_000_000.0)]
     #[case("99_999.999_99", 5, 99_999.999_99)]
     fn test_from_str_with_underscores(
         #[case] input: &str,
@@ -1033,11 +1036,16 @@ mod tests {
         let decimal = dec!(123.456789);
         let price = Price::from_decimal_dp(decimal, 6).unwrap();
         assert_eq!(price.precision, 6);
-        assert!(approx_eq!(f64, price.as_f64(), 123.456789, epsilon = 1e-10));
+        assert!(approx_eq!(
+            f64,
+            price.as_f64(),
+            123.456_789,
+            epsilon = 1e-10
+        ));
 
         // Verify raw value is exact
-        let expected_raw = 123456789 * 10_i64.pow((FIXED_PRECISION - 6) as u32);
-        assert_eq!(price.raw, expected_raw as PriceRaw);
+        let expected_raw = 123_456_789 * 10_i64.pow(u32::from(FIXED_PRECISION - 6));
+        assert_eq!(price.raw, PriceRaw::from(expected_raw));
     }
 
     #[rstest]
@@ -1070,7 +1078,12 @@ mod tests {
         let decimal = dec!(1.23456789);
         let price = Price::from_decimal(decimal).unwrap();
         assert_eq!(price.precision, 8);
-        assert!(approx_eq!(f64, price.as_f64(), 1.23456789, epsilon = 1e-10));
+        assert!(approx_eq!(
+            f64,
+            price.as_f64(),
+            1.234_567_89,
+            epsilon = 1e-10
+        ));
     }
 
     #[rstest]
@@ -1110,7 +1123,7 @@ mod tests {
         let decimal = dec!(1.1234567890123456789012345678);
 
         // If scale exceeds FIXED_PRECISION, from_decimal should error
-        if decimal.scale() > FIXED_PRECISION as u32 {
+        if decimal.scale() > u32::from(FIXED_PRECISION) {
             assert!(Price::from_decimal(decimal).is_err());
         }
     }
@@ -1137,7 +1150,7 @@ mod tests {
 
     #[rstest]
     #[case(1234.5678, 4, "Price(1234.5678)", "1234.5678")] // Normal precision
-    #[case(123.456789012345, 8, "Price(123.45678901)", "123.45678901")] // At max normal precision
+    #[case(123.456_789_012_345, 8, "Price(123.45678901)", "123.45678901")] // At max normal precision
     #[cfg_attr(
         feature = "defi",
         case(
@@ -1172,7 +1185,7 @@ mod tests {
         let price = Price::new(123.456, 3);
         assert_eq!(price.as_decimal(), dec!(123.456));
 
-        let price = Price::new(0.000001, 6);
+        let price = Price::new(0.000_001, 6);
         assert_eq!(price.as_decimal(), dec!(0.000001));
     }
 
@@ -1326,7 +1339,7 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Overflow")]
     fn test_from_mantissa_exponent_overflow_panics() {
         let _ = Price::from_mantissa_exponent(i64::MAX, 9, 0);
     }
@@ -1402,7 +1415,7 @@ mod property_tests {
 
     /// Strategy to generate a valid (precision, raw) pair where raw is properly scaled.
     ///
-    /// Raw values must be multiples of 10^(FIXED_PRECISION - precision) to pass validation.
+    /// Raw values must be multiples of `10^(FIXED_PRECISION` - precision) to pass validation.
     fn valid_precision_raw_strategy() -> impl Strategy<Value = (u8, PriceRaw)> {
         precision_strategy().prop_flat_map(|precision| {
             let scale: PriceRaw = if precision >= FIXED_PRECISION {
@@ -1527,13 +1540,13 @@ mod property_tests {
         /// Property: String parsing should be consistent with precision inference
         #[rstest]
         fn prop_price_string_parsing_precision(
-            integral in 0u32..1000000,
-            fractional in 0u32..1000000,
+            integral in 0u32..1_000_000,
+            fractional in 0u32..1_000_000,
             precision in precision_strategy_non_zero()
         ) {
             // Create a decimal string with exactly 'precision' decimal places
             let pow = 10u128.pow(u32::from(precision));
-            let fractional_mod = (fractional as u128) % pow;
+            let fractional_mod = u128::from(fractional) % pow;
             let fractional_str = format!("{:0width$}", fractional_mod, width = precision as usize);
             let price_str = format!("{integral}.{fractional_str}");
 
@@ -1564,7 +1577,7 @@ mod property_tests {
             let min_precision = precision1.min(precision2);
 
             // Round the original value to the minimum precision first
-            let scale = 10.0_f64.powi(min_precision as i32);
+            let scale = 10.0_f64.powi(i32::from(min_precision));
             let rounded_value = (value * scale).round() / scale;
 
             let p1_reduced = Price::new(rounded_value, min_precision);

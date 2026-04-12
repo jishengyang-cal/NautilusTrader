@@ -75,6 +75,7 @@ pub struct OrderPendingCancel {
 impl OrderPendingCancel {
     /// Creates a new [`OrderPendingCancel`] instance.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

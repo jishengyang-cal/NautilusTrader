@@ -711,6 +711,7 @@ impl InstrumentClass {
     }
 
     /// Returns whether this instrument class allows negative prices.
+    #[must_use]
     pub const fn allows_negative_price(&self) -> bool {
         matches!(
             self,
@@ -1144,7 +1145,7 @@ impl OrderSide {
         match &self {
             Self::Buy => OrderSideSpecified::Buy,
             Self::Sell => OrderSideSpecified::Sell,
-            _ => panic!("Order invariant failed: side must be `Buy` or `Sell`"),
+            Self::NoOrderSide => panic!("Order invariant failed: side must be `Buy` or `Sell`"),
         }
     }
 }
@@ -1517,7 +1518,9 @@ impl PositionSide {
             Self::Long => PositionSideSpecified::Long,
             Self::Short => PositionSideSpecified::Short,
             Self::Flat => PositionSideSpecified::Flat,
-            _ => panic!("Position invariant failed: side must be `Long`, `Short`, or `Flat`"),
+            Self::NoPositionSide => {
+                panic!("Position invariant failed: side must be `Long`, `Short`, or `Flat`")
+            }
         }
     }
 }

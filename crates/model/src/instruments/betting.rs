@@ -235,6 +235,7 @@ impl BettingInstrument {
     ///
     /// Panics if any required parameter is invalid or parsing fails during `new_checked`.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         instrument_id: InstrumentId,
         raw_symbol: Symbol,

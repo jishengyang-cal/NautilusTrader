@@ -140,6 +140,7 @@ impl MarketOrder {
     ///
     /// Panics if any order validation fails (see [`MarketOrder::new_checked`]).
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

@@ -51,6 +51,7 @@ pub struct BettingAccount {
 
 impl BettingAccount {
     /// Creates a new [`BettingAccount`] instance.
+    #[must_use]
     pub fn new(event: AccountState, calculate_account_state: bool) -> Self {
         Self {
             base: BaseAccount::new(event, calculate_account_state),
@@ -136,19 +137,18 @@ impl BettingAccount {
         let impact = match order_side {
             OrderSide::Sell => -quantity_f64,
             OrderSide::Buy => -(quantity_f64 * (price_f64 - 1.0)),
-            _ => panic!("invalid `OrderSide`, was {order_side}"),
+            OrderSide::NoOrderSide => panic!("invalid `OrderSide`, was {order_side}"),
         };
         Money::new(impact, currency)
     }
 
     /// Recalculates the account balance for the specified currency based on per-instrument locks.
     pub fn recalculate_balance(&mut self, currency: Currency) {
-        let current_balance = match self.balances.get(&currency) {
-            Some(balance) => *balance,
-            None => {
-                log::debug!("Cannot recalculate balance when no current balance for {currency}");
-                return;
-            }
+        let current_balance = if let Some(balance) = self.balances.get(&currency) {
+            *balance
+        } else {
+            log::debug!("Cannot recalculate balance when no current balance for {currency}");
+            return;
         };
 
         let total_locked_raw: MoneyRaw = self
@@ -296,7 +296,9 @@ impl Account for BettingAccount {
         let locked = match side {
             OrderSide::Sell => quantity.as_f64(),
             OrderSide::Buy => quantity.as_f64() * (price.as_f64() - 1.0),
-            _ => anyhow::bail!("Invalid `OrderSide` in `calculate_balance_locked`: {side}"),
+            OrderSide::NoOrderSide => {
+                anyhow::bail!("Invalid `OrderSide` in `calculate_balance_locked`: {side}")
+            }
         };
 
         Ok(Money::new(locked, instrument.quote_currency()))
@@ -353,7 +355,9 @@ impl Account for BettingAccount {
                 }
                 pnls.insert(quote_currency, quote_pnl);
             }
-            _ => anyhow::bail!("Invalid `OrderSide` in calculate_pnls: {}", fill.order_side),
+            OrderSide::NoOrderSide => {
+                anyhow::bail!("Invalid `OrderSide` in calculate_pnls: {}", fill.order_side)
+            }
         }
 
         Ok(pnls.into_values().collect())

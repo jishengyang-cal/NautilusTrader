@@ -331,7 +331,7 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Invalid `OrderEventAny` not `OrderFilled`")]
     fn test_from_order_event_any_to_filled_panics_on_wrong_variant(order_accepted: OrderAccepted) {
         let event = OrderEventAny::Accepted(order_accepted);
         let _filled: OrderFilled = event.into();

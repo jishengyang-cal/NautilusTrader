@@ -191,6 +191,7 @@ impl OptionContract {
     ///
     /// Panics if any input parameter is invalid (see `new_checked`).
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         instrument_id: InstrumentId,
         raw_symbol: Symbol,

@@ -51,6 +51,7 @@ impl AccountAny {
         }
     }
 
+    #[must_use]
     pub fn last_event(&self) -> Option<AccountState> {
         match self {
             Self::Margin(margin) => margin.last_event(),
@@ -59,6 +60,7 @@ impl AccountAny {
         }
     }
 
+    #[must_use]
     pub fn events(&self) -> Vec<AccountState> {
         match self {
             Self::Margin(margin) => margin.events(),
@@ -81,6 +83,7 @@ impl AccountAny {
         }
     }
 
+    #[must_use]
     pub fn balances(&self) -> AHashMap<Currency, AccountBalance> {
         match self {
             Self::Margin(margin) => margin.balances(),
@@ -89,6 +92,7 @@ impl AccountAny {
         }
     }
 
+    #[must_use]
     pub fn balances_locked(&self) -> AHashMap<Currency, Money> {
         match self {
             Self::Margin(margin) => margin.balances_locked(),
@@ -97,6 +101,7 @@ impl AccountAny {
         }
     }
 
+    #[must_use]
     pub fn base_currency(&self) -> Option<Currency> {
         match self {
             Self::Margin(margin) => margin.base_currency(),
@@ -174,6 +179,7 @@ impl AccountAny {
         }
     }
 
+    #[must_use]
     pub fn balance(&self, currency: Option<Currency>) -> Option<&AccountBalance> {
         match self {
             Self::Margin(margin) => margin.balance(currency),

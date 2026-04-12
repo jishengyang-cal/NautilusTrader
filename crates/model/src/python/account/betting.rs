@@ -32,6 +32,7 @@ impl BettingAccount {
     /// Creates a new `BettingAccount` instance.
     #[new]
     #[pyo3(signature = (event, calculate_account_state))]
+    #[must_use]
     pub fn py_new(event: AccountState, calculate_account_state: bool) -> Self {
         Self::new(event, calculate_account_state)
     }

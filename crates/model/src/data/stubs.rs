@@ -387,6 +387,7 @@ pub struct OrderBookDeltaTestBuilder {
 }
 
 impl OrderBookDeltaTestBuilder {
+    #[must_use]
     pub fn new(instrument_id: InstrumentId) -> Self {
         Self {
             instrument_id,
@@ -444,6 +445,7 @@ impl OrderBookDeltaTestBuilder {
         self
     }
 
+    #[must_use]
     pub fn build(&self) -> OrderBookDelta {
         OrderBookDelta::new(
             self.instrument_id,
@@ -509,6 +511,7 @@ pub fn ensure_stub_custom_data_registered() {
 }
 
 /// Builds a `CustomData` stub for tests (e.g. Redis add/load).
+#[must_use]
 pub fn stub_custom_data(
     ts_init: u64,
     value: i64,

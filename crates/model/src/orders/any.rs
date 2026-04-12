@@ -271,7 +271,7 @@ impl LimitOrderAny {
     ///
     /// # Panics
     ///
-    /// Panics if the MarketToLimit order price is not set.
+    /// Panics if the `MarketToLimit` order price is not set.
     #[must_use]
     pub fn limit_px(&self) -> Price {
         match self {

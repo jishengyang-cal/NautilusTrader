@@ -89,6 +89,7 @@ pub struct OrderFilled {
 impl OrderFilled {
     /// Creates a new [`OrderFilled`] instance.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

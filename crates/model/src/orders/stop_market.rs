@@ -156,6 +156,7 @@ impl StopMarketOrder {
     ///
     /// Panics if any order validation fails (see [`StopMarketOrder::new_checked`]).
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,
@@ -619,9 +620,9 @@ mod tests {
     };
 
     #[rstest]
-    fn test_initialize(_audusd_sim: CurrencyPair) {
+    fn test_initialize(audusd_sim: CurrencyPair) {
         let order = OrderTestBuilder::new(OrderType::StopMarket)
-            .instrument_id(_audusd_sim.id)
+            .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("0.68000"))
             .trigger_type(TriggerType::LastPrice)
@@ -643,9 +644,9 @@ mod tests {
     }
 
     #[rstest]
-    fn test_display(_audusd_sim: CurrencyPair) {
+    fn test_display(audusd_sim: CurrencyPair) {
         let order = OrderTestBuilder::new(OrderType::StopMarket)
-            .instrument_id(_audusd_sim.id)
+            .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("0.68000"))
             .trigger_type(TriggerType::LastPrice)
@@ -661,7 +662,7 @@ mod tests {
     #[rstest]
     #[should_panic(expected = "Condition failed: `display_qty` may not exceed `quantity`")]
     fn test_display_qty_gt_quantity_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::StopMarket)
+        let _ = OrderTestBuilder::new(OrderType::StopMarket)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("0.68000"))
@@ -676,7 +677,7 @@ mod tests {
         expected = "Condition failed: invalid `Quantity` for 'quantity' not positive, was 0"
     )]
     fn test_quantity_zero_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::StopMarket)
+        let _ = OrderTestBuilder::new(OrderType::StopMarket)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("0.68000"))
@@ -688,7 +689,7 @@ mod tests {
     #[rstest]
     #[should_panic(expected = "Condition failed: `expire_time` is required for `GTD` order")]
     fn test_gtd_without_expire_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::StopMarket)
+        let _ = OrderTestBuilder::new(OrderType::StopMarket)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("0.68000"))
@@ -731,7 +732,7 @@ mod tests {
     #[rstest]
     fn test_stop_market_order_expire_time() {
         // Create a stop market order with an expire time
-        let expire_time = UnixNanos::from(1234567890);
+        let expire_time = UnixNanos::from(1_234_567_890);
         let order = OrderTestBuilder::new(OrderType::StopMarket)
             .instrument_id(InstrumentId::from("BTC-USDT.BINANCE"))
             .quantity(Quantity::from(10))

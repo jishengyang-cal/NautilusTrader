@@ -105,6 +105,7 @@ impl Position {
     /// - The `instrument.id()` does not match the `fill.instrument_id`.
     /// - The `fill.order_side` is `NoOrderSide`.
     /// - The `fill.position_id` is `None`.
+    #[must_use]
     pub fn new(instrument: &InstrumentAny, fill: OrderFilled) -> Self {
         check_equal(
             &instrument.id(),
@@ -557,7 +558,7 @@ impl Position {
     /// 2. **Single operation**: This is a single weighted average calculation, not a
     ///    chain of operations where errors would compound.
     ///
-    /// 3. **Overflow safety**: Raw integer arithmetic (price_raw * qty_raw) would risk
+    /// 3. **Overflow safety**: Raw integer arithmetic (`price_raw` * `qty_raw`) would risk
     ///    overflow even with i128 intermediates, since max values can exceed integer limits.
     ///
     /// 4. **f64 precision**: ~15 decimal digits is sufficient for typical financial
@@ -2716,7 +2717,7 @@ mod tests {
         // Verify high-precision price is preserved in f64 (within tolerance)
         let avg_px = position.avg_px_open;
         assert!(
-            (avg_px - 2345.123456789).abs() < 1e-6,
+            (avg_px - 2_345.123_456_789).abs() < 1e-6,
             "High precision price should be preserved within f64 tolerance"
         );
 
@@ -2762,7 +2763,7 @@ mod tests {
 
         // Apply 99 more fills with varying prices
         for i in 2..=100 {
-            let price_offset = (i as f64) * 0.00001;
+            let price_offset = f64::from(i) * 0.00001;
             let fill = TestOrderEventStubs::filled(
                 &order,
                 &audusd_sim,

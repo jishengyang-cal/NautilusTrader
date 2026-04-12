@@ -63,7 +63,7 @@ impl CustomData {
         self.data.ts_init().as_u64()
     }
 
-    /// Serializes this CustomData to JSON bytes for roundtrip with from_json_bytes.
+    /// Serializes this `CustomData` to JSON bytes for roundtrip with `from_json_bytes`.
     fn to_json_bytes(&self) -> PyResult<Vec<u8>> {
         serde_json::to_vec(self).map_err(to_pyvalue_err)
     }
@@ -103,7 +103,7 @@ impl CustomData {
 
 #[pymethods]
 impl CustomData {
-    /// Deserializes CustomData from JSON bytes (full CustomData format).
+    /// Deserializes `CustomData` from JSON bytes (full `CustomData` format).
     #[classmethod]
     #[pyo3(name = "from_json_bytes")]
     fn py_from_json_bytes_py(
@@ -116,6 +116,7 @@ impl CustomData {
 
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
+#[must_use]
 pub fn custom_data_backend_kind(custom: &CustomData) -> &'static str {
     if custom
         .data

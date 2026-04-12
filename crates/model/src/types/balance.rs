@@ -93,6 +93,7 @@ impl AccountBalance {
     /// # Panics
     ///
     /// Panics if a correctness check fails. See [`AccountBalance::new_checked`] for more details.
+    #[must_use]
     pub fn new(total: Money, locked: Money, free: Money) -> Self {
         Self::new_checked(total, locked, free).expect(FAILED)
     }
@@ -179,6 +180,7 @@ impl MarginBalance {
     /// # Panics
     ///
     /// Panics if `initial` and `maintenance` have different currencies.
+    #[must_use]
     pub fn new(initial: Money, maintenance: Money, instrument_id: InstrumentId) -> Self {
         Self::new_checked(initial, maintenance, instrument_id).expect(FAILED)
     }

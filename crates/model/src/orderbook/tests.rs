@@ -99,7 +99,7 @@ fn test_book_integrity_price_boundaries() {
 #[rstest]
 #[case::small_quantity(100)]
 #[case::medium_quantity(1000)]
-#[case::large_quantity(1000000)]
+#[case::large_quantity(1_000_000)]
 fn test_book_integrity_quantity_sizes(#[case] quantity: i64) {
     let instrument_id = InstrumentId::from("AAPL.XNAS");
     let mut book = OrderBook::new(instrument_id, BookType::L2_MBP);
@@ -2015,7 +2015,9 @@ fn test_order_book_filtered_view_book_and_own_book_instrument_mismatch() {
             assert_eq!(book_id.to_string(), "YES.XNAS");
             assert_eq!(own_book_id.to_string(), "NO.XNAS");
         }
-        other => panic!("Expected InstrumentMismatch error, was {other:?}"),
+        BookViewError::OppositeInstrumentMatch(a, b) => {
+            panic!("Expected InstrumentMismatch error, was OppositeInstrumentMatch({a}, {b})")
+        }
     }
 }
 
@@ -2034,7 +2036,9 @@ fn test_own_order_book_combined_with_opposite_instrument_must_differ() {
             assert_eq!(own_book_id.to_string(), "YES.XNAS");
             assert_eq!(opposite_id.to_string(), "YES.XNAS");
         }
-        other => panic!("Expected OppositeInstrumentMatch error, was {other:?}"),
+        BookViewError::InstrumentMismatch(a, b) => {
+            panic!("Expected OppositeInstrumentMatch error, was InstrumentMismatch({a}, {b})")
+        }
     }
 }
 
@@ -5590,20 +5594,22 @@ fn price_strategy() -> impl Strategy<Value = Price> {
 
     // For precision P, raw values must be multiples of 10^(FIXED_PRECISION - P)
     // Generate a base value and multiply by the scale to ensure valid raw values
-    let scale_prec2 = 10i64.pow(u32::from(FIXED_PRECISION - 2)) as PriceRaw; // 10^7
-    let scale_prec8 = 10i64.pow(u32::from(FIXED_PRECISION - 8)) as PriceRaw; // 10^1
+    let scale_prec2 = PriceRaw::from(10i64.pow(u32::from(FIXED_PRECISION - 2))); // 10^7
+    let scale_prec8 = PriceRaw::from(10i64.pow(u32::from(FIXED_PRECISION - 8))); // 10^1
 
     prop_oneof![
         // Normal positive prices (precision 2): 0.01 to 100.00
-        (1i64..=10000i64).prop_map(move |base| Price::from_raw(base as PriceRaw * scale_prec2, 2)),
+        (1i64..=10000i64)
+            .prop_map(move |base| Price::from_raw(PriceRaw::from(base) * scale_prec2, 2)),
         // Very small prices (precision 8): 0.00000001 to 0.00000100
-        (1i64..=100i64).prop_map(move |base| Price::from_raw(base as PriceRaw * scale_prec8, 8)),
+        (1i64..=100i64)
+            .prop_map(move |base| Price::from_raw(PriceRaw::from(base) * scale_prec8, 8)),
         // Large prices (precision 2): 100.00 to 10000.00
-        (10000i64..=1000000i64)
-            .prop_map(move |base| Price::from_raw(base as PriceRaw * scale_prec2, 2)),
+        (10000i64..=1_000_000_i64)
+            .prop_map(move |base| Price::from_raw(PriceRaw::from(base) * scale_prec2, 2)),
         // Negative prices for options/spreads (precision 2)
         (-10000i64..=-1i64)
-            .prop_map(move |base| Price::from_raw(base as PriceRaw * scale_prec2, 2)),
+            .prop_map(move |base| Price::from_raw(PriceRaw::from(base) * scale_prec2, 2)),
     ]
 }
 
@@ -5611,19 +5617,19 @@ fn quantity_strategy() -> impl Strategy<Value = Quantity> {
     use crate::types::{fixed::FIXED_PRECISION, quantity::QuantityRaw};
 
     // For precision P, raw values must be multiples of 10^(FIXED_PRECISION - P)
-    let scale_prec2 = 10u64.pow(u32::from(FIXED_PRECISION - 2)) as QuantityRaw; // 10^7
-    let scale_prec8 = 10u64.pow(u32::from(FIXED_PRECISION - 8)) as QuantityRaw; // 10^1
+    let scale_prec2 = QuantityRaw::from(10u64.pow(u32::from(FIXED_PRECISION - 2))); // 10^7
+    let scale_prec8 = QuantityRaw::from(10u64.pow(u32::from(FIXED_PRECISION - 8))); // 10^1
 
     prop_oneof![
         // Normal quantities (precision 2): 0.01 to 100.00
         (1u64..=10000u64)
-            .prop_map(move |base| Quantity::from_raw(base as QuantityRaw * scale_prec2, 2)),
+            .prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * scale_prec2, 2)),
         // Small quantities (precision 8): 0.00000001 to 0.00000100
         (1u64..=100u64)
-            .prop_map(move |base| Quantity::from_raw(base as QuantityRaw * scale_prec8, 8)),
+            .prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * scale_prec8, 8)),
         // Large quantities (precision 2): 100.00 to 10000.00
-        (10000u64..=1000000u64)
-            .prop_map(move |base| Quantity::from_raw(base as QuantityRaw * scale_prec2, 2)),
+        (10000u64..=1_000_000_u64)
+            .prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * scale_prec2, 2)),
     ]
 }
 
@@ -5656,21 +5662,21 @@ fn positive_quantity_strategy() -> impl Strategy<Value = Quantity> {
     use crate::types::{fixed::FIXED_PRECISION, quantity::QuantityRaw};
 
     // For precision P, raw values must be multiples of 10^(FIXED_PRECISION - P)
-    let scale_prec2 = 10u64.pow(u32::from(FIXED_PRECISION - 2)) as QuantityRaw;
-    let scale_prec3 = 10u64.pow(u32::from(FIXED_PRECISION - 3)) as QuantityRaw;
+    let scale_prec2 = QuantityRaw::from(10u64.pow(u32::from(FIXED_PRECISION - 2)));
+    let scale_prec3 = QuantityRaw::from(10u64.pow(u32::from(FIXED_PRECISION - 3)));
 
     prop_oneof![
         // Small positive quantities (precision 2): 0.01 to 10.00
         (1u64..=1000u64)
-            .prop_map(move |base| Quantity::from_raw(base as QuantityRaw * scale_prec2, 2))
+            .prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * scale_prec2, 2))
             .prop_filter("quantity must be positive", |q| q.is_positive()),
         // Medium positive quantities (precision 3): 1.000 to 100.000
-        (1000u64..=100000u64)
-            .prop_map(move |base| Quantity::from_raw(base as QuantityRaw * scale_prec3, 3))
+        (1000u64..=100_000_u64)
+            .prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * scale_prec3, 3))
             .prop_filter("quantity must be positive", |q| q.is_positive()),
         // Large positive quantities (precision 2): 100.00 to 10000.00
-        (10000u64..=1000000u64)
-            .prop_map(move |base| Quantity::from_raw(base as QuantityRaw * scale_prec2, 2))
+        (10000u64..=1_000_000_u64)
+            .prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * scale_prec2, 2))
             .prop_filter("quantity must be positive", |q| q.is_positive()),
     ]
 }
@@ -5700,10 +5706,10 @@ fn orderbook_test_strategy() -> impl Strategy<Value = (BookType, Vec<OrderBookOp
 /// Ensures order book operations form a semantically valid sequence.
 ///
 /// Tracks live order IDs and filters operations to maintain consistency:
-/// - Add: Skips if order ID already exists (except L1_MBP which allows reuse)
+/// - Add: Skips if order ID already exists (except `L1_MBP` which allows reuse)
 /// - Update/Delete: Only applies to existing orders
 /// - Clear: Resets tracked state
-/// - L1_MBP: Normalizes all order IDs to side constants (1 for Buy, 2 for Sell)
+/// - `L1_MBP`: Normalizes all order IDs to side constants (1 for Buy, 2 for Sell)
 ///
 /// Duplicate Adds are skipped (except L1) because we cannot disambiguate which
 /// occurrence subsequent Update/Delete operations should target.
@@ -6261,24 +6267,24 @@ fn l1_operation_strategy() -> impl Strategy<Value = L1Operation> {
     use crate::types::{fixed::FIXED_PRECISION, price::PriceRaw, quantity::QuantityRaw};
 
     // For precision 2, raw values must be multiples of 10^(FIXED_PRECISION - 2)
-    let price_scale = 10i64.pow(u32::from(FIXED_PRECISION - 2)) as PriceRaw;
-    let qty_scale = 10u64.pow(u32::from(FIXED_PRECISION - 2)) as QuantityRaw;
+    let price_scale = PriceRaw::from(10i64.pow(u32::from(FIXED_PRECISION - 2)));
+    let qty_scale = QuantityRaw::from(10u64.pow(u32::from(FIXED_PRECISION - 2)));
 
     prop_oneof![
         7 => {
             // Use consistent precision for quotes: 0.01 to 100.00
             (
-                (1i64..=10000i64).prop_map(move |base| Price::from_raw(base as PriceRaw * price_scale, 2)),
-                (1u64..=10000u64).prop_map(move |base| Quantity::from_raw(base as QuantityRaw * qty_scale, 2)),
-                (1i64..=10000i64).prop_map(move |base| Price::from_raw(base as PriceRaw * price_scale, 2)),
-                (1u64..=10000u64).prop_map(move |base| Quantity::from_raw(base as QuantityRaw * qty_scale, 2)),
+                (1i64..=10000i64).prop_map(move |base| Price::from_raw(PriceRaw::from(base) * price_scale, 2)),
+                (1u64..=10000u64).prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * qty_scale, 2)),
+                (1i64..=10000i64).prop_map(move |base| Price::from_raw(PriceRaw::from(base) * price_scale, 2)),
+                (1u64..=10000u64).prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * qty_scale, 2)),
             ).prop_map(|(bid_price, bid_size, ask_price, ask_size)| {
                 L1Operation::QuoteUpdate(bid_price, bid_size, ask_price, ask_size)
             })
         },
         3 => (
-            (1i64..=10000i64).prop_map(move |base| Price::from_raw(base as PriceRaw * price_scale, 2)),
-            (1u64..=10000u64).prop_map(move |base| Quantity::from_raw(base as QuantityRaw * qty_scale, 2)),
+            (1i64..=10000i64).prop_map(move |base| Price::from_raw(PriceRaw::from(base) * price_scale, 2)),
+            (1u64..=10000u64).prop_map(move |base| Quantity::from_raw(QuantityRaw::from(base) * qty_scale, 2)),
             prop::sample::select(vec![AggressorSide::Buyer, AggressorSide::Seller])
         ).prop_map(|(price, size, aggressor)| {
             L1Operation::TradeUpdate(price, size, aggressor)
@@ -7008,7 +7014,7 @@ fn make_delta(
 #[rstest]
 #[should_panic(expected = "must not be empty")]
 fn test_deltas_to_quotes_panics_on_empty() {
-    OrderBook::deltas_to_quotes(BookType::L3_MBO, &[]);
+    let _ = OrderBook::deltas_to_quotes(BookType::L3_MBO, &[]);
 }
 
 #[rstest]

@@ -60,6 +60,7 @@ pub struct AccountState {
 impl AccountState {
     /// Creates a new [`AccountState`] instance.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         account_id: AccountId,
         account_type: AccountType,
@@ -94,6 +95,7 @@ impl AccountState {
     ///
     /// This method does not compare event IDs, timestamps, or other metadata - only
     /// the actual balance and margin values.
+    #[must_use]
     pub fn has_same_balances_and_margins(&self, other: &Self) -> bool {
         // Quick check - if lengths differ, they can't be equal
         if self.balances.len() != other.balances.len() || self.margins.len() != other.margins.len()
@@ -250,9 +252,9 @@ mod tests {
         // Create a different balance with same currency
         let usd = Currency::USD();
         let different_balance = AccountBalance::new(
-            Money::new(2000000.0, usd),
+            Money::new(2_000_000.0, usd),
             Money::new(50000.0, usd),
-            Money::new(1950000.0, usd),
+            Money::new(1_950_000.0, usd),
         );
         state2.balances = vec![different_balance];
         assert!(!state1.has_same_balances_and_margins(&state2));
@@ -265,9 +267,9 @@ mod tests {
         // Create a balance with different currency
         let eur = Currency::EUR();
         let different_balance = AccountBalance::new(
-            Money::new(1525000.0, eur),
+            Money::new(1_525_000.0, eur),
             Money::new(25000.0, eur),
-            Money::new(1500000.0, eur),
+            Money::new(1_500_000.0, eur),
         );
         state2.balances = vec![different_balance];
         assert!(!state1.has_same_balances_and_margins(&state2));
@@ -280,9 +282,9 @@ mod tests {
         // Add an additional balance to state2
         let eur = Currency::EUR();
         let additional_balance = AccountBalance::new(
-            Money::new(1000000.0, eur),
+            Money::new(1_000_000.0, eur),
             Money::new(0.0, eur),
-            Money::new(1000000.0, eur),
+            Money::new(1_000_000.0, eur),
         );
         state2.balances.push(additional_balance);
         assert!(!state1.has_same_balances_and_margins(&state2));
@@ -384,14 +386,14 @@ mod tests {
 
         let balances = vec![
             AccountBalance::new(
-                Money::new(1000000.0, usd),
+                Money::new(1_000_000.0, usd),
                 Money::new(0.0, usd),
-                Money::new(1000000.0, usd),
+                Money::new(1_000_000.0, usd),
             ),
             AccountBalance::new(
-                Money::new(500000.0, eur),
+                Money::new(500_000.0, eur),
                 Money::new(10000.0, eur),
-                Money::new(490000.0, eur),
+                Money::new(490_000.0, eur),
             ),
         ];
 

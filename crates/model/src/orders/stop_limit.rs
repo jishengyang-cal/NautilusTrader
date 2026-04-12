@@ -159,6 +159,7 @@ impl StopLimitOrder {
     ///
     /// Panics if any order validation fails (see [`StopLimitOrder::new_checked`]).
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,
@@ -618,10 +619,10 @@ mod tests {
     };
 
     #[rstest]
-    fn test_initialize(_audusd_sim: CurrencyPair) {
+    fn test_initialize(audusd_sim: CurrencyPair) {
         // ---------------------------------------------------------------------
         let order = OrderTestBuilder::new(OrderType::StopLimit)
-            .instrument_id(_audusd_sim.id)
+            .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("0.68000"))
             .price(Price::from("0.68100"))
@@ -658,9 +659,9 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "display_qty` may not exceed `quantity")]
     fn test_display_qty_gt_quantity_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::StopLimit)
+        let _ = OrderTestBuilder::new(OrderType::StopLimit)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("30300"))
@@ -672,9 +673,9 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Quantity must be non-negative")]
     fn test_display_qty_negative_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::StopLimit)
+        let _ = OrderTestBuilder::new(OrderType::StopLimit)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("30300"))
@@ -686,9 +687,9 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "expire_time` is required for `GTD` order")]
     fn test_gtd_without_expire_time_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::StopLimit)
+        let _ = OrderTestBuilder::new(OrderType::StopLimit)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .trigger_price(Price::from("30300"))
@@ -735,7 +736,7 @@ mod tests {
     #[rstest]
     fn test_stop_limit_order_expire_time() {
         // Create a stop limit order with an expire time
-        let expire_time = UnixNanos::from(1234567890);
+        let expire_time = UnixNanos::from(1_234_567_890);
         let order = OrderTestBuilder::new(OrderType::StopLimit)
             .instrument_id(InstrumentId::from("BTC-USDT.BINANCE"))
             .quantity(Quantity::from(10))
@@ -842,7 +843,7 @@ mod tests {
             .trigger_type(Some(TriggerType::Default))
             .post_only(true)
             .reduce_only(true)
-            .expire_time(Some(UnixNanos::from(1234567890)))
+            .expire_time(Some(UnixNanos::from(1_234_567_890)))
             .display_qty(Some(Quantity::from(5)))
             .build()
             .unwrap();

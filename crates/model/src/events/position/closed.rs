@@ -94,6 +94,7 @@ pub struct PositionClosed {
 }
 
 impl PositionClosed {
+    #[must_use]
     pub fn create(
         position: &Position,
         fill: &OrderFilled,

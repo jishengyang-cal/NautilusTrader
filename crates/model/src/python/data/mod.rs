@@ -341,7 +341,7 @@ pub fn pyobjects_to_instrument_closes(
     Ok(closes)
 }
 
-/// Deserializes custom data from JSON bytes into a PyO3 CustomData wrapper.
+/// Deserializes custom data from JSON bytes into a PyO3 `CustomData` wrapper.
 ///
 /// # Errors
 ///
@@ -362,7 +362,7 @@ pub fn deserialize_custom_from_json(type_name: &str, payload: &[u8]) -> PyResult
     Ok(custom)
 }
 
-/// Deserializes JSON value to CustomData via the data class's from_json.
+/// Deserializes JSON value to `CustomData` via the data class's `from_json`.
 #[cfg(feature = "python")]
 fn py_json_deserialize_custom_data(
     data_class: &pyo3::Py<pyo3::PyAny>,
@@ -393,7 +393,7 @@ fn py_json_deserialize_custom_data(
     })
 }
 
-/// Encodes CustomData items to RecordBatch via Python encode_record_batch_py.
+/// Encodes `CustomData` items to `RecordBatch` via Python `encode_record_batch_py`.
 #[allow(unsafe_code)]
 #[cfg(feature = "python")]
 fn py_encode_custom_data_to_record_batch(
@@ -446,7 +446,7 @@ fn py_encode_custom_data_to_record_batch(
     })
 }
 
-/// Decodes RecordBatch to CustomData via Python decode_record_batch_py.
+/// Decodes `RecordBatch` to `CustomData` via Python `decode_record_batch_py`.
 #[allow(unsafe_code)]
 #[cfg(feature = "python")]
 fn py_decode_record_batch_to_custom_data(

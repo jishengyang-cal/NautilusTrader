@@ -85,6 +85,7 @@ pub struct PositionChanged {
 }
 
 impl PositionChanged {
+    #[must_use]
     pub fn create(
         position: &Position,
         fill: &OrderFilled,

@@ -78,13 +78,13 @@ impl TickSchemeRule for FixedTickScheme {
     #[inline(always)]
     fn next_bid_price(&self, value: f64, n: i32, precision: u8) -> Option<Price> {
         let base = (value / self.tick).floor() * self.tick;
-        Some(Price::new(base - (n as f64) * self.tick, precision))
+        Some(Price::new(base - f64::from(n) * self.tick, precision))
     }
 
     #[inline(always)]
     fn next_ask_price(&self, value: f64, n: i32, precision: u8) -> Option<Price> {
         let base = (value / self.tick).ceil() * self.tick;
-        Some(Price::new(base + (n as f64) * self.tick, precision))
+        Some(Price::new(base + f64::from(n) * self.tick, precision))
     }
 }
 
@@ -385,7 +385,7 @@ impl TickSchemeRule for TickScheme {
             Self::Crypto => {
                 let increment: f64 = 0.01;
                 let base = (value / increment).floor() * increment;
-                Some(Price::new(base - (n as f64) * increment, precision))
+                Some(Price::new(base - f64::from(n) * increment, precision))
             }
         }
     }
@@ -399,7 +399,7 @@ impl TickSchemeRule for TickScheme {
             Self::Crypto => {
                 let increment: f64 = 0.01;
                 let base = (value / increment).ceil() * increment;
-                Some(Price::new(base + (n as f64) * increment, precision))
+                Some(Price::new(base + f64::from(n) * increment, precision))
             }
         }
     }
@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "tick must be positive")]
     fn fixed_tick_negative() {
         FixedTickScheme::new(-0.01).unwrap();
     }

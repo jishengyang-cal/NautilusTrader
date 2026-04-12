@@ -74,6 +74,7 @@ pub struct MarginAccount {
 
 impl MarginAccount {
     /// Creates a new [`MarginAccount`] instance.
+    #[must_use]
     pub fn new(event: AccountState, calculate_account_state: bool) -> Self {
         let margins = event
             .margins
@@ -312,14 +313,13 @@ impl MarginAccount {
     /// This function panics if:
     /// - Margin calculation overflows.
     pub fn recalculate_balance(&mut self, currency: Currency) {
-        let current_balance = match self.balances.get(&currency) {
-            Some(balance) => *balance,
-            None => {
-                // Initialize zero balance if none exists - can occur when account
-                // state doesn't include a balance for the position's cost currency
-                let zero = Money::from_raw(0, currency);
-                AccountBalance::new(zero, zero, zero)
-            }
+        let current_balance = if let Some(balance) = self.balances.get(&currency) {
+            *balance
+        } else {
+            // Initialize zero balance if none exists - can occur when account
+            // state doesn't include a balance for the position's cost currency
+            let zero = Money::from_raw(0, currency);
+            AccountBalance::new(zero, zero, zero)
         };
 
         let mut total_margin: MoneyRaw = 0;

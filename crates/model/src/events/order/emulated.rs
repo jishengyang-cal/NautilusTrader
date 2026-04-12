@@ -66,6 +66,7 @@ pub struct OrderEmulated {
 
 impl OrderEmulated {
     /// Creates a new [`OrderEmulated`] instance.
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

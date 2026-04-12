@@ -147,6 +147,7 @@ pub const BAR_SPEC_12_MONTH_LAST: BarSpecification = BarSpecification {
 /// # Panics
 ///
 /// Panics if the aggregation method of the given `bar_type` is not time based.
+#[must_use]
 pub fn get_bar_interval(bar_type: &BarType) -> TimeDelta {
     let spec = bar_type.spec();
 
@@ -168,6 +169,7 @@ pub fn get_bar_interval(bar_type: &BarType) -> TimeDelta {
 /// # Panics
 ///
 /// Panics if the aggregation method of the given `bar_type` is not time based.
+#[must_use]
 pub fn get_bar_interval_ns(bar_type: &BarType) -> UnixNanos {
     let interval_ns = get_bar_interval(bar_type)
         .num_nanoseconds()
@@ -206,10 +208,10 @@ pub fn get_time_bar_start(
         BarAggregation::Day => find_closest_smaller_time(now, origin_offset, Duration::days(step)),
         BarAggregation::Week => {
             let mut start_time = now.trunc_subsecs(0)
-                - Duration::seconds(now.second() as i64)
-                - Duration::minutes(now.minute() as i64)
-                - Duration::hours(now.hour() as i64)
-                - TimeDelta::days(now.weekday().num_days_from_monday() as i64);
+                - Duration::seconds(i64::from(now.second()))
+                - Duration::minutes(i64::from(now.minute()))
+                - Duration::hours(i64::from(now.hour()))
+                - TimeDelta::days(i64::from(now.weekday().num_days_from_monday()));
             start_time += origin_offset;
 
             if now < start_time {
@@ -288,9 +290,9 @@ fn find_closest_smaller_time(
 ) -> DateTime<Utc> {
     // Floor to start of day
     let day_start = now.trunc_subsecs(0)
-        - Duration::seconds(now.second() as i64)
-        - Duration::minutes(now.minute() as i64)
-        - Duration::hours(now.hour() as i64);
+        - Duration::seconds(i64::from(now.second()))
+        - Duration::minutes(i64::from(now.minute()))
+        - Duration::hours(i64::from(now.hour()));
     let base_time = day_start + daily_time_origin;
 
     let time_difference = now - base_time;
@@ -374,6 +376,7 @@ impl BarSpecification {
     /// # Panics
     ///
     /// Panics if the aggregation method is not time-based.
+    #[must_use]
     pub fn timedelta(&self) -> TimeDelta {
         match self.aggregation {
             BarAggregation::Millisecond => Duration::milliseconds(self.step.get() as i64),
@@ -400,6 +403,7 @@ impl BarSpecification {
     ///  - [`BarAggregation::Week`]
     ///  - [`BarAggregation::Month`]
     ///  - [`BarAggregation::Year`]
+    #[must_use]
     pub fn is_time_aggregated(&self) -> bool {
         matches!(
             self.aggregation,
@@ -421,6 +425,7 @@ impl BarSpecification {
     ///  - [`BarAggregation::VolumeImbalance`]
     ///  - [`BarAggregation::Value`]
     ///  - [`BarAggregation::ValueImbalance`]
+    #[must_use]
     pub fn is_threshold_aggregated(&self) -> bool {
         matches!(
             self.aggregation,
@@ -437,6 +442,7 @@ impl BarSpecification {
     ///  - [`BarAggregation::TickRuns`]
     ///  - [`BarAggregation::VolumeRuns`]
     ///  - [`BarAggregation::ValueRuns`]
+    #[must_use]
     pub fn is_information_aggregated(&self) -> bool {
         matches!(
             self.aggregation,
@@ -505,6 +511,7 @@ impl BarType {
     }
 
     /// Creates a new composite [`BarType`] instance.
+    #[must_use]
     pub fn new_composite(
         instrument_id: InstrumentId,
         spec: BarSpecification,
@@ -526,6 +533,7 @@ impl BarType {
     }
 
     /// Returns whether this instance is a standard bar type.
+    #[must_use]
     pub fn is_standard(&self) -> bool {
         match &self {
             Self::Standard { .. } => true,
@@ -534,6 +542,7 @@ impl BarType {
     }
 
     /// Returns whether this instance is a composite bar type.
+    #[must_use]
     pub fn is_composite(&self) -> bool {
         match &self {
             Self::Standard { .. } => false,
@@ -577,6 +586,7 @@ impl BarType {
     }
 
     /// Returns the [`InstrumentId`] for this bar type.
+    #[must_use]
     pub fn instrument_id(&self) -> InstrumentId {
         match &self {
             Self::Standard { instrument_id, .. } | Self::Composite { instrument_id, .. } => {
@@ -586,6 +596,7 @@ impl BarType {
     }
 
     /// Returns the [`BarSpecification`] for this bar type.
+    #[must_use]
     pub fn spec(&self) -> BarSpecification {
         match &self {
             Self::Standard { spec, .. } | Self::Composite { spec, .. } => *spec,
@@ -593,6 +604,7 @@ impl BarType {
     }
 
     /// Returns the [`AggregationSource`] for this bar type.
+    #[must_use]
     pub fn aggregation_source(&self) -> AggregationSource {
         match &self {
             Self::Standard {
@@ -822,7 +834,7 @@ impl Bar {
     /// Returns an error if:
     /// - `high` is not >= `low`.
     /// - `high` is not >= `close`.
-    /// - `low` is not <= `close.
+    /// - `low` is not <= `close`.
     ///
     /// # Notes
     ///
@@ -863,8 +875,9 @@ impl Bar {
     /// This function panics if:
     /// - `high` is not >= `low`.
     /// - `high` is not >= `close`.
-    /// - `low` is not <= `close.
+    /// - `low` is not <= `close`.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         bar_type: BarType,
         open: Price,
@@ -879,6 +892,7 @@ impl Bar {
             .expect(FAILED)
     }
 
+    #[must_use]
     pub fn instrument_id(&self) -> InstrumentId {
         self.bar_type.instrument_id()
     }
@@ -1028,17 +1042,17 @@ mod tests {
 
     #[rstest]
     #[case::millisecond(
-    Utc.timestamp_opt(1658349296, 123_000_000).unwrap(), // 2024-07-21 12:34:56.123 UTC
+    Utc.timestamp_opt(1_658_349_296, 123_000_000).unwrap(), // 2024-07-21 12:34:56.123 UTC
     BarAggregation::Millisecond,
     1,
-    Utc.timestamp_opt(1658349296, 123_000_000).unwrap(),  // 2024-07-21 12:34:56.123 UTC
+    Utc.timestamp_opt(1_658_349_296, 123_000_000).unwrap(),  // 2024-07-21 12:34:56.123 UTC
     )]
     #[rstest]
     #[case::millisecond(
-    Utc.timestamp_opt(1658349296, 123_000_000).unwrap(), // 2024-07-21 12:34:56.123 UTC
+    Utc.timestamp_opt(1_658_349_296, 123_000_000).unwrap(), // 2024-07-21 12:34:56.123 UTC
     BarAggregation::Millisecond,
     10,
-    Utc.timestamp_opt(1658349296, 120_000_000).unwrap(),  // 2024-07-21 12:34:56.120 UTC
+    Utc.timestamp_opt(1_658_349_296, 120_000_000).unwrap(),  // 2024-07-21 12:34:56.120 UTC
     )]
     #[case::second(
     Utc.with_ymd_and_hms(2024, 7, 21, 12, 34, 56).unwrap(),

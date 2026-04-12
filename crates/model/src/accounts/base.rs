@@ -54,6 +54,7 @@ pub struct BaseAccount {
 
 impl BaseAccount {
     /// Creates a new [`BaseAccount`] instance.
+    #[must_use]
     pub fn new(event: AccountState, calculate_account_state: bool) -> Self {
         let mut balances_starting: AHashMap<Currency, Money> = AHashMap::new();
         let mut balances: AHashMap<Currency, AccountBalance> = AHashMap::new();
@@ -160,9 +161,9 @@ impl BaseAccount {
     /// Updates the account balances with the provided list of `AccountBalance` instances.
     ///
     /// Note: This method does NOT validate negative balances. Derived account types
-    /// (CashAccount, MarginAccount) should perform their own validation in apply():
-    /// - MarginAccount: allows negative balances (normal for margin trading)
-    /// - CashAccount: rejects negative unless `allow_borrowing` is true
+    /// (`CashAccount`, `MarginAccount`) should perform their own validation in `apply()`:
+    /// - `MarginAccount`: allows negative balances (normal for margin trading)
+    /// - `CashAccount`: rejects negative unless `allow_borrowing` is true
     pub fn update_balances(&mut self, balances: &[AccountBalance]) {
         for balance in balances {
             self.balances.insert(balance.currency, *balance);
@@ -254,7 +255,9 @@ impl BaseAccount {
                 .calculate_notional_value(quantity, price, use_quote_for_inverse)
                 .as_f64(),
             OrderSide::Sell => quantity.as_f64(),
-            _ => anyhow::bail!("Invalid `OrderSide` in `base_calculate_balance_locked`: {side}"),
+            OrderSide::NoOrderSide => {
+                anyhow::bail!("Invalid `OrderSide` in `base_calculate_balance_locked`: {side}")
+            }
         };
 
         // Handle inverse

@@ -173,6 +173,7 @@ impl TrailingStopLimitOrder {
     ///
     /// Panics if any order validation fails (see [`TrailingStopLimitOrder::new_checked`]).
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,
@@ -240,6 +241,7 @@ impl TrailingStopLimitOrder {
         .expect(FAILED)
     }
 
+    #[must_use]
     pub fn has_activation_price(&self) -> bool {
         self.activation_price.is_some()
     }
@@ -651,10 +653,10 @@ mod tests {
     };
 
     #[rstest]
-    fn test_initialize(_audusd_sim: CurrencyPair) {
+    fn test_initialize(audusd_sim: CurrencyPair) {
         // Create and accept a basic trailing stop limit order
         let order = OrderTestBuilder::new(OrderType::TrailingStopLimit)
-            .instrument_id(_audusd_sim.id)
+            .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .price(Price::from("0.67500"))
             .limit_offset(dec!(5))
@@ -675,9 +677,9 @@ mod tests {
     }
 
     #[rstest]
-    fn test_display(_audusd_sim: CurrencyPair) {
+    fn test_display(audusd_sim: CurrencyPair) {
         let order = OrderTestBuilder::new(OrderType::TrailingStopLimit)
-            .instrument_id(_audusd_sim.id)
+            .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .price(Price::from("0.67500"))
             .trigger_price(Price::from("0.68000"))
@@ -697,7 +699,7 @@ mod tests {
     #[rstest]
     #[should_panic(expected = "Condition failed: `display_qty` may not exceed `quantity`")]
     fn test_display_qty_gt_quantity_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::TrailingStopLimit)
+        let _ = OrderTestBuilder::new(OrderType::TrailingStopLimit)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .price(Price::from("0.67500"))
@@ -716,7 +718,7 @@ mod tests {
         expected = "Condition failed: invalid `Quantity` for 'quantity' not positive, was 0"
     )]
     fn test_quantity_zero_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::TrailingStopLimit)
+        let _ = OrderTestBuilder::new(OrderType::TrailingStopLimit)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .price(Price::from("0.67500"))
@@ -732,7 +734,7 @@ mod tests {
     #[rstest]
     #[should_panic(expected = "Condition failed: `expire_time` is required for `GTD` order")]
     fn test_gtd_without_expire_err(audusd_sim: CurrencyPair) {
-        OrderTestBuilder::new(OrderType::TrailingStopLimit)
+        let _ = OrderTestBuilder::new(OrderType::TrailingStopLimit)
             .instrument_id(audusd_sim.id)
             .side(OrderSide::Buy)
             .price(Price::from("0.67500"))

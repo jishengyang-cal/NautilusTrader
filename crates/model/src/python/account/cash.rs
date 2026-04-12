@@ -32,6 +32,7 @@ impl CashAccount {
     /// Creates a new `CashAccount` instance.
     #[new]
     #[pyo3(signature = (event, calculate_account_state, allow_borrowing = false))]
+    #[must_use]
     pub fn py_new(
         event: AccountState,
         calculate_account_state: bool,

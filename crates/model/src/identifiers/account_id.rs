@@ -147,13 +147,13 @@ mod tests {
     use crate::identifiers::stubs::*;
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "invalid string for 'value', was empty")]
     fn test_account_id_new_invalid_string() {
         AccountId::new("");
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "did not contain '-'")]
     fn test_account_id_new_missing_hyphen() {
         AccountId::new("123456789");
     }

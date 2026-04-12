@@ -69,6 +69,7 @@ pub struct CashAccount {
 
 impl CashAccount {
     /// Creates a new [`CashAccount`] instance.
+    #[must_use]
     pub fn new(event: AccountState, calculate_account_state: bool, allow_borrowing: bool) -> Self {
         Self {
             base: BaseAccount::new(event, calculate_account_state),
@@ -114,7 +115,7 @@ impl CashAccount {
     ///
     /// Returns an error if `allow_borrowing` is false and any balance has a negative total.
     ///
-    /// TODO: Force stop backtest engine on error (like Python's set_backtest_force_stop)
+    /// TODO: Force stop backtest engine on error (like Python's `set_backtest_force_stop`)
     pub fn update_balances(&mut self, balances: &[AccountBalance]) -> anyhow::Result<()> {
         if !self.allow_borrowing {
             for balance in balances {
@@ -153,12 +154,11 @@ impl CashAccount {
     /// If the total locked exceeds the total balance, clamps to total (free = 0).
     ///
     pub fn recalculate_balance(&mut self, currency: Currency) {
-        let current_balance = match self.balances.get(&currency) {
-            Some(balance) => *balance,
-            None => {
-                log::debug!("Cannot recalculate balance when no current balance for {currency}");
-                return;
-            }
+        let current_balance = if let Some(balance) = self.balances.get(&currency) {
+            *balance
+        } else {
+            log::debug!("Cannot recalculate balance when no current balance for {currency}");
+            return;
         };
 
         let total_locked_raw: MoneyRaw = self

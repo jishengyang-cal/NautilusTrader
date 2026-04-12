@@ -126,6 +126,11 @@ pub struct OrderInitialized {
 impl OrderInitialized {
     /// Creates a new [`OrderInitialized`] instance.
     #[expect(clippy::too_many_arguments)]
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "domain event constructor requires multiple boolean flags"
+    )]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

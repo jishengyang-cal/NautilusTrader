@@ -339,6 +339,7 @@ impl TestDefault for TrailingStopMarketOrder {
 pub struct TestOrderEventStubs;
 
 impl TestOrderEventStubs {
+    #[must_use]
     pub fn submitted(order: &OrderAny, account_id: AccountId) -> OrderEventAny {
         let event = OrderSubmitted::new(
             order.trader_id(),
@@ -353,6 +354,7 @@ impl TestOrderEventStubs {
         OrderEventAny::Submitted(event)
     }
 
+    #[must_use]
     pub fn accepted(
         order: &OrderAny,
         account_id: AccountId,
@@ -373,6 +375,7 @@ impl TestOrderEventStubs {
         OrderEventAny::Accepted(event)
     }
 
+    #[must_use]
     pub fn canceled(
         order: &OrderAny,
         account_id: AccountId,
@@ -458,6 +461,7 @@ impl TestOrderStubs {
     /// # Panics
     ///
     /// Panics if applying the accepted event via `new_order.apply(...)` fails.
+    #[must_use]
     pub fn make_accepted_order(order: &OrderAny) -> OrderAny {
         let mut new_order = order.clone();
         let accepted_event = TestOrderEventStubs::accepted(
@@ -472,6 +476,7 @@ impl TestOrderStubs {
     /// # Panics
     ///
     /// Panics if applying the filled event via `accepted_order.apply(...)` fails.
+    #[must_use]
     pub fn make_filled_order(
         order: &OrderAny,
         instrument: &InstrumentAny,
@@ -503,6 +508,7 @@ pub struct TestOrdersGenerator {
 }
 
 impl TestOrdersGenerator {
+    #[must_use]
     pub fn new(order_type: OrderType) -> Self {
         Self {
             order_type,
@@ -530,6 +536,7 @@ impl TestOrdersGenerator {
             .build()
     }
 
+    #[must_use]
     pub fn build(&self) -> Vec<OrderAny> {
         let mut orders = Vec::new();
 
@@ -546,6 +553,7 @@ impl TestOrdersGenerator {
     }
 }
 
+#[must_use]
 pub fn create_order_list_sample(
     total_venues: u8,
     total_instruments: u32,

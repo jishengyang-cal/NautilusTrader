@@ -186,6 +186,7 @@ impl BinaryOption {
     ///
     /// Panics if parameter validation fails during `new_checked`.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         instrument_id: InstrumentId,
         raw_symbol: Symbol,

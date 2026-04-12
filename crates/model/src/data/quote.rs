@@ -116,6 +116,7 @@ impl QuoteTick {
     /// This function panics if:
     /// - `bid_price.precision` does not equal `ask_price.precision`.
     /// - `bid_size.precision` does not equal `ask_size.precision`.
+    #[must_use]
     pub fn new(
         instrument_id: InstrumentId,
         bid_price: Price,
@@ -178,7 +179,7 @@ impl QuoteTick {
                 // Calculate mid avoiding overflow
                 let a = self.bid_price.raw;
                 let b = self.ask_price.raw;
-                let mid_raw = (a / 2) + (b / 2) + ((a % 2 + b % 2) / 2);
+                let mid_raw = (a / 2) + (b / 2) + i128::midpoint(a % 2, b % 2);
                 Price::from_raw(
                     mid_raw,
                     cmp::min(self.bid_price.precision + 1, FIXED_PRECISION),
@@ -202,7 +203,7 @@ impl QuoteTick {
                 // Calculate mid avoiding overflow
                 let a = self.bid_size.raw;
                 let b = self.ask_size.raw;
-                let mid_raw = (a / 2) + (b / 2) + ((a % 2 + b % 2) / 2);
+                let mid_raw = (a / 2) + (b / 2) + u128::midpoint(a % 2, b % 2);
                 Quantity::from_raw(
                     mid_raw,
                     cmp::min(self.bid_size.precision + 1, FIXED_PRECISION),

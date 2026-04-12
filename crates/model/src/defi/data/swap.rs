@@ -39,6 +39,7 @@ pub struct RawSwapData {
 
 impl RawSwapData {
     /// Creates a new [`RawSwapData`] instance with the specified values.
+    #[must_use]
     pub fn new(amount0: I256, amount1: I256, sqrt_price_x96: U160) -> Self {
         Self {
             amount0,

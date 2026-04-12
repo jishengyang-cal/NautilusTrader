@@ -69,7 +69,7 @@ pub struct OwnBookOrder {
     pub order_type: OrderType,
     /// The order time in force.
     pub time_in_force: TimeInForce,
-    /// The current order status (SUBMITTED/ACCEPTED/PENDING_CANCEL/PENDING_UPDATE/PARTIALLY_FILLED).
+    /// The current order status (`SUBMITTED/ACCEPTED/PENDING_CANCEL/PENDING_UPDATE/PARTIALLY_FILLED`).
     pub status: OrderStatus,
     /// UNIX timestamp (nanoseconds) when the last order event occurred for this order.
     pub ts_last: UnixNanos,
@@ -337,16 +337,19 @@ impl OwnOrderBook {
     }
 
     /// Returns the client order IDs currently on the bid side.
+    #[must_use]
     pub fn bid_client_order_ids(&self) -> Vec<ClientOrderId> {
         self.bids.cache.keys().copied().collect()
     }
 
     /// Returns the client order IDs currently on the ask side.
+    #[must_use]
     pub fn ask_client_order_ids(&self) -> Vec<ClientOrderId> {
         self.asks.cache.keys().copied().collect()
     }
 
     /// Return whether the given client order ID is in the own book.
+    #[must_use]
     pub fn is_order_in_book(&self, client_order_id: &ClientOrderId) -> bool {
         self.asks.cache.contains_key(client_order_id)
             || self.bids.cache.contains_key(client_order_id)
@@ -356,6 +359,7 @@ impl OwnOrderBook {
     ///
     /// Filters by `status` if provided. With `accepted_buffer_ns`, only includes orders accepted
     /// at least that many nanoseconds before `ts_now` (defaults to now).
+    #[must_use]
     pub fn bids_as_map(
         &self,
         status: Option<&AHashSet<OrderStatus>>,
@@ -369,6 +373,7 @@ impl OwnOrderBook {
     ///
     /// Filters by `status` if provided. With `accepted_buffer_ns`, only includes orders accepted
     /// at least that many nanoseconds before `ts_now` (defaults to now).
+    #[must_use]
     pub fn asks_as_map(
         &self,
         status: Option<&AHashSet<OrderStatus>>,
@@ -385,6 +390,7 @@ impl OwnOrderBook {
     ///
     /// If `group_size` is provided, groups quantities into price buckets.
     /// If `depth` is provided, limits the number of price levels returned.
+    #[must_use]
     pub fn bid_quantity(
         &self,
         status: Option<&AHashSet<OrderStatus>>,
@@ -416,6 +422,7 @@ impl OwnOrderBook {
     ///
     /// If `group_size` is provided, groups quantities into price buckets.
     /// If `depth` is provided, limits the number of price levels returned.
+    #[must_use]
     pub fn ask_quantity(
         &self,
         status: Option<&AHashSet<OrderStatus>>,
@@ -678,14 +685,11 @@ impl OwnBookLadder {
         let book_price = order.to_book_price();
         self.cache.insert(order.client_order_id, book_price);
 
-        match self.levels.get_mut(&book_price) {
-            Some(level) => {
-                level.add(order);
-            }
-            None => {
-                let level = OwnBookLevel::from_order(order);
-                self.levels.insert(book_price, level);
-            }
+        if let Some(level) = self.levels.get_mut(&book_price) {
+            level.add(order);
+        } else {
+            let level = OwnBookLevel::from_order(order);
+            self.levels.insert(book_price, level);
         }
     }
 
@@ -807,6 +811,7 @@ impl Debug for OwnBookLadder {
         f.debug_struct(stringify!(OwnBookLadder))
             .field("side", &self.side)
             .field("levels", &self.levels)
+            .field("cache", &self.cache)
             .finish()
     }
 }
@@ -958,6 +963,7 @@ impl Ord for OwnBookLevel {
     }
 }
 
+#[must_use]
 pub fn should_handle_own_book_order(order: &OrderAny) -> bool {
     order.has_price()
         && order.time_in_force() != TimeInForce::Ioc

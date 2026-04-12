@@ -73,6 +73,7 @@ pub struct PositionOpened {
 }
 
 impl PositionOpened {
+    #[must_use]
     pub fn create(
         position: &Position,
         fill: &OrderFilled,

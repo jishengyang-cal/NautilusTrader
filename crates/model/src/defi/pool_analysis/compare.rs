@@ -41,6 +41,7 @@ use crate::defi::pool_analysis::snapshot::PoolSnapshot;
 /// # Returns
 ///
 /// Returns `true` if all compared values match, `false` if any mismatches are detected.
+#[must_use]
 pub fn compare_pool_profiler(profiler: &PoolProfiler, snapshot: &PoolSnapshot) -> bool {
     assert!(profiler.is_initialized, "Profiler is not initialized");
 

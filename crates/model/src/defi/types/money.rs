@@ -53,6 +53,7 @@ impl Money {
     /// # Returns
     ///
     /// The raw wei value as a U256.
+    #[must_use]
     pub fn to_wei(&self) -> U256 {
         U256::from(self.raw as u128)
     }

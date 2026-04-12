@@ -70,6 +70,7 @@ pub struct OrderSubmitted {
 impl OrderSubmitted {
     /// Creates a new [`OrderSubmitted`] instance.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

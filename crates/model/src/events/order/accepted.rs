@@ -36,7 +36,7 @@ use crate::{
 
 /// Represents an event where an order has been accepted by the trading venue.
 ///
-/// This event often corresponds to a `NEW` OrdStatus <39> field in FIX execution reports.
+/// This event often corresponds to a `NEW` `OrdStatus` <39> field in FIX execution reports.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Builder)]
 #[serde(tag = "type")]
@@ -76,6 +76,7 @@ pub struct OrderAccepted {
 impl OrderAccepted {
     /// Creates a new [`OrderAccepted`] instance.
     #[expect(clippy::too_many_arguments)]
+    #[must_use]
     pub fn new(
         trader_id: TraderId,
         strategy_id: StrategyId,

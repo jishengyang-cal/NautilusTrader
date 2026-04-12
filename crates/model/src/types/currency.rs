@@ -71,7 +71,7 @@ impl Currency {
     /// Returns an error if:
     /// - `code` is not a valid string.
     /// - `name` is the empty string.
-    /// - `precision` is invalid outside the valid representable range [0, FIXED_PRECISION].
+    /// - `precision` is invalid outside the valid representable range [0, `FIXED_PRECISION`].
     ///
     /// # Notes
     ///
@@ -185,7 +185,7 @@ impl Currency {
     /// internal map, a new cryptocurrency is created with:
     /// - 8 decimal precision
     /// - ISO 4217 code of 0
-    /// - CurrencyType::Crypto
+    /// - `CurrencyType::Crypto`
     ///
     /// The newly created currency is automatically registered in the internal map.
     #[must_use]
