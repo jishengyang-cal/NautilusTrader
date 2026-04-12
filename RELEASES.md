@@ -45,6 +45,7 @@ Released on TBD (UTC).
 - Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
 - Refined Interactive Brokers combo fill average price calculation (#3834), thanks @faysou
 - Refined Kraken WebSocket execution dispatch to emit typed events for tracked orders via per-product modules
+- Upgraded Cap'n Proto to v1.4.0
 - Upgraded `capnp` crate to v0.25.4 (regenerated schemas with 4-space indents and version headers)
 - Upgraded `databento` crate to v0.46.0
 - Upgraded `msgspec` to v0.21.0
