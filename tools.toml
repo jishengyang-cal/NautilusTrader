@@ -8,7 +8,7 @@
 version = "0.3.8"
 
 [osv-scanner]
-version = "2.3.3"
+version = "2.3.5"
 
 [capnp]
 version = "1.3.0"

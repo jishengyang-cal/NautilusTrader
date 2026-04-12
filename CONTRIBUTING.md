@@ -16,12 +16,13 @@ To contribute, follow these steps:
 
 2. Once everyone is aligned, fork the `develop` branch and ensure your fork is up-to-date by regularly merging any upstream changes.
 
-3. Install [prek](https://github.com/j178/prek) on your local machine to automatically run pre-commit checks, formatters, and linters before each commit.
-   You can install prek with:
+3. Set up your development environment by following the [Environment setup guide](docs/developer_guide/environment_setup.md), which covers Rust, Python, and uv. With those prerequisites in place, install the pinned development tools (this includes [prek](https://github.com/j178/prek), which runs pre-commit checks, formatters, and linters before each commit):
     ```bash
-    brew install prek  # or: cargo install prek
+    cargo install cargo-binstall --locked  # one-off prerequisite
+    make install-tools
     prek install
     ```
+   `make install-tools` installs every pinned tool from `Cargo.toml`, `tools.toml`, and `pyproject.toml`. See [Install development tools](docs/developer_guide/environment_setup.md#2-install-development-tools) for what each pinned tool does.
 
 4. Open a pull request (PR) on the `develop` branch with a summary comment and reference to any relevant GitHub issue(s).
 

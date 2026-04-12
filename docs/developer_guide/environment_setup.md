@@ -41,7 +41,55 @@ To install in debug mode, use:
 make install-debug
 ```
 
-### 2. Set up pre-commit
+### 2. Install development tools
+
+NautilusTrader pins every development tool so that all contributors and CI run identical versions.
+A single Makefile target installs the full set:
+
+```bash
+make install-tools
+```
+
+This installs:
+
+- **Cargo CLIs** pinned in `Cargo.toml` under `[workspace.metadata.tools]`: `cargo-audit`,
+  `cargo-deny`, `cargo-edit`, `cargo-llvm-cov`, `cargo-machete`, `cargo-nextest`, `cargo-vet`,
+  `lychee`.
+- **Prebuilt binaries** pinned in `tools.toml`: `prek` (pre-commit runner) and `osv-scanner`
+  (vulnerability scanner).
+- **uv**, synced to the version required by `pyproject.toml`.
+
+Cap'n Proto is also pinned in `tools.toml` but installs separately; see the [Cap'n Proto](#capn-proto)
+section below.
+
+#### One-off prerequisite: cargo-binstall
+
+`make install-tools` uses [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall) to fetch
+`prek` as a prebuilt binary instead of compiling it from source. Install `cargo-binstall` once per
+machine:
+
+```bash
+cargo install cargo-binstall --locked
+```
+
+This is a one-time step. Subsequent runs of `make install-tools` reuse the installed `cargo-binstall`.
+
+#### Single source of truth for versions
+
+Tool versions live in two files:
+
+- `Cargo.toml` under `[workspace.metadata.tools]` for cargo-installable crates.
+- `tools.toml` for everything else (`prek`, `osv-scanner`, `capnp`).
+
+The Makefile reads these via `scripts/cargo-tool-version.sh` and `scripts/tool-version.sh`, so
+bumping a version in the source file is the only change required. To check the pinned cargo tool
+versions against crates.io, run:
+
+```bash
+make outdated
+```
+
+### 3. Set up pre-commit
 
 Set up the pre-commit hook which will then run automatically at commit:
 
@@ -59,7 +107,7 @@ make pre-commit
 
 Make sure the Rust compiler reports **zero errors** -- broken builds slow everyone down.
 
-### 3. Configure environment variables
+### 4. Configure environment variables
 
 **Required for Rust/PyO3 (Linux and macOS)**: When using Python installed via `uv` on Linux or macOS, set the following environment variables:
 

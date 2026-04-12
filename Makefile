@@ -15,6 +15,8 @@ CARGO_MACHETE_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-machet
 CARGO_NEXTEST_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-nextest)
 CARGO_VET_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-vet)
 LYCHEE_VERSION := $(shell bash scripts/cargo-tool-version.sh lychee)
+# Tool versions from tools.toml
+PREK_VERSION := $(shell bash scripts/tool-version.sh prek)
 UV_VERSION := $(shell bash scripts/uv-version.sh)
 
 V = 0  # 0 / 1 - verbose mode
@@ -323,7 +325,7 @@ update: cargo-update  #-- Update all dependencies (cargo and uv)
 	uv self update $(UV_VERSION) && uv lock --upgrade
 
 .PHONY: install-tools
-install-tools:  #-- Install required development tools (Rust tools from Cargo.toml, uv from pyproject.toml)
+install-tools: check-binstall-installed  #-- Install required development tools (pinned versions from Cargo.toml, tools.toml, pyproject.toml)
 	cargo install cargo-deny --version $(CARGO_DENY_VERSION) --locked \
 	&& cargo install cargo-edit --version $(CARGO_EDIT_VERSION) --locked \
 	&& cargo install cargo-machete --version $(CARGO_MACHETE_VERSION) --locked \
@@ -332,7 +334,9 @@ install-tools:  #-- Install required development tools (Rust tools from Cargo.to
 	&& cargo install cargo-audit --version $(CARGO_AUDIT_VERSION) --locked \
 	&& cargo install cargo-vet --version $(CARGO_VET_VERSION) --locked \
 	&& cargo install lychee --version $(LYCHEE_VERSION) --locked \
-	&& uv self update $(UV_VERSION)
+	&& cargo binstall prek --version $(PREK_VERSION) --no-confirm --locked \
+	&& uv self update $(UV_VERSION) \
+	&& bash scripts/install-osv-scanner.sh
 
 #== Security
 
@@ -421,6 +425,15 @@ check-audit-installed:  #-- Verify cargo-audit is installed
 check-deny-installed:  #-- Verify cargo-deny is installed
 	@if ! cargo deny --version >/dev/null 2>&1; then \
 		echo "cargo-deny is not installed. You can install it using 'cargo install cargo-deny'"; \
+		exit 1; \
+	fi
+
+.PHONY: check-binstall-installed
+check-binstall-installed:  #-- Verify cargo-binstall is installed (one-off prerequisite for install-tools)
+	@if ! command -v cargo-binstall >/dev/null 2>&1; then \
+		printf "$(YELLOW)cargo-binstall is required but not installed$(RESET)\n"; \
+		printf "Install once per machine with: $(CYAN)cargo install cargo-binstall --locked$(RESET)\n"; \
+		printf "See: https://github.com/cargo-bins/cargo-binstall\n"; \
 		exit 1; \
 	fi
 
