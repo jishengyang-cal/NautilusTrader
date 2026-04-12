@@ -94,6 +94,11 @@ impl UUID4 {
     }
 
     /// Returns the UUID as a string slice.
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: the stored byte representation is constructed
+    /// from valid ASCII UUID strings by [`UUID4::new`] or deserialization paths.
     #[must_use]
     pub fn as_str(&self) -> &str {
         // We always store valid ASCII UUID strings
@@ -104,6 +109,11 @@ impl UUID4 {
     ///
     /// This method is optimized for serialization where the UUID bytes
     /// are needed directly without string conversion overhead.
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: the stored byte representation is a valid
+    /// UTF-8 UUID v4 string produced by [`UUID4::new`] or deserialization paths.
     #[must_use]
     pub fn as_bytes(&self) -> [u8; 16] {
         // Parse the string representation to extract the raw bytes

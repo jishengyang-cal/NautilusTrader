@@ -46,6 +46,11 @@ const DECODE_NIBBLE: [u8; 256] = {
 };
 
 /// Encodes a byte slice as a lowercase hexadecimal string.
+///
+/// # Panics
+///
+/// Never panics in practice: the output buffer is built from ASCII hex pairs in
+/// `ENCODE_PAIR`, so [`String::from_utf8`] always succeeds.
 #[must_use]
 pub fn encode(data: impl AsRef<[u8]>) -> String {
     let bytes = data.as_ref();
@@ -57,6 +62,11 @@ pub fn encode(data: impl AsRef<[u8]>) -> String {
 }
 
 /// Encodes a byte slice as a `"0x"`-prefixed lowercase hexadecimal string.
+///
+/// # Panics
+///
+/// Never panics in practice: the output buffer is built from ASCII (`"0x"` plus
+/// `ENCODE_PAIR` entries), so [`String::from_utf8`] always succeeds.
 #[must_use]
 pub fn encode_prefixed(data: impl AsRef<[u8]>) -> String {
     let bytes = data.as_ref();

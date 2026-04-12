@@ -108,6 +108,10 @@ impl StackStr {
     /// - `s` is empty or contains only whitespace.
     /// - `s` contains non-ASCII characters or interior NUL bytes.
     /// - `s` exceeds 36 characters.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "length is guarded by STACKSTR_CAPACITY check above (max 36, fits u8)"
+    )]
     pub fn new_checked(s: &str) -> CorrectnessResult<Self> {
         if s.is_empty() {
             return Err(CorrectnessError::PredicateViolation {
@@ -190,6 +194,11 @@ impl StackStr {
     ///
     /// Violating these requirements causes a panic. If this function is called
     /// from C code, such a panic is undefined behavior.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the C string contains invalid UTF-8 or violates any of the
+    /// safety invariants listed above.
     #[must_use]
     pub unsafe fn from_c_ptr(ptr: *const c_char) -> Self {
         // SAFETY: Caller guarantees ptr is valid and null-terminated
@@ -416,32 +425,32 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Condition failed")]
     fn test_exceeds_max_length() {
         let input = "x".repeat(37);
         let _ = StackStr::new(&input);
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Condition failed")]
     fn test_empty_string() {
         let _ = StackStr::new("");
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Condition failed")]
     fn test_whitespace_only() {
         let _ = StackStr::new("   ");
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Condition failed")]
     fn test_non_ascii() {
         let _ = StackStr::new("hello\u{1F600}"); // emoji
     }
 
     #[rstest]
-    #[should_panic]
+    #[should_panic(expected = "Condition failed")]
     fn test_interior_nul_byte() {
         let _ = StackStr::new("abc\0def");
     }
@@ -661,7 +670,7 @@ mod tests {
         let s = StackStr::new("test");
         let ptr = s.as_ptr();
         // Read byte at position 4 (after "test")
-        let null_byte = unsafe { *ptr.offset(4) };
+        let null_byte = unsafe { *ptr.add(4) };
         assert_eq!(null_byte, 0);
     }
 

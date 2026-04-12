@@ -100,6 +100,10 @@ pub fn duration_since_unix_epoch() -> Duration {
 /// Panics if the duration in nanoseconds exceeds `u64::MAX`.
 #[inline(always)]
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "value is guarded by the assert above (ns <= u64::MAX)"
+)]
 pub fn nanos_since_unix_epoch() -> u64 {
     let ns = duration_since_unix_epoch().as_nanos();
     assert!(

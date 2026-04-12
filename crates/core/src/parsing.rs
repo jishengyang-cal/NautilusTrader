@@ -41,6 +41,10 @@ fn clamp_precision_with_log(len: usize, context: &str, input: &str) -> u8 {
 /// otherwise panics for malformed input.
 #[inline]
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "value is clamped to u8::MAX before the cast"
+)]
 fn parse_scientific_exponent(exponent_str: &str, strict: bool) -> Option<u8> {
     if let Ok(exp) = exponent_str.parse::<u64>() {
         Some(exp.min(u64::from(u8::MAX)) as u8)

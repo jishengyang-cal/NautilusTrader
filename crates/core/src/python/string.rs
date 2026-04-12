@@ -30,6 +30,7 @@ use pyo3_stub_gen::derive::gen_stub_pyfunction;
 /// ```
 #[pyfunction(name = "mask_api_key")]
 #[gen_stub_pyfunction(module = "nautilus_trader.core")]
+#[must_use]
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Python FFI requires owned types"

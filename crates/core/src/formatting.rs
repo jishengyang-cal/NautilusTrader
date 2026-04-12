@@ -110,19 +110,19 @@ mod tests {
     #[case(1, "1")]
     #[case(12, "12")]
     #[case(123, "123")]
-    #[case(1234, "1,234")]
-    #[case(12345, "12,345")]
-    #[case(123456, "123,456")]
-    #[case(1234567, "1,234,567")]
-    #[case(-1234, "-1,234")]
-    #[case(-1234567, "-1,234,567")]
+    #[case(1_234, "1,234")]
+    #[case(12_345, "12,345")]
+    #[case(123_456, "123,456")]
+    #[case(1_234_567, "1,234,567")]
+    #[case(-1_234, "-1,234")]
+    #[case(-1_234_567, "-1,234,567")]
     fn test_separate_with_commas(#[case] input: i64, #[case] expected: &str) {
         assert_eq!(input.separate_with_commas(), expected);
     }
 
     #[rstest]
-    #[case(1234, "1_234")]
-    #[case(1234567, "1_234_567")]
+    #[case(1_234, "1_234")]
+    #[case(1_234_567, "1_234_567")]
     fn test_separate_with_underscores(#[case] input: i64, #[case] expected: &str) {
         assert_eq!(input.separate_with_underscores(), expected);
     }
@@ -130,7 +130,7 @@ mod tests {
     #[rstest]
     fn test_float_with_decimal() {
         assert_eq!(1234.56_f64.separate_with_commas(), "1,234.56");
-        assert_eq!(1234567.89_f64.separate_with_underscores(), "1_234_567.89");
+        assert_eq!(1_234_567.89_f64.separate_with_underscores(), "1_234_567.89");
     }
 
     #[rstest]
