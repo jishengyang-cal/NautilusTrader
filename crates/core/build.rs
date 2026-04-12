@@ -36,7 +36,14 @@
 
 use std::{env, path::PathBuf};
 
-#[expect(clippy::expect_used)]
+#[allow(
+    clippy::expect_used,
+    reason = ".expect() calls are behind #[cfg(feature = \"ffi\")]"
+)]
+#[allow(
+    clippy::needless_return,
+    reason = "return is needed when ffi feature is enabled"
+)]
 fn main() {
     // Ensure the build script runs on changes
     println!("cargo:rerun-if-env-changed=HIGH_PRECISION");

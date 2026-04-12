@@ -31,7 +31,10 @@ use crate::{
 };
 
 /// Wraps an `OrderEvent` allowing polymorphism.
-#[expect(clippy::large_enum_variant)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "lint fires only with high-precision feature"
+)]
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum OrderEventAny {
     Initialized(OrderInitialized),
