@@ -13,10 +13,10 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Turmoil integration tests for the WebSocketClient.
+//! Turmoil integration tests for the `WebSocketClient`.
 //!
 //! These tests use turmoil's network simulation to test the actual production
-//! WebSocketClient code under various network conditions.
+//! `WebSocketClient` code under various network conditions.
 
 #![cfg(feature = "turmoil")]
 

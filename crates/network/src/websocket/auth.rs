@@ -65,6 +65,10 @@ pub enum AuthState {
 impl AuthState {
     #[inline]
     #[must_use]
+    #[expect(
+        clippy::match_same_arms,
+        reason = "explicit variant listing is clearer than collapsing 0 with wildcard"
+    )]
     fn from_u8(value: u8) -> Self {
         match value {
             0 => Self::Unauthenticated,
@@ -112,6 +116,7 @@ pub struct AuthTracker {
 
 impl AuthTracker {
     /// Creates a new authentication tracker.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tx: Arc::new(Mutex::new(None)),
@@ -150,6 +155,10 @@ impl AuthTracker {
     ///
     /// Transitions to `Unauthenticated` since a new attempt invalidates any
     /// previous status.
+    #[allow(
+        clippy::must_use_candidate,
+        reason = "callers use this for side effects"
+    )]
     pub fn begin(&self) -> AuthResultReceiver {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         self.state
@@ -1236,8 +1245,8 @@ mod proptest_tests {
         }
     }
 
-    /// Verifies that wait_for_authenticated returns within a bounded time
-    /// when succeed() or fail() is called, regardless of the timeout value.
+    /// Verifies that `wait_for_authenticated` returns within a bounded time
+    /// when `succeed()` or `fail()` is called, regardless of the timeout value.
     #[rstest]
     #[tokio::test]
     async fn test_wait_responds_within_bounded_time() {

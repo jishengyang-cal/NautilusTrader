@@ -382,7 +382,11 @@ impl Price {
         // Scale down the raw value to match the precision
         let precision_diff = FIXED_PRECISION.saturating_sub(self.precision);
         let rescaled_raw = self.raw / PriceRaw::pow(10, u32::from(precision_diff));
-        #[allow(clippy::unnecessary_cast, reason = "cast is real when PriceRaw is i64")]
+        #[allow(
+            clippy::unnecessary_cast,
+            clippy::cast_lossless,
+            reason = "cast is real when PriceRaw is i64, no-op when i128"
+        )]
         Decimal::from_i128_with_scale(rescaled_raw as i128, u32::from(self.precision))
     }
 
@@ -743,6 +747,7 @@ pub fn decode_raw_price_i64(value: i64) -> PriceRaw {
 }
 
 #[cfg(not(feature = "high-precision"))]
+#[must_use]
 pub fn decode_raw_price_i64(value: i64) -> PriceRaw {
     value
 }

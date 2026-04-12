@@ -13,10 +13,10 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Turmoil integration tests for the SocketClient.
+//! Turmoil integration tests for the `SocketClient`.
 //!
 //! These tests use turmoil's network simulation to test the actual production
-//! SocketClient code under various network conditions.
+//! `SocketClient` code under various network conditions.
 
 #![cfg(feature = "turmoil")]
 
@@ -60,7 +60,7 @@ async fn echo_server() -> Result<(), Box<dyn std::error::Error>> {
 
                 loop {
                     match stream.read(&mut buffer).await {
-                        Ok(0) => break,
+                        Ok(0) | Err(_) => break,
                         Ok(n) => {
                             // Check for termination message
                             if buffer.starts_with(b"close\r\n") {
@@ -72,7 +72,6 @@ async fn echo_server() -> Result<(), Box<dyn std::error::Error>> {
                                 break;
                             }
                         }
-                        Err(_) => break,
                     }
                 }
             });
@@ -149,7 +148,7 @@ fn test_turmoil_real_socket_reconnection(mut socket_config: SocketConfig) {
             let mut buffer = vec![0; 1024];
             loop {
                 match stream.read(&mut buffer).await {
-                    Ok(0) => break,
+                    Ok(0) | Err(_) => break,
                     Ok(n) => {
                         if buffer.starts_with(b"close\r\n") {
                             break;
@@ -159,7 +158,6 @@ fn test_turmoil_real_socket_reconnection(mut socket_config: SocketConfig) {
                             break;
                         }
                     }
-                    Err(_) => break,
                 }
             }
         }

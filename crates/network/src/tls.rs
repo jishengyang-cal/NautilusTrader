@@ -93,6 +93,10 @@ mod encryption {
             },
         };
 
+        #[expect(
+            clippy::unused_async,
+            reason = "signature mirrors the rustls variant which is genuinely async"
+        )]
         pub async fn wrap_stream<S>(socket: S, mode: Mode) -> Result<MaybeTlsStream<S>, Error>
         where
             S: 'static + AsyncRead + AsyncWrite + Send + Unpin,

@@ -13,6 +13,11 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "test arithmetic with known-safe values"
+)]
+
 //! Property-based tests for rate limiting components.
 //!
 //! These tests verify fundamental properties that should hold regardless of specific input values:

@@ -125,6 +125,10 @@ impl WebSocketClientInner {
     /// # Errors
     ///
     /// Returns an error if the exponential backoff configuration is invalid.
+    #[expect(
+        clippy::unused_async,
+        reason = "async signature for consistency with connect-based constructors"
+    )]
     pub async fn new_with_writer(
         config: WebSocketConfig,
         writer: MessageWriter,
@@ -947,6 +951,10 @@ impl CleanDrop for WebSocketClientInner {
     }
 }
 
+#[expect(
+    clippy::missing_fields_in_debug,
+    reason = "handler closures and internal task handles are intentionally omitted"
+)]
 impl Debug for WebSocketClientInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(stringify!(WebSocketClientInner))

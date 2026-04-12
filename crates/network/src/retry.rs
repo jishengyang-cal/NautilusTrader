@@ -74,6 +74,7 @@ where
     E: std::error::Error,
 {
     /// Creates a new retry manager with the given configuration.
+    #[must_use]
     pub const fn new(config: RetryConfig) -> Self {
         Self {
             config,
@@ -346,6 +347,7 @@ where
 }
 
 /// Convenience function to create a retry manager with default configuration.
+#[must_use]
 pub fn create_default_retry_manager<E>() -> RetryManager<E>
 where
     E: std::error::Error,
@@ -354,6 +356,7 @@ where
 }
 
 /// Convenience function to create a retry manager for HTTP operations.
+#[must_use]
 pub const fn create_http_retry_manager<E>() -> RetryManager<E>
 where
     E: std::error::Error,
@@ -372,6 +375,7 @@ where
 }
 
 /// Convenience function to create a retry manager for WebSocket operations.
+#[must_use]
 pub const fn create_websocket_retry_manager<E>() -> RetryManager<E>
 where
     E: std::error::Error,
@@ -460,7 +464,10 @@ mod tests {
         assert_eq!(config.max_retries, 3);
         assert_eq!(config.initial_delay_ms, 1_000);
         assert_eq!(config.max_delay_ms, 10_000);
-        assert_eq!(config.backoff_factor, 2.0);
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(config.backoff_factor, 2.0);
+        }
         assert_eq!(config.jitter_ms, 100);
         assert_eq!(config.operation_timeout_ms, Some(30_000));
         assert!(!config.immediate_first);
@@ -1525,21 +1532,21 @@ mod proptest_tests {
             // Check subsequent retries have appropriate delays
             for i in 1..times.len() {
                 let delay_from_previous = if i == 1 {
-                    times[i] - times[0]
+                    times[i].checked_sub(times[0]).unwrap()
                 } else {
-                    times[i] - times[i - 1]
+                    times[i].checked_sub(times[i - 1]).unwrap()
                 };
 
                 // The delay should be at least base_delay_ms
                 prop_assert!(
-                    delay_from_previous.as_millis() >= base_delay_ms as u128,
+                    delay_from_previous.as_millis() >= u128::from(base_delay_ms),
                     "Retry {} delay {}ms is less than base {}ms",
                     i, delay_from_previous.as_millis(), base_delay_ms
                 );
 
                 // Delay should be at most base_delay + jitter
                 prop_assert!(
-                    delay_from_previous.as_millis() <= (base_delay_ms + jitter_ms + 1) as u128,
+                    delay_from_previous.as_millis() <= u128::from(base_delay_ms + jitter_ms + 1),
                     "Retry {} delay {}ms exceeds base {} + jitter {}",
                     i, delay_from_previous.as_millis(), base_delay_ms, jitter_ms
                 );
@@ -1614,7 +1621,7 @@ mod proptest_tests {
                     times[1].as_millis());
             } else {
                 // First retry should have delay
-                prop_assert!(times[1].as_millis() >= (initial_delay_ms - 1) as u128,
+                prop_assert!(times[1].as_millis() >= u128::from(initial_delay_ms - 1),
                     "With immediate_first=false, first retry was too fast: {}ms",
                     times[1].as_millis());
             }

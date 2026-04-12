@@ -170,7 +170,7 @@ impl HttpClient {
     ///
     /// This method accepts any type implementing `Serialize` for query parameters,
     /// which will be automatically encoded into the URL query string using reqwest's
-    /// `.query()` method, avoiding unnecessary HashMap allocations.
+    /// `.query()` method, avoiding unnecessary `HashMap` allocations.
     ///
     /// # Errors
     ///
@@ -351,7 +351,7 @@ impl InnerHttpClient {
     /// Sends an HTTP request with query parameters using reqwest's `.query()` method.
     ///
     /// This method accepts any type implementing `Serialize` for query parameters,
-    /// avoiding HashMap conversion overhead.
+    /// avoiding `HashMap` conversion overhead.
     ///
     /// # Errors
     ///

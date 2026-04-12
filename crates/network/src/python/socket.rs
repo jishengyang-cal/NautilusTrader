@@ -204,7 +204,7 @@ impl SocketClient {
                 ConnectionMode::Closed => {
                     log::warn!("Cannot reconnect - socket closed");
                 }
-                _ => {
+                ConnectionMode::Active => {
                     connection_mode.store(ConnectionMode::Reconnect.as_u8(), Ordering::SeqCst);
                     state_notify.notify_one();
 

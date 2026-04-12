@@ -24,6 +24,14 @@
     clippy::missing_errors_doc,
     reason = "errors documented on underlying Rust methods"
 )]
+#![allow(
+    clippy::implicit_hasher,
+    reason = "PyO3 bindings receive concrete HashMap from Python and cannot be generic over hasher"
+)]
+#![allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "PyO3 methods require &self for Python binding even when Rust impl does not need it"
+)]
 
 pub mod http;
 pub mod socket;
