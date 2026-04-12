@@ -755,6 +755,10 @@ impl LiveNode {
             Duration::from_secs(1) // Unused, timer won't fire
         };
 
+        // `reconciliation_startup_delay_secs` is a post-reconciliation grace period:
+        // startup reconciliation has already completed above, and this delay offsets
+        // the first periodic tick to let the system stabilize before continuous checks
+        // begin. Matches the legacy Python semantics in `LiveExecutionEngine`.
         let startup_delay = if self.config.exec_engine.reconciliation {
             Duration::from_secs_f64(exec_config.reconciliation_startup_delay_secs)
         } else {

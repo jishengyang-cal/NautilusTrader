@@ -15,20 +15,28 @@
 
 //! Configuration types for live Nautilus system nodes.
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, str::FromStr, time::Duration};
 
+use ahash::AHashMap;
 use nautilus_common::{
     cache::CacheConfig, enums::Environment, logging::logger::LoggerConfig,
-    msgbus::database::MessageBusConfig,
+    msgbus::database::MessageBusConfig, throttler::RateLimit,
 };
-use nautilus_core::UUID4;
+use nautilus_core::{UUID4, datetime::NANOSECONDS_IN_SECOND};
 use nautilus_data::engine::config::DataEngineConfig;
 use nautilus_execution::engine::config::ExecutionEngineConfig;
-use nautilus_model::identifiers::TraderId;
+use nautilus_model::{
+    enums::BarIntervalType,
+    identifiers::{ClientId, ClientOrderId, InstrumentId, TraderId},
+};
 use nautilus_portfolio::config::PortfolioConfig;
 use nautilus_risk::engine::config::RiskEngineConfig;
 use nautilus_system::config::{NautilusKernelConfig, StreamingConfig};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+
+/// The default rate limit string used for order submission and modification.
+const DEFAULT_ORDER_RATE_LIMIT: &str = "100/00:00:01";
 
 /// Configuration for live data engines.
 #[cfg_attr(
@@ -41,7 +49,39 @@ use serde::{Deserialize, Serialize};
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
 pub struct LiveDataEngineConfig {
+    /// If time bar aggregators will build and emit bars with no new market updates.
+    #[builder(default = true)]
+    pub time_bars_build_with_no_updates: bool,
+    /// If time bar aggregators will timestamp `ts_event` on bar close.
+    /// If false, the aggregator will timestamp on bar open.
+    #[builder(default = true)]
+    pub time_bars_timestamp_on_close: bool,
+    /// If time bar aggregators will skip emitting a bar when aggregation starts mid-interval.
+    #[builder(default)]
+    pub time_bars_skip_first_non_full_bar: bool,
+    /// The interval semantics used for time aggregation.
+    #[builder(default = BarIntervalType::LeftOpen)]
+    pub time_bars_interval_type: BarIntervalType,
+    /// The build delay (microseconds) before a time bar is emitted.
+    #[builder(default)]
+    pub time_bars_build_delay: u64,
+    /// If data timestamp sequencing should be validated and handled.
+    #[builder(default)]
+    pub validate_data_sequence: bool,
+    /// If order book deltas should be buffered until the `F_LAST` flag is set for a delta.
+    #[builder(default)]
+    pub buffer_deltas: bool,
+    /// Client IDs declared for external stream processing.
+    ///
+    /// The data engine will not attempt to send data commands to these client IDs.
+    pub external_clients: Option<Vec<ClientId>>,
+    /// If debug mode is active (will provide extra debug logging).
+    #[builder(default)]
+    pub debug: bool,
     /// The queue size for the engine's internal queue buffers.
+    ///
+    /// Not implemented on the current live runtime; `validate_runtime_support` rejects
+    /// any value other than the default.
     #[builder(default = 100_000)]
     pub qsize: u32,
 }
@@ -53,8 +93,19 @@ impl Default for LiveDataEngineConfig {
 }
 
 impl From<LiveDataEngineConfig> for DataEngineConfig {
-    fn from(_config: LiveDataEngineConfig) -> Self {
-        Self::default()
+    fn from(config: LiveDataEngineConfig) -> Self {
+        Self {
+            time_bars_build_with_no_updates: config.time_bars_build_with_no_updates,
+            time_bars_timestamp_on_close: config.time_bars_timestamp_on_close,
+            time_bars_skip_first_non_full_bar: config.time_bars_skip_first_non_full_bar,
+            time_bars_interval_type: config.time_bars_interval_type,
+            time_bars_build_delay: config.time_bars_build_delay,
+            validate_data_sequence: config.validate_data_sequence,
+            buffer_deltas: config.buffer_deltas,
+            external_clients: config.external_clients,
+            debug: config.debug,
+            ..Self::default()
+        }
     }
 }
 
@@ -69,7 +120,27 @@ impl From<LiveDataEngineConfig> for DataEngineConfig {
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
 pub struct LiveRiskEngineConfig {
+    /// If all pre-trade risk checks should be bypassed.
+    #[builder(default)]
+    pub bypass: bool,
+    /// The maximum submit order rate as `limit/HH:MM:SS`.
+    #[builder(default = DEFAULT_ORDER_RATE_LIMIT.to_string())]
+    pub max_order_submit_rate: String,
+    /// The maximum modify order rate as `limit/HH:MM:SS`.
+    #[builder(default = DEFAULT_ORDER_RATE_LIMIT.to_string())]
+    pub max_order_modify_rate: String,
+    /// The maximum notional per order keyed by instrument ID.
+    ///
+    /// Entries map instrument ID strings to decimal notional strings.
+    #[builder(default)]
+    pub max_notional_per_order: HashMap<String, String>,
+    /// If debug mode is active (will provide extra debug logging).
+    #[builder(default)]
+    pub debug: bool,
     /// The queue size for the engine's internal queue buffers.
+    ///
+    /// Not implemented on the current live runtime; `validate_runtime_support` rejects
+    /// any value other than the default.
     #[builder(default = 100_000)]
     pub qsize: u32,
 }
@@ -81,9 +152,74 @@ impl Default for LiveRiskEngineConfig {
 }
 
 impl From<LiveRiskEngineConfig> for RiskEngineConfig {
-    fn from(_config: LiveRiskEngineConfig) -> Self {
-        Self::default()
+    fn from(config: LiveRiskEngineConfig) -> Self {
+        let max_notional_per_order = config
+            .max_notional_per_order
+            .into_iter()
+            .map(|(instrument_id, notional)| {
+                let instrument_id = InstrumentId::from_str(&instrument_id)
+                    .expect("validate_runtime_support must run before RiskEngineConfig conversion");
+                let notional = Decimal::from_str(&notional)
+                    .expect("validate_runtime_support must run before RiskEngineConfig conversion");
+                (instrument_id, notional)
+            })
+            .collect::<AHashMap<_, _>>();
+
+        Self {
+            bypass: config.bypass,
+            max_order_submit: parse_rate_limit(&config.max_order_submit_rate)
+                .expect("validate_runtime_support must run before RiskEngineConfig conversion"),
+            max_order_modify: parse_rate_limit(&config.max_order_modify_rate)
+                .expect("validate_runtime_support must run before RiskEngineConfig conversion"),
+            max_notional_per_order,
+            debug: config.debug,
+        }
     }
+}
+
+fn parse_rate_limit(input: &str) -> anyhow::Result<RateLimit> {
+    let (limit, interval) = input.split_once('/').ok_or_else(|| {
+        anyhow::anyhow!("invalid rate limit '{input}': expected 'limit/HH:MM:SS'")
+    })?;
+
+    let limit = limit
+        .parse::<usize>()
+        .map_err(|e| anyhow::anyhow!("invalid rate limit '{input}': {e}"))?;
+
+    if limit == 0 {
+        anyhow::bail!("invalid rate limit '{input}': limit must be greater than zero");
+    }
+
+    let mut parts = interval.split(':');
+    let mut next = |label: &str| -> anyhow::Result<u64> {
+        parts
+            .next()
+            .ok_or_else(|| {
+                anyhow::anyhow!("invalid rate limit '{input}': missing {label} component")
+            })?
+            .parse::<u64>()
+            .map_err(|e| anyhow::anyhow!("invalid rate limit '{input}': {label}: {e}"))
+    };
+
+    let hours = next("hours")?;
+    let minutes = next("minutes")?;
+    let seconds = next("seconds")?;
+
+    if parts.next().is_some() {
+        anyhow::bail!("invalid rate limit '{input}': expected 'limit/HH:MM:SS'");
+    }
+
+    let interval_ns = hours
+        .saturating_mul(3_600)
+        .saturating_add(minutes.saturating_mul(60))
+        .saturating_add(seconds)
+        .saturating_mul(NANOSECONDS_IN_SECOND);
+
+    if interval_ns == 0 {
+        anyhow::bail!("invalid rate limit '{input}': interval must be greater than zero");
+    }
+
+    Ok(RateLimit::new(limit, interval_ns))
 }
 
 /// Configuration for live execution engines.
@@ -97,6 +233,28 @@ impl From<LiveRiskEngineConfig> for RiskEngineConfig {
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, bon::Builder)]
 pub struct LiveExecEngineConfig {
+    /// If order state snapshot lists should be persisted to a backing database.
+    ///
+    /// Not implemented on the current live runtime; `validate_runtime_support` rejects
+    /// any value other than the default because the live kernel does not yet wire a
+    /// cache database adapter.
+    #[builder(default)]
+    pub snapshot_orders: bool,
+    /// If position state snapshot lists should be persisted to a backing database.
+    ///
+    /// Not implemented on the current live runtime; `validate_runtime_support` rejects
+    /// any value other than the default because the live kernel does not yet wire a
+    /// cache database adapter.
+    #[builder(default)]
+    pub snapshot_positions: bool,
+    /// Client IDs declared for external stream processing.
+    ///
+    /// The execution engine will not attempt to send trading commands to these client
+    /// IDs, assuming an external process consumes them from the bus.
+    pub external_clients: Option<Vec<ClientId>>,
+    /// If debug mode is active (will provide extra debug logging).
+    #[builder(default)]
+    pub debug: bool,
     /// If reconciliation is active at start-up.
     #[builder(default = true)]
     pub reconciliation: bool,
@@ -202,6 +360,11 @@ impl Default for LiveExecEngineConfig {
 impl From<LiveExecEngineConfig> for ExecutionEngineConfig {
     fn from(config: LiveExecEngineConfig) -> Self {
         Self {
+            manage_own_order_books: config.manage_own_order_books,
+            snapshot_orders: config.snapshot_orders,
+            snapshot_positions: config.snapshot_positions,
+            allow_overfills: config.allow_overfills,
+            external_clients: config.external_clients,
             purge_closed_orders_interval_mins: config.purge_closed_orders_interval_mins,
             purge_closed_orders_buffer_mins: config.purge_closed_orders_buffer_mins,
             purge_closed_positions_interval_mins: config.purge_closed_positions_interval_mins,
@@ -209,8 +372,7 @@ impl From<LiveExecEngineConfig> for ExecutionEngineConfig {
             purge_account_events_interval_mins: config.purge_account_events_interval_mins,
             purge_account_events_lookback_mins: config.purge_account_events_lookback_mins,
             purge_from_database: config.purge_from_database,
-            manage_own_order_books: config.manage_own_order_books,
-            allow_overfills: config.allow_overfills,
+            debug: config.debug,
             ..Self::default()
         }
     }
@@ -381,11 +543,13 @@ impl Default for LiveNodeConfig {
 }
 
 impl LiveNodeConfig {
-    /// Validates config fields that the Rust live runtime does not support yet.
+    /// Validates config fields that the Rust live runtime does not support yet, and checks
+    /// that supported fields hold values the downstream engine conversions can parse.
     ///
     /// # Errors
     ///
-    /// Returns an error when a config field would otherwise be ignored at runtime.
+    /// Returns an error when a config field would otherwise be ignored at runtime, or when a
+    /// supported field holds a value that cannot be converted to its engine-side representation.
     pub(crate) fn validate_runtime_support(&self) -> anyhow::Result<()> {
         if self.msgbus.is_some() {
             anyhow::bail!("LiveNodeConfig.msgbus is not supported by the Rust live runtime yet");
@@ -395,19 +559,119 @@ impl LiveNodeConfig {
             anyhow::bail!("LiveNodeConfig.streaming is not supported by the Rust live runtime yet");
         }
 
-        if self.data_engine.qsize != LiveDataEngineConfig::default().qsize {
+        self.data_engine.validate_runtime_support()?;
+        self.risk_engine.validate_runtime_support()?;
+        self.exec_engine.validate_runtime_support()?;
+
+        Ok(())
+    }
+}
+
+impl LiveDataEngineConfig {
+    fn validate_runtime_support(&self) -> anyhow::Result<()> {
+        if self.qsize != Self::default().qsize {
             anyhow::bail!(
                 "LiveDataEngineConfig.qsize is not supported by the Rust live runtime yet"
             );
         }
 
-        if self.risk_engine.qsize != LiveRiskEngineConfig::default().qsize {
+        Ok(())
+    }
+}
+
+impl LiveRiskEngineConfig {
+    fn validate_runtime_support(&self) -> anyhow::Result<()> {
+        parse_rate_limit(&self.max_order_submit_rate).map_err(|e| {
+            anyhow::anyhow!("invalid LiveRiskEngineConfig.max_order_submit_rate: {e}")
+        })?;
+        parse_rate_limit(&self.max_order_modify_rate).map_err(|e| {
+            anyhow::anyhow!("invalid LiveRiskEngineConfig.max_order_modify_rate: {e}")
+        })?;
+
+        for (instrument_id, notional) in &self.max_notional_per_order {
+            InstrumentId::from_str(instrument_id).map_err(|e| {
+                anyhow::anyhow!(
+                    "invalid LiveRiskEngineConfig.max_notional_per_order instrument ID {instrument_id:?}: {e}"
+                )
+            })?;
+            Decimal::from_str(notional).map_err(|e| {
+                anyhow::anyhow!(
+                    "invalid LiveRiskEngineConfig.max_notional_per_order notional {notional:?}: {e}"
+                )
+            })?;
+        }
+
+        if self.qsize != Self::default().qsize {
             anyhow::bail!(
                 "LiveRiskEngineConfig.qsize is not supported by the Rust live runtime yet"
             );
         }
 
-        if self.exec_engine.qsize != LiveExecEngineConfig::default().qsize {
+        Ok(())
+    }
+}
+
+impl LiveExecEngineConfig {
+    fn validate_runtime_support(&self) -> anyhow::Result<()> {
+        // `Duration::from_secs_f64` panics on negative, NaN, or infinite input, and the
+        // `run()` path feeds this value straight in when reconciliation is enabled. Match
+        // the legacy Python `PositiveFloat` semantics and reject hostile values at build.
+        if !self.reconciliation_startup_delay_secs.is_finite()
+            || self.reconciliation_startup_delay_secs < 0.0
+        {
+            anyhow::bail!(
+                "invalid LiveExecEngineConfig.reconciliation_startup_delay_secs: {} (must be a non-negative finite number)",
+                self.reconciliation_startup_delay_secs
+            );
+        }
+
+        if let Some(instrument_ids) = &self.reconciliation_instrument_ids {
+            for instrument_id in instrument_ids {
+                InstrumentId::from_str(instrument_id).map_err(|e| {
+                    anyhow::anyhow!(
+                        "invalid LiveExecEngineConfig.reconciliation_instrument_ids entry {instrument_id:?}: {e}"
+                    )
+                })?;
+            }
+        }
+
+        if let Some(client_order_ids) = &self.filtered_client_order_ids {
+            for client_order_id in client_order_ids {
+                ClientOrderId::new_checked(client_order_id).map_err(|e| {
+                    anyhow::anyhow!(
+                        "invalid LiveExecEngineConfig.filtered_client_order_ids entry {client_order_id:?}: {e}"
+                    )
+                })?;
+            }
+        }
+
+        let default = Self::default();
+
+        if self.snapshot_orders != default.snapshot_orders {
+            anyhow::bail!(
+                "LiveExecEngineConfig.snapshot_orders is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.snapshot_positions != default.snapshot_positions {
+            anyhow::bail!(
+                "LiveExecEngineConfig.snapshot_positions is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.purge_from_database != default.purge_from_database {
+            anyhow::bail!(
+                "LiveExecEngineConfig.purge_from_database is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.graceful_shutdown_on_error != default.graceful_shutdown_on_error {
+            anyhow::bail!(
+                "LiveExecEngineConfig.graceful_shutdown_on_error is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.qsize != default.qsize {
             anyhow::bail!(
                 "LiveExecEngineConfig.qsize is not supported by the Rust live runtime yet"
             );
@@ -574,7 +838,10 @@ mod tests {
     #[rstest]
     fn test_validate_runtime_support_rejects_data_engine_qsize() {
         let config = LiveNodeConfig {
-            data_engine: LiveDataEngineConfig { qsize: 1 },
+            data_engine: LiveDataEngineConfig {
+                qsize: 1,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -588,7 +855,10 @@ mod tests {
     #[rstest]
     fn test_validate_runtime_support_rejects_risk_engine_qsize() {
         let config = LiveNodeConfig {
-            risk_engine: LiveRiskEngineConfig { qsize: 1 },
+            risk_engine: LiveRiskEngineConfig {
+                qsize: 1,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -597,6 +867,156 @@ mod tests {
             error.to_string(),
             "LiveRiskEngineConfig.qsize is not supported by the Rust live runtime yet"
         );
+    }
+
+    #[rstest]
+    fn test_live_data_engine_config_converts_to_data_engine_config() {
+        let config = LiveDataEngineConfig {
+            time_bars_build_with_no_updates: false,
+            time_bars_timestamp_on_close: false,
+            time_bars_skip_first_non_full_bar: true,
+            time_bars_interval_type: BarIntervalType::RightOpen,
+            time_bars_build_delay: 1_500,
+            validate_data_sequence: true,
+            buffer_deltas: true,
+            external_clients: Some(vec![ClientId::from("EXTERNAL")]),
+            debug: true,
+            qsize: 100_000,
+        };
+
+        let converted: DataEngineConfig = config.into();
+
+        assert!(!converted.time_bars_build_with_no_updates);
+        assert!(!converted.time_bars_timestamp_on_close);
+        assert!(converted.time_bars_skip_first_non_full_bar);
+        assert_eq!(
+            converted.time_bars_interval_type,
+            BarIntervalType::RightOpen,
+        );
+        assert_eq!(converted.time_bars_build_delay, 1_500);
+        assert!(converted.validate_data_sequence);
+        assert!(converted.buffer_deltas);
+        assert_eq!(
+            converted.external_clients,
+            Some(vec![ClientId::from("EXTERNAL")]),
+        );
+        assert!(converted.debug);
+    }
+
+    #[rstest]
+    fn test_live_risk_engine_config_converts_to_risk_engine_config() {
+        let config = LiveRiskEngineConfig {
+            bypass: true,
+            max_order_submit_rate: "12/00:00:03".to_string(),
+            max_order_modify_rate: "7/00:00:05".to_string(),
+            max_notional_per_order: HashMap::from([(
+                "ETHUSDT.BINANCE".to_string(),
+                "1000.5".to_string(),
+            )]),
+            debug: true,
+            qsize: 100_000,
+        };
+
+        let converted: RiskEngineConfig = config.into();
+
+        assert!(converted.bypass);
+        assert_eq!(
+            converted.max_order_submit,
+            RateLimit::new(12, 3_000_000_000)
+        );
+        assert_eq!(converted.max_order_modify, RateLimit::new(7, 5_000_000_000));
+        assert_eq!(
+            converted.max_notional_per_order[&"ETHUSDT.BINANCE".parse::<InstrumentId>().unwrap()],
+            Decimal::from_str("1000.5").unwrap(),
+        );
+        assert!(converted.debug);
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_exec_engine_snapshot_orders() {
+        let config = LiveNodeConfig {
+            exec_engine: LiveExecEngineConfig {
+                snapshot_orders: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "LiveExecEngineConfig.snapshot_orders is not supported by the Rust live runtime yet"
+        );
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_invalid_rate_limit() {
+        let config = LiveNodeConfig {
+            risk_engine: LiveRiskEngineConfig {
+                max_order_submit_rate: "bad-rate".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("LiveRiskEngineConfig.max_order_submit_rate"));
+    }
+
+    #[rstest]
+    #[case(-1.0)]
+    #[case(f64::NAN)]
+    #[case(f64::INFINITY)]
+    #[case(f64::NEG_INFINITY)]
+    fn test_validate_runtime_support_rejects_hostile_startup_delay(#[case] value: f64) {
+        let config = LiveNodeConfig {
+            exec_engine: LiveExecEngineConfig {
+                reconciliation_startup_delay_secs: value,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("reconciliation_startup_delay_secs"));
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_invalid_reconciliation_instrument_id() {
+        let config = LiveNodeConfig {
+            exec_engine: LiveExecEngineConfig {
+                reconciliation_instrument_ids: Some(vec!["INVALID".to_string()]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("reconciliation_instrument_ids"));
+    }
+
+    #[rstest]
+    fn test_parse_rate_limit_happy_path() {
+        let limit = parse_rate_limit("150/00:00:02").unwrap();
+        assert_eq!(limit, RateLimit::new(150, 2_000_000_000));
+    }
+
+    #[rstest]
+    fn test_parse_rate_limit_rejects_trailing_component() {
+        let err = parse_rate_limit("10/00:00:01:99").unwrap_err().to_string();
+        assert!(err.contains("expected 'limit/HH:MM:SS'"));
+    }
+
+    #[rstest]
+    fn test_parse_rate_limit_rejects_zero_limit() {
+        let err = parse_rate_limit("0/00:00:01").unwrap_err().to_string();
+        assert!(err.contains("limit must be greater than zero"));
+    }
+
+    #[rstest]
+    fn test_parse_rate_limit_rejects_zero_interval() {
+        let err = parse_rate_limit("100/00:00:00").unwrap_err().to_string();
+        assert!(err.contains("interval must be greater than zero"));
     }
 
     #[rstest]
@@ -620,6 +1040,12 @@ mod tests {
     fn test_live_exec_engine_config_defaults() {
         let config = LiveExecEngineConfig::default();
 
+        assert!(!config.snapshot_orders);
+        assert!(!config.snapshot_positions);
+        assert_eq!(config.external_clients, None);
+        assert!(!config.debug);
+        assert!(!config.manage_own_order_books);
+        assert!(!config.allow_overfills);
         assert!(config.reconciliation);
         assert_eq!(config.reconciliation_startup_delay_secs, 10.0);
         assert_eq!(config.reconciliation_lookback_mins, None);
@@ -639,7 +1065,34 @@ mod tests {
         assert!(!config.purge_from_database);
         assert!(!config.graceful_shutdown_on_error);
         assert_eq!(config.qsize, 100_000);
-        assert_eq!(config.reconciliation_startup_delay_secs, 10.0);
+    }
+
+    #[rstest]
+    fn test_live_data_engine_config_defaults() {
+        let config = LiveDataEngineConfig::default();
+
+        assert!(config.time_bars_build_with_no_updates);
+        assert!(config.time_bars_timestamp_on_close);
+        assert!(!config.time_bars_skip_first_non_full_bar);
+        assert_eq!(config.time_bars_interval_type, BarIntervalType::LeftOpen);
+        assert_eq!(config.time_bars_build_delay, 0);
+        assert!(!config.validate_data_sequence);
+        assert!(!config.buffer_deltas);
+        assert_eq!(config.external_clients, None);
+        assert!(!config.debug);
+        assert_eq!(config.qsize, 100_000);
+    }
+
+    #[rstest]
+    fn test_live_risk_engine_config_defaults() {
+        let config = LiveRiskEngineConfig::default();
+
+        assert!(!config.bypass);
+        assert_eq!(config.max_order_submit_rate, DEFAULT_ORDER_RATE_LIMIT);
+        assert_eq!(config.max_order_modify_rate, DEFAULT_ORDER_RATE_LIMIT);
+        assert!(config.max_notional_per_order.is_empty());
+        assert!(!config.debug);
+        assert_eq!(config.qsize, 100_000);
     }
 
     #[rstest]

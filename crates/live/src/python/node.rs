@@ -37,11 +37,18 @@ use pyo3::{
 };
 use serde_json;
 
-use crate::{builder::LiveNodeBuilder, node::LiveNode};
+use crate::{builder::LiveNodeBuilder, config::LiveNodeConfig, node::LiveNode};
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
 impl LiveNode {
+    #[staticmethod]
+    #[pyo3(name = "build")]
+    #[pyo3(signature = (name, config=None))]
+    fn py_build(name: String, config: Option<LiveNodeConfig>) -> PyResult<Self> {
+        Self::build(name, config).map_err(to_pyruntime_err)
+    }
+
     #[staticmethod]
     #[pyo3(name = "builder")]
     fn py_builder(
