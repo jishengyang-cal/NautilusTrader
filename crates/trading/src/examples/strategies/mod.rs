@@ -20,5 +20,5 @@ pub mod ema_cross;
 pub mod grid_mm;
 
 pub use delta_neutral_vol::{DeltaNeutralVol, DeltaNeutralVolConfig};
-pub use ema_cross::EmaCross;
+pub use ema_cross::{EmaCross, EmaCrossConfig};
 pub use grid_mm::{GridMarketMaker, GridMarketMakerConfig};

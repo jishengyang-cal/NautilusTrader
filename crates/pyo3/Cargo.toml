@@ -93,7 +93,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 nautilus-analysis = { workspace = true, features = ["python"] }
-nautilus-backtest = { workspace = true, features = ["python"] }
+nautilus-backtest = { workspace = true, features = ["python", "examples"] }
 nautilus-common = { workspace = true, features = ["python"] }
 nautilus-core = { workspace = true, features = ["python"] }
 nautilus-cryptography = { workspace = true, features = ["python"] }
@@ -101,7 +101,7 @@ nautilus-data = { workspace = true, features = ["python"] }
 nautilus-execution = { workspace = true, features = ["python"] }
 nautilus-indicators = { workspace = true, features = ["python"] }
 nautilus-infrastructure = { workspace = true, features = ["python"] }
-nautilus-live = { workspace = true, features = ["python"] }
+nautilus-live = { workspace = true, features = ["python", "examples"] }
 nautilus-model = { workspace = true, features = ["python"] }
 nautilus-network = { workspace = true, features = ["python"] }
 nautilus-persistence = { workspace = true, features = ["python"] }
