@@ -43,7 +43,9 @@ Released on TBD (UTC).
 - Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
 - Refined Interactive Brokers combo fill average price calculation (#3834), thanks @faysou
 - Refined Kraken WebSocket execution dispatch to emit typed events for tracked orders via per-product modules
+- Upgraded `capnp` crate to v0.25.4 (regenerated schemas with 4-space indents and version headers)
 - Upgraded `databento` crate to v0.46.0
+- Upgraded `msgspec` to v0.21.0
 - Upgraded `tokio` crate to v1.51.1
 
 ### Documentation Updates
@@ -986,7 +988,7 @@ This release adds support for Python 3.14 with the following limitations:
 - Upgraded Cython to v3.2.3
 - Upgraded `databento` crate to v0.37.0
 - Upgraded `datafusion` crate to v51.0.0
-- Upgraded `msgspec` to 0.20.0
+- Upgraded `msgspec` to v0.20.0
 - Upgraded `pyo3` crate to v0.27.2
 - Upgraded `pyo3-async-runtimes` crate to v0.27.0
 - Upgraded `redis` crate to v1.0.2

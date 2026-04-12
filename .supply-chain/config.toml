@@ -630,7 +630,7 @@ version = "0.23.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.capnp]]
-version = "0.25.2"
+version = "0.25.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.capnpc]]
@@ -1947,6 +1947,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.radium]]
 version = "0.7.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rand]]
+version = "0.9.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.rand]]
+version = "0.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.rand_xorshift]]
