@@ -1266,7 +1266,7 @@ version = "1.8.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hyper-rustls]]
-version = "0.27.7"
+version = "0.27.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.hyper-timeout]]
@@ -1817,6 +1817,10 @@ criteria = "safe-to-deploy"
 version = "0.10.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.pkg-config]]
+version = "0.3.33"
+criteria = "safe-to-deploy"
+
 [[exemptions.plain]]
 version = "0.2.3"
 criteria = "safe-to-deploy"
@@ -2090,7 +2094,7 @@ version = "1.1.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls]]
-version = "0.23.37"
+version = "0.23.38"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-native-certs]]
