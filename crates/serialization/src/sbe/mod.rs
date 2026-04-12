@@ -17,14 +17,17 @@
 //!
 //! This module provides:
 //! - [`SbeCursor`]: Zero-copy byte cursor with typed little-endian readers.
-//! - [`SbeDecodeError`]: Common decode errors for malformed or truncated payloads.
+//! - [`SbeEncodeError`] and [`SbeDecodeError`]: Common SBE codec errors.
+//! - [`market`]: Hand-written Nautilus market-data SBE codecs.
 //! - [`GroupSizeEncoding`] and [`GroupSize16Encoding`]: Group header decoders.
 //! - [`decode_var_string8`]: varString8 decoder helper.
 
 pub mod cursor;
 pub mod error;
+pub mod market;
 pub mod primitives;
 
 pub use cursor::SbeCursor;
-pub use error::{MAX_GROUP_SIZE, SbeDecodeError};
+pub use error::{MAX_GROUP_SIZE, SbeDecodeError, SbeEncodeError};
+pub use market::{DataAny, FromSbe, ToSbe};
 pub use primitives::{GroupSize16Encoding, GroupSizeEncoding, decode_var_string8};

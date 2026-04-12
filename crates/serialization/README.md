@@ -211,7 +211,15 @@ let decoded = QuoteTick::from_capnp(root)?;
 
 ## Benchmarking
 
-Run benchmarks to compare serialization performance across formats:
+This crate has two different benchmark tracks:
+
+- `serialization_comparison` compares JSON, MsgPack, and Cap'n Proto for a smaller set of types
+- `market_data_capnp_vs_sbe` compares Cap'n Proto and SBE at the wire level across the full
+  market data surface
+
+### format comparison benchmarks
+
+Run benchmarks to compare JSON, MsgPack, and Cap'n Proto:
 
 ```bash
 # Compare all formats for QuoteTick
@@ -228,15 +236,31 @@ cargo bench -p nautilus-serialization --features capnp --bench capnp_serializati
 
 # Run all comparison benchmarks
 cargo bench -p nautilus-serialization --features capnp --bench serialization_comparison
+```
 
+### SBE benchmarks
+
+Run the SBE microbenchmarks and the exhaustive Cap'n Proto vs SBE wire benchmarks:
+
+```bash
 # Run SBE cursor decode microbenchmarks
 cargo bench -p nautilus-serialization --no-default-features --features sbe --bench sbe_decoding
 
-# Direct QuoteTick decode comparison: Cap'n Proto vs SBE
-cargo bench -p nautilus-serialization --no-default-features --features "capnp sbe" --bench quote_tick_capnp_vs_sbe
+# Run exhaustive market data wire benchmarks: Cap'n Proto vs SBE
+cargo bench -p nautilus-serialization --no-default-features --features "capnp sbe" --bench market_data_capnp_vs_sbe
 ```
 
-Benchmark results include serialization and deserialization times for each format.
+The `market_data_capnp_vs_sbe` bench covers:
+
+- All supported market data wire types: `BookOrder`, `OrderBookDelta`, `OrderBookDeltas`,
+  `OrderBookDepth10`, `QuoteTick`, `TradeTick`, `BarType`, `Bar`, `MarkPriceUpdate`,
+  `IndexPriceUpdate`, `FundingRateUpdate`, `InstrumentStatus`, and `InstrumentClose`
+- `OrderBookDeltas` scaling at `1`, `10`, and `100` deltas
+- All `DataAny` market data variants
+- SBE encode, SBE encode with buffer reuse, SBE decode, Cap'n Proto encode, and Cap'n Proto decode
+
+Use `serialization_comparison` for general format tradeoffs. Use `market_data_capnp_vs_sbe` for
+SBE parity and wire-performance work.
 
 ## Documentation
 

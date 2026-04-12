@@ -233,6 +233,64 @@ impl<'a> SbeCursor<'a> {
         Ok(value)
     }
 
+    /// Reads a u128 little-endian and advances by 16 bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BufferTooShort` if fewer than 16 bytes remain.
+    pub fn read_u128_le(&mut self) -> Result<u128, SbeDecodeError> {
+        self.require(16)?;
+        let value = u128::from_le_bytes([
+            self.buf[self.pos],
+            self.buf[self.pos + 1],
+            self.buf[self.pos + 2],
+            self.buf[self.pos + 3],
+            self.buf[self.pos + 4],
+            self.buf[self.pos + 5],
+            self.buf[self.pos + 6],
+            self.buf[self.pos + 7],
+            self.buf[self.pos + 8],
+            self.buf[self.pos + 9],
+            self.buf[self.pos + 10],
+            self.buf[self.pos + 11],
+            self.buf[self.pos + 12],
+            self.buf[self.pos + 13],
+            self.buf[self.pos + 14],
+            self.buf[self.pos + 15],
+        ]);
+        self.pos += 16;
+        Ok(value)
+    }
+
+    /// Reads an i128 little-endian and advances by 16 bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BufferTooShort` if fewer than 16 bytes remain.
+    pub fn read_i128_le(&mut self) -> Result<i128, SbeDecodeError> {
+        self.require(16)?;
+        let value = i128::from_le_bytes([
+            self.buf[self.pos],
+            self.buf[self.pos + 1],
+            self.buf[self.pos + 2],
+            self.buf[self.pos + 3],
+            self.buf[self.pos + 4],
+            self.buf[self.pos + 5],
+            self.buf[self.pos + 6],
+            self.buf[self.pos + 7],
+            self.buf[self.pos + 8],
+            self.buf[self.pos + 9],
+            self.buf[self.pos + 10],
+            self.buf[self.pos + 11],
+            self.buf[self.pos + 12],
+            self.buf[self.pos + 13],
+            self.buf[self.pos + 14],
+            self.buf[self.pos + 15],
+        ]);
+        self.pos += 16;
+        Ok(value)
+    }
+
     /// Reads an optional i64 where `i64::MIN` represents None.
     ///
     /// # Errors
@@ -294,6 +352,45 @@ impl<'a> SbeCursor<'a> {
         Ok(s)
     }
 
+    /// Reads a varString16 (2-byte length prefix + UTF-8 data).
+    ///
+    /// Returns empty string if length is 0.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BufferTooShort` if the buffer is too short, or `InvalidUtf8` if the data
+    /// is not valid UTF-8.
+    pub fn read_var_string16(&mut self) -> Result<String, SbeDecodeError> {
+        let len = usize::from(self.read_u16_le()?);
+        if len == 0 {
+            return Ok(String::new());
+        }
+        self.require(len)?;
+        let s = str::from_utf8(&self.buf[self.pos..self.pos + len])
+            .map_err(|_| SbeDecodeError::InvalidUtf8)?
+            .to_string();
+        self.pos += len;
+        Ok(s)
+    }
+
+    /// Reads a varString16 as a `&str` (zero-copy).
+    ///
+    /// # Errors
+    ///
+    /// Returns `BufferTooShort` if the buffer is too short, or `InvalidUtf8` if the data
+    /// is not valid UTF-8.
+    pub fn read_var_string16_ref(&mut self) -> Result<&'a str, SbeDecodeError> {
+        let len = usize::from(self.read_u16_le()?);
+        if len == 0 {
+            return Ok("");
+        }
+        self.require(len)?;
+        let s = str::from_utf8(&self.buf[self.pos..self.pos + len])
+            .map_err(|_| SbeDecodeError::InvalidUtf8)?;
+        self.pos += len;
+        Ok(s)
+    }
+
     /// Skips a varData8 field (1-byte length prefix + binary data).
     ///
     /// Used for skipping binary fields that should not be decoded as UTF-8.
@@ -318,6 +415,37 @@ impl<'a> SbeCursor<'a> {
     /// Returns `BufferTooShort` if the buffer is too short.
     pub fn read_var_bytes8(&mut self) -> Result<Vec<u8>, SbeDecodeError> {
         let len = self.read_u8()? as usize;
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        self.require(len)?;
+        let bytes = self.buf[self.pos..self.pos + len].to_vec();
+        self.pos += len;
+        Ok(bytes)
+    }
+
+    /// Skips a varData16 field (2-byte length prefix + binary data).
+    ///
+    /// # Errors
+    ///
+    /// Returns `BufferTooShort` if the buffer is too short.
+    pub fn skip_var_data16(&mut self) -> Result<(), SbeDecodeError> {
+        let len = usize::from(self.read_u16_le()?);
+        if len > 0 {
+            self.advance(len)?;
+        }
+        Ok(())
+    }
+
+    /// Reads a varData16 field (2-byte length prefix + binary data).
+    ///
+    /// Returns the raw bytes without UTF-8 decoding.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BufferTooShort` if the buffer is too short.
+    pub fn read_var_bytes16(&mut self) -> Result<Vec<u8>, SbeDecodeError> {
+        let len = usize::from(self.read_u16_le()?);
         if len == 0 {
             return Ok(Vec::new());
         }

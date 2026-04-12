@@ -1,0 +1,380 @@
+// -------------------------------------------------------------------------------------------------
+//  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+//  https://nautechsystems.io
+//
+//  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+//  You may not use this file except in compliance with the License.
+//  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+//
+//  Unless required by applicable law or agreed to in writing, software
+//  distributed under the License is distributed on an "AS IS" BASIS,
+//  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//  See the License for the specific language governing permissions and
+//  limitations under the License.
+// -------------------------------------------------------------------------------------------------
+
+use std::num::NonZero;
+
+use nautilus_core::UnixNanos;
+use nautilus_model::{
+    enums::{
+        AggregationSource, AggressorSide, BarAggregation, BookAction, FromU8, FromU16,
+        InstrumentCloseType, MarketStatusAction, OrderSide, PriceType,
+    },
+    identifiers::{InstrumentId, Symbol, Venue},
+    types::{Price, Quantity, fixed::FIXED_PRECISION, price::PriceRaw, quantity::QuantityRaw},
+};
+use rust_decimal::Decimal;
+use ustr::Ustr;
+
+use super::{
+    super::{MAX_GROUP_SIZE, SbeCursor, SbeDecodeError, SbeEncodeError},
+    MARKET_SCHEMA_ID, MARKET_SCHEMA_VERSION,
+};
+
+pub(super) const PRICE_BLOCK_LENGTH: u16 = 17;
+pub(super) const QUANTITY_BLOCK_LENGTH: u16 = 17;
+pub(super) const DECIMAL_BLOCK_LENGTH: u16 = 16;
+pub(super) const BAR_TYPE_BLOCK_LENGTH: u16 = 7;
+pub(super) const BOOK_ORDER_BLOCK_LENGTH: u16 = 43;
+pub(super) const ORDER_BOOK_DELTA_GROUP_BLOCK_LENGTH: u16 = 69;
+pub(super) const DEPTH10_LEVEL_BLOCK_LENGTH: u16 = 34;
+pub(super) const DEPTH10_LEVEL_COUNT: usize = 10;
+pub(super) const DEPTH10_COUNTS_BLOCK_LENGTH: usize =
+    DEPTH10_LEVEL_COUNT * std::mem::size_of::<u32>();
+pub(super) const HEADER_LENGTH: usize = 8;
+pub(super) const GROUP_HEADER_16_LENGTH: usize = 4;
+
+const VAR_STRING16_MAX_LEN: usize = u16::MAX as usize;
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct MessageHeader {
+    pub block_length: u16,
+    pub template_id: u16,
+    pub schema_id: u16,
+    pub version: u16,
+}
+
+pub(super) fn encode_header(
+    buf: &mut Vec<u8>,
+    block_length: u16,
+    template_id: u16,
+    schema_id: u16,
+    version: u16,
+) {
+    buf.extend_from_slice(&block_length.to_le_bytes());
+    buf.extend_from_slice(&template_id.to_le_bytes());
+    buf.extend_from_slice(&schema_id.to_le_bytes());
+    buf.extend_from_slice(&version.to_le_bytes());
+}
+
+pub(super) fn decode_header(cursor: &mut SbeCursor<'_>) -> Result<MessageHeader, SbeDecodeError> {
+    cursor.require(HEADER_LENGTH)?;
+    Ok(MessageHeader {
+        block_length: cursor.read_u16_le()?,
+        template_id: cursor.read_u16_le()?,
+        schema_id: cursor.read_u16_le()?,
+        version: cursor.read_u16_le()?,
+    })
+}
+
+pub(super) fn validate_header(
+    header: &MessageHeader,
+    expected_template_id: u16,
+    expected_block_length: u16,
+) -> Result<(), SbeDecodeError> {
+    if header.block_length != expected_block_length {
+        return Err(SbeDecodeError::InvalidBlockLength {
+            expected: expected_block_length,
+            actual: header.block_length,
+        });
+    }
+
+    if header.template_id != expected_template_id {
+        return Err(SbeDecodeError::UnknownTemplateId(header.template_id));
+    }
+
+    if header.schema_id != MARKET_SCHEMA_ID {
+        return Err(SbeDecodeError::SchemaMismatch {
+            expected: MARKET_SCHEMA_ID,
+            actual: header.schema_id,
+        });
+    }
+
+    if header.version != MARKET_SCHEMA_VERSION {
+        return Err(SbeDecodeError::VersionMismatch {
+            expected: MARKET_SCHEMA_VERSION,
+            actual: header.version,
+        });
+    }
+
+    Ok(())
+}
+
+pub(super) fn encode_price(buf: &mut Vec<u8>, price: &Price) {
+    #[cfg(not(feature = "high-precision"))]
+    let raw: i128 = price.raw.into();
+
+    #[cfg(feature = "high-precision")]
+    let raw = price.raw;
+
+    buf.extend_from_slice(&raw.to_le_bytes());
+    buf.push(price.precision);
+}
+
+pub(super) fn decode_price(cursor: &mut SbeCursor<'_>) -> Result<Price, SbeDecodeError> {
+    let raw_i128 = cursor.read_i128_le()?;
+    let precision = cursor.read_u8()?;
+    validate_precision("Price.precision", precision)?;
+
+    #[cfg(not(feature = "high-precision"))]
+    let raw = i64::try_from(raw_i128)
+        .map_err(|_| SbeDecodeError::NumericOverflow { type_name: "Price" })?;
+
+    #[cfg(feature = "high-precision")]
+    let raw = raw_i128;
+
+    Ok(Price::from_raw(raw as PriceRaw, precision))
+}
+
+pub(super) fn encode_quantity(buf: &mut Vec<u8>, quantity: &Quantity) {
+    #[cfg(not(feature = "high-precision"))]
+    let raw: u128 = quantity.raw.into();
+
+    #[cfg(feature = "high-precision")]
+    let raw = quantity.raw;
+
+    buf.extend_from_slice(&raw.to_le_bytes());
+    buf.push(quantity.precision);
+}
+
+pub(super) fn decode_quantity(cursor: &mut SbeCursor<'_>) -> Result<Quantity, SbeDecodeError> {
+    let raw_u128 = cursor.read_u128_le()?;
+    let precision = cursor.read_u8()?;
+    validate_precision("Quantity.precision", precision)?;
+
+    #[cfg(not(feature = "high-precision"))]
+    let raw = u64::try_from(raw_u128).map_err(|_| SbeDecodeError::NumericOverflow {
+        type_name: "Quantity",
+    })?;
+
+    #[cfg(feature = "high-precision")]
+    let raw = raw_u128;
+
+    Ok(Quantity::from_raw(raw as QuantityRaw, precision))
+}
+
+pub(super) fn encode_decimal(buf: &mut Vec<u8>, value: &Decimal) {
+    buf.extend_from_slice(&value.serialize());
+}
+
+pub(super) fn decode_decimal(cursor: &mut SbeCursor<'_>) -> Result<Decimal, SbeDecodeError> {
+    let bytes = cursor.read_bytes(DECIMAL_BLOCK_LENGTH as usize)?;
+    let bytes: [u8; DECIMAL_BLOCK_LENGTH as usize] = bytes
+        .try_into()
+        .map_err(|_| SbeDecodeError::InvalidValue { field: "Decimal" })?;
+    Ok(Decimal::deserialize(bytes))
+}
+
+pub(super) fn encode_unix_nanos(buf: &mut Vec<u8>, value: UnixNanos) {
+    buf.extend_from_slice(&(*value).to_le_bytes());
+}
+
+pub(super) fn decode_unix_nanos(cursor: &mut SbeCursor<'_>) -> Result<UnixNanos, SbeDecodeError> {
+    Ok(cursor.read_u64_le()?.into())
+}
+
+pub(super) fn encode_instrument_id(
+    buf: &mut Vec<u8>,
+    instrument_id: &InstrumentId,
+) -> Result<(), SbeEncodeError> {
+    encode_var_string16(buf, "InstrumentId.symbol", instrument_id.symbol.as_str())?;
+    encode_var_string16(buf, "InstrumentId.venue", instrument_id.venue.as_str())
+}
+
+pub(super) fn decode_instrument_id(
+    cursor: &mut SbeCursor<'_>,
+) -> Result<InstrumentId, SbeDecodeError> {
+    let symbol = Symbol::new(cursor.read_var_string16_ref()?);
+    let venue = Venue::new(cursor.read_var_string16_ref()?);
+    Ok(InstrumentId::new(symbol, venue))
+}
+
+pub(super) fn encode_optional_ustr(
+    buf: &mut Vec<u8>,
+    field: &'static str,
+    value: Option<Ustr>,
+) -> Result<(), SbeEncodeError> {
+    // Match existing Cap'n Proto wire semantics: empty string and None share the same encoding.
+    encode_var_string16(buf, field, value.as_ref().map_or("", Ustr::as_str))
+}
+
+pub(super) fn decode_optional_ustr(
+    cursor: &mut SbeCursor<'_>,
+) -> Result<Option<Ustr>, SbeDecodeError> {
+    let value = cursor.read_var_string16_ref()?;
+    if value.is_empty() {
+        // Match existing Cap'n Proto wire semantics: empty string decodes as None.
+        Ok(None)
+    } else {
+        Ok(Some(Ustr::from(value)))
+    }
+}
+
+pub(super) fn encode_group_header_16(
+    buf: &mut Vec<u8>,
+    group: &'static str,
+    count: usize,
+    block_length: u16,
+) -> Result<(), SbeEncodeError> {
+    if count > MAX_GROUP_SIZE as usize {
+        return Err(SbeEncodeError::GroupSizeTooLarge {
+            group,
+            count,
+            max: MAX_GROUP_SIZE,
+        });
+    }
+
+    let count_u16 = u16::try_from(count).map_err(|_| SbeEncodeError::GroupSizeTooLarge {
+        group,
+        count,
+        max: u16::MAX as u32,
+    })?;
+
+    buf.extend_from_slice(&block_length.to_le_bytes());
+    buf.extend_from_slice(&count_u16.to_le_bytes());
+    Ok(())
+}
+
+pub(super) fn encode_var_string16(
+    buf: &mut Vec<u8>,
+    field: &'static str,
+    value: &str,
+) -> Result<(), SbeEncodeError> {
+    let len = value.len();
+    if len > VAR_STRING16_MAX_LEN {
+        return Err(SbeEncodeError::StringTooLong {
+            field,
+            len,
+            max: VAR_STRING16_MAX_LEN,
+        });
+    }
+
+    buf.extend_from_slice(&(len as u16).to_le_bytes());
+    buf.extend_from_slice(value.as_bytes());
+    Ok(())
+}
+
+pub(super) fn encoded_instrument_id_size(instrument_id: &InstrumentId) -> usize {
+    encoded_var_string16_size(instrument_id.symbol.as_str())
+        + encoded_var_string16_size(instrument_id.venue.as_str())
+}
+
+pub(super) fn encoded_optional_ustr_size(value: Option<Ustr>) -> usize {
+    encoded_var_string16_size(value.as_ref().map_or("", Ustr::as_str))
+}
+
+pub(super) fn encoded_var_string16_size(value: &str) -> usize {
+    std::mem::size_of::<u16>() + value.len()
+}
+
+pub(super) fn validate_precision(field: &'static str, precision: u8) -> Result<(), SbeDecodeError> {
+    if precision > FIXED_PRECISION {
+        return Err(SbeDecodeError::InvalidValue { field });
+    }
+    Ok(())
+}
+
+pub(super) fn decode_bool_u8(
+    cursor: &mut SbeCursor<'_>,
+    field: &'static str,
+) -> Result<bool, SbeDecodeError> {
+    match cursor.read_u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(SbeDecodeError::InvalidValue { field }),
+    }
+}
+
+pub(super) fn decode_aggressor_side(
+    cursor: &mut SbeCursor<'_>,
+) -> Result<AggressorSide, SbeDecodeError> {
+    let value = cursor.read_u8()?;
+    AggressorSide::from_u8(value).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "AggressorSide",
+        value: u16::from(value),
+    })
+}
+
+pub(super) fn decode_book_action(cursor: &mut SbeCursor<'_>) -> Result<BookAction, SbeDecodeError> {
+    let value = cursor.read_u8()?;
+    BookAction::from_u8(value).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "BookAction",
+        value: u16::from(value),
+    })
+}
+
+pub(super) fn decode_order_side(cursor: &mut SbeCursor<'_>) -> Result<OrderSide, SbeDecodeError> {
+    let value = cursor.read_u8()?;
+    OrderSide::from_u8(value).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "OrderSide",
+        value: u16::from(value),
+    })
+}
+
+pub(super) fn decode_instrument_close_type(
+    cursor: &mut SbeCursor<'_>,
+) -> Result<InstrumentCloseType, SbeDecodeError> {
+    let value = cursor.read_u8()?;
+    InstrumentCloseType::from_u8(value).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "InstrumentCloseType",
+        value: u16::from(value),
+    })
+}
+
+pub(super) fn decode_market_status_action(
+    cursor: &mut SbeCursor<'_>,
+) -> Result<MarketStatusAction, SbeDecodeError> {
+    let value = cursor.read_u16_le()?;
+    MarketStatusAction::from_u16(value).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "MarketStatusAction",
+        value,
+    })
+}
+
+pub(super) fn decode_aggregation_source(
+    cursor: &mut SbeCursor<'_>,
+) -> Result<AggregationSource, SbeDecodeError> {
+    let value = cursor.read_u8()?;
+    AggregationSource::from_repr(value as usize).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "AggregationSource",
+        value: u16::from(value),
+    })
+}
+
+pub(super) fn decode_bar_aggregation(
+    cursor: &mut SbeCursor<'_>,
+) -> Result<BarAggregation, SbeDecodeError> {
+    let value = cursor.read_u8()?;
+    BarAggregation::from_repr(value as usize).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "BarAggregation",
+        value: u16::from(value),
+    })
+}
+
+pub(super) fn decode_price_type(cursor: &mut SbeCursor<'_>) -> Result<PriceType, SbeDecodeError> {
+    let value = cursor.read_u8()?;
+    PriceType::from_repr(value as usize).ok_or(SbeDecodeError::InvalidEnumValue {
+        type_name: "PriceType",
+        value: u16::from(value),
+    })
+}
+
+pub(super) fn decode_non_zero_step(step_raw: u32) -> Result<NonZero<usize>, SbeDecodeError> {
+    let step = usize::try_from(step_raw).map_err(|_| SbeDecodeError::NumericOverflow {
+        type_name: "BarSpecification.step",
+    })?;
+    NonZero::new(step).ok_or(SbeDecodeError::InvalidValue {
+        field: "BarSpecification.step",
+    })
+}
