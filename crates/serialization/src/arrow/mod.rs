@@ -21,6 +21,8 @@ pub mod close;
 pub mod custom;
 pub mod delta;
 pub mod depth;
+#[cfg(feature = "display")]
+pub mod display;
 pub mod funding;
 pub mod index_price;
 pub mod instrument;

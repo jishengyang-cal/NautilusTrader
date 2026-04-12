@@ -33,6 +33,7 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 default = []
 arrow = ["dep:arrow"]
 capnp = ["dep:capnp"]
+display = ["arrow"]
 sbe = []
 extension-module = [
   "nautilus-core/extension-module",
