@@ -2392,6 +2392,7 @@ impl ExecutionManager {
                                 instrument,
                                 diff,
                                 ts_now,
+                                None,
                             )
                         {
                             order_events.push(inferred_fill);

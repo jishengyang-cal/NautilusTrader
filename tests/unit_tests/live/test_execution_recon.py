@@ -5627,3 +5627,116 @@ class TestHedgeModeReconciliation:
         )
         assert external_order is not None
         assert external_order.filled_qty == Quantity.from_int(5_000)
+
+
+class TestInferredFillCommission:
+    """
+    Test calculate_commission integration with inferred fills.
+    """
+
+    def _make_order_and_report(self, instrument):
+        order = TestExecStubs.limit_order(instrument=instrument)
+        accepted = TestEventStubs.order_accepted(order)
+        order.apply(accepted)
+
+        report = OrderStatusReport(
+            instrument_id=instrument.id,
+            account_id=TestIdStubs.account_id(),
+            client_order_id=order.client_order_id,
+            venue_order_id=VenueOrderId("V-1"),
+            order_side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            time_in_force=TimeInForce.GTC,
+            order_status=OrderStatus.FILLED,
+            quantity=Quantity.from_int(100_000),
+            filled_qty=Quantity.from_int(100_000),
+            avg_px=Price.from_str("1.00000"),
+            report_id=UUID4(),
+            ts_accepted=0,
+            ts_last=0,
+            ts_init=0,
+        )
+
+        return order, report
+
+    def test_no_client_uses_zero_commission(self):
+        from nautilus_trader.live.reconciliation import create_inferred_order_filled_event
+
+        instrument = AUDUSD_SIM
+        order, report = self._make_order_and_report(instrument)
+
+        filled = create_inferred_order_filled_event(
+            order=order,
+            ts_now=0,
+            report=report,
+            instrument=instrument,
+            client=None,
+        )
+
+        assert filled.commission == Money(0, USD)
+
+    def test_client_returning_none_uses_zero_commission(self):
+        from nautilus_trader.live.reconciliation import create_inferred_order_filled_event
+
+        instrument = AUDUSD_SIM
+        order, report = self._make_order_and_report(instrument)
+
+        client = MockLiveExecutionClient(
+            loop=asyncio.new_event_loop(),
+            client_id=ClientId("SIM"),
+            venue=Venue("SIM"),
+            account_type=AccountType.CASH,
+            base_currency=USD,
+            instrument_provider=InstrumentProvider(),
+            msgbus=MessageBus(
+                trader_id=TestIdStubs.trader_id(),
+                clock=LiveClock(),
+            ),
+            cache=TestComponentStubs.cache(),
+            clock=LiveClock(),
+        )
+
+        filled = create_inferred_order_filled_event(
+            order=order,
+            ts_now=0,
+            report=report,
+            instrument=instrument,
+            client=client,
+        )
+
+        assert filled.commission == Money(0, USD)
+
+    def test_client_with_custom_commission(self):
+        from nautilus_trader.live.reconciliation import create_inferred_order_filled_event
+
+        instrument = AUDUSD_SIM
+        order, report = self._make_order_and_report(instrument)
+
+        class CustomCommissionClient(MockLiveExecutionClient):
+            def calculate_commission(self, instrument, last_qty, last_px, liquidity_side):
+                return Money(42.0, USD)
+
+        client = CustomCommissionClient(
+            loop=asyncio.new_event_loop(),
+            client_id=ClientId("SIM"),
+            venue=Venue("SIM"),
+            account_type=AccountType.CASH,
+            base_currency=USD,
+            instrument_provider=InstrumentProvider(),
+            msgbus=MessageBus(
+                trader_id=TestIdStubs.trader_id(),
+                clock=LiveClock(),
+            ),
+            cache=TestComponentStubs.cache(),
+            clock=LiveClock(),
+        )
+
+        filled = create_inferred_order_filled_event(
+            order=order,
+            ts_now=0,
+            report=report,
+            instrument=instrument,
+            client=client,
+        )
+
+        assert filled.commission == Money(42.0, USD)

@@ -19,13 +19,13 @@ use async_trait::async_trait;
 use nautilus_core::UnixNanos;
 use nautilus_model::{
     accounts::AccountAny,
-    enums::OmsType,
+    enums::{LiquiditySide, OmsType},
     identifiers::{
         AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, Venue, VenueOrderId,
     },
     instruments::InstrumentAny,
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
-    types::{AccountBalance, MarginBalance},
+    types::{AccountBalance, MarginBalance, Money, Price, Quantity},
 };
 
 use super::log_not_implemented;
@@ -261,5 +261,23 @@ pub trait ExecutionClient {
     /// can override this to process instruments for their venue.
     fn on_instrument(&mut self, _instrument: InstrumentAny) {
         // Default no-op
+    }
+
+    /// Calculates the commission for a reconciliation fill.
+    ///
+    /// Override this method to provide venue-specific commission logic
+    /// for inferred fills generated during reconciliation.
+    ///
+    /// Returns `None` by default, signaling callers to use their own
+    /// generic commission formula.
+    #[expect(unused_variables)]
+    fn calculate_commission(
+        &self,
+        instrument: &InstrumentAny,
+        last_qty: Quantity,
+        last_px: Price,
+        liquidity_side: LiquiditySide,
+    ) -> Option<Money> {
+        None
     }
 }

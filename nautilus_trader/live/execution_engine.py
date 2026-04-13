@@ -3366,11 +3366,20 @@ class LiveExecutionEngine(ExecutionEngine):
         report: OrderStatusReport,
         instrument: Instrument,
     ) -> OrderFilled:
+        client = None
+        client_id = self._cache.client_id(order.client_order_id)
+        if client_id is not None:
+            client = self._clients.get(client_id)
+
+        if client is None:
+            client = self._routing_map.get(instrument.id.venue, self._default_client)
+
         filled = create_inferred_order_filled_event(
             order=order,
             ts_now=self._clock.timestamp_ns(),
             report=report,
             instrument=instrument,
+            client=client,
         )
         self._log.info(f"Generated inferred {filled}", LogColor.BLUE)
 

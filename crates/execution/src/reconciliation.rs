@@ -904,7 +904,7 @@ pub fn generate_external_order_status_events(
 
             if !report.filled_qty.is_zero()
                 && let Some(filled) =
-                    create_inferred_fill(order, report, account_id, instrument, ts_now)
+                    create_inferred_fill(order, report, account_id, instrument, ts_now, None)
             {
                 events.push(filled);
             }
@@ -976,6 +976,7 @@ pub fn create_inferred_fill(
     account_id: &AccountId,
     instrument: &InstrumentAny,
     ts_now: UnixNanos,
+    commission: Option<Money>,
 ) -> Option<OrderEventAny> {
     let liquidity_side = match order.order_type() {
         OrderType::Market | OrderType::StopMarket | OrderType::TrailingStopMarket => {
@@ -1032,7 +1033,7 @@ pub fn create_inferred_fill(
         ts_now,
         true, // reconciliation
         report.venue_position_id,
-        None, // commission - not available for inferred fills
+        commission,
     )))
 }
 
@@ -1398,7 +1399,14 @@ fn reconcile_fill_quantity_mismatch(
         };
 
         let account_id = order.account_id()?;
-        return create_incremental_inferred_fill(order, report, &account_id, instrument, ts_now);
+        return create_incremental_inferred_fill(
+            order,
+            report,
+            &account_id,
+            instrument,
+            ts_now,
+            None,
+        );
     }
 
     // Quantities match but status differs - potential state inconsistency
@@ -1424,6 +1432,7 @@ pub fn create_incremental_inferred_fill(
     account_id: &AccountId,
     instrument: &InstrumentAny,
     ts_now: UnixNanos,
+    commission: Option<Money>,
 ) -> Option<OrderEventAny> {
     let order_filled_qty = order.filled_qty();
     let last_qty = report.filled_qty - order_filled_qty;
@@ -1474,7 +1483,7 @@ pub fn create_incremental_inferred_fill(
         ts_now,
         true, // reconciliation
         None, // venue_position_id
-        None, // commission - unknown for inferred fills
+        commission,
     )))
 }
 
@@ -1490,6 +1499,7 @@ pub fn create_inferred_fill_for_qty(
     instrument: &InstrumentAny,
     fill_qty: Quantity,
     ts_now: UnixNanos,
+    commission: Option<Money>,
 ) -> Option<OrderEventAny> {
     if fill_qty.is_zero() {
         return None;
@@ -1549,7 +1559,7 @@ pub fn create_inferred_fill_for_qty(
         ts_now,
         true, // reconciliation
         None, // venue_position_id
-        None, // commission - unknown for inferred fills
+        commission,
     )))
 }
 
@@ -1752,7 +1762,10 @@ mod tests {
         events::{OrderAccepted, OrderSubmitted},
         identifiers::{AccountId, ClientOrderId, VenueOrderId},
         instruments::stubs::{audusd_sim, crypto_perpetual_ethusdt},
-        orders::OrderTestBuilder,
+        orders::{
+            OrderTestBuilder,
+            stubs::{TestOrderEventStubs, TestOrderStubs},
+        },
         reports::OrderStatusReport,
         types::Currency,
     };
@@ -2959,6 +2972,7 @@ mod tests {
             &AccountId::from("TEST-001"),
             &InstrumentAny::CryptoPerpetual(instrument),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         let filled = match fill.unwrap() {
@@ -3003,6 +3017,7 @@ mod tests {
             &AccountId::from("TEST-001"),
             &InstrumentAny::CryptoPerpetual(instrument),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         assert!(fill.is_none());
@@ -4148,6 +4163,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::zero(0),
             UnixNanos::from(1_000_000),
+            None,
         );
 
         assert!(result.is_none());
@@ -4190,6 +4206,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::from("5.0"),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         let filled = match result.unwrap() {
@@ -4238,6 +4255,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::from("5.0"),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         let filled = match result.unwrap() {
@@ -4284,6 +4302,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::from("5.0"),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         let filled = match result.unwrap() {
@@ -4331,6 +4350,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::from("5.0"),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         assert!(result.is_none());
@@ -4391,6 +4411,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::from("5.0"),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         let filled = match result.unwrap() {
@@ -4430,6 +4451,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::from("5.0"),
             ts_now,
+            None,
         );
 
         let filled = match result.unwrap() {
@@ -4467,6 +4489,7 @@ mod tests {
             &InstrumentAny::CryptoPerpetual(instrument),
             Quantity::from("5.0"),
             UnixNanos::from(2_000_000),
+            None,
         );
 
         let filled = match result.unwrap() {
@@ -4475,5 +4498,178 @@ mod tests {
         };
 
         assert!(filled.reconciliation, "reconciliation flag should be true");
+    }
+
+    #[rstest]
+    fn test_create_incremental_inferred_fill_with_commission() {
+        let instrument = crypto_perpetual_ethusdt();
+        let order = OrderTestBuilder::new(OrderType::Limit)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("10.0"))
+            .price(Price::from("100.00"))
+            .build();
+
+        let instrument_any = InstrumentAny::CryptoPerpetual(instrument.clone());
+        let mut accepted_order = TestOrderStubs::make_accepted_order(&order);
+        let partial_fill = TestOrderEventStubs::filled(
+            &accepted_order,
+            &instrument_any,
+            None,
+            None,
+            None,
+            Some(Quantity::from("3.0")),
+            None,
+            None,
+            None,
+            None,
+        );
+        accepted_order.apply(partial_fill).unwrap();
+
+        let report = OrderStatusReport::new(
+            AccountId::from("TEST-001"),
+            instrument.id(),
+            Some(accepted_order.client_order_id()),
+            VenueOrderId::from("V-001"),
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Filled,
+            Quantity::from("10.0"),
+            Quantity::from("10.0"),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+        )
+        .with_avg_px(100.0)
+        .unwrap();
+
+        let commission = Some(Money::new(2.50, Currency::USDT()));
+
+        let result = create_incremental_inferred_fill(
+            &accepted_order,
+            &report,
+            &AccountId::from("TEST-001"),
+            &instrument_any,
+            UnixNanos::from(2_000_000),
+            commission,
+        );
+
+        let filled = match result.unwrap() {
+            OrderEventAny::Filled(f) => f,
+            _ => panic!("Expected Filled event"),
+        };
+
+        assert_eq!(filled.last_qty, Quantity::from("7.0"));
+        assert_eq!(filled.commission, Some(Money::new(2.50, Currency::USDT())));
+    }
+
+    #[rstest]
+    fn test_create_inferred_fill_with_commission() {
+        let instrument = crypto_perpetual_ethusdt();
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("1.0"))
+            .build();
+
+        let report = make_test_report(
+            instrument.id(),
+            OrderType::Market,
+            OrderStatus::Filled,
+            "1.0",
+            false,
+        );
+
+        let commission = Some(Money::new(5.0, Currency::USDT()));
+
+        let fill = create_inferred_fill(
+            &order,
+            &report,
+            &AccountId::from("TEST-001"),
+            &InstrumentAny::CryptoPerpetual(instrument),
+            UnixNanos::from(2_000_000),
+            commission,
+        );
+
+        let filled = match fill.unwrap() {
+            OrderEventAny::Filled(f) => f,
+            _ => panic!("Expected Filled event"),
+        };
+
+        assert_eq!(filled.commission, Some(Money::new(5.0, Currency::USDT())));
+    }
+
+    #[rstest]
+    fn test_create_inferred_fill_none_commission() {
+        let instrument = crypto_perpetual_ethusdt();
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("1.0"))
+            .build();
+
+        let report = make_test_report(
+            instrument.id(),
+            OrderType::Market,
+            OrderStatus::Filled,
+            "1.0",
+            false,
+        );
+
+        let fill = create_inferred_fill(
+            &order,
+            &report,
+            &AccountId::from("TEST-001"),
+            &InstrumentAny::CryptoPerpetual(instrument),
+            UnixNanos::from(2_000_000),
+            None,
+        );
+
+        let filled = match fill.unwrap() {
+            OrderEventAny::Filled(f) => f,
+            _ => panic!("Expected Filled event"),
+        };
+
+        assert_eq!(filled.commission, None);
+    }
+
+    #[rstest]
+    fn test_create_inferred_fill_for_qty_with_commission() {
+        let instrument = crypto_perpetual_ethusdt();
+        let order = OrderTestBuilder::new(OrderType::Limit)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("10.0"))
+            .price(Price::from("100.00"))
+            .build();
+
+        let report = make_test_report(
+            instrument.id(),
+            OrderType::Limit,
+            OrderStatus::Filled,
+            "10.0",
+            false,
+        );
+
+        let commission = Some(Money::new(1.23, Currency::USDT()));
+
+        let result = create_inferred_fill_for_qty(
+            &order,
+            &report,
+            &AccountId::from("TEST-001"),
+            &InstrumentAny::CryptoPerpetual(instrument),
+            Quantity::from("5.0"),
+            UnixNanos::from(2_000_000),
+            commission,
+        );
+
+        let filled = match result.unwrap() {
+            OrderEventAny::Filled(f) => f,
+            _ => panic!("Expected Filled event"),
+        };
+
+        assert_eq!(filled.commission, Some(Money::new(1.23, Currency::USDT())));
     }
 }

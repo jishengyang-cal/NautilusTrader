@@ -8,6 +8,7 @@ Released on TBD (UTC).
 - Added Betfair tiered tick scheme to `BettingInstrument` for ladder-snapped pricing
 - Added Polymarket game_id and fee_schedule to instrument info (#3811), thanks @Javdu10
 - Added missing config values to `LiveExecEngineConfig` (#3841), thanks @Javdu10
+- Added `calculate_commission` to `ExecutionClient` for venue-specific reconciliation fills
 
 ### Breaking Changes
 - Replaced `is_sandbox: bool` with `environment: AxEnvironment` on `AxDataClientConfig` and `AxExecClientConfig` (Rust and Python), aligning with the Binance/Bybit/Kraken adapter pattern. Default is `Sandbox`.
