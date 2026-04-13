@@ -3799,3 +3799,82 @@ class TestPolymarketGenerateCancelEvent:
 
         # Assert - no HTTP cancel sent (cancel was deferred)
         mock_cancel.assert_not_called()
+
+    def test_calculate_commission_strategy_buy_fill(self):
+        # Issue #3860 strategy BUY fill:
+        # qty=15.463900, price=0.97, fee_rate=0.072
+        # Expected: 15.4639 * 0.97 * 0.072 * (1 - 0.97) = 0.03240
+        instrument = BinaryOption(
+            instrument_id=ELECTION_INSTRUMENT.id,
+            raw_symbol=ELECTION_INSTRUMENT.raw_symbol,
+            outcome="Yes",
+            description="test",
+            asset_class=AssetClass.ALTERNATIVE,
+            currency=USDC,
+            price_precision=3,
+            price_increment=Price.from_str("0.001"),
+            size_precision=6,
+            size_increment=Quantity.from_str("0.000001"),
+            activation_ns=0,
+            expiration_ns=0,
+            max_quantity=None,
+            min_quantity=None,
+            maker_fee=Decimal(0),
+            taker_fee=Decimal("0.072"),
+            ts_event=0,
+            ts_init=0,
+        )
+
+        result = self.exec_client.calculate_commission(
+            instrument,
+            Quantity.from_str("15.463900"),
+            Price.from_str("0.970"),
+            LiquiditySide.TAKER,
+        )
+
+        assert result == Money(0.03240, USDC_POS)
+
+    def test_calculate_commission_reconciliation_sell_fill(self):
+        # Issue #3860 reconciliation EXTERNAL SELL fill:
+        # qty=0.033400, price=0.98, fee_rate=0.072
+        # Expected: 0.0334 * 0.98 * 0.072 * (1 - 0.98) = 0.00005
+        instrument = BinaryOption(
+            instrument_id=ELECTION_INSTRUMENT.id,
+            raw_symbol=ELECTION_INSTRUMENT.raw_symbol,
+            outcome="Yes",
+            description="test",
+            asset_class=AssetClass.ALTERNATIVE,
+            currency=USDC,
+            price_precision=3,
+            price_increment=Price.from_str("0.001"),
+            size_precision=6,
+            size_increment=Quantity.from_str("0.000001"),
+            activation_ns=0,
+            expiration_ns=0,
+            max_quantity=None,
+            min_quantity=None,
+            maker_fee=Decimal(0),
+            taker_fee=Decimal("0.072"),
+            ts_event=0,
+            ts_init=0,
+        )
+
+        result = self.exec_client.calculate_commission(
+            instrument,
+            Quantity.from_str("0.033400"),
+            Price.from_str("0.980"),
+            LiquiditySide.TAKER,
+        )
+
+        # Was 0.002357 with old generic formula (qty * price * fee_rate)
+        assert result == Money(0.00005, USDC_POS)
+
+    def test_calculate_commission_maker_returns_zero(self):
+        result = self.exec_client.calculate_commission(
+            ELECTION_INSTRUMENT,
+            Quantity.from_str("100.00"),
+            Price.from_str("0.500"),
+            LiquiditySide.MAKER,
+        )
+
+        assert result == Money(0, USDC_POS)

@@ -40,6 +40,7 @@ Released on TBD (UTC).
 - Fixed Kraken trade dedup clearing the entire set at capacity instead of evicting the oldest entry
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
 - Fixed Polymarket commission formula and fee source for fills (#3838), thanks for reporting @santivazq
+- Fixed Polymarket reconciliation fills using incorrect commission (#3860), thanks for reporting @fedoraiver
 
 ### Internal Improvements
 - Added typed `CorrectnessError` enum to replace `anyhow::Error` in `correctness` helpers (Rust)

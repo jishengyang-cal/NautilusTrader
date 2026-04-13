@@ -241,6 +241,16 @@ class PolymarketExecutionClient(LiveExecutionClient):
         self._ack_events_order: dict[VenueOrderId, asyncio.Event] = {}
         self._ack_events_trade: dict[VenueOrderId, asyncio.Event] = {}
 
+    def calculate_commission(self, instrument, last_qty, last_px, liquidity_side):
+        commission = calculate_commission(
+            quantity=last_qty.as_decimal(),
+            price=last_px.as_decimal(),
+            fee_rate=instrument.taker_fee,
+            liquidity_side=liquidity_side,
+        )
+
+        return Money(commission, USDC_POS)
+
     async def _connect(self) -> None:
         await self._instrument_provider.initialize()
 

@@ -48,7 +48,10 @@ use nautilus_core::{
 use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{AccountType, CurrencyType, OmsType, OrderSide, OrderStatus, OrderType, TimeInForce},
+    enums::{
+        AccountType, CurrencyType, LiquiditySide, OmsType, OrderSide, OrderStatus, OrderType,
+        TimeInForce,
+    },
     events::{OrderEventAny, OrderUpdated},
     identifiers::{
         AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, Venue, VenueOrderId,
@@ -56,7 +59,7 @@ use nautilus_model::{
     instruments::{Instrument, InstrumentAny},
     orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
-    types::{AccountBalance, Currency, MarginBalance, Price, Quantity},
+    types::{AccountBalance, Currency, MarginBalance, Money, Price, Quantity},
 };
 use nautilus_network::retry::RetryConfig;
 use tokio::task::JoinHandle;
@@ -65,7 +68,10 @@ use ustr::Ustr;
 use self::{
     order_builder::PolymarketOrderBuilder,
     order_fill_tracker::OrderFillTrackerMap,
-    parse::{parse_balance_allowance, parse_order_status_report},
+    parse::{
+        compute_commission, instrument_taker_fee, parse_balance_allowance,
+        parse_order_status_report,
+    },
     reconciliation::{
         FillContext, apply_fill_filters, build_fill_reports_from_trades, build_position_reports,
     },
@@ -1068,6 +1074,24 @@ impl ExecutionClient for PolymarketExecutionClient {
             self.neg_risk_index.insert(bo.id, neg_risk);
         }
         self.shared_token_instruments.insert(token_id, instrument);
+    }
+
+    fn calculate_commission(
+        &self,
+        instrument: &InstrumentAny,
+        last_qty: Quantity,
+        last_px: Price,
+        liquidity_side: LiquiditySide,
+    ) -> Option<Money> {
+        let fee_rate = instrument_taker_fee(instrument);
+        let commission = compute_commission(
+            fee_rate,
+            last_qty.as_decimal(),
+            last_px.as_decimal(),
+            liquidity_side,
+        );
+
+        Some(Money::new(commission, instrument.quote_currency()))
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {

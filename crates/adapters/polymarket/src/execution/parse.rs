@@ -312,6 +312,7 @@ pub fn compute_commission(
     if liquidity_side != LiquiditySide::Taker || fee_rate.is_zero() {
         return 0.0;
     }
+
     let commission = size * fee_rate * price * (Decimal::ONE - price);
     let rounded = commission.round_dp(5);
     rounded.to_string().parse().unwrap_or(0.0)
@@ -503,6 +504,41 @@ mod tests {
         assert!(
             (commission - expected).abs() < 1e-10,
             "at p={price}, fee_rate={fee_rate}: expected {expected}, was {commission}"
+        );
+    }
+
+    #[rstest]
+    fn test_compute_commission_issue_3860_strategy_buy() {
+        // Issue #3860: strategy BUY fill
+        // qty=15.463900, price=0.97, fee_rate=0.072
+        // Expected: 15.4639 * 0.97 * 0.072 * (1 - 0.97) = 0.03240
+        let commission = compute_commission(
+            dec!(0.072),
+            Decimal::from_str_exact("15.463900").unwrap(),
+            dec!(0.97),
+            LiquiditySide::Taker,
+        );
+        assert!(
+            (commission - 0.03240).abs() < 1e-5,
+            "expected 0.03240, was {commission}"
+        );
+    }
+
+    #[rstest]
+    fn test_compute_commission_issue_3860_reconciliation_sell() {
+        // Issue #3860: reconciliation EXTERNAL SELL fill
+        // qty=0.033400, price=0.98, fee_rate=0.072
+        // Was 0.002357 with old generic formula (qty * price * fee_rate)
+        // Correct: 0.0334 * 0.98 * 0.072 * (1 - 0.98) = 0.00005
+        let commission = compute_commission(
+            dec!(0.072),
+            Decimal::from_str_exact("0.033400").unwrap(),
+            dec!(0.98),
+            LiquiditySide::Taker,
+        );
+        assert!(
+            (commission - 0.00005).abs() < 1e-5,
+            "expected 0.00005, was {commission}"
         );
     }
 
