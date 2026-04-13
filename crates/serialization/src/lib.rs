@@ -49,6 +49,8 @@
 //! - `extension-module`: Builds the crate as a Python extension module.
 //! - `capnp`: Enables [Cap'n Proto](https://capnproto.org/) serialization support.
 //! - `sbe`: Enables generic SBE (Simple Binary Encoding) decode utilities.
+//!
+//! **Warning:** SBE and Cap'n Proto schemas are not yet stable and may break between releases.
 
 #![warn(rustc::all)]
 #![deny(unsafe_code)]

@@ -197,7 +197,7 @@ fn test_funding_rate_update_roundtrip_without_optional_fields() {
 }
 
 #[rstest]
-fn test_funding_rate_update_zero_sentinels_match_capnp_parity() {
+fn test_funding_rate_update_zero_values_roundtrip() {
     let value = FundingRateUpdate::new(
         InstrumentId::from("ETHUSDT-PERP.BINANCE"),
         dec!(0.0001),
@@ -210,8 +210,8 @@ fn test_funding_rate_update_zero_sentinels_match_capnp_parity() {
     let bytes = value.to_sbe().unwrap();
     let decoded = FundingRateUpdate::from_sbe(&bytes).unwrap();
 
-    assert_eq!(decoded.interval, None);
-    assert_eq!(decoded.next_funding_ns, None);
+    assert_eq!(decoded.interval, Some(0));
+    assert_eq!(decoded.next_funding_ns, Some(0.into()));
 }
 
 #[rstest]
@@ -262,6 +262,35 @@ fn test_instrument_status_with_empty_strings() {
     let decoded = InstrumentStatus::from_sbe(&bytes).unwrap();
 
     assert_instrument_status_matches_capnp_parity(&value, &decoded);
+}
+
+#[rstest]
+#[case(None, None, None)]
+#[case(Some(true), Some(true), Some(true))]
+#[case(Some(false), Some(false), Some(false))]
+#[case(Some(true), None, Some(false))]
+#[case(None, Some(false), None)]
+fn test_instrument_status_optional_bool_roundtrip(
+    #[case] is_trading: Option<bool>,
+    #[case] is_quoting: Option<bool>,
+    #[case] is_short_sell_restricted: Option<bool>,
+) {
+    let value = InstrumentStatus {
+        instrument_id: InstrumentId::from("AAPL.NASDAQ"),
+        action: MarketStatusAction::Trading,
+        ts_event: 1234567890.into(),
+        ts_init: 1234567891.into(),
+        reason: None,
+        trading_event: None,
+        is_trading,
+        is_quoting,
+        is_short_sell_restricted,
+    };
+
+    let bytes = value.to_sbe().unwrap();
+    let decoded = InstrumentStatus::from_sbe(&bytes).unwrap();
+
+    assert_eq!(value, decoded);
 }
 
 #[rstest]
@@ -562,19 +591,7 @@ fn assert_data_any_roundtrip_matches_capnp_parity(value: DataAny) {
 }
 
 fn normalize_instrument_status_capnp_parity(status: InstrumentStatus) -> InstrumentStatus {
-    InstrumentStatus::new(
-        status.instrument_id,
-        status.action,
-        status.ts_event,
-        status.ts_init,
-        status.reason.filter(|value| !value.as_str().is_empty()),
-        status
-            .trading_event
-            .filter(|value| !value.as_str().is_empty()),
-        Some(status.is_trading.unwrap_or(false)),
-        Some(status.is_quoting.unwrap_or(false)),
-        Some(status.is_short_sell_restricted.unwrap_or(false)),
-    )
+    status
 }
 
 fn normalize_bar_type_capnp_parity(bar_type: BarType) -> BarType {

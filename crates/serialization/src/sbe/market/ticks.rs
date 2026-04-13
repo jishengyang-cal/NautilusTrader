@@ -26,11 +26,12 @@ use super::{
     MarketSbeMessage,
     common::{
         DECIMAL_BLOCK_LENGTH, PRICE_BLOCK_LENGTH, QUANTITY_BLOCK_LENGTH, decode_aggressor_side,
-        decode_bool_u8, decode_decimal, decode_instrument_close_type, decode_instrument_id,
-        decode_market_status_action, decode_optional_ustr, decode_price, decode_quantity,
-        decode_unix_nanos, encode_decimal, encode_instrument_id, encode_optional_ustr,
-        encode_price, encode_quantity, encode_unix_nanos, encode_var_string16,
-        encoded_instrument_id_size, encoded_optional_ustr_size, encoded_var_string16_size,
+        decode_decimal, decode_instrument_close_type, decode_instrument_id,
+        decode_market_status_action, decode_optional_bool, decode_optional_ustr, decode_price,
+        decode_quantity, decode_unix_nanos, encode_decimal, encode_instrument_id,
+        encode_optional_bool, encode_optional_ustr, encode_price, encode_quantity,
+        encode_unix_nanos, encode_var_string16, encoded_instrument_id_size,
+        encoded_optional_ustr_size, encoded_var_string16_size,
     },
     template_id,
 };
@@ -181,9 +182,13 @@ impl MarketSbeMessage for FundingRateUpdate {
 
     fn encode_body(&self, buf: &mut Vec<u8>) -> Result<(), SbeEncodeError> {
         encode_decimal(buf, &self.rate);
-        // Match existing Cap'n Proto wire semantics: 0 encodes an absent optional value.
-        buf.extend_from_slice(&self.interval.unwrap_or(0).to_le_bytes());
-        buf.extend_from_slice(&self.next_funding_ns.map_or(0, |value| *value).to_le_bytes());
+        buf.extend_from_slice(&self.interval.unwrap_or(u16::MAX).to_le_bytes());
+        buf.extend_from_slice(
+            &self
+                .next_funding_ns
+                .map_or(u64::MAX, |value| *value)
+                .to_le_bytes(),
+        );
         encode_unix_nanos(buf, self.ts_event);
         encode_unix_nanos(buf, self.ts_init);
         encode_instrument_id(buf, &self.instrument_id)
@@ -200,9 +205,8 @@ impl MarketSbeMessage for FundingRateUpdate {
         Ok(Self {
             instrument_id,
             rate,
-            // Match existing Cap'n Proto wire semantics: 0 decodes as None.
-            interval: (interval_raw != 0).then_some(interval_raw),
-            next_funding_ns: (next_funding_raw != 0).then_some(next_funding_raw.into()),
+            interval: (interval_raw != u16::MAX).then_some(interval_raw),
+            next_funding_ns: (next_funding_raw != u64::MAX).then_some(next_funding_raw.into()),
             ts_event,
             ts_init,
         })
@@ -252,10 +256,9 @@ impl MarketSbeMessage for InstrumentStatus {
 
     fn encode_body(&self, buf: &mut Vec<u8>) -> Result<(), SbeEncodeError> {
         buf.extend_from_slice(&(self.action as u16).to_le_bytes());
-        // Match existing Cap'n Proto wire semantics: absent booleans encode as false.
-        buf.push(self.is_trading.unwrap_or(false) as u8);
-        buf.push(self.is_quoting.unwrap_or(false) as u8);
-        buf.push(self.is_short_sell_restricted.unwrap_or(false) as u8);
+        buf.push(encode_optional_bool(self.is_trading));
+        buf.push(encode_optional_bool(self.is_quoting));
+        buf.push(encode_optional_bool(self.is_short_sell_restricted));
         encode_unix_nanos(buf, self.ts_event);
         encode_unix_nanos(buf, self.ts_init);
         encode_instrument_id(buf, &self.instrument_id)?;
@@ -265,12 +268,10 @@ impl MarketSbeMessage for InstrumentStatus {
 
     fn decode_body(cursor: &mut SbeCursor<'_>) -> Result<Self, SbeDecodeError> {
         let action = decode_market_status_action(cursor)?;
-        let is_trading = Some(decode_bool_u8(cursor, "InstrumentStatus.is_trading")?);
-        let is_quoting = Some(decode_bool_u8(cursor, "InstrumentStatus.is_quoting")?);
-        let is_short_sell_restricted = Some(decode_bool_u8(
-            cursor,
-            "InstrumentStatus.is_short_sell_restricted",
-        )?);
+        let is_trading = decode_optional_bool(cursor, "InstrumentStatus.is_trading")?;
+        let is_quoting = decode_optional_bool(cursor, "InstrumentStatus.is_quoting")?;
+        let is_short_sell_restricted =
+            decode_optional_bool(cursor, "InstrumentStatus.is_short_sell_restricted")?;
         let ts_event = decode_unix_nanos(cursor)?;
         let ts_init = decode_unix_nanos(cursor)?;
         let instrument_id = decode_instrument_id(cursor)?;
@@ -284,7 +285,6 @@ impl MarketSbeMessage for InstrumentStatus {
             ts_init,
             reason,
             trading_event,
-            // Match existing Cap'n Proto wire semantics: decoded booleans are always present.
             is_trading,
             is_quoting,
             is_short_sell_restricted,

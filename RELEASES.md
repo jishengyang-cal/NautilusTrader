@@ -14,6 +14,7 @@ Released on TBD (UTC).
 - Changed `get_cached_bybit_http_client` signature: replaced `demo`/`testnet` bools with `environment: BybitEnvironment`
 - Changed Rust `UnsubscribeBookSnapshots` to require `interval_ms` for exact snapshot interval unsubscribe
 - Changed `OrderError::Invariant` variant to wrap `CorrectnessError` instead of `anyhow::Error` (Rust)
+- Changed Cap'n Proto and SBE wire formats for `InstrumentStatus`, `FundingRateUpdate`, and `PositionAdjusted` to preserve `Option` state that was previously collapsed (these wire formats are not yet stable and may change between releases)
 
 ### Security
 

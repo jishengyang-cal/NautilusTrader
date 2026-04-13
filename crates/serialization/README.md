@@ -20,6 +20,10 @@ This enables efficient data storage, retrieval, and interoperability across diff
 - **Cap'n Proto serialization**: Zero-copy, schema-based serialization for efficient data interchange.
 - **SBE decode utilities**: Zero-copy cursor, shared decode errors, and generic var/group decoders for SBE parsers.
 
+> [!WARNING]
+>
+> SBE and Cap'n Proto schemas are not yet stable and may break between releases.
+
 ## NautilusTrader
 
 [NautilusTrader](https://nautilustrader.io) is an open-source, production-grade, Rust-native
@@ -36,6 +40,7 @@ This crate provides feature flags to control source code inclusion during compil
 - `extension-module`: Builds as a Python extension module.
 - `high-precision`: Enables [high-precision mode](https://nautilustrader.io/docs/nightly/getting_started/installation#precision-mode) to use 128-bit value types.
 - `arrow`: Enables Apache Arrow schema definitions and RecordBatch encoding/decoding.
+- `display`: Enables display-friendly Arrow encoders for market data (requires `arrow`).
 - `capnp`: Enables [Cap'n Proto](https://capnproto.org/) serialization support.
 - `sbe`: Enables generic SBE (Simple Binary Encoding) decode utilities.
 

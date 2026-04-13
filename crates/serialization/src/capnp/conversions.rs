@@ -1150,6 +1150,24 @@ pub fn market_status_action_from_capnp(
     }
 }
 
+#[must_use]
+pub fn optional_bool_to_capnp(value: Option<bool>) -> enums_capnp::OptionalBool {
+    match value {
+        None => enums_capnp::OptionalBool::Unknown,
+        Some(true) => enums_capnp::OptionalBool::True,
+        Some(false) => enums_capnp::OptionalBool::False,
+    }
+}
+
+#[must_use]
+pub fn optional_bool_from_capnp(value: enums_capnp::OptionalBool) -> Option<bool> {
+    match value {
+        enums_capnp::OptionalBool::Unknown => None,
+        enums_capnp::OptionalBool::True => Some(true),
+        enums_capnp::OptionalBool::False => Some(false),
+    }
+}
+
 impl<'a> ToCapnp<'a> for Currency {
     type Builder = types_capnp::currency::Builder<'a>;
 
@@ -1696,10 +1714,15 @@ impl<'a> ToCapnp<'a> for FundingRateUpdate {
         let rate_builder = builder.reborrow().init_rate();
         self.rate.to_capnp(rate_builder);
 
-        builder.set_interval(self.interval.unwrap_or(0));
+        if let Some(interval) = self.interval {
+            builder.reborrow().set_interval(interval);
+            builder.reborrow().set_has_interval(true);
+        }
 
-        let mut next_funding_time_builder = builder.reborrow().init_next_funding_time();
-        next_funding_time_builder.set_value(self.next_funding_ns.map_or(0, |ns| *ns));
+        if let Some(next_funding_ns) = self.next_funding_ns {
+            let mut next_funding_time_builder = builder.reborrow().init_next_funding_time();
+            next_funding_time_builder.set_value(*next_funding_ns);
+        }
 
         let mut ts_event_builder = builder.reborrow().init_ts_event();
         ts_event_builder.set_value(*self.ts_event);
@@ -1719,18 +1742,17 @@ impl<'a> FromCapnp<'a> for FundingRateUpdate {
         let rate_reader = reader.get_rate()?;
         let rate = Decimal::from_capnp(rate_reader)?;
 
-        let interval_raw = reader.get_interval();
-        let interval = match interval_raw {
-            0 => None,
-            _ => Some(interval_raw),
+        let interval = if reader.get_has_interval() {
+            Some(reader.get_interval())
+        } else {
+            None
         };
 
-        let next_funding_time_reader = reader.get_next_funding_time()?;
-        let next_funding_time_value = next_funding_time_reader.get_value();
-        let next_funding_ns = if next_funding_time_value == 0 {
-            None
+        let next_funding_ns = if reader.has_next_funding_time() {
+            let next_funding_time_reader = reader.get_next_funding_time()?;
+            Some(next_funding_time_reader.get_value().into())
         } else {
-            Some(next_funding_time_value.into())
+            None
         };
 
         let ts_event_reader = reader.get_ts_event()?;
@@ -1806,11 +1828,18 @@ impl<'a> ToCapnp<'a> for InstrumentStatus {
         self.instrument_id.to_capnp(instrument_id_builder);
 
         builder.set_action(market_status_action_to_capnp(self.action));
-        builder.set_reason(self.reason.as_ref().map_or("", |s| s.as_str()));
-        builder.set_trading_event(self.trading_event.as_ref().map_or("", |s| s.as_str()));
-        builder.set_is_trading(self.is_trading.unwrap_or(false));
-        builder.set_is_quoting(self.is_quoting.unwrap_or(false));
-        builder.set_is_short_sell_restricted(self.is_short_sell_restricted.unwrap_or(false));
+
+        if let Some(reason) = self.reason {
+            builder.reborrow().set_reason(reason.as_str());
+        }
+
+        if let Some(trading_event) = self.trading_event {
+            builder.reborrow().set_trading_event(trading_event.as_str());
+        }
+
+        builder.set_is_trading(optional_bool_to_capnp(self.is_trading));
+        builder.set_is_quoting(optional_bool_to_capnp(self.is_quoting));
+        builder.set_is_short_sell_restricted(optional_bool_to_capnp(self.is_short_sell_restricted));
 
         let mut ts_event_builder = builder.reborrow().init_ts_event();
         ts_event_builder.set_value(*self.ts_event);
@@ -1829,23 +1858,22 @@ impl<'a> FromCapnp<'a> for InstrumentStatus {
 
         let action = market_status_action_from_capnp(reader.get_action()?);
 
-        let reason_str = reader.get_reason()?.to_str()?;
-        let reason = if reason_str.is_empty() {
-            None
+        let reason = if reader.has_reason() {
+            Some(Ustr::from(reader.get_reason()?.to_str()?))
         } else {
-            Some(Ustr::from(reason_str))
+            None
         };
 
-        let trading_event_str = reader.get_trading_event()?.to_str()?;
-        let trading_event = if trading_event_str.is_empty() {
-            None
+        let trading_event = if reader.has_trading_event() {
+            Some(Ustr::from(reader.get_trading_event()?.to_str()?))
         } else {
-            Some(Ustr::from(trading_event_str))
+            None
         };
 
-        let is_trading = Some(reader.get_is_trading());
-        let is_quoting = Some(reader.get_is_quoting());
-        let is_short_sell_restricted = Some(reader.get_is_short_sell_restricted());
+        let is_trading = optional_bool_from_capnp(reader.get_is_trading()?);
+        let is_quoting = optional_bool_from_capnp(reader.get_is_quoting()?);
+        let is_short_sell_restricted =
+            optional_bool_from_capnp(reader.get_is_short_sell_restricted()?);
 
         let ts_event_reader = reader.get_ts_event()?;
         let ts_event = ts_event_reader.get_value();
@@ -4530,13 +4558,7 @@ impl<'a> FromCapnp<'a> for PositionAdjusted {
         };
 
         let reason = if reader.has_reason() {
-            let reason_reader = reader.get_reason()?;
-            let text = reason_reader.to_str()?;
-            if text.is_empty() {
-                None
-            } else {
-                Some(Ustr::from(text))
-            }
+            Some(Ustr::from(reader.get_reason()?.to_str()?))
         } else {
             None
         };

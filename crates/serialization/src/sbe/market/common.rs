@@ -45,7 +45,7 @@ pub(super) const DEPTH10_COUNTS_BLOCK_LENGTH: usize =
 pub(super) const HEADER_LENGTH: usize = 8;
 pub(super) const GROUP_HEADER_16_LENGTH: usize = 4;
 
-const VAR_STRING16_MAX_LEN: usize = u16::MAX as usize;
+const VAR_STRING16_MAX_LEN: usize = (u16::MAX - 1) as usize;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MessageHeader {
@@ -200,25 +200,37 @@ pub(super) fn decode_instrument_id(
     Ok(InstrumentId::new(symbol, venue))
 }
 
+// Sentinel length that marks a var-string16 slot as absent (None)
+const VAR_STRING16_NULL: u16 = u16::MAX;
+
 pub(super) fn encode_optional_ustr(
     buf: &mut Vec<u8>,
     field: &'static str,
     value: Option<Ustr>,
 ) -> Result<(), SbeEncodeError> {
-    // Match existing Cap'n Proto wire semantics: empty string and None share the same encoding.
-    encode_var_string16(buf, field, value.as_ref().map_or("", Ustr::as_str))
+    match value {
+        None => {
+            buf.extend_from_slice(&VAR_STRING16_NULL.to_le_bytes());
+            Ok(())
+        }
+        Some(s) => encode_var_string16(buf, field, s.as_str()),
+    }
 }
 
 pub(super) fn decode_optional_ustr(
     cursor: &mut SbeCursor<'_>,
 ) -> Result<Option<Ustr>, SbeDecodeError> {
-    let value = cursor.read_var_string16_ref()?;
-    if value.is_empty() {
-        // Match existing Cap'n Proto wire semantics: empty string decodes as None.
-        Ok(None)
-    } else {
-        Ok(Some(Ustr::from(value)))
+    let len = cursor.read_u16_le()?;
+    if len == VAR_STRING16_NULL {
+        return Ok(None);
     }
+
+    if len == 0 {
+        return Ok(Some(Ustr::from("")));
+    }
+    let bytes = cursor.read_bytes(usize::from(len))?;
+    let s = std::str::from_utf8(bytes).map_err(|_| SbeDecodeError::InvalidUtf8)?;
+    Ok(Some(Ustr::from(s)))
 }
 
 pub(super) fn encode_group_header_16(
@@ -271,7 +283,10 @@ pub(super) fn encoded_instrument_id_size(instrument_id: &InstrumentId) -> usize 
 }
 
 pub(super) fn encoded_optional_ustr_size(value: Option<Ustr>) -> usize {
-    encoded_var_string16_size(value.as_ref().map_or("", Ustr::as_str))
+    match value {
+        None => std::mem::size_of::<u16>(),
+        Some(s) => encoded_var_string16_size(s.as_str()),
+    }
 }
 
 pub(super) fn encoded_var_string16_size(value: &str) -> usize {
@@ -285,13 +300,26 @@ pub(super) fn validate_precision(field: &'static str, precision: u8) -> Result<(
     Ok(())
 }
 
-pub(super) fn decode_bool_u8(
+// Sentinel byte that marks an optional bool as absent (None)
+const OPTIONAL_BOOL_NULL: u8 = 0xFF;
+
+#[must_use]
+pub(super) fn encode_optional_bool(value: Option<bool>) -> u8 {
+    match value {
+        None => OPTIONAL_BOOL_NULL,
+        Some(true) => 1,
+        Some(false) => 0,
+    }
+}
+
+pub(super) fn decode_optional_bool(
     cursor: &mut SbeCursor<'_>,
     field: &'static str,
-) -> Result<bool, SbeDecodeError> {
+) -> Result<Option<bool>, SbeDecodeError> {
     match cursor.read_u8()? {
-        0 => Ok(false),
-        1 => Ok(true),
+        0 => Ok(Some(false)),
+        1 => Ok(Some(true)),
+        OPTIONAL_BOOL_NULL => Ok(None),
         _ => Err(SbeDecodeError::InvalidValue { field }),
     }
 }
