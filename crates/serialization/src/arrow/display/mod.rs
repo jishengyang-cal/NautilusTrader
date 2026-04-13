@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Display-mode Arrow encoders for market data types.
+//! Display-mode Arrow encoders for Nautilus types.
 //!
 //! These encoders emit schemas compatible with display pipelines that cannot
 //! consume `FixedSizeBinary` columns.
@@ -25,13 +25,16 @@
 //! For catalog storage that must round-trip, use the `FixedSizeBinary` encoders in
 //! the parent [`crate::arrow`] module instead.
 
+pub mod account_state;
 pub mod bar;
 pub mod close;
 pub mod delta;
 pub mod depth;
 pub mod index_price;
 pub mod mark_price;
+pub mod order_filled;
 pub mod quote;
+pub mod report;
 pub mod trade;
 
 use arrow::datatypes::{DataType, Field, TimeUnit};
@@ -47,6 +50,11 @@ const DISPLAY_MAX_PRECISION: u8 = 18;
 /// Builds a non-nullable `Utf8` field with the given name.
 pub(super) fn utf8_field(name: &str, nullable: bool) -> Field {
     Field::new(name, DataType::Utf8, nullable)
+}
+
+/// Builds a `Boolean` field with the given name and nullability.
+pub(super) fn bool_field(name: &str, nullable: bool) -> Field {
+    Field::new(name, DataType::Boolean, nullable)
 }
 
 /// Builds a `Float64` field with the given name and nullability.
