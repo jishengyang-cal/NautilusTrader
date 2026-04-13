@@ -25,7 +25,7 @@ use nautilus_model::{
     identifiers::{ClientId, ClientOrderId, InstrumentId, TraderId},
 };
 use nautilus_portfolio::config::PortfolioConfig;
-use pyo3::{Py, PyAny, PyResult, Python, pymethods, types::PyAnyMethods};
+use pyo3::{IntoPyObject, Py, PyAny, PyResult, Python, pymethods, types::PyAnyMethods};
 use rust_decimal::Decimal;
 
 use crate::config::{
@@ -149,6 +149,79 @@ fn coerce_bar_interval_type(value: &Py<PyAny>) -> PyResult<BarIntervalType> {
 // Normalizes a Python `max_notional_per_order` dict (values can be `int`, `float`,
 // `str`, or `Decimal`, matching the legacy Python v1 config contract) into the
 // string-keyed map stored on `LiveRiskEngineConfig`.
+/// Converts a Python value into a [`serde_json::Value`].
+fn py_to_json_value(bound: &pyo3::Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
+    // Check bool before int since Python `bool` is a subclass of `int`
+    if let Ok(b) = bound.extract::<bool>() {
+        Ok(serde_json::Value::Bool(b))
+    } else if let Ok(s) = bound.extract::<String>() {
+        Ok(serde_json::Value::String(s))
+    } else if let Ok(i) = bound.extract::<i64>() {
+        Ok(serde_json::Value::Number(serde_json::Number::from(i)))
+    } else if let Ok(f) = bound.extract::<f64>() {
+        Ok(serde_json::Number::from_f64(f)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number))
+    } else if let Ok(items) = bound.extract::<Vec<Py<PyAny>>>() {
+        // Handle list/tuple/set
+        let py = bound.py();
+        let arr: Vec<serde_json::Value> = items
+            .iter()
+            .map(|item| py_to_json_value(item.bind(py)))
+            .collect::<PyResult<_>>()?;
+        Ok(serde_json::Value::Array(arr))
+    } else {
+        // Fall back to string representation
+        let s: String = bound.str()?.extract()?;
+        Ok(serde_json::Value::String(s))
+    }
+}
+
+/// Converts a [`serde_json::Value`] into a Python object.
+fn json_value_to_py(py: Python<'_>, value: &serde_json::Value) -> PyResult<Py<PyAny>> {
+    match value {
+        serde_json::Value::Null => Ok(py.None()),
+        serde_json::Value::Bool(b) => Ok((*b).into_pyobject(py)?.to_owned().into_any().unbind()),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(i.into_pyobject(py)?.into_any().unbind())
+            } else if let Some(f) = n.as_f64() {
+                Ok(f.into_pyobject(py)?.into_any().unbind())
+            } else {
+                Ok(n.to_string().into_pyobject(py)?.into_any().unbind())
+            }
+        }
+        serde_json::Value::String(s) => Ok(s.into_pyobject(py)?.into_any().unbind()),
+        serde_json::Value::Array(arr) => {
+            let items: Vec<Py<PyAny>> = arr
+                .iter()
+                .map(|v| json_value_to_py(py, v))
+                .collect::<PyResult<_>>()?;
+            Ok(pyo3::types::PyList::new(py, items)?.into_any().unbind())
+        }
+        serde_json::Value::Object(obj) => {
+            let dict = pyo3::types::PyDict::new(py);
+            for (k, v) in obj {
+                dict.set_item(k, json_value_to_py(py, v)?)?;
+            }
+            Ok(dict.into_any().unbind())
+        }
+    }
+}
+
+/// Converts Python filter values into JSON values.
+fn coerce_filters_to_json(
+    raw: HashMap<String, Py<PyAny>>,
+) -> PyResult<HashMap<String, serde_json::Value>> {
+    Python::attach(|py| -> PyResult<HashMap<String, serde_json::Value>> {
+        let mut result = HashMap::with_capacity(raw.len());
+        for (key, value) in raw {
+            let json_value = py_to_json_value(value.bind(py))?;
+            result.insert(key, json_value);
+        }
+        Ok(result)
+    })
+}
+
 fn coerce_max_notional_per_order(
     raw: HashMap<String, Py<PyAny>>,
 ) -> PyResult<HashMap<String, String>> {
@@ -172,17 +245,21 @@ impl LiveDataEngineConfig {
         clippy::needless_pass_by_value,
         reason = "PyO3 #[new] requires owned params"
     )]
-    #[pyo3(signature = (time_bars_build_with_no_updates=None, time_bars_timestamp_on_close=None, time_bars_skip_first_non_full_bar=None, time_bars_interval_type=None, time_bars_build_delay=None, validate_data_sequence=None, buffer_deltas=None, external_clients=None, debug=None))]
+    #[pyo3(signature = (time_bars_build_with_no_updates=None, time_bars_timestamp_on_close=None, time_bars_skip_first_non_full_bar=None, time_bars_interval_type=None, time_bars_build_delay=None, time_bars_origins=None, validate_data_sequence=None, buffer_deltas=None, emit_quotes_from_book=None, emit_quotes_from_book_depths=None, external_clients=None, debug=None, graceful_shutdown_on_error=None))]
     fn py_new(
         time_bars_build_with_no_updates: Option<bool>,
         time_bars_timestamp_on_close: Option<bool>,
         time_bars_skip_first_non_full_bar: Option<bool>,
         time_bars_interval_type: Option<Py<PyAny>>,
         time_bars_build_delay: Option<u64>,
+        time_bars_origins: Option<HashMap<String, u64>>,
         validate_data_sequence: Option<bool>,
         buffer_deltas: Option<bool>,
+        emit_quotes_from_book: Option<bool>,
+        emit_quotes_from_book_depths: Option<bool>,
         external_clients: Option<Vec<ClientId>>,
         debug: Option<bool>,
+        graceful_shutdown_on_error: Option<bool>,
     ) -> PyResult<Self> {
         let default = Self::default();
         let time_bars_interval_type = match time_bars_interval_type {
@@ -198,11 +275,17 @@ impl LiveDataEngineConfig {
                 .unwrap_or(default.time_bars_skip_first_non_full_bar),
             time_bars_interval_type,
             time_bars_build_delay: time_bars_build_delay.unwrap_or(default.time_bars_build_delay),
+            time_bars_origins: time_bars_origins.unwrap_or_default(),
             validate_data_sequence: validate_data_sequence
                 .unwrap_or(default.validate_data_sequence),
             buffer_deltas: buffer_deltas.unwrap_or(default.buffer_deltas),
+            emit_quotes_from_book: emit_quotes_from_book.unwrap_or(default.emit_quotes_from_book),
+            emit_quotes_from_book_depths: emit_quotes_from_book_depths
+                .unwrap_or(default.emit_quotes_from_book_depths),
             external_clients,
             debug: debug.unwrap_or(default.debug),
+            graceful_shutdown_on_error: graceful_shutdown_on_error
+                .unwrap_or(default.graceful_shutdown_on_error),
             qsize: default.qsize,
         })
     }
@@ -221,13 +304,14 @@ impl LiveDataEngineConfig {
 impl LiveRiskEngineConfig {
     /// Configuration for live risk engines.
     #[new]
-    #[pyo3(signature = (bypass=None, max_order_submit_rate=None, max_order_modify_rate=None, max_notional_per_order=None, debug=None))]
+    #[pyo3(signature = (bypass=None, max_order_submit_rate=None, max_order_modify_rate=None, max_notional_per_order=None, debug=None, graceful_shutdown_on_error=None))]
     fn py_new(
         bypass: Option<bool>,
         max_order_submit_rate: Option<String>,
         max_order_modify_rate: Option<String>,
         max_notional_per_order: Option<HashMap<String, Py<PyAny>>>,
         debug: Option<bool>,
+        graceful_shutdown_on_error: Option<bool>,
     ) -> PyResult<Self> {
         let default = Self::default();
         let max_order_submit_rate =
@@ -249,6 +333,8 @@ impl LiveRiskEngineConfig {
             max_order_modify_rate,
             max_notional_per_order,
             debug: debug.unwrap_or(default.debug),
+            graceful_shutdown_on_error: graceful_shutdown_on_error
+                .unwrap_or(default.graceful_shutdown_on_error),
             qsize: default.qsize,
         })
     }
@@ -268,9 +354,11 @@ impl LiveExecEngineConfig {
     /// Configuration for live execution engines.
     #[new]
     #[expect(clippy::too_many_arguments)]
-    #[pyo3(signature = (manage_own_order_books=None, external_clients=None, allow_overfills=None, reconciliation=None, reconciliation_startup_delay_secs=None, reconciliation_lookback_mins=None, reconciliation_instrument_ids=None, filter_unclaimed_external_orders=None, filter_position_reports=None, filtered_client_order_ids=None, generate_missing_orders=None, inflight_check_interval_ms=None, inflight_check_threshold_ms=None, inflight_check_retries=None, open_check_interval_secs=None, open_check_lookback_mins=None, open_check_threshold_ms=None, open_check_missing_retries=None, open_check_open_only=None, max_single_order_queries_per_cycle=None, single_order_query_delay_ms=None, position_check_interval_secs=None, position_check_lookback_mins=None, position_check_threshold_ms=None, position_check_retries=None, purge_closed_orders_interval_mins=None, purge_closed_orders_buffer_mins=None, purge_closed_positions_interval_mins=None, purge_closed_positions_buffer_mins=None, purge_account_events_interval_mins=None, purge_account_events_lookback_mins=None, own_books_audit_interval_secs=None, debug=None))]
+    #[pyo3(signature = (load_cache=None, manage_own_order_books=None, snapshot_positions_interval_secs=None, external_clients=None, allow_overfills=None, reconciliation=None, reconciliation_startup_delay_secs=None, reconciliation_lookback_mins=None, reconciliation_instrument_ids=None, filter_unclaimed_external_orders=None, filter_position_reports=None, filtered_client_order_ids=None, generate_missing_orders=None, inflight_check_interval_ms=None, inflight_check_threshold_ms=None, inflight_check_retries=None, open_check_interval_secs=None, open_check_lookback_mins=None, open_check_threshold_ms=None, open_check_missing_retries=None, open_check_open_only=None, max_single_order_queries_per_cycle=None, single_order_query_delay_ms=None, position_check_interval_secs=None, position_check_lookback_mins=None, position_check_threshold_ms=None, position_check_retries=None, purge_closed_orders_interval_mins=None, purge_closed_orders_buffer_mins=None, purge_closed_positions_interval_mins=None, purge_closed_positions_buffer_mins=None, purge_account_events_interval_mins=None, purge_account_events_lookback_mins=None, own_books_audit_interval_secs=None, debug=None))]
     fn py_new(
+        load_cache: Option<bool>,
         manage_own_order_books: Option<bool>,
+        snapshot_positions_interval_secs: Option<f64>,
         external_clients: Option<Vec<ClientId>>,
         allow_overfills: Option<bool>,
         reconciliation: Option<bool>,
@@ -323,10 +411,12 @@ impl LiveExecEngineConfig {
         }
 
         Ok(Self {
+            load_cache: load_cache.unwrap_or(default.load_cache),
             manage_own_order_books: manage_own_order_books
                 .unwrap_or(default.manage_own_order_books),
             snapshot_orders: default.snapshot_orders,
             snapshot_positions: default.snapshot_positions,
+            snapshot_positions_interval_secs,
             external_clients,
             allow_overfills: allow_overfills.unwrap_or(default.allow_overfills),
             reconciliation: reconciliation.unwrap_or(default.reconciliation),
@@ -425,18 +515,30 @@ impl RoutingConfig {
 impl InstrumentProviderConfig {
     /// Configuration for instrument providers.
     #[new]
-    #[pyo3(signature = (load_all=None, load_ids=None, filters=None))]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "PyO3 #[new] requires owned params"
+    )]
+    #[pyo3(signature = (load_all=None, load_ids=None, filters=None, filter_callable=None, log_warnings=None))]
     fn py_new(
         load_all: Option<bool>,
-        load_ids: Option<bool>,
-        filters: Option<HashMap<String, String>>,
-    ) -> Self {
+        load_ids: Option<Vec<String>>,
+        filters: Option<HashMap<String, Py<PyAny>>>,
+        filter_callable: Option<String>,
+        log_warnings: Option<bool>,
+    ) -> PyResult<Self> {
         let default = Self::default();
-        Self {
+        let filters = match filters {
+            Some(raw) => coerce_filters_to_json(raw)?,
+            None => HashMap::new(),
+        };
+        Ok(Self {
             load_all: load_all.unwrap_or(default.load_all),
-            load_ids: load_ids.unwrap_or(default.load_ids),
-            filters: filters.unwrap_or_default(),
-        }
+            load_ids,
+            filters,
+            filter_callable,
+            log_warnings: log_warnings.unwrap_or(default.log_warnings),
+        })
     }
 
     fn __repr__(&self) -> String {
@@ -453,13 +555,28 @@ impl InstrumentProviderConfig {
     }
 
     #[getter]
-    fn load_ids(&self) -> bool {
-        self.load_ids
+    fn load_ids(&self) -> Option<Vec<String>> {
+        self.load_ids.clone()
     }
 
     #[getter]
-    fn filters(&self) -> HashMap<String, String> {
-        self.filters.clone()
+    fn filters(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = pyo3::types::PyDict::new(py);
+        for (k, v) in &self.filters {
+            let py_val = json_value_to_py(py, v)?;
+            dict.set_item(k, py_val)?;
+        }
+        Ok(dict.into_any().unbind())
+    }
+
+    #[getter]
+    fn filter_callable(&self) -> Option<String> {
+        self.filter_callable.clone()
+    }
+
+    #[getter]
+    fn log_warnings(&self) -> bool {
+        self.log_warnings
     }
 }
 
@@ -546,7 +663,7 @@ impl LiveNodeConfig {
     /// Configuration for live Nautilus system nodes.
     #[new]
     #[expect(clippy::too_many_arguments)]
-    #[pyo3(signature = (environment=None, trader_id=None, load_state=None, save_state=None, logging=None, instance_id=None, timeout_connection_secs=None, timeout_reconciliation_secs=None, timeout_portfolio_secs=None, timeout_disconnection_secs=None, delay_post_stop_secs=None, timeout_shutdown_secs=None, cache=None, msgbus=None, portfolio=None, data_engine=None, risk_engine=None, exec_engine=None))]
+    #[pyo3(signature = (environment=None, trader_id=None, load_state=None, save_state=None, logging=None, instance_id=None, timeout_connection_secs=None, timeout_reconciliation_secs=None, timeout_portfolio_secs=None, timeout_disconnection_secs=None, delay_post_stop_secs=None, timeout_shutdown_secs=None, cache=None, msgbus=None, portfolio=None, loop_debug=None, data_engine=None, risk_engine=None, exec_engine=None))]
     fn py_new(
         environment: Option<Environment>,
         trader_id: Option<TraderId>,
@@ -563,6 +680,7 @@ impl LiveNodeConfig {
         cache: Option<CacheConfig>,
         msgbus: Option<MessageBusConfig>,
         portfolio: Option<PortfolioConfig>,
+        loop_debug: Option<bool>,
         data_engine: Option<LiveDataEngineConfig>,
         risk_engine: Option<LiveRiskEngineConfig>,
         exec_engine: Option<LiveExecEngineConfig>,
@@ -612,7 +730,9 @@ impl LiveNodeConfig {
             cache,
             msgbus,
             portfolio,
+            emulator: None,
             streaming: None,
+            loop_debug: loop_debug.unwrap_or(false),
             data_engine: data_engine.unwrap_or_default(),
             risk_engine: risk_engine.unwrap_or_default(),
             exec_engine: exec_engine.unwrap_or_default(),

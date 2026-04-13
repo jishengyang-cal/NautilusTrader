@@ -39,7 +39,7 @@ pub struct ExecutionEngineConfig {
     #[builder(default)]
     pub snapshot_positions: bool,
     /// The interval (seconds) at which additional position state snapshots are persisted.
-    /// If None then no additional snapshots will be taken.
+    /// If `None` then no additional snapshots will be taken.
     #[serde(default)]
     pub snapshot_positions_interval_secs: Option<f64>,
     /// If order fills exceeding order quantity are allowed (logs warning instead of raising).

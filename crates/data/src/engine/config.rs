@@ -50,6 +50,12 @@ pub struct DataEngineConfig {
     /// If order book deltas should be buffered until the `F_LAST` flag is set for a delta.
     #[builder(default)]
     pub buffer_deltas: bool,
+    /// If quotes should be emitted on order book updates.
+    #[builder(default)]
+    pub emit_quotes_from_book: bool,
+    /// If quotes should be emitted on order book depth updates.
+    #[builder(default)]
+    pub emit_quotes_from_book_depths: bool,
     /// The client IDs declared for external stream processing.
     /// The data engine will not attempt to send data commands to these client IDs.
     pub external_clients: Option<Vec<ClientId>>,
@@ -70,6 +76,8 @@ impl DataEngineConfig {
         time_bars_origins: HashMap<BarAggregation, Duration>,
         validate_data_sequence: bool,
         buffer_deltas: bool,
+        emit_quotes_from_book: bool,
+        emit_quotes_from_book_depths: bool,
         external_clients: Option<Vec<ClientId>>,
         debug: bool,
     ) -> Self {
@@ -82,6 +90,8 @@ impl DataEngineConfig {
             time_bars_origins,
             validate_data_sequence,
             buffer_deltas,
+            emit_quotes_from_book,
+            emit_quotes_from_book_depths,
             external_clients,
             debug,
         }

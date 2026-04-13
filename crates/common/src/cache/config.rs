@@ -60,6 +60,9 @@ pub struct CacheConfig {
     /// The maximum length for internal bar deques.
     #[builder(default = 10_000)]
     pub bar_capacity: usize,
+    /// If account events should be persisted to a backing database.
+    #[builder(default = true)]
+    pub persist_account_events: bool,
     /// If market data should be persisted to disk.
     #[builder(default)]
     pub save_market_data: bool,
@@ -87,6 +90,7 @@ impl CacheConfig {
         drop_instruments_on_reset: bool,
         tick_capacity: usize,
         bar_capacity: usize,
+        persist_account_events: bool,
         save_market_data: bool,
     ) -> Self {
         Self {
@@ -101,6 +105,7 @@ impl CacheConfig {
             drop_instruments_on_reset,
             tick_capacity,
             bar_capacity,
+            persist_account_events,
             save_market_data,
         }
     }

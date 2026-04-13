@@ -13,9 +13,12 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Order emulation components for simulating order execution behavior.
+use serde::{Deserialize, Serialize};
 
-pub mod adapter;
-pub mod config;
-pub mod emulator;
-pub mod handlers;
+/// Configuration for `OrderEmulator` instances.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+pub struct OrderEmulatorConfig {
+    /// If debug mode is active (will provide extra debug logging).
+    #[builder(default)]
+    pub debug: bool,
+}

@@ -1143,6 +1143,7 @@ impl CacheConfig {
         tick_capacity: Option<usize>,
         bar_capacity: Option<usize>,
         save_market_data: Option<bool>,
+        persist_account_events: Option<bool>,
     ) -> Self {
         Self::new(
             None, // database is None since we can't expose it to Python yet
@@ -1156,6 +1157,7 @@ impl CacheConfig {
             drop_instruments_on_reset.unwrap_or(true),
             tick_capacity.unwrap_or(10_000),
             bar_capacity.unwrap_or(10_000),
+            persist_account_events.unwrap_or(true),
             save_market_data.unwrap_or(false),
         )
     }
@@ -1216,6 +1218,11 @@ impl CacheConfig {
     #[getter]
     fn bar_capacity(&self) -> usize {
         self.bar_capacity
+    }
+
+    #[getter]
+    fn persist_account_events(&self) -> bool {
+        self.persist_account_events
     }
 
     #[getter]

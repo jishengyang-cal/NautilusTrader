@@ -30,20 +30,26 @@ def test_instrument_provider_config_defaults():
     config = InstrumentProviderConfig()
 
     assert config.load_all is False
-    assert config.load_ids is True
+    assert config.load_ids is None
     assert config.filters == {}
+    assert config.filter_callable is None
+    assert config.log_warnings is True
 
 
 def test_instrument_provider_config_explicit():
     config = InstrumentProviderConfig(
         load_all=True,
-        load_ids=False,
+        load_ids=["BTCUSDT-PERP.BINANCE"],
         filters={"exchange": "BINANCE"},
+        filter_callable="my_module:my_filter",
+        log_warnings=False,
     )
 
     assert config.load_all is True
-    assert config.load_ids is False
+    assert config.load_ids == ["BTCUSDT-PERP.BINANCE"]
     assert config.filters == {"exchange": "BINANCE"}
+    assert config.filter_callable == "my_module:my_filter"
+    assert config.log_warnings is False
 
 
 def test_routing_config_defaults():

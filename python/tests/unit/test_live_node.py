@@ -106,6 +106,7 @@ def test_builder_accepts_supported_runtime_configs():
         10000,
         10000,
         True,
+        True,
     )
 
     node = (

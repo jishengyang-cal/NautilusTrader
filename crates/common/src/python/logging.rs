@@ -104,6 +104,8 @@ pub fn py_init_logging(
 
     let component_levels = parse_component_levels(component_levels).map_err(to_pyvalue_err)?;
 
+    let file_config = FileWriterConfig::new(directory, file_name, file_format, file_rotate);
+
     let config = LoggerConfig::new(
         map_log_level_to_filter(level_stdout),
         level_file,
@@ -112,12 +114,13 @@ pub fn py_init_logging(
         log_components_only.unwrap_or(false),
         is_colored.unwrap_or(true),
         print_config.unwrap_or(false),
-        false, // use_tracing - Python handles this separately in kernel
+        false,                        // use_tracing - Python handles this separately in kernel
+        is_bypassed.unwrap_or(false), // bypass_logging
+        None,                         // file_config - passed separately to init_logging
+        false,                        // clear_log_file
     );
 
-    let file_config = FileWriterConfig::new(directory, file_name, file_format, file_rotate);
-
-    if is_bypassed.unwrap_or(false) {
+    if config.bypass_logging {
         logging_set_bypass();
     }
 

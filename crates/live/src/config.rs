@@ -24,9 +24,11 @@ use nautilus_common::{
 };
 use nautilus_core::{UUID4, datetime::NANOSECONDS_IN_SECOND};
 use nautilus_data::engine::config::DataEngineConfig;
-use nautilus_execution::engine::config::ExecutionEngineConfig;
+use nautilus_execution::{
+    engine::config::ExecutionEngineConfig, order_emulator::config::OrderEmulatorConfig,
+};
 use nautilus_model::{
-    enums::BarIntervalType,
+    enums::{BarAggregation, BarIntervalType},
     identifiers::{ClientId, ClientOrderId, InstrumentId, TraderId},
 };
 use nautilus_portfolio::config::PortfolioConfig;
@@ -65,12 +67,23 @@ pub struct LiveDataEngineConfig {
     /// The build delay (microseconds) before a time bar is emitted.
     #[builder(default)]
     pub time_bars_build_delay: u64,
+    /// A mapping of time bar aggregation types to their origin time offsets (nanoseconds).
+    ///
+    /// Keys are `BarAggregation` variant names, values are offset durations in nanoseconds.
+    #[builder(default)]
+    pub time_bars_origins: HashMap<String, u64>,
     /// If data timestamp sequencing should be validated and handled.
     #[builder(default)]
     pub validate_data_sequence: bool,
     /// If order book deltas should be buffered until the `F_LAST` flag is set for a delta.
     #[builder(default)]
     pub buffer_deltas: bool,
+    /// If quotes should be emitted on order book updates.
+    #[builder(default)]
+    pub emit_quotes_from_book: bool,
+    /// If quotes should be emitted on order book depth updates.
+    #[builder(default)]
+    pub emit_quotes_from_book_depths: bool,
     /// Client IDs declared for external stream processing.
     ///
     /// The data engine will not attempt to send data commands to these client IDs.
@@ -78,6 +91,9 @@ pub struct LiveDataEngineConfig {
     /// If debug mode is active (will provide extra debug logging).
     #[builder(default)]
     pub debug: bool,
+    /// If the engine should gracefully shut down when queue processing encounters unexpected errors.
+    #[builder(default)]
+    pub graceful_shutdown_on_error: bool,
     /// The queue size for the engine's internal queue buffers.
     ///
     /// Not implemented on the current live runtime; `validate_runtime_support` rejects
@@ -94,17 +110,29 @@ impl Default for LiveDataEngineConfig {
 
 impl From<LiveDataEngineConfig> for DataEngineConfig {
     fn from(config: LiveDataEngineConfig) -> Self {
+        let time_bars_origins = config
+            .time_bars_origins
+            .into_iter()
+            .map(|(agg, nanos)| {
+                let agg = BarAggregation::from_str(&agg)
+                    .expect("validate_runtime_support must run before DataEngineConfig conversion");
+                (agg, Duration::from_nanos(nanos))
+            })
+            .collect();
+
         Self {
             time_bars_build_with_no_updates: config.time_bars_build_with_no_updates,
             time_bars_timestamp_on_close: config.time_bars_timestamp_on_close,
             time_bars_skip_first_non_full_bar: config.time_bars_skip_first_non_full_bar,
             time_bars_interval_type: config.time_bars_interval_type,
             time_bars_build_delay: config.time_bars_build_delay,
+            time_bars_origins,
             validate_data_sequence: config.validate_data_sequence,
             buffer_deltas: config.buffer_deltas,
+            emit_quotes_from_book: config.emit_quotes_from_book,
+            emit_quotes_from_book_depths: config.emit_quotes_from_book_depths,
             external_clients: config.external_clients,
             debug: config.debug,
-            ..Self::default()
         }
     }
 }
@@ -137,6 +165,9 @@ pub struct LiveRiskEngineConfig {
     /// If debug mode is active (will provide extra debug logging).
     #[builder(default)]
     pub debug: bool,
+    /// If the engine should gracefully shut down when queue processing encounters unexpected errors.
+    #[builder(default)]
+    pub graceful_shutdown_on_error: bool,
     /// The queue size for the engine's internal queue buffers.
     ///
     /// Not implemented on the current live runtime; `validate_runtime_support` rejects
@@ -233,6 +264,9 @@ fn parse_rate_limit(input: &str) -> anyhow::Result<RateLimit> {
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, bon::Builder)]
 pub struct LiveExecEngineConfig {
+    /// If the cache should be loaded on initialization.
+    #[builder(default = true)]
+    pub load_cache: bool,
     /// If order state snapshot lists should be persisted to a backing database.
     ///
     /// Not implemented on the current live runtime; `validate_runtime_support` rejects
@@ -247,6 +281,9 @@ pub struct LiveExecEngineConfig {
     /// cache database adapter.
     #[builder(default)]
     pub snapshot_positions: bool,
+    /// The interval (seconds) at which additional position state snapshots are persisted.
+    /// If `None` then no additional snapshots will be taken.
+    pub snapshot_positions_interval_secs: Option<f64>,
     /// Client IDs declared for external stream processing.
     ///
     /// The execution engine will not attempt to send trading commands to these client
@@ -300,7 +337,7 @@ pub struct LiveExecEngineConfig {
     #[builder(default = true)]
     pub open_check_open_only: bool,
     /// The maximum number of single-order queries per consistency check cycle.
-    #[builder(default = 5)]
+    #[builder(default = 10)]
     pub max_single_order_queries_per_cycle: u32,
     /// The delay (milliseconds) between consecutive single-order queries.
     #[builder(default = 100)]
@@ -311,7 +348,7 @@ pub struct LiveExecEngineConfig {
     #[builder(default = 60)]
     pub position_check_lookback_mins: u32,
     /// The minimum elapsed time (milliseconds) since a position update before acting on discrepancies.
-    #[builder(default = 60_000)]
+    #[builder(default = 5_000)]
     pub position_check_threshold_ms: u32,
     /// The maximum number of reconciliation attempts for a position discrepancy.
     #[builder(default = 3)]
@@ -360,9 +397,11 @@ impl Default for LiveExecEngineConfig {
 impl From<LiveExecEngineConfig> for ExecutionEngineConfig {
     fn from(config: LiveExecEngineConfig) -> Self {
         Self {
+            load_cache: config.load_cache,
             manage_own_order_books: config.manage_own_order_books,
             snapshot_orders: config.snapshot_orders,
             snapshot_positions: config.snapshot_positions,
+            snapshot_positions_interval_secs: config.snapshot_positions_interval_secs,
             allow_overfills: config.allow_overfills,
             external_clients: config.external_clients,
             purge_closed_orders_interval_mins: config.purge_closed_orders_interval_mins,
@@ -373,7 +412,6 @@ impl From<LiveExecEngineConfig> for ExecutionEngineConfig {
             purge_account_events_lookback_mins: config.purge_account_events_lookback_mins,
             purge_from_database: config.purge_from_database,
             debug: config.debug,
-            ..Self::default()
         }
     }
 }
@@ -405,17 +443,21 @@ pub struct RoutingConfig {
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, bon::Builder)]
 pub struct InstrumentProviderConfig {
     /// Whether to load all instruments on startup.
     #[builder(default)]
     pub load_all: bool,
-    /// Whether to load instrument IDs only.
-    #[builder(default = true)]
-    pub load_ids: bool,
-    /// Filters for loading specific instruments.
+    /// Specific instrument IDs to load on startup (if `load_all` is false).
+    pub load_ids: Option<Vec<String>>,
+    /// Venue-specific instrument loading filters.
     #[builder(default)]
-    pub filters: HashMap<String, String>,
+    pub filters: HashMap<String, serde_json::Value>,
+    /// A fully qualified path to a callable for custom instrument filtering.
+    pub filter_callable: Option<String>,
+    /// If parser warnings should be logged.
+    #[builder(default = true)]
+    pub log_warnings: bool,
 }
 
 impl Default for InstrumentProviderConfig {
@@ -433,7 +475,7 @@ impl Default for InstrumentProviderConfig {
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, bon::Builder)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, bon::Builder)]
 pub struct LiveDataClientConfig {
     /// If `DataClient` will emit bar updates when a new bar opens.
     #[builder(default)]
@@ -455,7 +497,7 @@ pub struct LiveDataClientConfig {
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, bon::Builder)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, bon::Builder)]
 pub struct LiveExecClientConfig {
     /// The client's instrument provider configuration.
     #[builder(default)]
@@ -494,7 +536,7 @@ pub struct LiveNodeConfig {
     /// The unique instance identifier for the kernel
     pub instance_id: Option<UUID4>,
     /// The timeout for all clients to connect and initialize.
-    #[builder(default = Duration::from_secs(60))]
+    #[builder(default = Duration::from_secs(120))]
     pub timeout_connection: Duration,
     /// The timeout for execution state to reconcile.
     #[builder(default = Duration::from_secs(30))]
@@ -517,8 +559,13 @@ pub struct LiveNodeConfig {
     pub msgbus: Option<MessageBusConfig>,
     /// The portfolio configuration.
     pub portfolio: Option<PortfolioConfig>,
+    /// The order emulator configuration.
+    pub emulator: Option<OrderEmulatorConfig>,
     /// The configuration for streaming to feather files.
     pub streaming: Option<StreamingConfig>,
+    /// If the asyncio event loop should run in debug mode.
+    #[builder(default)]
+    pub loop_debug: bool,
     /// The live data engine configuration.
     #[builder(default)]
     pub data_engine: LiveDataEngineConfig,
@@ -559,6 +606,28 @@ impl LiveNodeConfig {
             anyhow::bail!("LiveNodeConfig.streaming is not supported by the Rust live runtime yet");
         }
 
+        if self.emulator.is_some() {
+            anyhow::bail!("LiveNodeConfig.emulator is not supported by the Rust live runtime yet");
+        }
+
+        if self.loop_debug {
+            anyhow::bail!(
+                "LiveNodeConfig.loop_debug is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.logging.file_config.is_some() {
+            anyhow::bail!(
+                "LoggerConfig.file_config is not supported by the Rust live runtime yet (use py_init_logging)"
+            );
+        }
+
+        if self.logging.clear_log_file {
+            anyhow::bail!(
+                "LoggerConfig.clear_log_file is not supported by the Rust live runtime yet"
+            );
+        }
+
         self.data_engine.validate_runtime_support()?;
         self.risk_engine.validate_runtime_support()?;
         self.exec_engine.validate_runtime_support()?;
@@ -569,7 +638,23 @@ impl LiveNodeConfig {
 
 impl LiveDataEngineConfig {
     fn validate_runtime_support(&self) -> anyhow::Result<()> {
-        if self.qsize != Self::default().qsize {
+        for agg_str in self.time_bars_origins.keys() {
+            BarAggregation::from_str(agg_str).map_err(|e| {
+                anyhow::anyhow!(
+                    "invalid LiveDataEngineConfig.time_bars_origins key {agg_str:?}: {e}"
+                )
+            })?;
+        }
+
+        let default = Self::default();
+
+        if self.graceful_shutdown_on_error != default.graceful_shutdown_on_error {
+            anyhow::bail!(
+                "LiveDataEngineConfig.graceful_shutdown_on_error is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.qsize != default.qsize {
             anyhow::bail!(
                 "LiveDataEngineConfig.qsize is not supported by the Rust live runtime yet"
             );
@@ -601,7 +686,15 @@ impl LiveRiskEngineConfig {
             })?;
         }
 
-        if self.qsize != Self::default().qsize {
+        let default = Self::default();
+
+        if self.graceful_shutdown_on_error != default.graceful_shutdown_on_error {
+            anyhow::bail!(
+                "LiveRiskEngineConfig.graceful_shutdown_on_error is not supported by the Rust live runtime yet"
+            );
+        }
+
+        if self.qsize != default.qsize {
             anyhow::bail!(
                 "LiveRiskEngineConfig.qsize is not supported by the Rust live runtime yet"
             );
@@ -881,7 +974,7 @@ mod tests {
             buffer_deltas: true,
             external_clients: Some(vec![ClientId::from("EXTERNAL")]),
             debug: true,
-            qsize: 100_000,
+            ..Default::default()
         };
 
         let converted: DataEngineConfig = config.into();
@@ -894,13 +987,50 @@ mod tests {
             BarIntervalType::RightOpen,
         );
         assert_eq!(converted.time_bars_build_delay, 1_500);
+        assert!(converted.time_bars_origins.is_empty());
         assert!(converted.validate_data_sequence);
         assert!(converted.buffer_deltas);
+        assert!(!converted.emit_quotes_from_book);
+        assert!(!converted.emit_quotes_from_book_depths);
         assert_eq!(
             converted.external_clients,
             Some(vec![ClientId::from("EXTERNAL")]),
         );
         assert!(converted.debug);
+    }
+
+    #[rstest]
+    fn test_live_data_engine_config_converts_time_bars_origins() {
+        let config = LiveDataEngineConfig {
+            time_bars_origins: HashMap::from([("Minute".to_string(), 5_000_000_000)]),
+            emit_quotes_from_book: true,
+            emit_quotes_from_book_depths: true,
+            ..Default::default()
+        };
+
+        let converted: DataEngineConfig = config.into();
+
+        assert_eq!(converted.time_bars_origins.len(), 1);
+        assert_eq!(
+            converted.time_bars_origins[&BarAggregation::Minute],
+            Duration::from_nanos(5_000_000_000),
+        );
+        assert!(converted.emit_quotes_from_book);
+        assert!(converted.emit_quotes_from_book_depths);
+    }
+
+    #[rstest]
+    fn test_live_exec_engine_config_converts_to_exec_engine_config() {
+        let config = LiveExecEngineConfig {
+            load_cache: false,
+            snapshot_positions_interval_secs: Some(30.0),
+            ..Default::default()
+        };
+
+        let converted: ExecutionEngineConfig = config.into();
+
+        assert!(!converted.load_cache);
+        assert_eq!(converted.snapshot_positions_interval_secs, Some(30.0));
     }
 
     #[rstest]
@@ -914,7 +1044,7 @@ mod tests {
                 "1000.5".to_string(),
             )]),
             debug: true,
-            qsize: 100_000,
+            ..Default::default()
         };
 
         let converted: RiskEngineConfig = config.into();
@@ -1037,11 +1167,107 @@ mod tests {
     }
 
     #[rstest]
+    fn test_validate_runtime_support_rejects_data_engine_graceful_shutdown() {
+        let config = LiveNodeConfig {
+            data_engine: LiveDataEngineConfig {
+                graceful_shutdown_on_error: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("graceful_shutdown_on_error"));
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_risk_engine_graceful_shutdown() {
+        let config = LiveNodeConfig {
+            risk_engine: LiveRiskEngineConfig {
+                graceful_shutdown_on_error: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("graceful_shutdown_on_error"));
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_emulator() {
+        let config = LiveNodeConfig {
+            emulator: Some(OrderEmulatorConfig::default()),
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("emulator"));
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_loop_debug() {
+        let config = LiveNodeConfig {
+            loop_debug: true,
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("loop_debug"));
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_file_config() {
+        use nautilus_common::logging::writer::FileWriterConfig;
+
+        let config = LiveNodeConfig {
+            logging: LoggerConfig {
+                file_config: Some(FileWriterConfig::default()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("file_config"));
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_clear_log_file() {
+        let config = LiveNodeConfig {
+            logging: LoggerConfig {
+                clear_log_file: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("clear_log_file"));
+    }
+
+    #[rstest]
+    fn test_validate_runtime_support_rejects_invalid_time_bars_origins_key() {
+        let config = LiveNodeConfig {
+            data_engine: LiveDataEngineConfig {
+                time_bars_origins: HashMap::from([("INVALID".to_string(), 1_000)]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let error = config.validate_runtime_support().unwrap_err().to_string();
+        assert!(error.contains("time_bars_origins"));
+    }
+
+    #[rstest]
     fn test_live_exec_engine_config_defaults() {
         let config = LiveExecEngineConfig::default();
 
+        assert!(config.load_cache);
         assert!(!config.snapshot_orders);
         assert!(!config.snapshot_positions);
+        assert_eq!(config.snapshot_positions_interval_secs, None);
         assert_eq!(config.external_clients, None);
         assert!(!config.debug);
         assert!(!config.manage_own_order_books);
@@ -1061,6 +1287,8 @@ mod tests {
         assert_eq!(config.open_check_lookback_mins, Some(60));
         assert_eq!(config.open_check_missing_retries, 5);
         assert!(config.open_check_open_only);
+        assert_eq!(config.max_single_order_queries_per_cycle, 10);
+        assert_eq!(config.position_check_threshold_ms, 5_000);
         assert_eq!(config.position_check_retries, 3);
         assert!(!config.purge_from_database);
         assert!(!config.graceful_shutdown_on_error);
@@ -1076,10 +1304,14 @@ mod tests {
         assert!(!config.time_bars_skip_first_non_full_bar);
         assert_eq!(config.time_bars_interval_type, BarIntervalType::LeftOpen);
         assert_eq!(config.time_bars_build_delay, 0);
+        assert!(config.time_bars_origins.is_empty());
         assert!(!config.validate_data_sequence);
         assert!(!config.buffer_deltas);
+        assert!(!config.emit_quotes_from_book);
+        assert!(!config.emit_quotes_from_book_depths);
         assert_eq!(config.external_clients, None);
         assert!(!config.debug);
+        assert!(!config.graceful_shutdown_on_error);
         assert_eq!(config.qsize, 100_000);
     }
 
@@ -1092,6 +1324,7 @@ mod tests {
         assert_eq!(config.max_order_modify_rate, DEFAULT_ORDER_RATE_LIMIT);
         assert!(config.max_notional_per_order.is_empty());
         assert!(!config.debug);
+        assert!(!config.graceful_shutdown_on_error);
         assert_eq!(config.qsize, 100_000);
     }
 
@@ -1109,7 +1342,10 @@ mod tests {
 
         assert!(!config.handle_revised_bars);
         assert!(!config.instrument_provider.load_all);
-        assert!(config.instrument_provider.load_ids);
+        assert!(config.instrument_provider.load_ids.is_none());
+        assert!(config.instrument_provider.filters.is_empty());
+        assert!(config.instrument_provider.filter_callable.is_none());
+        assert!(config.instrument_provider.log_warnings);
         assert!(!config.routing.default);
     }
 }

@@ -298,6 +298,10 @@ impl Logger {
             );
         }
 
+        if config.bypass_logging {
+            super::logging_set_bypass();
+        }
+
         let is_colored = config.is_colored;
 
         let print_config = config.print_config;
@@ -358,6 +362,9 @@ impl Logger {
             is_colored,
             print_config: _,
             use_tracing: _,
+            bypass_logging: _,
+            file_config: _,
+            clear_log_file: _,
         } = config;
 
         // Pre-sort module filters by descending path length for O(n) longest-prefix lookup
@@ -741,6 +748,7 @@ mod tests {
                 is_colored: true,
                 print_config: false,
                 use_tracing: false,
+                ..Default::default()
             }
         );
     }
@@ -759,6 +767,7 @@ mod tests {
                 is_colored: true,
                 print_config: true,
                 use_tracing: false,
+                ..Default::default()
             }
         );
     }
@@ -781,6 +790,7 @@ mod tests {
                 is_colored: true,
                 print_config: false,
                 use_tracing: false,
+                ..Default::default()
             }
         );
     }
