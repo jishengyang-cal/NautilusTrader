@@ -38,7 +38,7 @@ pub use data::{DataResponse, SubscribeCommand, UnsubscribeCommand};
 pub use execution::ExecutionReport;
 
 // TODO: Refine this to reduce disparity between enum sizes
-#[expect(clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Display)]
 pub enum DataEvent {
     Response(DataResponse),
