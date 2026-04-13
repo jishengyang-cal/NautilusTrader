@@ -6,7 +6,8 @@ We highly value involvement from the trading community, and all contributions ar
 >
 > **Integrations:**
 > New integrations are a major undertaking for the project and therefore require additional discussion and approval before opening any PRs.
-> Please see the [ROADMAP: Community-contributed integrations](ROADMAP.md#community-contributed-integrations) for details on the process.
+> Please see the [ROADMAP: Community-contributed integrations](ROADMAP.md#community-contributed-integrations) for details on the process
+> and [ADAPTERS.md](ADAPTERS.md) for adapter tiers, community listings, and support boundaries.
 
 ## Steps
 
