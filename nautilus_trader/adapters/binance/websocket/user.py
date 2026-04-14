@@ -20,7 +20,7 @@ This client uses the authenticated WebSocket API endpoint with
 
 Spot uses `userDataStream.subscribe` — events arrive inline on the same connection.
 Futures + Ed25519 uses `userDataStream.start` via WS API — events are delivered on
-a separate stream connection at `{stream_base_url}/ws/{listenKey}`.
+a separate stream connection at `{stream_base_url}/ws?listenKey={listenKey}`.
 Futures + HMAC uses REST API for listenKey management (Binance Futures WS API
 `session.logon` only accepts Ed25519).
 
@@ -77,7 +77,7 @@ class BinanceUserDataWebSocketClient:
         and connects a separate stream for event delivery.
         If False, uses Spot WebSocket API methods (userDataStream.subscribe/unsubscribe).
     stream_base_url : str, optional
-        The base URL for the futures stream connection (e.g. wss://fstream.binance.com).
+        The base URL for the futures private stream (e.g. wss://fstream.binance.com/private).
         Required when `is_futures` is True.
     is_ed25519 : bool, optional
         Force Ed25519 signing when True. When None (default), auto-detects
@@ -487,9 +487,9 @@ class BinanceUserDataWebSocketClient:
         if self._stream_base_url is None:
             raise RuntimeError("stream_base_url is required for futures")
 
-        stream_url = f"{self._stream_base_url}/ws/{listen_key}"
+        stream_url = f"{self._stream_base_url}/ws?listenKey={listen_key}"
         self._log.debug(
-            f"Connecting stream to {self._stream_base_url}/ws/{mask_api_key(listen_key)}...",
+            f"Connecting stream to {self._stream_base_url}/ws?listenKey={mask_api_key(listen_key)}...",
         )
 
         config = WebSocketConfig(
@@ -509,7 +509,7 @@ class BinanceUserDataWebSocketClient:
             post_reconnection=post_reconnection,
         )
         self._log.info(
-            f"Connected stream to {self._stream_base_url}/ws/{mask_api_key(listen_key)}",
+            f"Connected stream to {self._stream_base_url}/ws?listenKey={mask_api_key(listen_key)}",
             LogColor.BLUE,
         )
 

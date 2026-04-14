@@ -148,10 +148,54 @@ def get_ws_base_url(  # noqa: C901 (URL dispatch)
     if account_type.is_spot_or_margin:
         return f"wss://stream.binance.{top_level_domain}:9443"
     elif account_type == BinanceAccountType.USDT_FUTURES:
-        return f"wss://fstream.binance.{top_level_domain}"
+        return f"wss://fstream.binance.{top_level_domain}/market"
     elif account_type == BinanceAccountType.COIN_FUTURES:
         return f"wss://dstream.binance.{top_level_domain}"
     else:
         raise RuntimeError(
             f"invalid `BinanceAccountType`, was {account_type}",
         )  # pragma: no cover (design-time error)
+
+
+def get_ws_public_base_url(
+    account_type: BinanceAccountType,
+    environment: BinanceEnvironment,
+    is_us: bool,
+) -> str:
+    """
+    Return the WebSocket public stream base URL for high-frequency book data.
+
+    USD-M Futures mainnet uses `wss://fstream.binance.com/public`.
+    All other account types and environments fall back to `get_ws_base_url`.
+
+    """
+    if (
+        environment not in (BinanceEnvironment.TESTNET, BinanceEnvironment.DEMO)
+        and account_type == BinanceAccountType.USDT_FUTURES
+    ):
+        top_level_domain: str = "us" if is_us else "com"
+        return f"wss://fstream.binance.{top_level_domain}/public"
+
+    return get_ws_base_url(account_type, environment, is_us)
+
+
+def get_ws_private_base_url(
+    account_type: BinanceAccountType,
+    environment: BinanceEnvironment,
+    is_us: bool,
+) -> str:
+    """
+    Return the WebSocket private stream base URL for user data.
+
+    USD-M Futures mainnet uses `wss://fstream.binance.com/private`.
+    All other account types and environments fall back to `get_ws_base_url`.
+
+    """
+    if (
+        environment not in (BinanceEnvironment.TESTNET, BinanceEnvironment.DEMO)
+        and account_type == BinanceAccountType.USDT_FUTURES
+    ):
+        top_level_domain: str = "us" if is_us else "com"
+        return f"wss://fstream.binance.{top_level_domain}/private"
+
+    return get_ws_base_url(account_type, environment, is_us)

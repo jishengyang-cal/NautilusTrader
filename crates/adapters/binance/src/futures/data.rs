@@ -63,6 +63,7 @@ use crate::{
         parse::bar_spec_to_binance_interval,
         status::diff_and_emit_statuses,
         symbol::format_binance_stream_symbol,
+        urls::get_ws_public_base_url,
     },
     config::BinanceDataClientConfig,
     futures::{
@@ -112,6 +113,7 @@ pub struct BinanceFuturesDataClient {
     product_type: BinanceProductType,
     http_client: BinanceFuturesHttpClient,
     ws_client: BinanceFuturesWebSocketClient,
+    ws_public_client: BinanceFuturesWebSocketClient,
     data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
     is_connected: AtomicBool,
     cancellation_token: CancellationToken,
@@ -170,6 +172,18 @@ impl BinanceFuturesDataClient {
             Some(20), // Heartbeat interval
         )?;
 
+        let public_url = config.base_url_ws.clone().unwrap_or_else(|| {
+            get_ws_public_base_url(product_type, config.environment).to_string()
+        });
+        let ws_public_client = BinanceFuturesWebSocketClient::new(
+            product_type,
+            config.environment,
+            None,
+            None,
+            Some(public_url),
+            Some(20),
+        )?;
+
         Ok(Self {
             clock,
             client_id,
@@ -177,6 +191,7 @@ impl BinanceFuturesDataClient {
             product_type,
             http_client,
             ws_client,
+            ws_public_client,
             data_sender,
             is_connected: AtomicBool::new(false),
             cancellation_token: CancellationToken::new(),
@@ -926,14 +941,23 @@ impl DataClient for BinanceFuturesDataClient {
         }
 
         self.ws_client.cache_instruments(&instruments);
+        self.ws_public_client.cache_instruments(&instruments);
 
-        log::info!("Connecting to Binance Futures WebSocket...");
+        log::info!("Connecting to Binance Futures market WebSocket...");
         self.ws_client.connect().await.map_err(|e| {
-            log::error!("Binance Futures WebSocket connection failed: {e:?}");
-            anyhow::anyhow!("failed to connect Binance Futures WebSocket: {e}")
+            log::error!("Binance Futures market WebSocket connection failed: {e:?}");
+            anyhow::anyhow!("failed to connect Binance Futures market WebSocket: {e}")
         })?;
-        log::info!("Binance Futures WebSocket connected");
+        log::info!("Binance Futures market WebSocket connected");
 
+        log::info!("Connecting to Binance Futures public WebSocket...");
+        self.ws_public_client.connect().await.map_err(|e| {
+            log::error!("Binance Futures public WebSocket connection failed: {e:?}");
+            anyhow::anyhow!("failed to connect Binance Futures public WebSocket: {e}")
+        })?;
+        log::info!("Binance Futures public WebSocket connected");
+
+        // Spawn market stream handler
         let stream = self.ws_client.stream();
         let sender = self.data_sender.clone();
         let insts = self.instruments.clone();
@@ -964,13 +988,51 @@ impl DataClient for BinanceFuturesDataClient {
                         );
                     }
                     () = cancel.cancelled() => {
-                        log::debug!("WebSocket stream task cancelled");
+                        log::debug!("Market WebSocket stream task cancelled");
                         break;
                     }
                 }
             }
         });
         self.tasks.push(handle);
+
+        // Spawn public stream handler (book data)
+        let pub_stream = self.ws_public_client.stream();
+        let pub_sender = self.data_sender.clone();
+        let pub_insts = self.instruments.clone();
+        let pub_ws_insts = self.ws_public_client.instruments_cache();
+        let pub_buffers = self.book_buffers.clone();
+        let pub_book_subs = self.book_subscriptions.clone();
+        let pub_book_epoch = self.book_epoch.clone();
+        let pub_http = self.http_client.clone();
+        let pub_cancel = self.cancellation_token.clone();
+
+        let pub_handle = get_runtime().spawn(async move {
+            pin_mut!(pub_stream);
+
+            loop {
+                tokio::select! {
+                    Some(message) = pub_stream.next() => {
+                        Self::handle_ws_message(
+                            message,
+                            &pub_sender,
+                            &pub_insts,
+                            &pub_ws_insts,
+                            &pub_buffers,
+                            &pub_book_subs,
+                            &pub_book_epoch,
+                            &pub_http,
+                            clock,
+                        );
+                    }
+                    () = pub_cancel.cancelled() => {
+                        log::debug!("Public WebSocket stream task cancelled");
+                        break;
+                    }
+                }
+            }
+        });
+        self.tasks.push(pub_handle);
 
         // Spawn instrument status polling task
         let poll_secs = self.config.instrument_status_poll_secs;
@@ -1045,6 +1107,7 @@ impl DataClient for BinanceFuturesDataClient {
         self.cancellation_token.cancel();
 
         let _ = self.ws_client.close().await;
+        let _ = self.ws_public_client.close().await;
 
         let handles: Vec<_> = self.tasks.drain(..).collect();
         for handle in handles {
@@ -1117,7 +1180,7 @@ impl DataClient for BinanceFuturesDataClient {
         log::info!("OrderBook snapshot rebuild for {instrument_id} @ depth {depth} starting");
 
         // Subscribe to WebSocket depth stream (0ms = unthrottled for Futures)
-        let ws = self.ws_client.clone();
+        let ws = self.ws_public_client.clone();
         let stream = format!("{}@depth@0ms", format_binance_stream_symbol(&instrument_id));
 
         self.spawn_ws(
@@ -1155,9 +1218,9 @@ impl DataClient for BinanceFuturesDataClient {
 
     fn subscribe_quotes(&mut self, cmd: SubscribeQuotes) -> anyhow::Result<()> {
         let instrument_id = cmd.instrument_id;
-        let ws = self.ws_client.clone();
+        let ws = self.ws_public_client.clone();
 
-        // Binance Futures uses bookTicker for best bid/ask
+        // Binance Futures uses bookTicker for best bid/ask (public endpoint)
         let stream = format!(
             "{}@bookTicker",
             format_binance_stream_symbol(&instrument_id)
@@ -1337,7 +1400,7 @@ impl DataClient for BinanceFuturesDataClient {
 
     fn unsubscribe_book_deltas(&mut self, cmd: &UnsubscribeBookDeltas) -> anyhow::Result<()> {
         let instrument_id = cmd.instrument_id;
-        let ws = self.ws_client.clone();
+        let ws = self.ws_public_client.clone();
 
         // Remove subscription tracking
         self.book_subscriptions.remove(&instrument_id);
@@ -1367,7 +1430,7 @@ impl DataClient for BinanceFuturesDataClient {
 
     fn unsubscribe_quotes(&mut self, cmd: &UnsubscribeQuotes) -> anyhow::Result<()> {
         let instrument_id = cmd.instrument_id;
-        let ws = self.ws_client.clone();
+        let ws = self.ws_public_client.clone();
 
         let stream = format!(
             "{}@bookTicker",

@@ -83,6 +83,7 @@ class BinanceFuturesDataClient(BinanceCommonDataClient):
         config: BinanceDataClientConfig,
         account_type: BinanceAccountType = BinanceAccountType.USDT_FUTURES,
         name: str | None = None,
+        base_url_ws_public: str | None = None,
     ) -> None:
         PyCondition.is_true(
             account_type.is_futures,
@@ -109,6 +110,7 @@ class BinanceFuturesDataClient(BinanceCommonDataClient):
             base_url_ws=base_url_ws,
             name=name,
             config=config,
+            base_url_ws_public=base_url_ws_public,
         )
 
         # Register additional futures websocket handlers

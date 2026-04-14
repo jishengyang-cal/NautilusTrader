@@ -187,7 +187,7 @@ class TestBinanceFactories:
                 BinanceAccountType.USDT_FUTURES,
                 BinanceEnvironment.LIVE,
                 False,
-                "wss://fstream.binance.com",
+                "wss://fstream.binance.com/market",
             ),
             (
                 BinanceAccountType.COIN_FUTURES,
@@ -217,7 +217,7 @@ class TestBinanceFactories:
                 BinanceAccountType.USDT_FUTURES,
                 BinanceEnvironment.LIVE,
                 True,
-                "wss://fstream.binance.us",
+                "wss://fstream.binance.us/market",
             ),
             (
                 BinanceAccountType.COIN_FUTURES,

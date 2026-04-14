@@ -20,6 +20,8 @@ from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 from nautilus_trader.adapters.binance.common.urls import get_http_base_url
 from nautilus_trader.adapters.binance.common.urls import get_ws_api_base_url
 from nautilus_trader.adapters.binance.common.urls import get_ws_base_url
+from nautilus_trader.adapters.binance.common.urls import get_ws_private_base_url
+from nautilus_trader.adapters.binance.common.urls import get_ws_public_base_url
 
 
 @pytest.mark.parametrize(
@@ -108,13 +110,13 @@ def test_get_http_base_url(account_type, environment, is_us, expected):
             BinanceAccountType.USDT_FUTURES,
             BinanceEnvironment.LIVE,
             False,
-            "wss://fstream.binance.com",
+            "wss://fstream.binance.com/market",
         ),
         (
             BinanceAccountType.USDT_FUTURES,
             BinanceEnvironment.LIVE,
             True,
-            "wss://fstream.binance.us",
+            "wss://fstream.binance.us/market",
         ),
         (
             BinanceAccountType.COIN_FUTURES,
@@ -269,3 +271,71 @@ def test_get_ws_api_base_url(account_type, environment, is_us, expected):
 def test_get_ws_api_base_url_raises_for_coin_futures(account_type, environment):
     with pytest.raises(ValueError):
         get_ws_api_base_url(account_type, environment=environment, is_us=False)
+
+
+@pytest.mark.parametrize(
+    ("account_type", "environment", "is_us", "expected"),
+    [
+        (
+            BinanceAccountType.USDT_FUTURES,
+            BinanceEnvironment.LIVE,
+            False,
+            "wss://fstream.binance.com/private",
+        ),
+        (
+            BinanceAccountType.USDT_FUTURES,
+            BinanceEnvironment.LIVE,
+            True,
+            "wss://fstream.binance.us/private",
+        ),
+        (
+            BinanceAccountType.COIN_FUTURES,
+            BinanceEnvironment.LIVE,
+            False,
+            "wss://dstream.binance.com",
+        ),
+        (
+            BinanceAccountType.USDT_FUTURES,
+            BinanceEnvironment.TESTNET,
+            False,
+            "wss://stream.binancefuture.com",
+        ),
+    ],
+)
+def test_get_ws_private_base_url(account_type, environment, is_us, expected):
+    url = get_ws_private_base_url(account_type, environment=environment, is_us=is_us)
+    assert url == expected
+
+
+@pytest.mark.parametrize(
+    ("account_type", "environment", "is_us", "expected"),
+    [
+        (
+            BinanceAccountType.USDT_FUTURES,
+            BinanceEnvironment.LIVE,
+            False,
+            "wss://fstream.binance.com/public",
+        ),
+        (
+            BinanceAccountType.USDT_FUTURES,
+            BinanceEnvironment.LIVE,
+            True,
+            "wss://fstream.binance.us/public",
+        ),
+        (
+            BinanceAccountType.COIN_FUTURES,
+            BinanceEnvironment.LIVE,
+            False,
+            "wss://dstream.binance.com",
+        ),
+        (
+            BinanceAccountType.USDT_FUTURES,
+            BinanceEnvironment.TESTNET,
+            False,
+            "wss://stream.binancefuture.com",
+        ),
+    ],
+)
+def test_get_ws_public_base_url(account_type, environment, is_us, expected):
+    url = get_ws_public_base_url(account_type, environment=environment, is_us=is_us)
+    assert url == expected

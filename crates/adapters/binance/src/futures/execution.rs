@@ -114,6 +114,7 @@ use crate::{
             BinanceSide, BinanceTimeInForce, BinanceWorkingType,
         },
         symbol::format_binance_symbol,
+        urls::get_ws_private_base_url,
     },
     config::BinanceExecClientConfig,
     futures::http::{
@@ -210,23 +211,13 @@ impl BinanceFuturesExecutionClient {
 
             Some(BinanceFuturesWsTradingClient::new(
                 ws_trading_url,
-                api_key.clone(),
-                api_secret.clone(),
+                api_key,
+                api_secret,
                 None, // heartbeat
             ))
         } else {
             None
         };
-
-        let ws_client = BinanceFuturesWebSocketClient::new(
-            product_type,
-            config.environment,
-            Some(api_key),
-            Some(api_secret),
-            config.base_url_ws.clone(),
-            Some(20), // Heartbeat interval
-        )
-        .context("failed to construct Binance Futures WebSocket client")?;
 
         let emitter = ExecutionEventEmitter::new(
             clock,
@@ -244,7 +235,7 @@ impl BinanceFuturesExecutionClient {
             dispatch_state: Arc::new(WsDispatchState::default()),
             product_type,
             http_client,
-            ws_client: Some(ws_client),
+            ws_client: None,
             ws_trading_client,
             ws_trading_handle: Mutex::new(None),
             listen_key: Arc::new(RwLock::new(None)),
@@ -1023,23 +1014,41 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             *key_guard = Some(listen_key.clone());
         }
 
-        // Connect WebSocket and set up execution handler
-        if let Some(ref mut ws_client) = self.ws_client {
-            log::info!("Connecting to Binance Futures user data stream WebSocket...");
+        // Connect private WebSocket for user data stream
+        {
+            let (api_key, api_secret) = resolve_credentials(
+                self.config.api_key.clone(),
+                self.config.api_secret.clone(),
+                self.config.environment,
+                self.product_type,
+            )?;
+
+            let private_base_url = self.config.base_url_ws.clone().unwrap_or_else(|| {
+                get_ws_private_base_url(self.product_type, self.config.environment).to_string()
+            });
+            let private_url = format!("{private_base_url}?listenKey={listen_key}");
+
+            let mut ws_client = BinanceFuturesWebSocketClient::new(
+                self.product_type,
+                self.config.environment,
+                Some(api_key),
+                Some(api_secret),
+                Some(private_url),
+                Some(20),
+            )
+            .context("failed to construct Binance Futures private WebSocket client")?;
+
+            log::info!("Connecting to Binance Futures user data stream...");
             ws_client.connect().await.map_err(|e| {
-                log::error!("Binance Futures WebSocket connection failed: {e:?}");
-                anyhow::anyhow!("failed to connect Binance Futures WebSocket: {e}")
+                log::error!("Binance Futures private WebSocket connection failed: {e:?}");
+                anyhow::anyhow!("failed to connect Binance Futures private WebSocket: {e}")
             })?;
-            log::info!("Binance Futures WebSocket connected");
+            log::info!("Connected to Binance Futures user data stream");
 
-            // Subscribe to user data stream using listen key
-            log::info!("Subscribing to user data stream...");
-            ws_client
-                .subscribe(vec![listen_key.clone()])
-                .await
-                .map_err(|e| anyhow::anyhow!("failed to subscribe to user data stream: {e}"))?;
-            log::info!("Subscribed to user data stream");
+            self.ws_client = Some(ws_client);
+        }
 
+        if let Some(ref ws_client) = self.ws_client {
             let stream = ws_client.stream();
             let emitter = self.emitter.clone();
             let http_client = self.http_client.clone();

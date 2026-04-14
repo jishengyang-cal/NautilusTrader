@@ -37,7 +37,7 @@ from nautilus_trader.adapters.binance.common.schemas.account import BinanceOrder
 from nautilus_trader.adapters.binance.common.schemas.account import BinanceUserTrade
 from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
 from nautilus_trader.adapters.binance.common.urls import get_ws_api_base_url
-from nautilus_trader.adapters.binance.common.urls import get_ws_base_url
+from nautilus_trader.adapters.binance.common.urls import get_ws_private_base_url
 from nautilus_trader.adapters.binance.config import BinanceExecClientConfig
 from nautilus_trader.adapters.binance.http.account import BinanceAccountHttpAPI
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
@@ -221,7 +221,7 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
         stream_base_url: str | None = None
 
         if account_type.is_futures:
-            stream_base_url = config.base_url_ws_stream or get_ws_base_url(
+            stream_base_url = config.base_url_ws_stream or get_ws_private_base_url(
                 account_type=account_type,
                 environment=environment,
                 is_us=config.us,

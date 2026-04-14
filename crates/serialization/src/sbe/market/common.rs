@@ -112,11 +112,8 @@ pub(super) fn validate_header(
 }
 
 pub(super) fn encode_price(buf: &mut Vec<u8>, price: &Price) {
-    #[cfg(not(feature = "high-precision"))]
-    let raw: i128 = price.raw.into();
-
-    #[cfg(feature = "high-precision")]
-    let raw = price.raw;
+    #[allow(clippy::useless_conversion)]
+    let raw = i128::from(price.raw);
 
     buf.extend_from_slice(&raw.to_le_bytes());
     buf.push(price.precision);
@@ -138,11 +135,8 @@ pub(super) fn decode_price(cursor: &mut SbeCursor<'_>) -> Result<Price, SbeDecod
 }
 
 pub(super) fn encode_quantity(buf: &mut Vec<u8>, quantity: &Quantity) {
-    #[cfg(not(feature = "high-precision"))]
-    let raw: u128 = quantity.raw.into();
-
-    #[cfg(feature = "high-precision")]
-    let raw = quantity.raw;
+    #[allow(clippy::useless_conversion)]
+    let raw = u128::from(quantity.raw);
 
     buf.extend_from_slice(&raw.to_le_bytes());
     buf.push(quantity.precision);

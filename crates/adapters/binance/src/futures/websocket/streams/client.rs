@@ -17,7 +17,7 @@
 //!
 //! ## Connection Details
 //!
-//! - USD-M Endpoint: `wss://fstream.binance.com/ws`
+//! - USD-M Endpoint: `wss://fstream.binance.com/market/ws`
 //! - COIN-M Endpoint: `wss://dstream.binance.com/ws`
 //! - Max streams: 200 per connection
 //! - Max connections: 20 per pool (up to 4,000 total streams)

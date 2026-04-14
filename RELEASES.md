@@ -17,6 +17,7 @@ Released on TBD (UTC).
 - Changed `OrderError::Invariant` variant to wrap `CorrectnessError` instead of `anyhow::Error` (Rust)
 - Changed `HyperliquidEip712Signer::new()` to return `Result` and take `&EvmPrivateKey` (Rust)
 - Changed `HyperliquidExchangeRequest::new/with_vault` to accept `HyperliquidSignature` directly (Rust)
+- Changed Binance USD-M Futures WebSocket URLs from `/ws` to `/market/ws` and `/private/ws`
 - Changed Cap'n Proto and SBE wire formats to preserve `Option` state (unstable, may change)
 
 ### Security

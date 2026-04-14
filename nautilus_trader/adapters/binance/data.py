@@ -145,6 +145,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         base_url_ws: str,
         name: str | None,
         config: BinanceDataClientConfig,
+        base_url_ws_public: str | None = None,
     ) -> None:
         super().__init__(
             loop=loop,
@@ -180,12 +181,21 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         # Enum parser
         self._enum_parser = enum_parser
 
-        # WebSocket API
+        # WebSocket API (market streams)
         self._ws_client = BinanceWebSocketClient(
             clock=clock,
             handler=self._handle_ws_message,
             handler_reconnect=self._reconnect,
             base_url=base_url_ws,
+            loop=self._loop,
+        )
+
+        # WebSocket API (public/book streams)
+        self._ws_public_client = BinanceWebSocketClient(
+            clock=clock,
+            handler=self._handle_ws_message,
+            handler_reconnect=self._reconnect,
+            base_url=base_url_ws_public or base_url_ws,
             loop=self._loop,
         )
 
@@ -286,6 +296,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
             self._update_instruments_task = None
 
         await self._ws_client.disconnect()
+        await self._ws_public_client.disconnect()
 
     def _should_retry(self, error_code: BinanceErrorCode, retries: int) -> bool:
         return not (
@@ -400,13 +411,13 @@ class BinanceCommonDataClient(LiveMarketDataClient):
                     "Valid depths are 5, 10, or 20",
                 )
                 return
-            await self._ws_client.subscribe_partial_book_depth(
+            await self._ws_public_client.subscribe_partial_book_depth(
                 symbol=command.instrument_id.symbol.value,
                 depth=depth,
                 speed=update_speed,
             )
         else:
-            await self._ws_client.subscribe_diff_book_depth(
+            await self._ws_public_client.subscribe_diff_book_depth(
                 symbol=command.instrument_id.symbol.value,
                 speed=update_speed,
             )
@@ -448,7 +459,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         await self._ws_client.subscribe_mark_price(command.instrument_id.symbol.value, speed=1000)
 
     async def _subscribe_quote_ticks(self, command: SubscribeQuoteTicks) -> None:
-        await self._ws_client.subscribe_book_ticker(command.instrument_id.symbol.value)
+        await self._ws_public_client.subscribe_book_ticker(command.instrument_id.symbol.value)
 
     async def _subscribe_trade_ticks(self, command: SubscribeTradeTicks) -> None:
         if self._use_agg_trade_ticks:
@@ -500,7 +511,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         pass  # TODO: Unsubscribe from Binance if no other subscriptions
 
     async def _unsubscribe_quote_ticks(self, command: UnsubscribeQuoteTicks) -> None:
-        await self._ws_client.unsubscribe_book_ticker(command.instrument_id.symbol.value)
+        await self._ws_public_client.unsubscribe_book_ticker(command.instrument_id.symbol.value)
 
     async def _unsubscribe_trade_ticks(self, command: UnsubscribeTradeTicks) -> None:
         if self._use_agg_trade_ticks:

@@ -21,7 +21,8 @@ use super::{
         BINANCE_FUTURES_COIN_TESTNET_HTTP_URL, BINANCE_FUTURES_COIN_TESTNET_WS_URL,
         BINANCE_FUTURES_COIN_WS_URL, BINANCE_FUTURES_USD_DEMO_HTTP_URL,
         BINANCE_FUTURES_USD_HTTP_URL, BINANCE_FUTURES_USD_TESTNET_HTTP_URL,
-        BINANCE_FUTURES_USD_TESTNET_WS_URL, BINANCE_FUTURES_USD_WS_URL, BINANCE_OPTIONS_HTTP_URL,
+        BINANCE_FUTURES_USD_TESTNET_WS_URL, BINANCE_FUTURES_USD_WS_PRIVATE_URL,
+        BINANCE_FUTURES_USD_WS_PUBLIC_URL, BINANCE_FUTURES_USD_WS_URL, BINANCE_OPTIONS_HTTP_URL,
         BINANCE_OPTIONS_WS_URL, BINANCE_SPOT_DEMO_HTTP_URL, BINANCE_SPOT_DEMO_WS_URL,
         BINANCE_SPOT_HTTP_URL, BINANCE_SPOT_TESTNET_HTTP_URL, BINANCE_SPOT_TESTNET_WS_URL,
         BINANCE_SPOT_WS_URL,
@@ -105,6 +106,41 @@ pub fn get_ws_base_url(
     }
 }
 
+/// Returns the WebSocket public stream base URL for high-frequency book data.
+///
+/// USD-M mainnet uses the dedicated public endpoint for `@bookTicker` and
+/// `@depth` streams. All other product types and environments fall back to
+/// [`get_ws_base_url`].
+#[must_use]
+pub fn get_ws_public_base_url(
+    product_type: BinanceProductType,
+    environment: BinanceEnvironment,
+) -> &'static str {
+    match (product_type, environment) {
+        (BinanceProductType::UsdM, BinanceEnvironment::Mainnet) => {
+            BINANCE_FUTURES_USD_WS_PUBLIC_URL
+        }
+        _ => get_ws_base_url(product_type, environment),
+    }
+}
+
+/// Returns the WebSocket private stream base URL for user data.
+///
+/// USD-M mainnet uses the dedicated private endpoint. All other
+/// product types and environments fall back to [`get_ws_base_url`].
+#[must_use]
+pub fn get_ws_private_base_url(
+    product_type: BinanceProductType,
+    environment: BinanceEnvironment,
+) -> &'static str {
+    match (product_type, environment) {
+        (BinanceProductType::UsdM, BinanceEnvironment::Mainnet) => {
+            BINANCE_FUTURES_USD_WS_PRIVATE_URL
+        }
+        _ => get_ws_base_url(product_type, environment),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -174,12 +210,42 @@ mod tests {
     #[rstest]
     fn test_ws_url_usdm_mainnet() {
         let url = get_ws_base_url(BinanceProductType::UsdM, BinanceEnvironment::Mainnet);
-        assert_eq!(url, "wss://fstream.binance.com/ws");
+        assert_eq!(url, "wss://fstream.binance.com/market/ws");
     }
 
     #[rstest]
     fn test_ws_url_usdm_testnet() {
         let url = get_ws_base_url(BinanceProductType::UsdM, BinanceEnvironment::Testnet);
         assert_eq!(url, "wss://fstream.binancefuture.com/ws");
+    }
+
+    #[rstest]
+    fn test_ws_private_url_usdm_mainnet() {
+        let url = get_ws_private_base_url(BinanceProductType::UsdM, BinanceEnvironment::Mainnet);
+        assert_eq!(url, "wss://fstream.binance.com/private/ws");
+    }
+
+    #[rstest]
+    fn test_ws_private_url_fallback_to_market() {
+        let url = get_ws_private_base_url(BinanceProductType::Spot, BinanceEnvironment::Mainnet);
+        assert_eq!(
+            url,
+            get_ws_base_url(BinanceProductType::Spot, BinanceEnvironment::Mainnet)
+        );
+    }
+
+    #[rstest]
+    fn test_ws_public_url_usdm_mainnet() {
+        let url = get_ws_public_base_url(BinanceProductType::UsdM, BinanceEnvironment::Mainnet);
+        assert_eq!(url, "wss://fstream.binance.com/public/ws");
+    }
+
+    #[rstest]
+    fn test_ws_public_url_fallback_to_market() {
+        let url = get_ws_public_base_url(BinanceProductType::Spot, BinanceEnvironment::Mainnet);
+        assert_eq!(
+            url,
+            get_ws_base_url(BinanceProductType::Spot, BinanceEnvironment::Mainnet)
+        );
     }
 }

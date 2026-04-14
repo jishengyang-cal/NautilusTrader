@@ -25,6 +25,7 @@ from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 from nautilus_trader.adapters.binance.common.enums import BinanceKeyType
 from nautilus_trader.adapters.binance.common.urls import get_http_base_url
 from nautilus_trader.adapters.binance.common.urls import get_ws_base_url
+from nautilus_trader.adapters.binance.common.urls import get_ws_public_base_url
 from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
 from nautilus_trader.adapters.binance.config import BinanceExecClientConfig
 from nautilus_trader.adapters.binance.config import BinanceInstrumentProviderConfig
@@ -342,6 +343,12 @@ class BinanceLiveDataClientFactory(LiveDataClientFactory):
                 venue=config.venue,
             )
 
+            default_base_url_ws_public: str = get_ws_public_base_url(
+                account_type=config.account_type,
+                environment=environment,
+                is_us=config.us,
+            )
+
             return BinanceFuturesDataClient(
                 loop=loop,
                 client=client,
@@ -353,6 +360,7 @@ class BinanceLiveDataClientFactory(LiveDataClientFactory):
                 base_url_ws=config.base_url_ws or default_base_url_ws,
                 name=name,
                 config=config,
+                base_url_ws_public=config.base_url_ws or default_base_url_ws_public,
             )
 
 
