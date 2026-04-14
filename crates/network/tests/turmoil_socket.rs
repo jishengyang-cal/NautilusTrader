@@ -28,6 +28,23 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::stream::Mode;
 use turmoil::{Builder, net};
 
+// 2-second budget in simulated time, covering reconnect timings across these tests.
+const POLL_ITERS: u32 = 200;
+const POLL_STEP: Duration = Duration::from_millis(10);
+
+async fn wait_for<F>(mut condition: F) -> bool
+where
+    F: FnMut() -> bool,
+{
+    for _ in 0..POLL_ITERS {
+        if condition() {
+            return true;
+        }
+        tokio::time::sleep(POLL_STEP).await;
+    }
+    false
+}
+
 /// Default test socket configuration.
 #[fixture]
 fn socket_config() -> SocketConfig {
@@ -93,22 +110,16 @@ fn test_turmoil_real_socket_basic_connect(socket_config: SocketConfig) {
         // Verify client is active
         assert!(client.is_active(), "Client should be active after connect");
 
-        // Send a test message
         client
             .send_bytes(b"hello".to_vec())
             .await
             .expect("Should send data");
 
-        // Wait a bit
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Send close message
         client
             .send_bytes(b"close".to_vec())
             .await
             .expect("Should send close");
 
-        // Close the client
         client.close().await;
         assert!(client.is_closed(), "Client should be closed");
 
@@ -131,19 +142,13 @@ fn test_turmoil_real_socket_reconnection(mut socket_config: SocketConfig) {
 
         // Accept first connection
         if let Ok((mut stream, _)) = listener.accept().await {
-            // Read one message
             let mut buffer = vec![0; 1024];
             let _ = stream.read(&mut buffer).await;
-            // Echo it back
             let _ = stream.write_all(b"first\r\n").await;
-            // Close the connection
             drop(stream);
         }
 
-        // Wait a bit before accepting second connection
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Accept second connection and run echo server
+        // Accept second connection and run echo loop
         if let Ok((mut stream, _)) = listener.accept().await {
             let mut buffer = vec![0; 1024];
             loop {
@@ -170,23 +175,27 @@ fn test_turmoil_real_socket_reconnection(mut socket_config: SocketConfig) {
             .await
             .expect("Should connect");
 
-        // Send first message
         client
             .send_bytes(b"first_msg".to_vec())
             .await
             .expect("Should send first message");
 
-        // Wait for server to close connection
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Server closes after echoing; wait for the client to cycle through
+        // reconnection and return to an active state before the next send.
+        assert!(
+            wait_for(|| client.is_reconnecting() || !client.is_active()).await,
+            "Client should observe server disconnect"
+        );
+        assert!(
+            wait_for(|| client.is_active()).await,
+            "Client should reconnect after server close"
+        );
 
-        // Client should detect disconnection and attempt reconnection
-        // Send another message after reconnection
         client
             .send_bytes(b"second_msg".to_vec())
             .await
             .expect("Should send second message after reconnect");
 
-        // Close
         client.send_bytes(b"close".to_vec()).await.ok();
         client.close().await;
 
@@ -209,33 +218,27 @@ fn test_turmoil_real_socket_network_partition(mut socket_config: SocketConfig) {
             .await
             .expect("Should connect");
 
-        // Send message before partition
         client
             .send_bytes(b"before_partition".to_vec())
             .await
             .expect("Should send before partition");
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // Create network partition
         turmoil::partition("client", "server");
-
-        // Wait a bit
         tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Repair partition
         turmoil::repair("client", "server");
 
-        // Wait for reconnection
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Either the connection survived the partition or reconnect restored it;
+        // poll until the client is active again before sending.
+        assert!(
+            wait_for(|| client.is_active()).await,
+            "Client should be active after partition repair"
+        );
 
-        // Should be able to send after repair
         client
             .send_bytes(b"after_partition".to_vec())
             .await
             .expect("Should send after partition repair");
 
-        // Close
         client.send_bytes(b"close".to_vec()).await.ok();
         client.close().await;
 

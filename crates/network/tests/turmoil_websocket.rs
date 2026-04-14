@@ -23,10 +23,44 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use nautilus_network::websocket::{WebSocketClient, WebSocketConfig, channel_message_handler};
+use nautilus_network::{
+    RECONNECTED,
+    websocket::{WebSocketClient, WebSocketConfig, channel_message_handler},
+};
 use rstest::{fixture, rstest};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use turmoil::{Builder, net};
+
+// 2-second budget in simulated time, covering reconnect timings across these tests.
+const POLL_ITERS: u32 = 200;
+const POLL_STEP: Duration = Duration::from_millis(10);
+
+// Small sleep steps advance turmoil's simulated clock so the receiver drains
+// between ticks instead of relying on a single fixed wait.
+async fn recv_text(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Message>, expected: &str) -> bool {
+    for _ in 0..POLL_ITERS {
+        while let Ok(msg) = rx.try_recv() {
+            if matches!(&msg, Message::Text(text) if text.as_str() == expected) {
+                return true;
+            }
+        }
+        tokio::time::sleep(POLL_STEP).await;
+    }
+    false
+}
+
+async fn wait_for<F>(mut condition: F) -> bool
+where
+    F: FnMut() -> bool,
+{
+    for _ in 0..POLL_ITERS {
+        if condition() {
+            return true;
+        }
+        tokio::time::sleep(POLL_STEP).await;
+    }
+    false
+}
 
 /// Default test WebSocket configuration.
 #[fixture]
@@ -97,24 +131,18 @@ fn test_turmoil_real_websocket_basic_connect(websocket_config: WebSocketConfig) 
                 .await
                 .expect("Should connect");
 
-        // Verify client is active
         assert!(client.is_active(), "Client should be active after connect");
 
-        // Send a test message
         client
             .send_text("hello".to_string(), None)
             .await
             .expect("Should send text");
 
-        // Wait for echo
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            recv_text(&mut rx, "hello").await,
+            "Should receive echoed hello"
+        );
 
-        // Check we received the echo
-        if let Ok(msg) = rx.try_recv() {
-            assert!(matches!(msg, Message::Text(ref text) if text.as_str() == "hello"));
-        }
-
-        // Close the client
         client.disconnect().await;
         assert!(client.is_disconnected(), "Client should be disconnected");
 
@@ -139,15 +167,11 @@ fn test_turmoil_real_websocket_reconnection(mut websocket_config: WebSocketConfi
         if let Ok((stream, _)) = listener.accept().await
             && let Ok(mut ws) = accept_async(stream).await
         {
-            // Send one message then close
             let _ = ws.send(Message::Text("first".to_string().into())).await;
             drop(ws);
         }
 
-        // Wait a bit before accepting second connection
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Accept second connection and run echo server
+        // Accept second connection and run echo loop
         if let Ok((stream, _)) = listener.accept().await
             && let Ok(mut ws) = accept_async(stream).await
         {
@@ -175,32 +199,28 @@ fn test_turmoil_real_websocket_reconnection(mut websocket_config: WebSocketConfi
                 .await
                 .expect("Should connect");
 
-        // Wait to receive first message
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            recv_text(&mut rx, "first").await,
+            "Should receive first message before server closes"
+        );
 
-        // Wait for server to close connection and reconnection
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Server drop triggers reconnect; the client emits `RECONNECTED` on the
+        // message channel once the new connection is fully established.
+        assert!(
+            recv_text(&mut rx, RECONNECTED).await,
+            "Client should emit RECONNECTED after server close"
+        );
 
-        // Send another message after reconnection
         client
             .send_text("second_msg".to_string(), None)
             .await
             .expect("Should send after reconnect");
 
-        // Wait for echo
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            recv_text(&mut rx, "second_msg").await,
+            "Should receive echoed second message"
+        );
 
-        // Check we received messages
-        let mut received_second = false;
-
-        while let Ok(msg) = rx.try_recv() {
-            if matches!(msg, Message::Text(ref text) if text.as_str() == "second_msg") {
-                received_second = true;
-            }
-        }
-        assert!(received_second, "Should receive echoed second message");
-
-        // Close
         client.disconnect().await;
 
         Ok(())
@@ -225,45 +245,37 @@ fn test_turmoil_real_websocket_network_partition(mut websocket_config: WebSocket
                 .await
                 .expect("Should connect");
 
-        // Send message before partition
         client
             .send_text("before_partition".to_string(), None)
             .await
             .expect("Should send before partition");
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            recv_text(&mut rx, "before_partition").await,
+            "Should receive echoed before_partition"
+        );
 
-        // Create network partition
         turmoil::partition("client", "server");
-
-        // Wait a bit
         tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // Repair partition
         turmoil::repair("client", "server");
 
-        // Wait for reconnection
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Either the connection survived the partition or reconnect restored it;
+        // poll until the client is active again before sending.
+        assert!(
+            wait_for(|| client.is_active()).await,
+            "Client should be active after partition repair"
+        );
 
-        // Should be able to send after repair
         client
             .send_text("after_partition".to_string(), None)
             .await
             .expect("Should send after partition repair");
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            recv_text(&mut rx, "after_partition").await,
+            "Should receive echoed after_partition"
+        );
 
-        // Check we received messages
-        let mut received_after = false;
-
-        while let Ok(msg) = rx.try_recv() {
-            if matches!(msg, Message::Text(ref text) if text.as_str() == "after_partition") {
-                received_after = true;
-            }
-        }
-        assert!(received_after, "Should receive message after partition");
-
-        // Close
         client.disconnect().await;
 
         Ok(())
