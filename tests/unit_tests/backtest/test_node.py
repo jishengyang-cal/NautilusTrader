@@ -734,3 +734,71 @@ class TestBacktestNodeStreaming:
         assert len(catalog_instances) == 2
         assert catalog_instances[data_config_a.catalog_path].calls == 1
         assert catalog_instances[data_config_b.catalog_path].calls == 1
+
+    def test_streaming_mixed_builtin_and_custom_data_types(self, tmp_path):
+        """
+        Streaming a session containing both built-in Rust types and custom Python types
+        must not raise ValueError on PyCapsule.
+
+        Regression test for
+        https://github.com/nautechsystems/nautilus_trader/issues/3853
+
+        """
+        from nautilus_trader.core.data import Data
+        from nautilus_trader.core.nautilus_pyo3.model import register_custom_data_class
+        from nautilus_trader.model.custom import customdataclass_pyo3
+        from nautilus_trader.model.data import QuoteTick
+
+        @customdataclass_pyo3()
+        class NodeTestSignal(Data):
+            value: float = 0.0
+
+        register_custom_data_class(NodeTestSignal)
+
+        catalog = setup_catalog(protocol="file", path=tmp_path / "mixed_catalog")
+        start_ns, end_ns = load_catalog_with_quote_ticks(catalog, count=100)
+
+        # Write custom data interleaved with the quote tick timestamps
+        signals = [
+            NodeTestSignal(
+                ts_event=start_ns + i * 100_000_000,
+                ts_init=start_ns + i * 100_000_000,
+                value=float(i),
+            )
+            for i in range(1, 20)
+        ]
+        catalog.write_data(signals)
+
+        instrument_id = InstrumentId.from_str("AUD/USD.SIM")
+
+        quote_config = BacktestDataConfig(
+            catalog_path=catalog.path,
+            catalog_fs_protocol=catalog.fs_protocol,
+            data_cls=QuoteTick,
+            instrument_id=instrument_id,
+            start_time=start_ns,
+            end_time=end_ns,
+        )
+        signal_config = BacktestDataConfig(
+            catalog_path=catalog.path,
+            catalog_fs_protocol=catalog.fs_protocol,
+            data_cls=NodeTestSignal,
+            start_time=start_ns,
+            end_time=end_ns,
+        )
+
+        config = BacktestRunConfig(
+            engine=BacktestEngineConfig(
+                strategies=self.strategies,
+                logging=LoggingConfig(bypass_logging=True),
+            ),
+            venues=[self.venue_config],
+            data=[quote_config, signal_config],
+            chunk_size=500,
+            raise_exception=True,
+        )
+
+        node = BacktestNode(configs=[config])
+        results = node.run()
+
+        assert len(results) == 1

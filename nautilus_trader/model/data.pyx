@@ -317,6 +317,53 @@ cpdef list capsule_to_list(capsule):
     return objects
 
 
+cpdef list pyo3_list_to_data_list(list pyo3_items):
+    """
+    Convert a list of PyO3 data objects to a list of Cython Data objects.
+
+    The Rust backend returns Python lists (instead of PyCapsules) for chunks
+    that contain custom data types. Items in these lists are PyO3 instances
+    of built-in types (QuoteTick, TradeTick, etc.) or PyO3 CustomData wrappers.
+    This function converts each item to its Cython equivalent so the backtest
+    engine can process them.
+    """
+    cdef list result = []
+    for item in pyo3_items:
+        type_name = type(item).__name__
+        if type_name == "QuoteTick":
+            result.append(QuoteTick.from_pyo3(item))
+        elif type_name == "TradeTick":
+            result.append(TradeTick.from_pyo3(item))
+        elif type_name == "Bar":
+            result.append(Bar.from_pyo3(item))
+        elif type_name == "OrderBookDelta":
+            result.append(OrderBookDelta.from_pyo3(item))
+        elif type_name == "OrderBookDeltas":
+            result.append(OrderBookDeltas.from_pyo3(item))
+        elif type_name == "OrderBookDepth10":
+            result.append(OrderBookDepth10.from_pyo3(item))
+        elif type_name == "MarkPriceUpdate":
+            result.append(MarkPriceUpdate.from_pyo3(item))
+        elif type_name == "IndexPriceUpdate":
+            result.append(IndexPriceUpdate.from_pyo3(item))
+        elif type_name == "InstrumentClose":
+            result.append(InstrumentClose.from_pyo3(item))
+        elif type_name == "CustomData":
+            inner = item.data
+            pyo3_dt = item.data_type
+            # Rust-native custom types return a PyO3 object that is not a
+            # Cython Data subclass. Convert via from_dict round-trip so the
+            # result satisfies CustomData(data_type, Data).
+            if not isinstance(inner, Data):
+                inner_cls = type(inner)
+                inner = inner_cls.from_dict(inner.to_dict())
+            cy_dt = DataType(type(inner), metadata=pyo3_dt.metadata)
+            result.append(CustomData(data_type=cy_dt, data=inner))
+        else:
+            raise RuntimeError(f"Cannot convert PyO3 data type '{type_name}' to Cython")
+    return result
+
+
 # SAFETY: Do NOT deallocate the capsule here
 cpdef Data capsule_to_data(capsule):
     cdef Data_t* ptr = <Data_t*>PyCapsule_GetPointer(capsule, NULL)

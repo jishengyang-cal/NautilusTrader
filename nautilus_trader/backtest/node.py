@@ -55,6 +55,7 @@ from nautilus_trader.model import BOOK_DATA_TYPES
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import capsule_to_list
+from nautilus_trader.model.data import pyo3_list_to_data_list
 from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.enums import OmsType
@@ -594,10 +595,16 @@ class BacktestNode:
                 optimize_file_loading=config.optimize_file_loading,
             )
 
-        # Stream data
         for chunk in session.to_query_result():
+            # The Rust backend returns a PyCapsule for built-in-only chunks
+            # and a Python list when any custom data is present in the chunk.
+            if isinstance(chunk, list):
+                data = pyo3_list_to_data_list(chunk)
+            else:
+                data = capsule_to_list(chunk)
+
             engine.add_data(
-                data=capsule_to_list(chunk),
+                data=data,
                 validate=False,  # Cannot validate mixed type stream
                 sort=True,  # Already sorted from backend
             )

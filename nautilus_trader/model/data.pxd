@@ -53,6 +53,7 @@ from nautilus_trader.model.objects cimport Quantity
 
 
 cpdef list capsule_to_list(capsule)
+cpdef list pyo3_list_to_data_list(list pyo3_items)
 cpdef Data capsule_to_data(capsule)
 
 cdef inline void capsule_destructor(object capsule):
