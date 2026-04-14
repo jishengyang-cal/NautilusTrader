@@ -610,7 +610,7 @@ mod tests {
         assert!(delta.unwrap_or_default() < Duration::from_millis(100));
 
         // Check if the duration is greater than a certain value (assuming the test is run after that point)
-        assert!(duration > Duration::from_secs(1_650_000_000));
+        assert!(duration > Duration::from_mins(27_500_000));
     }
 
     #[rstest]

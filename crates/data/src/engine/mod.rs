@@ -807,15 +807,11 @@ impl DataEngine {
     /// Returns an error if the underlying client operation fails.
     pub fn execute_unsubscribe(&mut self, cmd: &UnsubscribeCommand) -> anyhow::Result<()> {
         match &cmd {
-            UnsubscribeCommand::BookDeltas(cmd) => {
-                if !self.unsubscribe_book_deltas(cmd) {
-                    return Ok(());
-                }
+            UnsubscribeCommand::BookDeltas(cmd) if !self.unsubscribe_book_deltas(cmd) => {
+                return Ok(());
             }
-            UnsubscribeCommand::BookDepth10(cmd) => {
-                if !self.unsubscribe_book_depth10(cmd) {
-                    return Ok(());
-                }
+            UnsubscribeCommand::BookDepth10(cmd) if !self.unsubscribe_book_depth10(cmd) => {
+                return Ok(());
             }
             UnsubscribeCommand::BookSnapshots(cmd) => {
                 // Handles client forwarding internally (forwards as BookDeltas)

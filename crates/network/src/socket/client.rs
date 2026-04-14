@@ -153,7 +153,7 @@ impl SocketClientInner {
 
         let mut backoff = ExponentialBackoff::new(
             Duration::from_millis(500),
-            Duration::from_millis(5000),
+            Duration::from_secs(5),
             2.0,
             250,
             false,
