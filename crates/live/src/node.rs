@@ -955,6 +955,14 @@ impl LiveNode {
                                 self.exec_manager.record_local_activity(submitted.client_order_id);
                             }
                         }
+                        ExecutionEvent::OrderAcceptedBatch(batch) => {
+                            for accepted in &batch.events {
+                                self.exec_manager.record_local_activity(accepted.client_order_id);
+                                self.exec_manager.clear_recon_tracking(
+                                    &accepted.client_order_id, true,
+                                );
+                            }
+                        }
                         ExecutionEvent::OrderCanceledBatch(batch) => {
                             for canceled in &batch.events {
                                 self.exec_manager.record_local_activity(canceled.client_order_id);
@@ -1473,6 +1481,11 @@ fn flush_all_pending(
                     pending.order_evts.push(OrderEventAny::Submitted(submitted));
                 }
             }
+            ExecutionEvent::OrderAcceptedBatch(batch) => {
+                for accepted in batch {
+                    pending.order_evts.push(OrderEventAny::Accepted(accepted));
+                }
+            }
             ExecutionEvent::OrderCanceledBatch(batch) => {
                 for canceled in batch {
                     pending.order_evts.push(OrderEventAny::Canceled(canceled));
@@ -1536,6 +1549,11 @@ async fn drive_with_event_buffering<F: std::future::Future>(
                     ExecutionEvent::OrderSubmittedBatch(batch) => {
                         for submitted in batch {
                             pending.order_evts.push(OrderEventAny::Submitted(submitted));
+                        }
+                    }
+                    ExecutionEvent::OrderAcceptedBatch(batch) => {
+                        for accepted in batch {
+                            pending.order_evts.push(OrderEventAny::Accepted(accepted));
                         }
                     }
                     ExecutionEvent::OrderCanceledBatch(batch) => {
@@ -2378,6 +2396,11 @@ mod tests {
                 ExecutionEvent::OrderSubmittedBatch(batch) => {
                     for submitted in batch {
                         pending.order_evts.push(OrderEventAny::Submitted(submitted));
+                    }
+                }
+                ExecutionEvent::OrderAcceptedBatch(batch) => {
+                    for accepted in batch {
+                        pending.order_evts.push(OrderEventAny::Accepted(accepted));
                     }
                 }
                 ExecutionEvent::OrderCanceledBatch(batch) => {

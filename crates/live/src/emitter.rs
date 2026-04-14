@@ -37,8 +37,8 @@ use nautilus_core::{UUID4, UnixNanos, time::AtomicTime};
 use nautilus_model::{
     enums::{AccountType, LiquiditySide},
     events::{
-        AccountState, OrderCancelRejected, OrderCanceledBatch, OrderEventAny, OrderModifyRejected,
-        OrderRejected, OrderSubmittedBatch,
+        AccountState, OrderAcceptedBatch, OrderCancelRejected, OrderCanceledBatch, OrderEventAny,
+        OrderModifyRejected, OrderRejected, OrderSubmittedBatch,
     },
     identifiers::{
         AccountId, ClientOrderId, InstrumentId, PositionId, StrategyId, TradeId, TraderId,
@@ -400,6 +400,17 @@ impl ExecutionEventEmitter {
             }
         } else {
             log::warn!("Cannot send order submitted batch: sender not initialized");
+        }
+    }
+
+    /// Emits a batch of order accepted events as a single channel message.
+    pub fn send_order_accepted_batch(&self, batch: OrderAcceptedBatch) {
+        if let Some(sender) = &self.sender {
+            if let Err(e) = sender.send(ExecutionEvent::OrderAcceptedBatch(batch)) {
+                log::warn!("Failed to send order accepted batch: {e}");
+            }
+        } else {
+            log::warn!("Cannot send order accepted batch: sender not initialized");
         }
     }
 

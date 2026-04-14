@@ -30,6 +30,7 @@ use crate::{
 };
 
 pub mod accepted;
+pub mod accepted_batch;
 pub mod any;
 pub mod cancel_rejected;
 pub mod canceled;

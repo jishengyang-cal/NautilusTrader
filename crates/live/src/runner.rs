@@ -409,6 +409,14 @@ impl AsyncRunner {
                     );
                 }
             }
+            ExecutionEvent::OrderAcceptedBatch(batch) => {
+                for accepted in batch {
+                    msgbus::send_order_event(
+                        MessagingSwitchboard::exec_engine_process(),
+                        OrderEventAny::Accepted(accepted),
+                    );
+                }
+            }
             ExecutionEvent::OrderCanceledBatch(batch) => {
                 for canceled in batch {
                     msgbus::send_order_event(
@@ -461,8 +469,8 @@ mod tests {
             TimeInForce,
         },
         events::{
-            OrderCanceled, OrderCanceledBatch, OrderEvent, OrderEventAny, OrderSubmitted,
-            OrderSubmittedBatch, account::state::AccountState,
+            OrderAccepted, OrderAcceptedBatch, OrderCanceled, OrderCanceledBatch, OrderEvent,
+            OrderEventAny, OrderSubmitted, OrderSubmittedBatch, account::state::AccountState,
         },
         identifiers::{
             AccountId, ClientId, ClientOrderId, InstrumentId, PositionId, StrategyId, TradeId,
@@ -1454,6 +1462,51 @@ mod tests {
                 assert_eq!(b.events[1].client_order_id, ClientOrderId::from("O-002"));
             }
             _ => panic!("Expected OrderSubmittedBatch event"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execution_event_order_accepted_batch_channel() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ExecutionEvent>();
+
+        let events = vec![
+            OrderAccepted::new(
+                TraderId::from("TRADER-001"),
+                StrategyId::from("S-001"),
+                InstrumentId::from("EUR/USD.SIM"),
+                ClientOrderId::from("O-001"),
+                VenueOrderId::from("V-001"),
+                AccountId::from("SIM-001"),
+                UUID4::new(),
+                UnixNanos::from(1),
+                UnixNanos::from(2),
+                false,
+            ),
+            OrderAccepted::new(
+                TraderId::from("TRADER-001"),
+                StrategyId::from("S-001"),
+                InstrumentId::from("EUR/USD.SIM"),
+                ClientOrderId::from("O-002"),
+                VenueOrderId::from("V-002"),
+                AccountId::from("SIM-001"),
+                UUID4::new(),
+                UnixNanos::from(3),
+                UnixNanos::from(4),
+                false,
+            ),
+        ];
+
+        let batch = OrderAcceptedBatch::new(events);
+        tx.send(ExecutionEvent::OrderAcceptedBatch(batch)).unwrap();
+
+        let received = rx.recv().await.unwrap();
+        match received {
+            ExecutionEvent::OrderAcceptedBatch(b) => {
+                assert_eq!(b.len(), 2);
+                assert_eq!(b.events[0].client_order_id, ClientOrderId::from("O-001"));
+                assert_eq!(b.events[1].client_order_id, ClientOrderId::from("O-002"));
+            }
+            _ => panic!("Expected OrderAcceptedBatch event"),
         }
     }
 
