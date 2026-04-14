@@ -22,7 +22,6 @@ Released on TBD (UTC).
 ### Security
 
 ### Fixes
-- Fixed `bench` profile panic strategy conflict with cdylib crates in workspace
 - Fixed `stop_timer` in `TimeBarAggregator` (#3822), thanks @faysou
 - Fixed `DataBackendSession` GIL deadlock when streaming custom data types (#3847), thanks for reporting @GianC0
 - Fixed `BacktestNode` streaming with mixed built-in and custom data types (#3853), thanks for reporting @GianC0
