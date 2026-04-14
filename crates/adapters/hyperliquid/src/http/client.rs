@@ -180,7 +180,8 @@ impl HyperliquidRawHttpClient {
         timeout_secs: u64,
         proxy_url: Option<String>,
     ) -> std::result::Result<Self, HttpClientError> {
-        let signer = HyperliquidEip712Signer::new(secrets.private_key.clone());
+        let signer = HyperliquidEip712Signer::new(&secrets.private_key)
+            .map_err(|e| HttpClientError::from(e.to_string()))?;
         let nonce_manager = Arc::new(NonceManager::new());
 
         Ok(Self {
@@ -557,7 +558,7 @@ impl HyperliquidRawHttpClient {
             .map_err(|e| Error::bad_request(e.to_string()))?;
 
         let sign_request = SignRequest {
-            action: action_value.clone(),
+            action: action_value,
             action_bytes: Some(action_bytes),
             time_nonce,
             action_type: HyperliquidActionType::L1,
@@ -573,13 +574,11 @@ impl HyperliquidRawHttpClient {
             HyperliquidExchangeRequest::with_vault(
                 action.clone(),
                 nonce_u64,
-                &sig,
+                sig,
                 vault.to_string(),
             )
-            .map_err(|e| Error::bad_request(format!("Failed to create request: {e}")))?
         } else {
-            HyperliquidExchangeRequest::new(action.clone(), nonce_u64, &sig)
-                .map_err(|e| Error::bad_request(format!("Failed to create request: {e}")))?
+            HyperliquidExchangeRequest::new(action.clone(), nonce_u64, sig)
         };
 
         let response = self.http_roundtrip_exchange(&request).await?;
@@ -665,7 +664,7 @@ impl HyperliquidRawHttpClient {
 
         let sig = signer
             .sign(&SignRequest {
-                action: action_value.clone(),
+                action: action_value,
                 action_bytes: Some(action_bytes),
                 time_nonce,
                 action_type: HyperliquidActionType::L1,
@@ -678,13 +677,11 @@ impl HyperliquidRawHttpClient {
             HyperliquidExchangeRequest::with_vault(
                 action.clone(),
                 time_nonce.as_millis() as u64,
-                &sig,
+                sig,
                 vault.to_string(),
             )
-            .map_err(|e| Error::bad_request(format!("Failed to create request: {e}")))?
         } else {
-            HyperliquidExchangeRequest::new(action.clone(), time_nonce.as_millis() as u64, &sig)
-                .map_err(|e| Error::bad_request(format!("Failed to create request: {e}")))?
+            HyperliquidExchangeRequest::new(action.clone(), time_nonce.as_millis() as u64, sig)
         };
 
         let response = self.http_roundtrip_exchange(&request).await?;

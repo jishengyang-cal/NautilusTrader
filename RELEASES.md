@@ -15,6 +15,8 @@ Released on TBD (UTC).
 - Changed `get_cached_bybit_http_client` signature: replaced `demo`/`testnet` bools with `environment: BybitEnvironment`
 - Changed Rust `UnsubscribeBookSnapshots` to require `interval_ms` for exact snapshot interval unsubscribe
 - Changed `OrderError::Invariant` variant to wrap `CorrectnessError` instead of `anyhow::Error` (Rust)
+- Changed `HyperliquidEip712Signer::new()` to return `Result` and take `&EvmPrivateKey` (Rust)
+- Changed `HyperliquidExchangeRequest::new/with_vault` to accept `HyperliquidSignature` directly (Rust)
 - Changed Cap'n Proto and SBE wire formats for `InstrumentStatus`, `FundingRateUpdate`, and `PositionAdjusted` to preserve `Option` state that was previously collapsed (these wire formats are not yet stable and may change between releases)
 
 ### Security
@@ -48,9 +50,11 @@ Released on TBD (UTC).
 - Added `CorrectnessResultExt::expect_display` for display-formatted panics on typed correctness errors (Rust)
 - Added engine config methods on PyO3 `LiveNodeBuilder` (#3848), thanks @BurnOutTrader
 - Added read-only `params()` accessor to `SubscribeCommand` and `TradingCommand` (#3846), thanks @faysou
+- Added Hyperliquid criterion benchmarks for L1 signing path
 - Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
 - Refined Interactive Brokers combo fill average price calculation (#3834), thanks @faysou
 - Refined Kraken WebSocket execution dispatch to emit typed events for tracked orders via per-product modules
+- Optimized Hyperliquid L1 signing by caching `PrivateKeySigner` and EIP-712 domain (#3851)
 - Upgraded Cap'n Proto to v1.4.0
 - Upgraded `capnp` crate to v0.25.4 (regenerated schemas with 4-space indents and version headers)
 - Upgraded `databento` crate to v0.46.0

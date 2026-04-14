@@ -453,7 +453,21 @@ pub struct HyperliquidSignature {
 }
 
 impl HyperliquidSignature {
-    /// Parse a hex signature string (0x + 64 hex r + 64 hex s + 2 hex v) into components.
+    /// Creates a new [`HyperliquidSignature`] from pre-formatted components.
+    #[must_use]
+    pub fn new(r: String, s: String, v: u64) -> Self {
+        Self { r, s, v }
+    }
+
+    /// Formats as Ethereum hex signature: `0x` + r(64) + s(64) + v(2).
+    #[must_use]
+    pub fn to_hex(&self) -> String {
+        let r = self.r.strip_prefix("0x").unwrap_or(&self.r);
+        let s = self.s.strip_prefix("0x").unwrap_or(&self.s);
+        format!("0x{r}{s}{:02x}", self.v)
+    }
+
+    /// Parses a hex signature string (0x + 64 hex r + 64 hex s + 2 hex v) into components.
     pub fn from_hex(sig_hex: &str) -> Result<Self, String> {
         let sig_hex = sig_hex.strip_prefix("0x").unwrap_or(sig_hex);
 
@@ -497,31 +511,33 @@ impl<T> HyperliquidExchangeRequest<T>
 where
     T: Serialize,
 {
-    /// Create a new exchange request with the given action.
-    pub fn new(action: T, nonce: u64, signature: &str) -> Result<Self, String> {
-        Ok(Self {
+    /// Creates a new exchange request with the given action.
+    #[must_use]
+    pub fn new(action: T, nonce: u64, signature: HyperliquidSignature) -> Self {
+        Self {
             action,
             nonce,
-            signature: HyperliquidSignature::from_hex(signature)?,
+            signature,
             vault_address: None,
             expires_after: None,
-        })
+        }
     }
 
-    /// Create a new exchange request with vault address for sub-account trading.
+    /// Creates a new exchange request with vault address for sub-account trading.
+    #[must_use]
     pub fn with_vault(
         action: T,
         nonce: u64,
-        signature: &str,
+        signature: HyperliquidSignature,
         vault_address: String,
-    ) -> Result<Self, String> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             action,
             nonce,
-            signature: HyperliquidSignature::from_hex(signature)?,
+            signature,
             vault_address: Some(vault_address),
             expires_after: None,
-        })
+        }
     }
 
     /// Convert to JSON value for signing purposes.

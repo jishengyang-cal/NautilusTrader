@@ -96,6 +96,10 @@ dotenvy = { workspace = true }
 futures-util = { workspace = true }
 rstest = { workspace = true }
 
+[[bench]]
+name = "signing"
+harness = false
+
 [[bin]]
 name = "hyperliquid-http-public"
 path = "bin/http_public.rs"
