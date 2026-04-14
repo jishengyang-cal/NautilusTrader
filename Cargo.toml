@@ -234,7 +234,9 @@ rust_decimal = { version = "1.41.0", features = ["serde-with-float"] }
 rust_decimal_macros = "1.40.0"
 rustls = { version = "0.23.38", default-features = false, features = [
   "aws-lc-rs",
+  "logging",
   "std",
+  "tls12",
 ] }
 rustls-pemfile = "2.2.0"
 serde = { version = "1.0.228", default-features = false, features = [
@@ -445,7 +447,7 @@ debug = "full"
 strip = false
 lto = false
 incremental = true
-# Cargo ignores `panic` for bench profile (harness requires unwind to catch failures)
+panic = "unwind"
 
 # -----------------------------------------------------------------------------
 # Workspace lints
