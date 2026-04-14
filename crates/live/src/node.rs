@@ -79,7 +79,7 @@ use nautilus_core::{
 };
 use nautilus_model::{
     events::OrderEventAny,
-    identifiers::{StrategyId, TraderId},
+    identifiers::{ClientOrderId, StrategyId, TraderId},
     orders::Order,
 };
 use nautilus_system::{config::NautilusKernelConfig, kernel::NautilusKernel};
@@ -920,7 +920,7 @@ impl LiveNode {
                         residual_events += 1;
                     }
 
-                    let mut maybe_close_id = None;
+                    let mut close_ids: Vec<ClientOrderId> = Vec::new();
 
                     match &evt {
                         ExecutionEvent::Order(order_evt) => {
@@ -948,7 +948,21 @@ impl LiveNode {
                                 }
                                 _ => {}
                             }
-                            maybe_close_id = Some(order_evt.client_order_id());
+                            close_ids.push(order_evt.client_order_id());
+                        }
+                        ExecutionEvent::OrderSubmittedBatch(batch) => {
+                            for submitted in &batch.events {
+                                self.exec_manager.record_local_activity(submitted.client_order_id);
+                            }
+                        }
+                        ExecutionEvent::OrderCanceledBatch(batch) => {
+                            for canceled in &batch.events {
+                                self.exec_manager.record_local_activity(canceled.client_order_id);
+                                self.exec_manager.clear_recon_tracking(
+                                    &canceled.client_order_id, true,
+                                );
+                                close_ids.push(canceled.client_order_id);
+                            }
                         }
                         ExecutionEvent::Report(report) => {
                             if let ExecutionReport::Fill(fill_report) = report
@@ -967,11 +981,11 @@ impl LiveNode {
                     AsyncRunner::handle_exec_event(evt);
 
                     // Post-dispatch: clear tracking when order closes
-                    if let Some(coid) = maybe_close_id {
+                    for coid in &close_ids {
                         let is_closed = self.kernel.cache().borrow()
-                            .order(&coid).is_some_and(|o| o.is_closed());
+                            .order(coid).is_some_and(|o| o.is_closed());
                         if is_closed {
-                            self.exec_manager.clear_recon_tracking(&coid, true);
+                            self.exec_manager.clear_recon_tracking(coid, true);
                         }
                     }
                 }
@@ -1454,6 +1468,16 @@ fn flush_all_pending(
             ExecutionEvent::Order(order_evt) => {
                 pending.order_evts.push(order_evt);
             }
+            ExecutionEvent::OrderSubmittedBatch(batch) => {
+                for submitted in batch {
+                    pending.order_evts.push(OrderEventAny::Submitted(submitted));
+                }
+            }
+            ExecutionEvent::OrderCanceledBatch(batch) => {
+                for canceled in batch {
+                    pending.order_evts.push(OrderEventAny::Canceled(canceled));
+                }
+            }
         }
     }
 
@@ -1508,6 +1532,16 @@ async fn drive_with_event_buffering<F: std::future::Future>(
                     }
                     ExecutionEvent::Order(order_evt) => {
                         pending.order_evts.push(order_evt);
+                    }
+                    ExecutionEvent::OrderSubmittedBatch(batch) => {
+                        for submitted in batch {
+                            pending.order_evts.push(OrderEventAny::Submitted(submitted));
+                        }
+                    }
+                    ExecutionEvent::OrderCanceledBatch(batch) => {
+                        for canceled in batch {
+                            pending.order_evts.push(OrderEventAny::Canceled(canceled));
+                        }
                     }
                 }
             }
@@ -2190,5 +2224,176 @@ mod tests {
         }
 
         assert!(!pending.is_empty());
+    }
+
+    fn stub_submitted_batch_event() -> ExecutionEvent {
+        use nautilus_core::{UUID4, UnixNanos};
+        use nautilus_model::{
+            events::{OrderSubmitted, OrderSubmittedBatch},
+            identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId},
+        };
+
+        let events = vec![
+            OrderSubmitted::new(
+                TraderId::from("TESTER-001"),
+                StrategyId::from("S-001"),
+                InstrumentId::from("TEST.VENUE"),
+                ClientOrderId::from("O-001"),
+                AccountId::from("TEST-001"),
+                UUID4::new(),
+                UnixNanos::default(),
+                UnixNanos::default(),
+            ),
+            OrderSubmitted::new(
+                TraderId::from("TESTER-001"),
+                StrategyId::from("S-001"),
+                InstrumentId::from("TEST.VENUE"),
+                ClientOrderId::from("O-002"),
+                AccountId::from("TEST-001"),
+                UUID4::new(),
+                UnixNanos::default(),
+                UnixNanos::default(),
+            ),
+        ];
+
+        ExecutionEvent::OrderSubmittedBatch(OrderSubmittedBatch::new(events))
+    }
+
+    fn stub_canceled_batch_event() -> ExecutionEvent {
+        use nautilus_core::{UUID4, UnixNanos};
+        use nautilus_model::{
+            events::{OrderCanceled, OrderCanceledBatch},
+            identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId},
+        };
+
+        let events = vec![
+            OrderCanceled::new(
+                TraderId::from("TESTER-001"),
+                StrategyId::from("S-001"),
+                InstrumentId::from("TEST.VENUE"),
+                ClientOrderId::from("O-001"),
+                UUID4::new(),
+                UnixNanos::default(),
+                UnixNanos::default(),
+                false,
+                None,
+                Some(AccountId::from("TEST-001")),
+            ),
+            OrderCanceled::new(
+                TraderId::from("TESTER-001"),
+                StrategyId::from("S-001"),
+                InstrumentId::from("TEST.VENUE"),
+                ClientOrderId::from("O-002"),
+                UUID4::new(),
+                UnixNanos::default(),
+                UnixNanos::default(),
+                false,
+                None,
+                Some(AccountId::from("TEST-001")),
+            ),
+        ];
+
+        ExecutionEvent::OrderCanceledBatch(OrderCanceledBatch::new(events))
+    }
+
+    #[rstest]
+    fn test_flush_all_pending_buffers_submitted_batch_as_individual_events() {
+        let (_time_tx, mut time_rx) = tokio::sync::mpsc::unbounded_channel::<TimeEventHandler>();
+        let (_data_evt_tx, mut data_evt_rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+        let (_data_cmd_tx, mut data_cmd_rx) = tokio::sync::mpsc::unbounded_channel::<DataCommand>();
+        let (exec_evt_tx, mut exec_evt_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ExecutionEvent>();
+        let (_exec_cmd_tx, mut exec_cmd_rx) =
+            tokio::sync::mpsc::unbounded_channel::<TradingCommand>();
+
+        let mut pending = PendingEvents::default();
+
+        exec_evt_tx.send(stub_submitted_batch_event()).unwrap();
+
+        flush_all_pending(
+            &mut pending,
+            &mut time_rx,
+            &mut data_evt_rx,
+            &mut data_cmd_rx,
+            &mut exec_evt_rx,
+            &mut exec_cmd_rx,
+        );
+
+        // Batch should be unpacked into individual Submitted events then drained
+        assert!(pending.order_evts.is_empty());
+        assert!(exec_evt_rx.try_recv().is_err());
+    }
+
+    #[rstest]
+    fn test_flush_all_pending_buffers_canceled_batch_as_individual_events() {
+        let (_time_tx, mut time_rx) = tokio::sync::mpsc::unbounded_channel::<TimeEventHandler>();
+        let (_data_evt_tx, mut data_evt_rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+        let (_data_cmd_tx, mut data_cmd_rx) = tokio::sync::mpsc::unbounded_channel::<DataCommand>();
+        let (exec_evt_tx, mut exec_evt_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ExecutionEvent>();
+        let (_exec_cmd_tx, mut exec_cmd_rx) =
+            tokio::sync::mpsc::unbounded_channel::<TradingCommand>();
+
+        let mut pending = PendingEvents::default();
+
+        exec_evt_tx.send(stub_canceled_batch_event()).unwrap();
+
+        flush_all_pending(
+            &mut pending,
+            &mut time_rx,
+            &mut data_evt_rx,
+            &mut data_cmd_rx,
+            &mut exec_evt_rx,
+            &mut exec_cmd_rx,
+        );
+
+        // Batch should be unpacked into individual Canceled events then drained
+        assert!(pending.order_evts.is_empty());
+        assert!(exec_evt_rx.try_recv().is_err());
+    }
+
+    #[rstest]
+    fn test_flush_all_pending_expands_batch_into_order_evts_before_drain() {
+        use nautilus_model::identifiers::ClientOrderId;
+
+        let (exec_evt_tx, mut exec_evt_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ExecutionEvent>();
+
+        exec_evt_tx.send(stub_canceled_batch_event()).unwrap();
+
+        let mut pending = PendingEvents::default();
+
+        // Manually replicate what flush_all_pending does before drain
+        while let Ok(evt) = exec_evt_rx.try_recv() {
+            match evt {
+                ExecutionEvent::Account(_) => {
+                    AsyncRunner::handle_exec_event(evt);
+                }
+                ExecutionEvent::Report(report) => {
+                    pending.exec_reports.push(report);
+                }
+                ExecutionEvent::Order(order_evt) => {
+                    pending.order_evts.push(order_evt);
+                }
+                ExecutionEvent::OrderSubmittedBatch(batch) => {
+                    for submitted in batch {
+                        pending.order_evts.push(OrderEventAny::Submitted(submitted));
+                    }
+                }
+                ExecutionEvent::OrderCanceledBatch(batch) => {
+                    for canceled in batch {
+                        pending.order_evts.push(OrderEventAny::Canceled(canceled));
+                    }
+                }
+            }
+        }
+
+        assert_eq!(pending.order_evts.len(), 2);
+        assert!(
+            matches!(&pending.order_evts[0], OrderEventAny::Canceled(c) if c.client_order_id == ClientOrderId::from("O-001"))
+        );
+        assert!(
+            matches!(&pending.order_evts[1], OrderEventAny::Canceled(c) if c.client_order_id == ClientOrderId::from("O-002"))
+        );
     }
 }

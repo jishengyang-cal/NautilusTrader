@@ -162,6 +162,8 @@ fn assert_event_types(events: &[ExecutionEvent], expected: &[&str]) {
             ExecutionEvent::Order(OrderEventAny::Rejected(_)) => "Rejected",
             ExecutionEvent::Order(OrderEventAny::Triggered(_)) => "Triggered",
             ExecutionEvent::Order(_) => "OtherOrder",
+            ExecutionEvent::OrderSubmittedBatch(_) => "OrderSubmittedBatch",
+            ExecutionEvent::OrderCanceledBatch(_) => "OrderCanceledBatch",
             ExecutionEvent::Report(_) => "Report",
             ExecutionEvent::Account(_) => "Account",
         })
