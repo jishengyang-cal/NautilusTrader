@@ -47,17 +47,69 @@ Coinbase provides documentation for the Advanced Trade API:
 
 ## Authentication
 
-Coinbase Advanced Trade uses CDP (Coinbase Developer Platform) API keys with
-ES256 JWT authentication. Each request generates a short-lived JWT signed with
-your EC private key.
+Coinbase Advanced Trade uses ES256 JWT authentication. Each request generates
+a short-lived JWT signed with your EC private key. The adapter resolves
+credentials from environment variables or from the config fields.
 
-You can create API keys at
-[Coinbase Developer Platform](https://portal.cdp.coinbase.com/).
+### Creating an API key
+
+Coinbase has several key types. The adapter requires a **Coinbase App Secret
+API key** with the **ECDSA** signature algorithm (not Ed25519).
+
+<Steps>
+<Step>
+Go to the CDP portal API keys page:
+[portal.cdp.coinbase.com/projects/api-keys](https://portal.cdp.coinbase.com/projects/api-keys).
+</Step>
+<Step>
+Select the **Secret API Keys** tab and click **Create API key**.
+</Step>
+<Step>
+Enter a nickname (e.g. `nautilus-trading`).
+</Step>
+<Step>
+Expand **API restrictions** and set permissions to **View** and **Trade**.
+</Step>
+<Step>
+Expand **Advanced Settings** and change the signature algorithm from Ed25519
+to **ECDSA**. This step is required: Ed25519 keys do not work with the
+Advanced Trade API.
+</Step>
+<Step>
+Click **Create API key**. Save the key name and private key from the modal.
+The key name looks like `organizations/{org_id}/apiKeys/{key_id}`. The
+private key is a PEM-encoded EC key (SEC1 format).
+</Step>
+</Steps>
+
+:::warning
+Coinbase no longer auto-downloads the key file. Copy the values from the
+creation modal or click the download button before closing it. You cannot
+retrieve the private key afterward.
+:::
+
+:::info
+Do not use legacy API keys from coinbase.com/settings/api (UUID format with
+HMAC-SHA256 signing). Those use a different auth scheme (`CB-ACCESS-*`
+headers) that the adapter does not support.
+:::
+
+For full details see the Coinbase
+[API key authentication guide](https://docs.cdp.coinbase.com/coinbase-app/authentication-authorization/api-key-authentication).
 
 ### Environment variables
 
-- `COINBASE_API_KEY`: CDP API key name
-- `COINBASE_API_SECRET`: CDP API secret (PEM format)
+| Variable              | Description                                               |
+|-----------------------|-----------------------------------------------------------|
+| `COINBASE_API_KEY`    | Key name (`organizations/{org_id}/apiKeys/{key_id}`).     |
+| `COINBASE_API_SECRET` | PEM‑encoded EC private key (the full multi‑line string).  |
+
+Example:
+
+```bash
+export COINBASE_API_KEY="organizations/abc-123/apiKeys/def-456"
+export COINBASE_API_SECRET="$(cat ~/path/to/cdp_api_key.pem)"
+```
 
 ### Environments
 
@@ -65,7 +117,7 @@ The adapter supports both production and sandbox environments via the
 `CoinbaseEnvironment` enum:
 
 | Environment | REST base URL                      |
-| :---------- | :--------------------------------- |
+|-------------|------------------------------------|
 | `Live`      | `https://api.coinbase.com`         |
 | `Sandbox`   | `https://api-sandbox.coinbase.com` |
 

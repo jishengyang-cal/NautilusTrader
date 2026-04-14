@@ -21,28 +21,71 @@
 
 use std::{collections::HashMap, num::NonZeroU32, sync::Arc};
 
+use chrono::{DateTime, Utc};
 use nautilus_core::{
     AtomicMap, UnixNanos,
     consts::NAUTILUS_USER_AGENT,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
-use nautilus_model::{identifiers::InstrumentId, instruments::InstrumentAny};
+use nautilus_model::{
+    events::AccountState,
+    identifiers::{AccountId, ClientOrderId, InstrumentId, Symbol, VenueOrderId},
+    instruments::{Instrument, InstrumentAny},
+    reports::{FillReport, OrderStatusReport},
+};
 use nautilus_network::{
     http::{HttpClient, HttpClientError, HttpResponse, Method, USER_AGENT},
     ratelimiter::quota::Quota,
 };
 use serde_json::Value;
+use url::form_urlencoded;
+use ustr::Ustr;
 
 use crate::{
     common::{
-        consts::REST_API_PATH, credential::CoinbaseCredential, enums::CoinbaseEnvironment, urls,
+        consts::REST_API_PATH,
+        credential::CoinbaseCredential,
+        enums::{CoinbaseEnvironment, CoinbaseProductType},
+        urls,
     },
-    http::error::{Error, Result},
+    http::{
+        error::{Error, Result},
+        models::{
+            AccountsResponse, Fill, FillsResponse, Order, OrderResponse, OrdersListResponse,
+            ProductsResponse,
+        },
+        parse::{
+            parse_account_state, parse_fill_report, parse_instrument, parse_order_status_report,
+        },
+    },
 };
 
 // Coinbase Advanced Trade rate limit: 30 requests per second
 fn default_quota() -> Option<Quota> {
     Quota::per_second(NonZeroU32::new(30).unwrap()) // Infallible: 30 is non-zero
+}
+
+// Query parameters for `request_order_status_reports_internal`.
+struct OrderStatusQuery {
+    account_id: AccountId,
+    product_id: Option<String>,
+    client_order_id_filter: Option<String>,
+    open_only: bool,
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+    limit: Option<u32>,
+}
+
+// Builds a query string from `(key, value)` pairs, percent-encoding both
+// halves. Coinbase cursors and RFC 3339 timestamps (`+00:00`) contain
+// reserved characters that must be encoded to avoid the server reading
+// them as a different query.
+fn encode_query(params: &[(&str, &str)]) -> String {
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+    for (k, v) in params {
+        serializer.append_pair(k, v);
+    }
+    serializer.finish()
 }
 
 /// Provides a raw HTTP client for low-level Coinbase Advanced Trade REST API operations.
@@ -249,14 +292,20 @@ impl CoinbaseRawHttpClient {
     }
 
     /// Sends an authenticated GET request with query parameters appended to the path.
+    ///
+    /// The JWT URI claim covers only `{METHOD} {host}{path}` without the
+    /// query string, matching the Coinbase SDK convention. Query parameters
+    /// are appended to the URL but excluded from the signing input.
     pub async fn get_with_query(&self, path: &str, query: &str) -> Result<Value> {
-        let full_path = if query.is_empty() {
+        let full_url_path = if query.is_empty() {
             path.to_string()
         } else {
             format!("{path}?{query}")
         };
-        let url = self.build_url(&full_path);
-        let headers = self.auth_headers("GET", &full_path)?;
+        let url = self.build_url(&full_url_path);
+
+        // Sign with the bare path only (no query string).
+        let headers = self.auth_headers("GET", path)?;
         let response = self
             .client
             .request(Method::GET, url, None, Some(headers), None, None, None)
@@ -301,17 +350,18 @@ impl CoinbaseRawHttpClient {
         self.parse_response(&response)
     }
 
-    /// Gets all available products.
+    /// Gets all available products via the public `/market/products` endpoint.
     pub async fn get_products(&self) -> Result<Value> {
-        self.get_public("/products").await
+        self.get_public("/market/products").await
     }
 
-    /// Gets a specific product by ID.
+    /// Gets a specific product by ID via the public endpoint.
     pub async fn get_product(&self, product_id: &str) -> Result<Value> {
-        self.get_public(&format!("/products/{product_id}")).await
+        self.get_public(&format!("/market/products/{product_id}"))
+            .await
     }
 
-    /// Gets candles for a product.
+    /// Gets candles for a product via the public endpoint.
     pub async fn get_candles(
         &self,
         product_id: &str,
@@ -320,40 +370,53 @@ impl CoinbaseRawHttpClient {
         granularity: &str,
     ) -> Result<Value> {
         let query = format!("start={start}&end={end}&granularity={granularity}");
-        self.get_public_with_query(&format!("/products/{product_id}/candles"), &query)
+        self.get_public_with_query(&format!("/market/products/{product_id}/candles"), &query)
             .await
     }
 
-    /// Gets market trades for a product.
+    /// Gets market trades for a product via the public endpoint.
     pub async fn get_market_trades(&self, product_id: &str, limit: u32) -> Result<Value> {
         let query = format!("limit={limit}");
-        self.get_public_with_query(&format!("/products/{product_id}/ticker"), &query)
+        self.get_public_with_query(&format!("/market/products/{product_id}/ticker"), &query)
             .await
     }
 
     /// Gets best bid/ask for one or more products.
+    ///
+    /// No public `/market/` equivalent exists for this endpoint; requires
+    /// authentication.
     pub async fn get_best_bid_ask(&self, product_ids: &[&str]) -> Result<Value> {
         let query = product_ids
             .iter()
             .map(|id| format!("product_ids={id}"))
             .collect::<Vec<_>>()
             .join("&");
-        self.get_public_with_query("/best_bid_ask", &query).await
+        self.get_with_query("/best_bid_ask", &query).await
     }
 
-    /// Gets the product order book.
+    /// Gets the product order book via the public endpoint.
     pub async fn get_product_book(&self, product_id: &str, limit: Option<u32>) -> Result<Value> {
         let mut query = format!("product_id={product_id}");
 
         if let Some(limit) = limit {
             query.push_str(&format!("&limit={limit}"));
         }
-        self.get_public_with_query("/product_book", &query).await
+        self.get_public_with_query("/market/product_book", &query)
+            .await
     }
 
     /// Gets all accounts.
     pub async fn get_accounts(&self) -> Result<Value> {
         self.get("/accounts").await
+    }
+
+    /// Gets accounts with a query string (for pagination via `cursor` / `limit`).
+    pub async fn get_accounts_with_query(&self, query: &str) -> Result<Value> {
+        if query.is_empty() {
+            self.get("/accounts").await
+        } else {
+            self.get_with_query("/accounts", query).await
+        }
     }
 
     /// Gets a specific account by UUID.
@@ -607,6 +670,535 @@ impl CoinbaseHttpClient {
     pub async fn get_transaction_summary(&self) -> Result<Value> {
         self.inner.get_transaction_summary().await
     }
+
+    /// Requests all instruments from Coinbase, optionally filtered by product type.
+    ///
+    /// Parses each supported product into a Nautilus [`InstrumentAny`] and caches
+    /// the results in the shared instrument map. Unsupported products (non-crypto
+    /// futures, `UNKNOWN` product types) are skipped with a debug log.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails or the response cannot be
+    /// deserialized.
+    pub async fn request_instruments(
+        &self,
+        product_type: Option<CoinbaseProductType>,
+    ) -> anyhow::Result<Vec<InstrumentAny>> {
+        let json = self
+            .inner
+            .get_products()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch products: {e}"))?;
+        let response: ProductsResponse =
+            serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))?;
+
+        let ts_init = self.ts_now();
+        let mut instruments = Vec::with_capacity(response.products.len());
+
+        for product in &response.products {
+            if let Some(filter) = product_type
+                && product.product_type != filter
+            {
+                continue;
+            }
+
+            match parse_instrument(product, ts_init) {
+                Ok(instrument) => instruments.push(instrument),
+                Err(e) => {
+                    log::debug!(
+                        "Skipping product '{}' during parse: {e}",
+                        product.product_id
+                    );
+                }
+            }
+        }
+
+        self.cache_instruments(&instruments);
+        Ok(instruments)
+    }
+
+    /// Requests a single instrument by product ID.
+    ///
+    /// Caches the result on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails, deserialization fails,
+    /// or the product cannot be parsed into a supported instrument.
+    pub async fn request_instrument(&self, product_id: &str) -> anyhow::Result<InstrumentAny> {
+        let json = self
+            .inner
+            .get_product(product_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch product '{product_id}': {e}"))?;
+        let product: crate::http::models::Product =
+            serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))?;
+        let ts_init = self.ts_now();
+        let instrument = parse_instrument(&product, ts_init)?;
+        self.cache_instrument(&instrument);
+        Ok(instrument)
+    }
+
+    /// Requests the current account state.
+    ///
+    /// Builds a cash-type [`AccountState`] from `/accounts` with one balance
+    /// per currency. Follows Coinbase's cursor pagination so multi-wallet
+    /// accounts are reported in full. `reported` is set to `true` since the
+    /// values come from the venue.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails or the response cannot
+    /// be parsed.
+    pub async fn request_account_state(
+        &self,
+        account_id: AccountId,
+    ) -> anyhow::Result<AccountState> {
+        let accounts = self.fetch_all_accounts().await?;
+        let ts_event = self.ts_now();
+        parse_account_state(&accounts, account_id, true, ts_event, ts_event)
+    }
+
+    async fn fetch_all_accounts(&self) -> anyhow::Result<Vec<crate::http::models::Account>> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let mut pairs: Vec<(&str, &str)> = vec![("limit", "250")];
+            if let Some(c) = cursor.as_deref().filter(|s| !s.is_empty()) {
+                pairs.push(("cursor", c));
+            }
+            let query_str = encode_query(&pairs);
+
+            let json = self
+                .inner
+                .get_accounts_with_query(&query_str)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to fetch accounts: {e}"))?;
+            let response: AccountsResponse =
+                serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))?;
+
+            all.extend(response.accounts);
+
+            if !response.has_next || response.cursor.is_empty() {
+                break;
+            }
+            cursor = Some(response.cursor);
+        }
+
+        Ok(all)
+    }
+
+    /// Requests a single order status report by venue or client order ID.
+    ///
+    /// Resolves venue order IDs first via `/orders/historical/{id}`. When only a
+    /// `client_order_id` is provided, paginates the order history filtered to
+    /// that client ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails, the order cannot be found,
+    /// or the response cannot be parsed.
+    pub async fn request_order_status_report(
+        &self,
+        account_id: AccountId,
+        client_order_id: Option<ClientOrderId>,
+        venue_order_id: Option<VenueOrderId>,
+    ) -> anyhow::Result<OrderStatusReport> {
+        let venue_order_id = match (venue_order_id, client_order_id) {
+            (Some(vid), _) => vid,
+            (None, Some(cid)) => {
+                // Fall back to batched query when only the client order ID is known
+                let reports = self
+                    .request_order_status_reports_internal(OrderStatusQuery {
+                        account_id,
+                        product_id: None,
+                        client_order_id_filter: Some(cid.as_str().to_string()),
+                        open_only: false,
+                        start: None,
+                        end: None,
+                        limit: None,
+                    })
+                    .await?;
+                return reports
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("No order found for client_order_id={cid}"));
+            }
+            (None, None) => {
+                anyhow::bail!("Either client_order_id or venue_order_id is required")
+            }
+        };
+
+        let json = self
+            .inner
+            .get_order(venue_order_id.as_str())
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch order: {e}"))?;
+        let response: OrderResponse =
+            serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))?;
+        let instrument = self
+            .get_or_fetch_instrument(response.order.product_id)
+            .await?;
+        let ts_init = self.ts_now();
+        parse_order_status_report(&response.order, &instrument, account_id, ts_init)
+    }
+
+    /// Requests order status reports, optionally filtered by instrument, open
+    /// status, and time window.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails or when any response cannot
+    /// be deserialized.
+    pub async fn request_order_status_reports(
+        &self,
+        account_id: AccountId,
+        instrument_id: Option<InstrumentId>,
+        open_only: bool,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let product_id = instrument_id.map(|id| id.symbol.as_str().to_string());
+        self.request_order_status_reports_internal(OrderStatusQuery {
+            account_id,
+            product_id,
+            client_order_id_filter: None,
+            open_only,
+            start,
+            end,
+            limit,
+        })
+        .await
+    }
+
+    async fn request_order_status_reports_internal(
+        &self,
+        query_params: OrderStatusQuery,
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let OrderStatusQuery {
+            account_id,
+            product_id,
+            client_order_id_filter,
+            open_only,
+            start,
+            end,
+            limit,
+        } = query_params;
+
+        let orders = self
+            .fetch_all_orders(
+                product_id.as_deref(),
+                open_only,
+                start,
+                end,
+                limit,
+                client_order_id_filter.as_deref(),
+            )
+            .await?;
+
+        let ts_init = self.ts_now();
+        let mut reports = Vec::with_capacity(orders.len());
+
+        for order in &orders {
+            let instrument = match self.get_or_fetch_instrument(order.product_id).await {
+                Ok(inst) => inst,
+                Err(e) => {
+                    log::debug!("Skipping order {}: {e}", order.order_id);
+                    continue;
+                }
+            };
+
+            match parse_order_status_report(order, &instrument, account_id, ts_init) {
+                Ok(report) => reports.push(report),
+                Err(e) => log::warn!("Failed to parse order {}: {e}", order.order_id),
+            }
+        }
+
+        Ok(reports)
+    }
+
+    async fn fetch_all_orders(
+        &self,
+        product_id: Option<&str>,
+        open_only: bool,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+        client_order_id_filter: Option<&str>,
+    ) -> anyhow::Result<Vec<Order>> {
+        let mut collected: Vec<Order> = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let start_str = start.map(|s| s.to_rfc3339());
+            let end_str = end.map(|e| e.to_rfc3339());
+            let limit_str = limit.map(|l| l.to_string());
+
+            let mut pairs: Vec<(&str, &str)> = Vec::new();
+
+            // Coinbase accepts `product_ids` as a repeated array parameter on
+            // `/orders/historical/batch`; the singular form is silently ignored.
+            if let Some(pid) = product_id {
+                pairs.push(("product_ids", pid));
+            }
+
+            if open_only {
+                pairs.push(("order_status", "OPEN"));
+            }
+
+            if let Some(s) = start_str.as_deref() {
+                pairs.push(("start_date", s));
+            }
+
+            if let Some(e) = end_str.as_deref() {
+                pairs.push(("end_date", e));
+            }
+
+            if let Some(l) = limit_str.as_deref() {
+                pairs.push(("limit", l));
+            }
+
+            if let Some(c) = cursor.as_deref().filter(|s| !s.is_empty()) {
+                pairs.push(("cursor", c));
+            }
+
+            let query_str = encode_query(&pairs);
+
+            let json = self
+                .inner
+                .get_orders(&query_str)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to fetch orders: {e}"))?;
+            let response: OrdersListResponse =
+                serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))?;
+
+            for order in response.orders {
+                if let Some(cid) = client_order_id_filter
+                    && order.client_order_id != cid
+                {
+                    continue;
+                }
+                collected.push(order);
+            }
+
+            // Stop when the caller wants a hard cap and we've reached it.
+            if let Some(limit) = limit
+                && collected.len() >= limit as usize
+            {
+                collected.truncate(limit as usize);
+                break;
+            }
+
+            if !response.has_next || response.cursor.is_empty() {
+                break;
+            }
+            cursor = Some(response.cursor);
+        }
+
+        Ok(collected)
+    }
+
+    /// Requests fill reports, optionally filtered by instrument, venue order ID,
+    /// and time window.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails or the response cannot be
+    /// deserialized.
+    pub async fn request_fill_reports(
+        &self,
+        account_id: AccountId,
+        instrument_id: Option<InstrumentId>,
+        venue_order_id: Option<VenueOrderId>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<FillReport>> {
+        let fills = self
+            .fetch_all_fills(
+                instrument_id.map(|id| id.symbol.as_str().to_string()),
+                venue_order_id.map(|id| id.as_str().to_string()),
+                start,
+                end,
+                limit,
+            )
+            .await?;
+
+        let ts_init = self.ts_now();
+        let mut reports = Vec::with_capacity(fills.len());
+
+        for fill in &fills {
+            let instrument = match self.get_or_fetch_instrument(fill.product_id).await {
+                Ok(inst) => inst,
+                Err(e) => {
+                    log::debug!("Skipping fill {}: {e}", fill.trade_id);
+                    continue;
+                }
+            };
+
+            match parse_fill_report(fill, &instrument, account_id, ts_init) {
+                Ok(report) => reports.push(report),
+                Err(e) => log::warn!("Failed to parse fill {}: {e}", fill.trade_id),
+            }
+        }
+
+        Ok(reports)
+    }
+
+    async fn fetch_all_fills(
+        &self,
+        product_id: Option<String>,
+        venue_order_id: Option<String>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<Fill>> {
+        let mut collected: Vec<Fill> = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let start_str = start.map(|s| s.to_rfc3339());
+            let end_str = end.map(|e| e.to_rfc3339());
+            let limit_str = limit.map(|l| l.to_string());
+
+            let mut pairs: Vec<(&str, &str)> = Vec::new();
+
+            // `/orders/historical/fills` takes repeated array filters for
+            // product and order IDs. Singular keys are accepted by the server
+            // but silently ignored, which would scan the full fill history.
+            if let Some(pid) = product_id.as_deref() {
+                pairs.push(("product_ids", pid));
+            }
+
+            if let Some(vid) = venue_order_id.as_deref() {
+                pairs.push(("order_ids", vid));
+            }
+
+            if let Some(s) = start_str.as_deref() {
+                pairs.push(("start_sequence_timestamp", s));
+            }
+
+            if let Some(e) = end_str.as_deref() {
+                pairs.push(("end_sequence_timestamp", e));
+            }
+
+            if let Some(l) = limit_str.as_deref() {
+                pairs.push(("limit", l));
+            }
+
+            if let Some(c) = cursor.as_deref().filter(|s| !s.is_empty()) {
+                pairs.push(("cursor", c));
+            }
+
+            let query_str = encode_query(&pairs);
+
+            let json = self
+                .inner
+                .get_fills(&query_str)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to fetch fills: {e}"))?;
+            let response: FillsResponse =
+                serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))?;
+
+            collected.extend(response.fills);
+
+            if let Some(limit) = limit
+                && collected.len() >= limit as usize
+            {
+                collected.truncate(limit as usize);
+                break;
+            }
+
+            if response.cursor.is_empty() {
+                break;
+            }
+            cursor = Some(response.cursor);
+        }
+
+        Ok(collected)
+    }
+
+    /// Caches an instrument in the shared instrument map.
+    pub fn cache_instrument(&self, instrument: &InstrumentAny) {
+        self.instruments.rcu(|m| {
+            m.insert(instrument.id(), instrument.clone());
+        });
+    }
+
+    /// Caches a batch of instruments in the shared instrument map.
+    pub fn cache_instruments(&self, instruments: &[InstrumentAny]) {
+        self.instruments.rcu(|m| {
+            for instrument in instruments {
+                m.insert(instrument.id(), instrument.clone());
+            }
+        });
+    }
+
+    // Returns the cached instrument for a product ID, fetching it on miss.
+    // Order and fill reconciliation calls parse hundreds of historical
+    // records and each one needs precision metadata. Rather than forcing
+    // callers to bootstrap the full instrument universe first, this lazy
+    // path fetches any missing product via `/products/{id}` and caches it.
+    async fn get_or_fetch_instrument(&self, product_id: Ustr) -> anyhow::Result<InstrumentAny> {
+        let instrument_id = InstrumentId::new(
+            Symbol::new(product_id),
+            *crate::common::consts::COINBASE_VENUE,
+        );
+
+        if let Some(instrument) = self.instruments.get_cloned(&instrument_id) {
+            return Ok(instrument);
+        }
+        // Cache miss — fetch and cache the single product. Any parse error
+        // (unsupported product type, missing fields) surfaces to the caller so
+        // the offending record can be skipped with a log.
+        self.request_instrument(product_id.as_str()).await
+    }
+
+    /// Wraps a submitted order: generates a fresh client order ID if none is
+    /// provided and returns the venue order ID upon success. Phase 1 exposes a
+    /// minimal raw path; Phase 4 will layer typed Nautilus Order conversion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails or the venue rejects the
+    /// order.
+    pub async fn submit_order_raw(
+        &self,
+        request: &crate::http::models::CreateOrderRequest,
+    ) -> anyhow::Result<crate::http::models::CreateOrderResponse> {
+        let body = serde_json::to_value(request).map_err(|e| anyhow::anyhow!(e))?;
+        let json = self
+            .inner
+            .create_order(&body)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to submit order: {e}"))?;
+        serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Cancels a batch of orders by venue order ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the HTTP request fails or the response cannot be
+    /// parsed.
+    pub async fn cancel_orders_raw(
+        &self,
+        venue_order_ids: &[VenueOrderId],
+    ) -> anyhow::Result<crate::http::models::CancelOrdersResponse> {
+        let ids: Vec<String> = venue_order_ids
+            .iter()
+            .map(|id| id.as_str().to_string())
+            .collect();
+        let json = self
+            .inner
+            .cancel_orders(&ids)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to cancel orders: {e}"))?;
+        serde_json::from_value(json).map_err(|e| anyhow::anyhow!(e))
+    }
 }
 
 #[cfg(test)]
@@ -694,5 +1286,26 @@ mod tests {
         // Verify via raw client's build_url
         let url = client.inner.build_url("/test");
         assert!(url.starts_with("http://localhost:9090"));
+    }
+
+    #[rstest]
+    fn test_encode_query_escapes_rfc3339_timestamps() {
+        let query = encode_query(&[("start_date", "2024-01-15T10:00:00+00:00")]);
+        // `+` must be escaped so the server does not read it as a space.
+        assert_eq!(query, "start_date=2024-01-15T10%3A00%3A00%2B00%3A00");
+    }
+
+    #[rstest]
+    fn test_encode_query_escapes_opaque_cursor() {
+        let query = encode_query(&[("cursor", "a/b+c=?&x")]);
+        // Reserved characters in an opaque cursor must not leak into the query structure.
+        assert!(!query.contains("a/b+c=?&x"));
+        assert!(query.starts_with("cursor="));
+    }
+
+    #[rstest]
+    fn test_encode_query_joins_pairs_with_ampersand() {
+        let query = encode_query(&[("product_id", "BTC-USD"), ("limit", "50")]);
+        assert_eq!(query, "product_id=BTC-USD&limit=50");
     }
 }

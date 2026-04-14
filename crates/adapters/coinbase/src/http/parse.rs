@@ -18,22 +18,30 @@
 use std::str::FromStr;
 
 use anyhow::Context;
-use nautilus_core::UnixNanos;
+use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     data::{Bar, BarType, BookOrder, OrderBookDelta, OrderBookDeltas, TradeTick},
-    enums::{AggressorSide, BookAction, OrderSide, RecordFlag},
-    identifiers::{InstrumentId, Symbol, TradeId},
-    instruments::{CryptoFuture, CryptoPerpetual, CurrencyPair, InstrumentAny},
-    types::{Currency, Price, Quantity},
+    enums::{
+        AccountType, AggressorSide, BookAction, LiquiditySide, OrderSide, OrderStatus, OrderType,
+        RecordFlag, TimeInForce,
+    },
+    events::AccountState,
+    identifiers::{AccountId, ClientOrderId, InstrumentId, Symbol, TradeId, VenueOrderId},
+    instruments::{CryptoFuture, CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny},
+    reports::{FillReport, OrderStatusReport},
+    types::{AccountBalance, Currency, Money, Price, Quantity},
 };
 use rust_decimal::Decimal;
 
 use crate::{
     common::{
         consts::COINBASE_VENUE,
-        enums::{CoinbaseContractExpiryType, CoinbaseOrderSide, CoinbaseProductType},
+        enums::{
+            CoinbaseContractExpiryType, CoinbaseLiquidityIndicator, CoinbaseOrderSide,
+            CoinbaseOrderStatus, CoinbaseProductType, CoinbaseTimeInForce,
+        },
     },
-    http::models::{BookLevel, Candle, PriceBook, Product, Trade},
+    http::models::{Account, BookLevel, Candle, Fill, Order, PriceBook, Product, Trade},
 };
 
 /// Parses an RFC 3339 timestamp string to `UnixNanos`.
@@ -96,12 +104,13 @@ pub fn coinbase_side_to_aggressor(side: &CoinbaseOrderSide) -> AggressorSide {
     }
 }
 
-/// Parses an optional quantity from a string, returning `None` for empty or zero.
+/// Parses an optional quantity from a string, returning `None` for empty,
+/// zero, or values that exceed Nautilus's `QUANTITY_RAW_MAX`.
 fn parse_optional_quantity(value: &str) -> Option<Quantity> {
     if value.is_empty() || value == "0" {
         None
     } else {
-        Some(Quantity::from(value))
+        Quantity::from_str(value).ok()
     }
 }
 
@@ -477,6 +486,439 @@ fn parse_book_delta(
     )
 }
 
+/// Converts a Coinbase order side to the Nautilus [`OrderSide`].
+pub fn parse_order_side(side: &CoinbaseOrderSide) -> OrderSide {
+    match side {
+        CoinbaseOrderSide::Buy => OrderSide::Buy,
+        CoinbaseOrderSide::Sell => OrderSide::Sell,
+        CoinbaseOrderSide::Unknown => OrderSide::NoOrderSide,
+    }
+}
+
+/// Converts a Coinbase order status to the Nautilus [`OrderStatus`].
+///
+/// `Open` maps to `Accepted` because Nautilus differentiates the initial
+/// accept event from later partial-fill states; callers should promote the
+/// status to `PartiallyFilled` / `Filled` based on `filled_qty`.
+pub fn parse_order_status(status: CoinbaseOrderStatus) -> OrderStatus {
+    match status {
+        CoinbaseOrderStatus::Pending | CoinbaseOrderStatus::Queued => OrderStatus::Submitted,
+        CoinbaseOrderStatus::Open => OrderStatus::Accepted,
+        CoinbaseOrderStatus::Filled => OrderStatus::Filled,
+        CoinbaseOrderStatus::Cancelled => OrderStatus::Canceled,
+        CoinbaseOrderStatus::CancelQueued => OrderStatus::PendingCancel,
+        CoinbaseOrderStatus::Expired => OrderStatus::Expired,
+        CoinbaseOrderStatus::Failed => OrderStatus::Rejected,
+        CoinbaseOrderStatus::Unknown => OrderStatus::Rejected,
+    }
+}
+
+/// Converts a Coinbase time-in-force to the Nautilus [`TimeInForce`].
+pub fn parse_time_in_force(tif: Option<CoinbaseTimeInForce>) -> TimeInForce {
+    match tif {
+        Some(CoinbaseTimeInForce::GoodUntilCancelled) => TimeInForce::Gtc,
+        Some(CoinbaseTimeInForce::GoodUntilDate) => TimeInForce::Gtd,
+        Some(CoinbaseTimeInForce::ImmediateOrCancel) => TimeInForce::Ioc,
+        Some(CoinbaseTimeInForce::FillOrKill) => TimeInForce::Fok,
+        Some(CoinbaseTimeInForce::Unknown) | None => TimeInForce::Gtc,
+    }
+}
+
+/// Converts a Coinbase liquidity indicator to the Nautilus [`LiquiditySide`].
+pub fn parse_liquidity_side(indicator: &CoinbaseLiquidityIndicator) -> LiquiditySide {
+    match indicator {
+        CoinbaseLiquidityIndicator::Maker => LiquiditySide::Maker,
+        CoinbaseLiquidityIndicator::Taker => LiquiditySide::Taker,
+        CoinbaseLiquidityIndicator::Unknown => LiquiditySide::NoLiquiditySide,
+    }
+}
+
+/// Converts the Coinbase `order_type` string to the Nautilus [`OrderType`].
+///
+/// Coinbase returns order_type as a plain string (`"LIMIT"`, `"MARKET"`,
+/// `"STOP_LIMIT"`, ...) on the order history endpoint. Unrecognized values
+/// fall back to [`OrderType::Limit`] rather than surfacing an error, matching
+/// the OKX parser's tolerance.
+pub fn parse_order_type(order_type: &str) -> OrderType {
+    match order_type {
+        "MARKET" => OrderType::Market,
+        "LIMIT" => OrderType::Limit,
+        "STOP" => OrderType::StopMarket,
+        "STOP_LIMIT" => OrderType::StopLimit,
+        "BRACKET" => OrderType::Limit,
+        _ => OrderType::Limit,
+    }
+}
+
+/// Parses a Coinbase [`Order`] into an [`OrderStatusReport`].
+///
+/// Uses the given instrument's price and size precision to build quantities
+/// and prices, and derives the limit price from the order configuration when
+/// present. Timestamps default to `ts_init` when Coinbase omits them.
+///
+/// # Errors
+///
+/// Returns an error when any numeric field cannot be parsed against the
+/// instrument precision.
+pub fn parse_order_status_report(
+    order: &Order,
+    instrument: &InstrumentAny,
+    account_id: AccountId,
+    ts_init: UnixNanos,
+) -> anyhow::Result<OrderStatusReport> {
+    let instrument_id = instrument.id();
+    let price_precision = instrument.price_precision();
+    let size_precision = instrument.size_precision();
+
+    let order_side = parse_order_side(&order.side);
+    let order_type = parse_order_type(&order.order_type);
+    let time_in_force = parse_time_in_force(order.time_in_force);
+    let mut order_status = parse_order_status(order.status);
+
+    let venue_order_id = VenueOrderId::new(&order.order_id);
+    let client_order_id = if order.client_order_id.is_empty() {
+        None
+    } else {
+        Some(ClientOrderId::new(&order.client_order_id))
+    };
+
+    let filled_qty = if order.filled_size.is_empty() {
+        Quantity::zero(size_precision)
+    } else {
+        parse_quantity(&order.filled_size, size_precision).context("failed to parse filled_size")?
+    };
+
+    // Derive the ordered quantity from the order_configuration. For quote-sized
+    // market orders the base quantity is not reported pre-fill; fall back to
+    // filled_qty when the order is terminal.
+    let quantity = base_quantity_from_configuration(order, size_precision).unwrap_or(filled_qty);
+
+    // Promote Accepted to PartiallyFilled when some fill has landed but the
+    // order is still open, matching Nautilus' lifecycle.
+    if order_status == OrderStatus::Accepted && filled_qty.is_positive() && filled_qty < quantity {
+        order_status = OrderStatus::PartiallyFilled;
+    }
+
+    let ts_accepted = if order.created_time.is_empty() {
+        ts_init
+    } else {
+        parse_rfc3339_timestamp(&order.created_time).unwrap_or(ts_init)
+    };
+    let ts_last = order
+        .last_fill_time
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| parse_rfc3339_timestamp(s).ok())
+        .unwrap_or(ts_accepted);
+
+    let mut report = OrderStatusReport::new(
+        account_id,
+        instrument_id,
+        client_order_id,
+        venue_order_id,
+        order_side,
+        order_type,
+        time_in_force,
+        order_status,
+        quantity,
+        filled_qty,
+        ts_accepted,
+        ts_last,
+        ts_init,
+        None,
+    );
+
+    if let Some(price) = limit_price_from_configuration(order, price_precision) {
+        report = report.with_price(price);
+    }
+
+    if let Some(trigger_price) = stop_price_from_configuration(order, price_precision) {
+        report = report.with_trigger_price(trigger_price);
+    }
+
+    if !order.average_filled_price.is_empty()
+        && let Ok(avg_px) = order.average_filled_price.parse::<f64>()
+        && avg_px > 0.0
+    {
+        report = report.with_avg_px(avg_px)?;
+    }
+
+    if post_only_from_configuration(order) {
+        report = report.with_post_only(true);
+    }
+
+    if let Some(expire_time) = end_time_from_configuration(order) {
+        report = report.with_expire_time(expire_time);
+    }
+
+    Ok(report)
+}
+
+/// Parses a Coinbase [`Fill`] into a [`FillReport`].
+///
+/// Commission currency defaults to the instrument's quote currency, which
+/// matches how Coinbase reports fees for spot products. Negates the fee sign
+/// to follow the Nautilus convention where commissions are positive when
+/// paid by the taker.
+///
+/// # Errors
+///
+/// Returns an error when the price, size, or commission cannot be parsed.
+pub fn parse_fill_report(
+    fill: &Fill,
+    instrument: &InstrumentAny,
+    account_id: AccountId,
+    ts_init: UnixNanos,
+) -> anyhow::Result<FillReport> {
+    let instrument_id = instrument.id();
+    let price_precision = instrument.price_precision();
+    let size_precision = instrument.size_precision();
+
+    let venue_order_id = VenueOrderId::new(&fill.order_id);
+    let trade_id = TradeId::new(&fill.trade_id);
+    let order_side = parse_order_side(&fill.side);
+    let last_px = parse_price(&fill.price, price_precision)?;
+    let last_qty = parse_quantity(&fill.size, size_precision)?;
+
+    let commission_currency = instrument.quote_currency();
+    let commission_dec =
+        Decimal::from_str(&fill.commission).context("failed to parse commission")?;
+    let commission = Money::from_decimal(commission_dec, commission_currency)
+        .context("failed to build commission Money")?;
+
+    let liquidity_side = parse_liquidity_side(&fill.liquidity_indicator);
+    let ts_event = parse_rfc3339_timestamp(&fill.trade_time)?;
+
+    Ok(FillReport::new(
+        account_id,
+        instrument_id,
+        venue_order_id,
+        trade_id,
+        order_side,
+        last_qty,
+        last_px,
+        commission,
+        liquidity_side,
+        None, // client_order_id not carried on Coinbase fill records
+        None, // venue_position_id not provided
+        ts_event,
+        ts_init,
+        None,
+    ))
+}
+
+/// Parses a list of Coinbase [`Account`] entries into a Nautilus [`AccountState`].
+///
+/// Builds one [`AccountBalance`] per currency where
+/// `total = available_balance + hold`, `free = available_balance`, and
+/// `locked = hold`. Accounts with invalid balances are skipped with a debug
+/// log. Always emits at least one balance so the resulting
+/// [`AccountState`] is valid.
+///
+/// # Errors
+///
+/// Returns an error when building a balance fails after all accounts have
+/// been exhausted (i.e. every entry was malformed).
+pub fn parse_account_state(
+    accounts: &[Account],
+    account_id: AccountId,
+    is_reported: bool,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<AccountState> {
+    // Coinbase returns one row per wallet, so the same currency may appear
+    // multiple times (per retail portfolio or sub-account). Aggregate by
+    // currency before emitting balances: Nautilus stores balances keyed by
+    // `Currency`, so emitting duplicates would drop funds via last-write-wins.
+    let mut aggregated: ahash::AHashMap<Currency, (Money, Money)> = ahash::AHashMap::new();
+
+    for account in accounts {
+        let currency_code = account.currency.as_str().trim();
+        if currency_code.is_empty() {
+            log::debug!(
+                "Skipping account with empty currency code: uuid={}",
+                account.uuid
+            );
+            continue;
+        }
+
+        let currency =
+            Currency::get_or_create_crypto_with_context(currency_code, Some("coinbase account"));
+
+        let Some(free) = parse_money_field(
+            &account.available_balance.value,
+            "available_balance",
+            currency,
+        ) else {
+            continue;
+        };
+
+        let locked = match account.hold.as_ref() {
+            Some(hold) => {
+                parse_money_field(&hold.value, "hold", currency).unwrap_or(Money::zero(currency))
+            }
+            None => Money::zero(currency),
+        };
+
+        aggregated
+            .entry(currency)
+            .and_modify(|(acc_free, acc_locked)| {
+                *acc_free = *acc_free + free;
+                *acc_locked = *acc_locked + locked;
+            })
+            .or_insert((free, locked));
+    }
+
+    let mut balances: Vec<AccountBalance> = aggregated
+        .into_values()
+        .map(|(free, locked)| {
+            let total = free + locked;
+            AccountBalance::new(total, locked, free)
+        })
+        .collect();
+
+    if balances.is_empty() {
+        let fallback_currency = Currency::USD();
+        let zero = Money::zero(fallback_currency);
+        balances.push(AccountBalance::new(zero, zero, zero));
+    }
+
+    Ok(AccountState::new(
+        account_id,
+        AccountType::Cash,
+        balances,
+        Vec::new(),
+        is_reported,
+        UUID4::new(),
+        ts_event,
+        ts_init,
+        None,
+    ))
+}
+
+fn parse_money_field(value: &str, field: &str, currency: Currency) -> Option<Money> {
+    if value.trim().is_empty() {
+        return Some(Money::zero(currency));
+    }
+
+    match Decimal::from_str(value.trim()) {
+        Ok(dec) => match Money::from_decimal(dec, currency) {
+            Ok(money) => Some(money),
+            Err(e) => {
+                log::debug!(
+                    "Skipping {field}='{value}' for currency {}: {e}",
+                    currency.code
+                );
+                None
+            }
+        },
+        Err(e) => {
+            log::debug!(
+                "Failed to parse {field}='{value}' for currency {}: {e}",
+                currency.code
+            );
+            None
+        }
+    }
+}
+
+// Coinbase history endpoints return a wider set of configuration shapes than
+// `OrderConfiguration` covers (bracket, TWAP, trigger variants). History
+// `Order.order_configuration` is kept as a raw `serde_json::Value`; these
+// helpers dig into the value by key so unknown shapes simply return `None`
+// instead of failing the whole batch.
+fn base_quantity_from_configuration(order: &Order, size_precision: u8) -> Option<Quantity> {
+    let config = order.order_configuration.as_ref()?.as_object()?;
+
+    for (_key, inner) in config {
+        let Some(inner_obj) = inner.as_object() else {
+            continue;
+        };
+
+        if let Some(size) = inner_obj.get("base_size").and_then(|v| v.as_str())
+            && !size.is_empty()
+            && let Ok(qty) = parse_quantity(size, size_precision)
+        {
+            return Some(qty);
+        }
+    }
+
+    None
+}
+
+fn limit_price_from_configuration(order: &Order, price_precision: u8) -> Option<Price> {
+    let config = order.order_configuration.as_ref()?.as_object()?;
+
+    for (_key, inner) in config {
+        let Some(inner_obj) = inner.as_object() else {
+            continue;
+        };
+
+        if let Some(price) = inner_obj.get("limit_price").and_then(|v| v.as_str())
+            && !price.is_empty()
+            && let Ok(parsed) = parse_price(price, price_precision)
+        {
+            return Some(parsed);
+        }
+    }
+
+    None
+}
+
+fn stop_price_from_configuration(order: &Order, price_precision: u8) -> Option<Price> {
+    let config = order.order_configuration.as_ref()?.as_object()?;
+
+    for (_key, inner) in config {
+        let Some(inner_obj) = inner.as_object() else {
+            continue;
+        };
+
+        if let Some(stop) = inner_obj.get("stop_price").and_then(|v| v.as_str())
+            && !stop.is_empty()
+            && let Ok(parsed) = parse_price(stop, price_precision)
+        {
+            return Some(parsed);
+        }
+    }
+
+    None
+}
+
+fn post_only_from_configuration(order: &Order) -> bool {
+    let Some(config) = order
+        .order_configuration
+        .as_ref()
+        .and_then(|v| v.as_object())
+    else {
+        return false;
+    };
+
+    for (_key, inner) in config {
+        if let Some(inner_obj) = inner.as_object()
+            && let Some(post_only) = inner_obj.get("post_only").and_then(|v| v.as_bool())
+        {
+            return post_only;
+        }
+    }
+    false
+}
+
+fn end_time_from_configuration(order: &Order) -> Option<UnixNanos> {
+    let config = order.order_configuration.as_ref()?.as_object()?;
+
+    for (_key, inner) in config {
+        if let Some(inner_obj) = inner.as_object()
+            && let Some(end_time) = inner_obj.get("end_time").and_then(|v| v.as_str())
+            && !end_time.is_empty()
+            && let Ok(ts) = parse_rfc3339_timestamp(end_time)
+        {
+            return Some(ts);
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use nautilus_model::{
@@ -489,7 +931,10 @@ mod tests {
     use ustr::Ustr;
 
     use super::*;
-    use crate::common::testing::load_test_fixture;
+    use crate::{
+        common::testing::load_test_fixture,
+        http::models::{Account, Balance},
+    };
 
     fn coinbase_venue() -> Venue {
         Venue::new(Ustr::from("COINBASE"))
@@ -807,5 +1252,625 @@ mod tests {
         // Last delta has F_LAST flag
         let last = deltas.deltas.last().unwrap();
         assert_ne!(last.flags & RecordFlag::F_LAST as u8, 0);
+    }
+
+    fn btc_usd_instrument() -> InstrumentAny {
+        let json = load_test_fixture("http_product.json");
+        let product: crate::http::models::Product = serde_json::from_str(&json).unwrap();
+        parse_spot_instrument(&product, UnixNanos::default()).unwrap()
+    }
+
+    #[rstest]
+    fn test_parse_order_status_report_fully_filled_limit_gtc() {
+        let json = load_test_fixture("http_order.json");
+        let response: crate::http::models::OrderResponse = serde_json::from_str(&json).unwrap();
+        let instrument = btc_usd_instrument();
+        let account_id = AccountId::new("COINBASE-001");
+        let ts_init = UnixNanos::from(1);
+
+        let report =
+            parse_order_status_report(&response.order, &instrument, account_id, ts_init).unwrap();
+
+        assert_eq!(report.account_id, account_id);
+        assert_eq!(report.instrument_id.symbol.as_str(), "BTC-USD");
+        assert_eq!(report.venue_order_id.as_str(), "0000-000000-000000");
+        assert_eq!(
+            report.client_order_id.unwrap().as_str(),
+            "11111-000000-000000"
+        );
+        assert_eq!(report.order_side, OrderSide::Buy);
+        assert_eq!(report.order_type, OrderType::Limit);
+        assert_eq!(report.time_in_force, TimeInForce::Gtc);
+        // filled_size (0.001) == base_size (0.001), so status stays Accepted
+        // rather than promoting to PartiallyFilled.
+        assert_eq!(report.order_status, OrderStatus::Accepted);
+        assert_eq!(report.quantity, Quantity::from("0.001"));
+        assert_eq!(report.filled_qty, Quantity::from("0.001"));
+        assert_eq!(report.price, Some(Price::from("10000.00")));
+        assert_eq!(report.avg_px, Some(Decimal::from(50)));
+    }
+
+    #[rstest]
+    fn test_parse_order_status_report_filled_market_order() {
+        let json = load_test_fixture("http_orders_list.json");
+        let response: crate::http::models::OrdersListResponse =
+            serde_json::from_str(&json).unwrap();
+        let instrument = btc_usd_instrument();
+        let account_id = AccountId::new("COINBASE-001");
+        let ts_init = UnixNanos::from(1);
+
+        // Second order in the list is a filled MARKET order
+        let filled_order = &response.orders[1];
+        let report =
+            parse_order_status_report(filled_order, &instrument, account_id, ts_init).unwrap();
+
+        assert_eq!(report.order_status, OrderStatus::Filled);
+        assert_eq!(report.order_type, OrderType::Market);
+        assert_eq!(report.order_side, OrderSide::Sell);
+        assert_eq!(report.time_in_force, TimeInForce::Ioc);
+        // Market quote-size orders fall back to filled_qty for total quantity
+        assert_eq!(report.filled_qty, Quantity::from("0.0325"));
+        assert_eq!(report.quantity, report.filled_qty);
+        assert!(report.price.is_none());
+    }
+
+    #[rstest]
+    fn test_parse_fill_report_maker() {
+        let json = load_test_fixture("http_fills.json");
+        let response: crate::http::models::FillsResponse = serde_json::from_str(&json).unwrap();
+        let instrument = btc_usd_instrument();
+        let account_id = AccountId::new("COINBASE-001");
+        let ts_init = UnixNanos::from(1);
+
+        let maker_fill = &response.fills[0];
+        let report = parse_fill_report(maker_fill, &instrument, account_id, ts_init).unwrap();
+
+        assert_eq!(report.account_id, account_id);
+        assert_eq!(report.trade_id.as_str(), "1111-11111-111111");
+        assert_eq!(report.venue_order_id.as_str(), "0000-000000-000000");
+        assert_eq!(report.order_side, OrderSide::Buy);
+        assert_eq!(report.liquidity_side, LiquiditySide::Maker);
+        assert_eq!(report.last_px, Price::from("45123.45"));
+        assert_eq!(report.last_qty, Quantity::from("0.00500000"));
+        assert_eq!(
+            report.commission.as_decimal(),
+            Decimal::from_str("1.14").unwrap()
+        );
+        assert_eq!(report.commission.currency.code.as_str(), "USD");
+    }
+
+    #[rstest]
+    fn test_parse_account_state_spot_cash() {
+        let json = load_test_fixture("http_accounts.json");
+        let response: crate::http::models::AccountsResponse = serde_json::from_str(&json).unwrap();
+        let account_id = AccountId::new("COINBASE-001");
+        let ts_event = UnixNanos::from(1);
+        let ts_init = UnixNanos::from(2);
+
+        let state =
+            parse_account_state(&response.accounts, account_id, true, ts_event, ts_init).unwrap();
+
+        assert_eq!(state.account_id, account_id);
+        assert_eq!(state.account_type, AccountType::Cash);
+        assert!(state.is_reported);
+        assert_eq!(state.margins.len(), 0);
+        assert_eq!(state.balances.len(), 2);
+
+        let btc_balance = state
+            .balances
+            .iter()
+            .find(|b| b.currency.code.as_str() == "BTC")
+            .expect("BTC balance present");
+        assert_eq!(
+            btc_balance.free.as_decimal(),
+            Decimal::from_str("1.23456789").unwrap()
+        );
+        assert_eq!(
+            btc_balance.locked.as_decimal(),
+            Decimal::from_str("0.00500000").unwrap()
+        );
+        assert_eq!(
+            btc_balance.total.as_decimal(),
+            btc_balance.free.as_decimal() + btc_balance.locked.as_decimal()
+        );
+
+        let usd_balance = state
+            .balances
+            .iter()
+            .find(|b| b.currency.code.as_str() == "USD")
+            .expect("USD balance present");
+        assert_eq!(
+            usd_balance.free.as_decimal(),
+            Decimal::from_str("10000.50").unwrap()
+        );
+        assert_eq!(
+            usd_balance.locked.as_decimal(),
+            Decimal::from_str("450.00").unwrap()
+        );
+    }
+
+    #[rstest]
+    fn test_parse_account_state_aggregates_same_currency() {
+        fn make_account(
+            currency: &str,
+            available: &str,
+            hold: &str,
+            uuid: &str,
+            portfolio: &str,
+        ) -> Account {
+            Account {
+                uuid: uuid.to_string(),
+                name: "wallet".to_string(),
+                currency: Ustr::from(currency),
+                available_balance: Balance {
+                    value: available.to_string(),
+                    currency: Ustr::from(currency),
+                },
+                default: false,
+                active: true,
+                created_at: String::new(),
+                updated_at: String::new(),
+                deleted_at: None,
+                account_type: "ACCOUNT_TYPE_FIAT".to_string(),
+                ready: true,
+                hold: Some(Balance {
+                    value: hold.to_string(),
+                    currency: Ustr::from(currency),
+                }),
+                retail_portfolio_id: portfolio.to_string(),
+            }
+        }
+
+        let accounts = vec![
+            make_account("USD", "1000.00", "50.00", "uuid-1", "portfolio-a"),
+            make_account("USD", "2500.00", "25.00", "uuid-2", "portfolio-b"),
+            make_account("BTC", "0.5", "0.1", "uuid-3", "portfolio-a"),
+        ];
+
+        let account_id = AccountId::new("COINBASE-001");
+        let state = parse_account_state(
+            &accounts,
+            account_id,
+            true,
+            UnixNanos::from(1),
+            UnixNanos::from(2),
+        )
+        .unwrap();
+
+        assert_eq!(state.balances.len(), 2);
+
+        let usd = state
+            .balances
+            .iter()
+            .find(|b| b.currency.code.as_str() == "USD")
+            .expect("USD balance aggregated");
+        assert_eq!(usd.free.as_decimal(), Decimal::from_str("3500.00").unwrap());
+        assert_eq!(usd.locked.as_decimal(), Decimal::from_str("75.00").unwrap());
+        assert_eq!(
+            usd.total.as_decimal(),
+            Decimal::from_str("3575.00").unwrap()
+        );
+
+        let btc = state
+            .balances
+            .iter()
+            .find(|b| b.currency.code.as_str() == "BTC")
+            .expect("BTC balance present");
+        assert_eq!(btc.free.as_decimal(), Decimal::from_str("0.5").unwrap());
+        assert_eq!(btc.locked.as_decimal(), Decimal::from_str("0.1").unwrap());
+    }
+
+    #[rstest]
+    fn test_parse_account_state_empty_falls_back_to_zero_usd() {
+        let account_id = AccountId::new("COINBASE-001");
+        let state = parse_account_state(
+            &[],
+            account_id,
+            true,
+            UnixNanos::from(1),
+            UnixNanos::from(2),
+        )
+        .unwrap();
+
+        assert_eq!(state.balances.len(), 1);
+        let balance = &state.balances[0];
+        assert_eq!(balance.currency.code.as_str(), "USD");
+        assert_eq!(balance.total.as_decimal(), Decimal::ZERO);
+    }
+
+    #[rstest]
+    #[case("MARKET", OrderType::Market)]
+    #[case("LIMIT", OrderType::Limit)]
+    #[case("STOP_LIMIT", OrderType::StopLimit)]
+    #[case("UNKNOWN", OrderType::Limit)]
+    fn test_parse_order_type(#[case] input: &str, #[case] expected: OrderType) {
+        assert_eq!(parse_order_type(input), expected);
+    }
+
+    #[rstest]
+    #[case(CoinbaseOrderStatus::Open, OrderStatus::Accepted)]
+    #[case(CoinbaseOrderStatus::Filled, OrderStatus::Filled)]
+    #[case(CoinbaseOrderStatus::Cancelled, OrderStatus::Canceled)]
+    #[case(CoinbaseOrderStatus::CancelQueued, OrderStatus::PendingCancel)]
+    #[case(CoinbaseOrderStatus::Expired, OrderStatus::Expired)]
+    #[case(CoinbaseOrderStatus::Failed, OrderStatus::Rejected)]
+    #[case(CoinbaseOrderStatus::Pending, OrderStatus::Submitted)]
+    fn test_parse_order_status(#[case] input: CoinbaseOrderStatus, #[case] expected: OrderStatus) {
+        assert_eq!(parse_order_status(input), expected);
+    }
+
+    // Builds a minimal limit-GTC order with overridable size fields so tests
+    // can exercise partial-fill, error, and boundary paths without adding a
+    // fixture per permutation.
+    fn make_limit_gtc_order(
+        base_size: &str,
+        limit_price: &str,
+        filled_size: &str,
+        status: CoinbaseOrderStatus,
+    ) -> crate::http::models::Order {
+        crate::http::models::Order {
+            order_id: "venue-abc".to_string(),
+            product_id: Ustr::from("BTC-USD"),
+            user_id: "user-1".to_string(),
+            order_configuration: Some(serde_json::json!({
+                "limit_limit_gtc": {
+                    "base_size": base_size,
+                    "limit_price": limit_price,
+                    "post_only": false,
+                }
+            })),
+            side: CoinbaseOrderSide::Buy,
+            client_order_id: "client-abc".to_string(),
+            status,
+            time_in_force: Some(CoinbaseTimeInForce::GoodUntilCancelled),
+            created_time: "2024-01-15T10:00:00Z".to_string(),
+            completion_percentage: String::new(),
+            filled_size: filled_size.to_string(),
+            average_filled_price: String::new(),
+            fee: String::new(),
+            number_of_fills: String::new(),
+            filled_value: String::new(),
+            pending_cancel: false,
+            size_in_quote: false,
+            total_fees: String::new(),
+            size_inclusive_of_fees: false,
+            total_value_after_fees: String::new(),
+            trigger_status: String::new(),
+            order_type: "LIMIT".to_string(),
+            reject_reason: String::new(),
+            settled: false,
+            product_type: "SPOT".to_string(),
+            reject_message: String::new(),
+            cancel_message: String::new(),
+            order_placement_source: String::new(),
+            outstanding_hold_amount: String::new(),
+            is_liquidation: false,
+            last_fill_time: None,
+            leverage: String::new(),
+            margin_type: String::new(),
+            retail_portfolio_id: String::new(),
+            originating_order_id: String::new(),
+            attached_order_id: String::new(),
+        }
+    }
+
+    #[rstest]
+    #[case::partially_filled("0.001", "0.0005", OrderStatus::PartiallyFilled)]
+    #[case::fully_equals_boundary("0.001", "0.001", OrderStatus::Accepted)]
+    #[case::zero_filled("0.001", "0", OrderStatus::Accepted)]
+    fn test_parse_order_status_report_promotes_to_partially_filled(
+        #[case] base_size: &str,
+        #[case] filled_size: &str,
+        #[case] expected_status: OrderStatus,
+    ) {
+        let order = make_limit_gtc_order(
+            base_size,
+            "50000.00",
+            filled_size,
+            CoinbaseOrderStatus::Open,
+        );
+        let instrument = btc_usd_instrument();
+        let account_id = AccountId::new("COINBASE-001");
+
+        let report =
+            parse_order_status_report(&order, &instrument, account_id, UnixNanos::from(1)).unwrap();
+
+        assert_eq!(report.order_status, expected_status);
+        assert_eq!(report.quantity, Quantity::from(base_size));
+    }
+
+    #[rstest]
+    fn test_parse_order_status_report_rejects_malformed_filled_size() {
+        let mut order = make_limit_gtc_order("0.001", "50000.00", "0", CoinbaseOrderStatus::Open);
+        order.filled_size = "not-a-number".to_string();
+        let instrument = btc_usd_instrument();
+
+        let err = parse_order_status_report(
+            &order,
+            &instrument,
+            AccountId::new("COINBASE-001"),
+            UnixNanos::from(1),
+        )
+        .unwrap_err();
+
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("failed to parse filled_size"),
+            "expected failed to parse filled_size in error chain, was: {chain}"
+        );
+    }
+
+    fn make_fill(commission: &str, price: &str, size: &str, trade_time: &str) -> Fill {
+        Fill {
+            entry_id: "entry-1".to_string(),
+            trade_id: "trade-1".to_string(),
+            order_id: "venue-1".to_string(),
+            trade_time: trade_time.to_string(),
+            trade_type: "FILL".to_string(),
+            price: price.to_string(),
+            size: size.to_string(),
+            commission: commission.to_string(),
+            product_id: Ustr::from("BTC-USD"),
+            sequence_timestamp: "2024-01-15T10:30:00.000Z".to_string(),
+            liquidity_indicator: CoinbaseLiquidityIndicator::Maker,
+            size_in_quote: false,
+            user_id: "user-1".to_string(),
+            side: CoinbaseOrderSide::Buy,
+            retail_portfolio_id: String::new(),
+        }
+    }
+
+    #[rstest]
+    fn test_parse_fill_report_rejects_malformed_commission() {
+        let fill = make_fill("not-a-number", "45000.00", "0.001", "2024-01-15T10:30:00Z");
+        let instrument = btc_usd_instrument();
+
+        let err = parse_fill_report(
+            &fill,
+            &instrument,
+            AccountId::new("COINBASE-001"),
+            UnixNanos::from(1),
+        )
+        .unwrap_err();
+
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("failed to parse commission"),
+            "expected failed to parse commission in error chain, was: {chain}"
+        );
+    }
+
+    #[rstest]
+    fn test_parse_fill_report_rejects_non_rfc3339_trade_time() {
+        let fill = make_fill("0.50", "45000.00", "0.001", "not-a-timestamp");
+        let instrument = btc_usd_instrument();
+
+        let result = parse_fill_report(
+            &fill,
+            &instrument,
+            AccountId::new("COINBASE-001"),
+            UnixNanos::from(1),
+        );
+        assert!(result.is_err(), "expected parse failure on bad trade_time");
+    }
+
+    #[rstest]
+    fn test_parse_account_state_skips_malformed_entry() {
+        let valid = Account {
+            uuid: "uuid-valid".to_string(),
+            name: "USD Wallet".to_string(),
+            currency: Ustr::from("USD"),
+            available_balance: Balance {
+                value: "1000.00".to_string(),
+                currency: Ustr::from("USD"),
+            },
+            default: false,
+            active: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+            deleted_at: None,
+            account_type: "ACCOUNT_TYPE_FIAT".to_string(),
+            ready: true,
+            hold: Some(Balance {
+                value: "50.00".to_string(),
+                currency: Ustr::from("USD"),
+            }),
+            retail_portfolio_id: String::new(),
+        };
+
+        let malformed = Account {
+            available_balance: Balance {
+                value: "not-a-number".to_string(),
+                currency: Ustr::from("BTC"),
+            },
+            currency: Ustr::from("BTC"),
+            uuid: "uuid-malformed".to_string(),
+            ..valid.clone()
+        };
+
+        let state = parse_account_state(
+            &[malformed, valid],
+            AccountId::new("COINBASE-001"),
+            true,
+            UnixNanos::from(1),
+            UnixNanos::from(2),
+        )
+        .unwrap();
+
+        // Malformed entry was skipped; only the valid USD row survives.
+        assert_eq!(state.balances.len(), 1);
+        assert_eq!(state.balances[0].currency.code.as_str(), "USD");
+        assert_eq!(
+            state.balances[0].free.as_decimal(),
+            Decimal::from_str("1000.00").unwrap()
+        );
+    }
+
+    #[rstest]
+    fn test_parse_order_status_report_extracts_stop_limit_trigger_price() {
+        let order = crate::http::models::Order {
+            order_configuration: Some(serde_json::json!({
+                "stop_limit_stop_limit_gtc": {
+                    "base_size": "0.001",
+                    "limit_price": "49500.00",
+                    "stop_price": "49000.00",
+                    "stop_direction": "STOP_DIRECTION_STOP_DOWN"
+                }
+            })),
+            order_type: "STOP_LIMIT".to_string(),
+            ..make_limit_gtc_order("0.001", "0", "0", CoinbaseOrderStatus::Open)
+        };
+        let instrument = btc_usd_instrument();
+
+        let report = parse_order_status_report(
+            &order,
+            &instrument,
+            AccountId::new("COINBASE-001"),
+            UnixNanos::from(1),
+        )
+        .unwrap();
+
+        assert_eq!(report.order_type, OrderType::StopLimit);
+        assert_eq!(report.price, Some(Price::from("49500.00")));
+        assert_eq!(report.trigger_price, Some(Price::from("49000.00")));
+    }
+
+    #[rstest]
+    #[case::limit_gtc_post_only_true("limit_limit_gtc", true)]
+    #[case::limit_gtc_post_only_false("limit_limit_gtc", false)]
+    fn test_parse_order_status_report_propagates_post_only(
+        #[case] config_key: &str,
+        #[case] post_only: bool,
+    ) {
+        let config = serde_json::json!({
+            config_key: {
+                "base_size": "0.001",
+                "limit_price": "50000.00",
+                "post_only": post_only,
+            }
+        });
+        let order = crate::http::models::Order {
+            order_configuration: Some(config),
+            ..make_limit_gtc_order("0.001", "50000.00", "0", CoinbaseOrderStatus::Open)
+        };
+
+        let report = parse_order_status_report(
+            &order,
+            &btc_usd_instrument(),
+            AccountId::new("COINBASE-001"),
+            UnixNanos::from(1),
+        )
+        .unwrap();
+
+        assert_eq!(report.post_only, post_only);
+    }
+
+    #[rstest]
+    fn test_parse_order_with_unknown_configuration_does_not_fail() {
+        // Coinbase history may return bracket, TWAP, or trigger configs that
+        // the submit-side OrderConfiguration enum does not model. The raw
+        // JSON field must tolerate these without failing deserialization.
+        let json_str = r#"{
+            "order": {
+                "order_id": "venue-bracket-1",
+                "product_id": "BTC-USD",
+                "user_id": "user-1",
+                "order_configuration": {
+                    "trigger_bracket_gtd": {
+                        "limit_price": "55000.00",
+                        "stop_trigger_price": "45000.00",
+                        "end_time": "2024-12-31T23:59:59Z"
+                    }
+                },
+                "side": "BUY",
+                "client_order_id": "client-bracket-1",
+                "status": "OPEN",
+                "time_in_force": "GOOD_UNTIL_DATE",
+                "created_time": "2024-01-15T10:00:00Z",
+                "completion_percentage": "0",
+                "filled_size": "0",
+                "average_filled_price": "0",
+                "fee": "0",
+                "number_of_fills": "0",
+                "filled_value": "0",
+                "pending_cancel": false,
+                "size_in_quote": false,
+                "total_fees": "0",
+                "size_inclusive_of_fees": false,
+                "total_value_after_fees": "0",
+                "trigger_status": "INVALID_ORDER_TYPE",
+                "order_type": "BRACKET",
+                "reject_reason": "",
+                "settled": false,
+                "product_type": "SPOT",
+                "reject_message": "",
+                "cancel_message": "",
+                "order_placement_source": "RETAIL_ADVANCED",
+                "outstanding_hold_amount": "0",
+                "is_liquidation": false,
+                "last_fill_time": null,
+                "leverage": "",
+                "margin_type": "",
+                "retail_portfolio_id": "",
+                "originating_order_id": "",
+                "attached_order_id": ""
+            }
+        }"#;
+
+        let response: crate::http::models::OrderResponse =
+            serde_json::from_str(json_str).expect("unknown config must deserialize");
+
+        let report = parse_order_status_report(
+            &response.order,
+            &btc_usd_instrument(),
+            AccountId::new("COINBASE-001"),
+            UnixNanos::from(1),
+        )
+        .unwrap();
+
+        assert_eq!(report.venue_order_id.as_str(), "venue-bracket-1");
+        // The bracket config has no `base_size`, so quantity falls back to
+        // filled_qty (zero). The `limit_price` key still matches the
+        // permissive walker and is extracted opportunistically; this is the
+        // right tolerant default for unknown shapes.
+        assert_eq!(report.filled_qty, Quantity::zero(8));
+        assert_eq!(report.price, Some(Price::from("55000.00")));
+    }
+
+    #[rstest]
+    fn test_parse_order_status_report_gtd_carries_expire_time() {
+        let order = crate::http::models::Order {
+            order_configuration: Some(serde_json::json!({
+                "limit_limit_gtd": {
+                    "base_size": "0.001",
+                    "limit_price": "50000.00",
+                    "end_time": "2024-12-31T23:59:59Z",
+                    "post_only": false
+                }
+            })),
+            time_in_force: Some(CoinbaseTimeInForce::GoodUntilDate),
+            order_type: "LIMIT".to_string(),
+            ..make_limit_gtc_order("0.001", "50000.00", "0", CoinbaseOrderStatus::Open)
+        };
+
+        let report = parse_order_status_report(
+            &order,
+            &btc_usd_instrument(),
+            AccountId::new("COINBASE-001"),
+            UnixNanos::from(1),
+        )
+        .unwrap();
+
+        assert_eq!(report.time_in_force, TimeInForce::Gtd);
+
+        let expected_expire = parse_rfc3339_timestamp("2024-12-31T23:59:59Z").unwrap();
+        assert_eq!(report.expire_time, Some(expected_expire));
+    }
+
+    #[rstest]
+    fn test_parse_optional_quantity_returns_none_on_overflow() {
+        // Values exceeding QUANTITY_RAW_MAX must return None instead of panicking
+        let result = parse_optional_quantity("99999999999999999999999999999999");
+        assert!(result.is_none());
     }
 }

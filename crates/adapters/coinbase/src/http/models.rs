@@ -20,8 +20,8 @@ use ustr::Ustr;
 
 use crate::common::enums::{
     CoinbaseContractExpiryType, CoinbaseFuturesAssetType, CoinbaseLiquidityIndicator,
-    CoinbaseOrderSide, CoinbaseProductStatus, CoinbaseProductType, CoinbaseProductVenue,
-    CoinbaseStopDirection,
+    CoinbaseOrderSide, CoinbaseOrderStatus, CoinbaseProductStatus, CoinbaseProductType,
+    CoinbaseProductVenue, CoinbaseStopDirection, CoinbaseTimeInForce,
 };
 
 /// Response wrapper for listing products.
@@ -460,6 +460,105 @@ pub struct CancelResult {
     pub order_id: String,
 }
 
+/// Response wrapper for a single order lookup.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrderResponse {
+    pub order: Order,
+}
+
+/// Response wrapper for an orders list query.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OrdersListResponse {
+    pub orders: Vec<Order>,
+    #[serde(default)]
+    pub sequence: Option<String>,
+    #[serde(default)]
+    pub has_next: bool,
+    #[serde(default)]
+    pub cursor: String,
+}
+
+/// A historical or open order as returned by `/orders/historical/*`.
+///
+/// `order_configuration` is kept as a raw JSON value because Coinbase returns
+/// a wider set of config shapes on history responses than on submit (bracket
+/// orders, TWAP, trigger variants, and new shapes Coinbase may ship without
+/// bumping the API version). Consumers that need typed access can try to
+/// deserialize the inner value into [`OrderConfiguration`] and tolerate
+/// failures. Keeping the wire shape permissive prevents a single unknown
+/// variant from failing the entire batch response.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Order {
+    pub order_id: String,
+    pub product_id: Ustr,
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub order_configuration: Option<serde_json::Value>,
+    pub side: CoinbaseOrderSide,
+    #[serde(default)]
+    pub client_order_id: String,
+    pub status: CoinbaseOrderStatus,
+    #[serde(default)]
+    pub time_in_force: Option<CoinbaseTimeInForce>,
+    #[serde(default)]
+    pub created_time: String,
+    #[serde(default)]
+    pub completion_percentage: String,
+    #[serde(default)]
+    pub filled_size: String,
+    #[serde(default)]
+    pub average_filled_price: String,
+    #[serde(default)]
+    pub fee: String,
+    #[serde(default)]
+    pub number_of_fills: String,
+    #[serde(default)]
+    pub filled_value: String,
+    #[serde(default)]
+    pub pending_cancel: bool,
+    #[serde(default)]
+    pub size_in_quote: bool,
+    #[serde(default)]
+    pub total_fees: String,
+    #[serde(default)]
+    pub size_inclusive_of_fees: bool,
+    #[serde(default)]
+    pub total_value_after_fees: String,
+    #[serde(default)]
+    pub trigger_status: String,
+    #[serde(default)]
+    pub order_type: String,
+    #[serde(default)]
+    pub reject_reason: String,
+    #[serde(default)]
+    pub settled: bool,
+    #[serde(default)]
+    pub product_type: String,
+    #[serde(default)]
+    pub reject_message: String,
+    #[serde(default)]
+    pub cancel_message: String,
+    #[serde(default)]
+    pub order_placement_source: String,
+    #[serde(default)]
+    pub outstanding_hold_amount: String,
+    #[serde(default)]
+    pub is_liquidation: bool,
+    #[serde(default)]
+    pub last_fill_time: Option<String>,
+    #[serde(default)]
+    pub leverage: String,
+    #[serde(default)]
+    pub margin_type: String,
+    #[serde(default)]
+    pub retail_portfolio_id: String,
+    #[serde(default)]
+    pub originating_order_id: String,
+    #[serde(default)]
+    pub attached_order_id: String,
+}
+
 /// Response for listing fills.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FillsResponse {
@@ -637,6 +736,113 @@ mod tests {
         assert_eq!(product.quote_min_size, "1");
         assert_eq!(product.quote_max_size, "150000000");
         assert_eq!(product.product_venue, Some(CoinbaseProductVenue::Cbe));
+    }
+
+    #[rstest]
+    fn test_deserialize_order() {
+        let json = load_test_fixture("http_order.json");
+        let response: OrderResponse = serde_json::from_str(&json).unwrap();
+        let order = response.order;
+
+        assert_eq!(order.order_id, "0000-000000-000000");
+        assert_eq!(order.product_id, "BTC-USD");
+        assert_eq!(order.side, CoinbaseOrderSide::Buy);
+        assert_eq!(order.status, CoinbaseOrderStatus::Open);
+        assert_eq!(order.client_order_id, "11111-000000-000000");
+        assert_eq!(
+            order.time_in_force,
+            Some(CoinbaseTimeInForce::GoodUntilCancelled)
+        );
+        assert_eq!(order.order_type, "LIMIT");
+        assert_eq!(order.filled_size, "0.001");
+        assert_eq!(order.average_filled_price, "50");
+        assert_eq!(order.total_fees, "5.00");
+        assert_eq!(
+            order.last_fill_time.as_deref(),
+            Some("2021-05-31T10:30:00Z")
+        );
+        // History configs are kept as raw JSON so unknown Coinbase variants
+        // don't fail the whole batch; verify the shape by key lookup.
+        let config = order
+            .order_configuration
+            .as_ref()
+            .and_then(|v| v.as_object())
+            .expect("order_configuration should be a JSON object");
+        assert!(config.contains_key("limit_limit_gtc"));
+    }
+
+    #[rstest]
+    fn test_deserialize_orders_list() {
+        let json = load_test_fixture("http_orders_list.json");
+        let response: OrdersListResponse = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(response.orders.len(), 2);
+        assert!(!response.has_next);
+
+        let open_order = &response.orders[0];
+        assert_eq!(open_order.status, CoinbaseOrderStatus::Open);
+        assert_eq!(open_order.side, CoinbaseOrderSide::Buy);
+        assert_eq!(open_order.order_type, "LIMIT");
+
+        let filled_order = &response.orders[1];
+        assert_eq!(filled_order.status, CoinbaseOrderStatus::Filled);
+        assert_eq!(filled_order.side, CoinbaseOrderSide::Sell);
+        assert_eq!(filled_order.order_type, "MARKET");
+        assert!(filled_order.size_in_quote);
+        assert_eq!(
+            filled_order.time_in_force,
+            Some(CoinbaseTimeInForce::ImmediateOrCancel)
+        );
+    }
+
+    #[rstest]
+    fn test_deserialize_fills() {
+        let json = load_test_fixture("http_fills.json");
+        let response: FillsResponse = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(response.fills.len(), 2);
+
+        let maker_fill = &response.fills[0];
+        assert_eq!(maker_fill.trade_id, "1111-11111-111111");
+        assert_eq!(maker_fill.order_id, "0000-000000-000000");
+        assert_eq!(maker_fill.product_id, "BTC-USD");
+        assert_eq!(maker_fill.price, "45123.45");
+        assert_eq!(maker_fill.size, "0.005");
+        assert_eq!(maker_fill.commission, "1.14");
+        assert_eq!(maker_fill.side, CoinbaseOrderSide::Buy);
+        assert_eq!(
+            maker_fill.liquidity_indicator,
+            CoinbaseLiquidityIndicator::Maker
+        );
+
+        let taker_fill = &response.fills[1];
+        assert_eq!(
+            taker_fill.liquidity_indicator,
+            CoinbaseLiquidityIndicator::Taker
+        );
+    }
+
+    #[rstest]
+    fn test_deserialize_accounts() {
+        let json = load_test_fixture("http_accounts.json");
+        let response: AccountsResponse = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(response.accounts.len(), 2);
+        assert!(!response.has_next);
+
+        let btc_account = &response.accounts[0];
+        assert_eq!(btc_account.currency, "BTC");
+        assert_eq!(btc_account.available_balance.value, "1.23456789");
+        assert_eq!(btc_account.available_balance.currency, "BTC");
+        assert!(btc_account.default);
+        assert_eq!(
+            btc_account.hold.as_ref().map(|b| b.value.as_str()),
+            Some("0.00500000")
+        );
+
+        let usd_account = &response.accounts[1];
+        assert_eq!(usd_account.currency, "USD");
+        assert_eq!(usd_account.available_balance.value, "10000.50");
     }
 
     #[rstest]

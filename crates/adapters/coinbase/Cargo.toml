@@ -96,3 +96,15 @@ criterion = { workspace = true }
 dotenvy = { workspace = true }
 futures-util = { workspace = true }
 rstest = { workspace = true }
+
+[[bin]]
+name = "coinbase-http-public"
+path = "bin/http_public.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "coinbase-http-private"
+path = "bin/http_private.rs"
+doc = false
+test = false

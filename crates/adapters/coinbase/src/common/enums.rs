@@ -130,7 +130,8 @@ pub enum CoinbaseTimeInForce {
 pub enum CoinbaseProductStatus {
     Online,
     Offline,
-    /// Futures products return an empty status string
+    Delisted,
+    /// Futures products return an empty status string.
     #[serde(rename = "")]
     #[strum(serialize = "")]
     Unset,

@@ -195,21 +195,24 @@ const API_PREFIX: &str = "/api/v3/brokerage";
 
 fn create_test_router(state: TestServerState) -> Router {
     Router::new()
-        .route(&format!("{API_PREFIX}/products"), get(handle_products))
         .route(
-            &format!("{API_PREFIX}/products/{{product_id}}"),
+            &format!("{API_PREFIX}/market/products"),
+            get(handle_products),
+        )
+        .route(
+            &format!("{API_PREFIX}/market/products/{{product_id}}"),
             get(handle_product),
         )
         .route(
-            &format!("{API_PREFIX}/products/{{product_id}}/candles"),
+            &format!("{API_PREFIX}/market/products/{{product_id}}/candles"),
             get(handle_candles),
         )
         .route(
-            &format!("{API_PREFIX}/products/{{product_id}}/ticker"),
+            &format!("{API_PREFIX}/market/products/{{product_id}}/ticker"),
             get(handle_ticker),
         )
         .route(
-            &format!("{API_PREFIX}/product_book"),
+            &format!("{API_PREFIX}/market/product_book"),
             get(handle_product_book),
         )
         .route(

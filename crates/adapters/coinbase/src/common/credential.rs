@@ -143,7 +143,11 @@ impl CoinbaseCredential {
         let payload_b64 = base64url_encode(payload.to_string().as_bytes());
         let signing_input = format!("{header_b64}.{payload_b64}");
 
-        let pem_obj = pem::parse(self.api_secret.trim())
+        // Env vars and .env files often store PEM keys with literal `\n`
+        // instead of real newlines. Normalize before parsing.
+        let pem_str = self.api_secret.trim().replace("\\n", "\n");
+
+        let pem_obj = pem::parse(&pem_str)
             .map_err(|e| Error::auth(format!("Failed to parse PEM key: {e}")))?;
 
         // Coinbase issues SEC1 (EC PRIVATE KEY) PEMs; from_private_key_der
@@ -288,6 +292,26 @@ mod tests {
         let result = cred.build_rest_jwt("GET api.coinbase.com/test");
         assert!(result.is_err());
         assert!(result.unwrap_err().is_auth_error());
+    }
+
+    #[rstest]
+    fn test_build_jwt_with_escaped_newline_pem() {
+        let pem_key = test_sec1_pem_key();
+
+        // Simulate the common env-var / .env-file pattern where real newlines
+        // are stored as literal two-char `\n` sequences.
+        let escaped = pem_key.replace('\n', "\\n");
+        assert!(
+            escaped.contains("\\n"),
+            "test setup: must have literal backslash-n"
+        );
+
+        let cred = CoinbaseCredential::new(TEST_API_KEY.to_string(), escaped);
+        let result = cred.build_rest_jwt("GET api.coinbase.com/api/v3/brokerage/accounts");
+        assert!(
+            result.is_ok(),
+            "escaped-newline PEM must parse after normalization"
+        );
     }
 
     #[rstest]
