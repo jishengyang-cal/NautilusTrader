@@ -32,6 +32,7 @@ Released on TBD (UTC).
 - Fixed PyO3 `DataActor` missing `on_historical_funding_rates` and `on_historical_data` forwarding `None`
 - Fixed execution engine v2 ignoring user-supplied `position_id` from `submit_order` (Rust)
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
+- Fixed Binance user data stream not recovering after keepalive failure (#3861), thanks for reporting @KaizynX
 - Fixed Bybit position deserialization for closed positions (#3836), thanks for reporting @pusteckiy
 - Fixed Bybit perpetual instrument status to emit `PreClose` when scheduled for delisting (#3829), thanks @dxwil
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin

@@ -91,6 +91,7 @@ class BinanceUserDataWebSocketClient:
     """
 
     _KEEPALIVE_INTERVAL_SECS = 1800  # 30 minutes
+    _MAX_KEEPALIVE_FAILURES = 2
 
     def __init__(
         self,
@@ -551,6 +552,8 @@ class BinanceUserDataWebSocketClient:
         self._subscription_id = None
 
     async def _keepalive_loop(self) -> None:
+        consecutive_failures = 0
+
         try:
             while True:
                 await asyncio.sleep(self._KEEPALIVE_INTERVAL_SECS)
@@ -563,7 +566,20 @@ class BinanceUserDataWebSocketClient:
                             {"listenKey": self._subscription_id},
                         )
                     self._log.debug("User data stream keepalive sent")
+                    consecutive_failures = 0
                 except Exception as e:
-                    self._log.error(f"Failed to send keepalive: {e}")
+                    consecutive_failures += 1
+                    self._log.error(
+                        f"Failed to send keepalive ({consecutive_failures}/"
+                        f"{self._MAX_KEEPALIVE_FAILURES}): {e}",
+                    )
+
+                    if consecutive_failures >= self._MAX_KEEPALIVE_FAILURES:
+                        self._log.warning(
+                            "Keepalive failed "
+                            f"{consecutive_failures} consecutive times, resubscribing",
+                        )
+                        self._loop.create_task(self._resubscribe())
+                        return
         except asyncio.CancelledError:
             pass
