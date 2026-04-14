@@ -153,6 +153,7 @@ OPTION_CHAIN_SUBSCRIPTION_PARAMETERS = (
     "strike_range",
     "snapshot_interval_ms",
     "client_id",
+    "params",
 )
 INSTRUMENT_REQUEST_PARAMETERS = ("instrument_id", "start", "end", "client_id", "params")
 BOOK_SNAPSHOT_REQUEST_PARAMETERS = ("instrument_id", "depth", "client_id", "params")
