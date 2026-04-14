@@ -317,6 +317,8 @@ impl AsyncRunner {
 
         loop {
             tokio::select! {
+                biased;
+
                 Some(()) = self.signal_rx.recv() => {
                     log::info!("AsyncRunner received signal, shutting down");
                     return;

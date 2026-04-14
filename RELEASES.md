@@ -17,7 +17,7 @@ Released on TBD (UTC).
 - Changed `OrderError::Invariant` variant to wrap `CorrectnessError` instead of `anyhow::Error` (Rust)
 - Changed `HyperliquidEip712Signer::new()` to return `Result` and take `&EvmPrivateKey` (Rust)
 - Changed `HyperliquidExchangeRequest::new/with_vault` to accept `HyperliquidSignature` directly (Rust)
-- Changed Cap'n Proto and SBE wire formats for `InstrumentStatus`, `FundingRateUpdate`, and `PositionAdjusted` to preserve `Option` state that was previously collapsed (these wire formats are not yet stable and may change between releases)
+- Changed Cap'n Proto and SBE wire formats to preserve `Option` state (unstable, may change)
 
 ### Security
 
@@ -37,7 +37,7 @@ Released on TBD (UTC).
 - Fixed Bybit perpetual instrument status to emit `PreClose` when scheduled for delisting (#3829), thanks @dxwil
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
-- Fixed Hyperliquid order modification handling to translate the exchange cancel-replace sequence into a single `OrderUpdated` event and suppress the stale `OrderCanceled` for the replaced `venue_order_id` (#3827), thanks for reporting @P1YU5H-50N1
+- Fixed Hyperliquid modify cancel-replace emitting stale `OrderCanceled` (#3827), thanks for reporting @P1YU5H-50N1
 - Fixed IB Gateway Docker image failing on ARM64 hosts (#3813), thanks for reporting @Baki-0501
 - Fixed Kraken Futures limit order `OrderUpdated` panic from wire `stop_price: 0.0` treated as trigger price
 - Fixed Kraken Spot quote-quantity orders never reaching terminal state from base/quote size mismatch
@@ -49,9 +49,13 @@ Released on TBD (UTC).
 ### Internal Improvements
 - Added typed `CorrectnessError` enum to replace `anyhow::Error` in `correctness` helpers (Rust)
 - Added `CorrectnessResultExt::expect_display` for display-formatted panics on typed correctness errors (Rust)
+- Added deterministic simulation testing (DST) re-export module gated behind `simulation` feature (Rust)
+- Added `wall_clock_now` seam in `nautilus-core` for virtual time under simulation (Rust)
+- Added `biased` to `tokio::select!` blocks in network and live crates for deterministic poll order
 - Added engine config methods on PyO3 `LiveNodeBuilder` (#3848), thanks @BurnOutTrader
 - Added read-only `params()` accessor to `SubscribeCommand` and `TradingCommand` (#3846), thanks @faysou
 - Added Hyperliquid criterion benchmarks for L1 signing path
+- Replaced `AHashMap`/`AHashSet` with `IndexMap`/`IndexSet` in `ExecutionManager` for deterministic ordering in simulations (Rust)
 - Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
 - Refined Interactive Brokers combo fill average price calculation (#3834), thanks @faysou
 - Refined Kraken WebSocket execution dispatch to emit typed events for tracked orders via per-product modules

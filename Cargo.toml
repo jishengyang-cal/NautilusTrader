@@ -176,6 +176,7 @@ log = { version = "0.4.29", features = [
   "serde",
   "release_max_level_debug",
 ] }
+madsim = "0.2.34"
 memchr = "2.8.0"
 object_store = { version = "0.13.2", default-features = false, features = [
   "fs",
@@ -596,3 +597,6 @@ option_if_let_else = "allow" # if-let can be clearer than map_or/map_or_else
 # unwrap_used = "warn"        # Forces explicit error handling instead of panics
 # expect_used = "warn"        # Forces explicit error handling instead of panics
 # indexing_slicing = "warn"   # Prevents panics from out-of-bounds access
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(madsim)'] }

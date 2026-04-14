@@ -316,6 +316,7 @@ impl WebSocketClient {
             }
 
             tokio::select! {
+                biased;
                 () = rate_limiter.await_keys_ready(keys.as_deref()) => {}
                 () = poll_until_closed(&mode) => {
                     return Err(to_pyruntime_err(std::io::Error::new(
@@ -365,6 +366,7 @@ impl WebSocketClient {
             }
 
             tokio::select! {
+                biased;
                 () = rate_limiter.await_keys_ready(keys.as_deref()) => {}
                 () = poll_until_closed(&mode) => {
                     return Err(to_pyruntime_err(std::io::Error::new(

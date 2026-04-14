@@ -992,6 +992,7 @@ impl SocketClient {
                 }
 
                 tokio::select! {
+                    biased;
                     () = notified => {}
                     () = tokio::time::sleep(fallback_interval) => {}
                 }
@@ -1037,6 +1038,7 @@ impl SocketClient {
 
             loop {
                 tokio::select! {
+                    biased;
                     () = state_notify.notified() => {}
                     () = tokio::time::sleep(fallback_interval) => {}
                 }
@@ -1115,6 +1117,7 @@ impl SocketClient {
 
                     // Race reconnect against disconnect notification
                     let reconnect_result = tokio::select! {
+                        biased;
                         result = inner.reconnect() => Some(result),
                         () = async {
                             loop {
@@ -1160,6 +1163,7 @@ impl SocketClient {
                                 log::warn!("Backing off for {}s...", duration.as_secs_f64());
                                 // Race backoff sleep against disconnect
                                 tokio::select! {
+                                    biased;
                                     () = tokio::time::sleep(duration) => {}
                                     () = async {
                                         loop {

@@ -223,6 +223,7 @@ impl SocketClient {
                             }
 
                             tokio::select! {
+                                biased;
                                 () = notified => {}
                                 () = tokio::time::sleep(fallback_interval) => {}
                             }
@@ -333,6 +334,7 @@ impl SocketClient {
                             }
 
                             tokio::select! {
+                                biased;
                                 () = notified => {}
                                 () = tokio::time::sleep(fallback_interval) => {}
                             }

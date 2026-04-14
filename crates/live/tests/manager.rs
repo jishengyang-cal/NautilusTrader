@@ -20,8 +20,8 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use ahash::AHashSet;
 use async_trait::async_trait;
+use indexmap::IndexSet;
 use nautilus_common::{
     cache::Cache,
     clients::ExecutionClient,
@@ -6096,7 +6096,7 @@ async fn test_filtered_client_order_ids_skips_matching_orders() {
     // Orders in filtered_client_order_ids should be skipped during reconciliation
     let filtered_id = ClientOrderId::from("O-FILTERED-001");
     let config = ExecutionManagerConfig {
-        filtered_client_order_ids: AHashSet::from([filtered_id]),
+        filtered_client_order_ids: IndexSet::from([filtered_id]),
         ..Default::default()
     };
     let mut ctx = TestContext::with_config(config);
@@ -6146,7 +6146,7 @@ async fn test_filtered_client_order_ids_skips_orphan_fills() {
     let filtered_id = ClientOrderId::from("O-FILTERED-002");
     let venue_order_id = VenueOrderId::from("V-FILTERED-002");
     let config = ExecutionManagerConfig {
-        filtered_client_order_ids: AHashSet::from([filtered_id]),
+        filtered_client_order_ids: IndexSet::from([filtered_id]),
         ..Default::default()
     };
     let mut ctx = TestContext::with_config(config);
@@ -6214,7 +6214,7 @@ async fn test_filtered_client_order_ids_skips_orphan_fills_via_venue_order_id_lo
     let filtered_id = ClientOrderId::from("O-FILTERED-003");
     let venue_order_id = VenueOrderId::from("V-FILTERED-003");
     let config = ExecutionManagerConfig {
-        filtered_client_order_ids: AHashSet::from([filtered_id]),
+        filtered_client_order_ids: IndexSet::from([filtered_id]),
         ..Default::default()
     };
     let mut ctx = TestContext::with_config(config);
@@ -6281,7 +6281,7 @@ async fn test_reconciliation_instrument_ids_filters_other_instruments() {
     // Only instruments in reconciliation_instrument_ids should be reconciled
     let included_instrument = test_instrument_id();
     let config = ExecutionManagerConfig {
-        reconciliation_instrument_ids: AHashSet::from([included_instrument]),
+        reconciliation_instrument_ids: IndexSet::from([included_instrument]),
         ..Default::default()
     };
     let mut ctx = TestContext::with_config(config);
@@ -6357,7 +6357,7 @@ async fn test_reconciliation_instrument_ids_filters_position_reports() {
     // Position reports for instruments NOT in reconciliation_instrument_ids should be skipped
     let included_instrument_id = test_instrument_id();
     let config = ExecutionManagerConfig {
-        reconciliation_instrument_ids: AHashSet::from([included_instrument_id]),
+        reconciliation_instrument_ids: IndexSet::from([included_instrument_id]),
         ..Default::default()
     };
     let mut ctx = TestContext::with_config(config);

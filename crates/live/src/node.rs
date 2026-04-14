@@ -58,7 +58,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicU8, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use nautilus_common::{
@@ -66,6 +66,7 @@ use nautilus_common::{
     cache::database::CacheDatabaseAdapter,
     component::Component,
     enums::{Environment, LogColor},
+    live::dst,
     log_info,
     messages::{
         DataEvent, ExecutionEvent, ExecutionReport, data::DataCommand, execution::TradingCommand,
@@ -215,7 +216,7 @@ pub struct LiveNode {
     config: LiveNodeConfig,
     handle: LiveNodeHandle,
     exec_manager: ExecutionManager,
-    shutdown_deadline: Option<tokio::time::Instant>,
+    shutdown_deadline: Option<dst::time::Instant>,
     #[cfg(feature = "python")]
     #[allow(dead_code)] // TODO: Under development
     python_actors: Vec<pyo3::Py<pyo3::PyAny>>,
@@ -378,7 +379,7 @@ impl LiveNode {
         let delay = self.kernel.delay_post_stop();
         log::info!("Awaiting residual events ({delay:?})...");
 
-        tokio::time::sleep(delay).await;
+        dst::time::sleep(delay).await;
         self.finalize_stop().await
     }
 
@@ -391,7 +392,7 @@ impl LiveNode {
             self.config.timeout_connection
         );
 
-        let start = Instant::now();
+        let start = dst::time::Instant::now();
         let timeout = self.config.timeout_connection;
         let interval = Duration::from_millis(100);
 
@@ -400,7 +401,7 @@ impl LiveNode {
                 log::info!("All engine clients connected");
                 return true;
             }
-            tokio::time::sleep(interval).await;
+            dst::time::sleep(interval).await;
         }
 
         self.log_connection_status();
@@ -416,7 +417,7 @@ impl LiveNode {
             self.config.timeout_disconnection
         );
 
-        let start = Instant::now();
+        let start = dst::time::Instant::now();
         let timeout = self.config.timeout_disconnection;
         let interval = Duration::from_millis(100);
 
@@ -425,7 +426,7 @@ impl LiveNode {
                 log::info!("All engine clients disconnected");
                 return;
             }
-            tokio::time::sleep(interval).await;
+            dst::time::sleep(interval).await;
         }
 
         log::error!(
@@ -509,7 +510,7 @@ impl LiveNode {
             .map(|m| m as u64);
 
         let timeout = self.config.timeout_reconciliation;
-        let start = Instant::now();
+        let start = dst::time::Instant::now();
         let client_ids = self.kernel.exec_engine.borrow().client_ids();
 
         for client_id in client_ids {
@@ -765,7 +766,7 @@ impl LiveNode {
             Duration::ZERO
         };
 
-        let recon_start = tokio::time::Instant::now() + startup_delay;
+        let recon_start = dst::time::Instant::now() + startup_delay;
 
         let mut ts_last_inflight = self.exec_manager.generate_timestamp_ns();
         let mut ts_last_open = ts_last_inflight;
@@ -778,8 +779,8 @@ impl LiveNode {
 
         let make_timer = |opt_dur: Option<Duration>| {
             let dur = opt_dur.unwrap_or(far_future);
-            let mut timer = tokio::time::interval_at(recon_start + dur, dur);
-            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let mut timer = dst::time::interval_at(recon_start + dur, dur);
+            timer.set_missed_tick_behavior(dst::time::MissedTickBehavior::Delay);
             timer
         };
 
@@ -842,7 +843,7 @@ impl LiveNode {
                 }
                 () = async {
                     loop {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        dst::time::sleep(Duration::from_millis(100)).await;
 
                         if stop_handle.should_stop() {
                             log::info!("Received stop signal from handle");
@@ -854,7 +855,7 @@ impl LiveNode {
                 }
                 () = async {
                     match shutdown_deadline {
-                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        Some(deadline) => dst::time::sleep_until(deadline).await,
                         None => std::future::pending::<()>().await,
                     }
                 }, if self.state() == NodeState::ShuttingDown => {
@@ -1066,7 +1067,7 @@ impl LiveNode {
         let delay = self.kernel.delay_post_stop();
         log::info!("Awaiting residual events ({delay:?})...");
 
-        self.shutdown_deadline = Some(tokio::time::Instant::now() + delay);
+        self.shutdown_deadline = Some(dst::time::Instant::now() + delay);
         self.handle.set_state(NodeState::ShuttingDown);
     }
 

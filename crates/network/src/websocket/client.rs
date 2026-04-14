@@ -1225,6 +1225,7 @@ impl WebSocketClient {
         const CHECK_INTERVAL_MS: u64 = 100;
 
         tokio::select! {
+            biased;
             () = self.rate_limiter.await_keys_ready(keys) => Ok(()),
             () = async {
                 loop {
@@ -1234,6 +1235,7 @@ impl WebSocketClient {
                         break;
                     }
                     tokio::select! {
+                        biased;
                         () = notified => {}
                         () = tokio::time::sleep(Duration::from_millis(CHECK_INTERVAL_MS)) => {}
                     }
@@ -1279,6 +1281,7 @@ impl WebSocketClient {
                 }
 
                 tokio::select! {
+                    biased;
                     () = notified => {}
                     () = tokio::time::sleep(fallback_interval) => {}
                 }
@@ -1442,6 +1445,7 @@ impl WebSocketClient {
 
             loop {
                 tokio::select! {
+                    biased;
                     () = state_notify.notified() => {}
                     () = tokio::time::sleep(fallback_interval) => {}
                 }
@@ -1533,6 +1537,7 @@ impl WebSocketClient {
 
                     // Race reconnect against disconnect notification
                     let reconnect_result = tokio::select! {
+                        biased;
                         result = inner.reconnect() => Some(result),
                         () = async {
                             loop {
@@ -1587,6 +1592,7 @@ impl WebSocketClient {
                                 log::warn!("Backing off for {}s...", duration.as_secs_f64());
                                 // Race backoff sleep against disconnect
                                 tokio::select! {
+                                    biased;
                                     () = tokio::time::sleep(duration) => {}
                                     () = async {
                                         loop {

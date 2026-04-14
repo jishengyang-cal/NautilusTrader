@@ -20,8 +20,7 @@
 
 use std::{cell::RefCell, fmt::Debug, rc::Rc, str::FromStr, sync::LazyLock};
 
-use ahash::{AHashMap, AHashSet};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use nautilus_common::{
     cache::Cache,
     clients::ExecutionClient,
@@ -115,13 +114,13 @@ pub struct ExecutionManagerConfig {
     /// Number of minutes to look back during reconciliation.
     pub lookback_mins: Option<u64>,
     /// Instrument IDs to include during reconciliation (empty => all).
-    pub reconciliation_instrument_ids: AHashSet<InstrumentId>,
+    pub reconciliation_instrument_ids: IndexSet<InstrumentId>,
     /// Whether to filter unclaimed external orders.
     pub filter_unclaimed_external: bool,
     /// Whether to filter position status reports during reconciliation.
     pub filter_position_reports: bool,
     /// Client order IDs excluded from reconciliation.
-    pub filtered_client_order_ids: AHashSet<ClientOrderId>,
+    pub filtered_client_order_ids: IndexSet<ClientOrderId>,
     /// Whether to generate missing orders from reports.
     pub generate_missing_orders: bool,
     /// The interval (milliseconds) between checking whether in-flight orders have exceeded their threshold.
@@ -168,10 +167,10 @@ impl Default for ExecutionManagerConfig {
             trader_id: TraderId::default(),
             reconciliation: true,
             lookback_mins: Some(60),
-            reconciliation_instrument_ids: AHashSet::new(),
+            reconciliation_instrument_ids: IndexSet::new(),
             filter_unclaimed_external: false,
             filter_position_reports: false,
-            filtered_client_order_ids: AHashSet::new(),
+            filtered_client_order_ids: IndexSet::new(),
             generate_missing_orders: true,
             inflight_check_interval_ms: 2_000,
             inflight_threshold_ms: 5_000,
@@ -197,7 +196,7 @@ impl Default for ExecutionManagerConfig {
 
 impl From<&LiveExecEngineConfig> for ExecutionManagerConfig {
     fn from(config: &LiveExecEngineConfig) -> Self {
-        let filtered_client_order_ids: AHashSet<ClientOrderId> = config
+        let filtered_client_order_ids: IndexSet<ClientOrderId> = config
             .filtered_client_order_ids
             .clone()
             .unwrap_or_default()
@@ -205,7 +204,7 @@ impl From<&LiveExecEngineConfig> for ExecutionManagerConfig {
             .map(|value| ClientOrderId::from(value.as_str()))
             .collect();
 
-        let reconciliation_instrument_ids: AHashSet<InstrumentId> = config
+        let reconciliation_instrument_ids: IndexSet<InstrumentId> = config
             .reconciliation_instrument_ids
             .clone()
             .unwrap_or_default()
@@ -280,7 +279,7 @@ struct InflightCheck {
 /// # Thread Safety
 ///
 /// This struct is **not thread-safe** and is designed for single-threaded use within
-/// an async runtime. Internal state is managed using `AHashMap` without synchronization,
+/// an async runtime. Internal state is managed using `IndexMap` without synchronization,
 /// and the `clock` and `cache` use `Rc<RefCell<>>` which provide runtime borrow checking
 /// but no thread-safety guarantees.
 ///
@@ -288,22 +287,22 @@ struct InflightCheck {
 /// similar synchronization primitives. Alternatively, ensure that all methods are called
 /// from the same thread/task in the async runtime.
 ///
-/// **Warning:** Concurrent mutable access to internal AHashMaps or concurrent borrows
+/// **Warning:** Concurrent mutable access to internal IndexMaps or concurrent borrows
 /// of `RefCell` contents will cause runtime panics.
 #[derive(Clone)]
 pub struct ExecutionManager {
     clock: Rc<RefCell<dyn Clock>>,
     cache: Rc<RefCell<Cache>>,
     config: ExecutionManagerConfig,
-    inflight_checks: AHashMap<ClientOrderId, InflightCheck>,
-    external_order_claims: AHashMap<InstrumentId, StrategyId>,
-    processed_fills: AHashMap<TradeId, ClientOrderId>,
-    recon_check_retries: AHashMap<ClientOrderId, u32>,
-    ts_last_query: AHashMap<ClientOrderId, UnixNanos>,
-    order_local_activity_ns: AHashMap<ClientOrderId, UnixNanos>,
-    position_local_activity_ns: AHashMap<InstrumentId, UnixNanos>,
-    position_recon_retries: AHashMap<InstrumentId, u32>,
-    recent_fills_cache: AHashMap<TradeId, UnixNanos>,
+    inflight_checks: IndexMap<ClientOrderId, InflightCheck>,
+    external_order_claims: IndexMap<InstrumentId, StrategyId>,
+    processed_fills: IndexMap<TradeId, ClientOrderId>,
+    recon_check_retries: IndexMap<ClientOrderId, u32>,
+    ts_last_query: IndexMap<ClientOrderId, UnixNanos>,
+    order_local_activity_ns: IndexMap<ClientOrderId, UnixNanos>,
+    position_local_activity_ns: IndexMap<InstrumentId, UnixNanos>,
+    position_recon_retries: IndexMap<InstrumentId, u32>,
+    recent_fills_cache: IndexMap<TradeId, UnixNanos>,
 }
 
 impl Debug for ExecutionManager {
@@ -329,15 +328,15 @@ impl ExecutionManager {
             clock,
             cache,
             config,
-            inflight_checks: AHashMap::new(),
-            external_order_claims: AHashMap::new(),
-            processed_fills: AHashMap::new(),
-            recon_check_retries: AHashMap::new(),
-            ts_last_query: AHashMap::new(),
-            order_local_activity_ns: AHashMap::new(),
-            position_local_activity_ns: AHashMap::new(),
-            position_recon_retries: AHashMap::new(),
-            recent_fills_cache: AHashMap::new(),
+            inflight_checks: IndexMap::new(),
+            external_order_claims: IndexMap::new(),
+            processed_fills: IndexMap::new(),
+            recon_check_retries: IndexMap::new(),
+            ts_last_query: IndexMap::new(),
+            order_local_activity_ns: IndexMap::new(),
+            position_local_activity_ns: IndexMap::new(),
+            position_recon_retries: IndexMap::new(),
+            recent_fills_cache: IndexMap::new(),
         }
     }
 
@@ -384,7 +383,7 @@ impl ExecutionManager {
         let mut fills_applied = 0usize;
 
         let fill_reports = &adjusted_fill_reports;
-        let mut seen_trade_ids: AHashSet<TradeId> = AHashSet::new();
+        let mut seen_trade_ids: IndexSet<TradeId> = IndexSet::new();
 
         for fills in fill_reports.values() {
             for fill in fills {
@@ -634,7 +633,7 @@ impl ExecutionManager {
         }
 
         // Process orphan fills (fills without matching order reports)
-        let processed_venue_order_ids: AHashSet<VenueOrderId> =
+        let processed_venue_order_ids: IndexSet<VenueOrderId> =
             order_reports.keys().copied().collect();
 
         for (venue_order_id, fills) in fill_reports {
@@ -714,7 +713,7 @@ impl ExecutionManager {
         if !self.config.filter_position_reports {
             // Collect instruments with fills that lack venue_position_id (can't attribute to
             // specific hedge position, so must skip all hedge reports for that instrument)
-            let instruments_with_unattributed_fills: AHashSet<InstrumentId> = mass_status
+            let instruments_with_unattributed_fills: IndexSet<InstrumentId> = mass_status
                 .fill_reports()
                 .values()
                 .flatten()
@@ -729,7 +728,7 @@ impl ExecutionManager {
                 )
                 .collect();
 
-            let positions_with_fills: AHashSet<PositionId> = mass_status
+            let positions_with_fills: IndexSet<PositionId> = mass_status
                 .fill_reports()
                 .values()
                 .flatten()
@@ -933,7 +932,7 @@ impl ExecutionManager {
         );
 
         let mut all_reports = Vec::new();
-        let mut venue_reported_ids = AHashSet::new();
+        let mut venue_reported_ids = IndexSet::new();
 
         let ts_now = self.clock.borrow().timestamp_ns();
         let start = self.config.open_check_lookback_mins.map(|mins| {
@@ -1015,9 +1014,9 @@ impl ExecutionManager {
             } else {
                 filtered_orders.iter().collect()
             };
-            let cached_ids: AHashSet<ClientOrderId> =
+            let cached_ids: IndexSet<ClientOrderId> =
                 candidates.iter().map(|o| o.client_order_id()).collect();
-            let missing_at_venue: AHashSet<ClientOrderId> = cached_ids
+            let missing_at_venue: IndexSet<ClientOrderId> = cached_ids
                 .difference(&venue_reported_ids)
                 .copied()
                 .collect();
@@ -1071,7 +1070,7 @@ impl ExecutionManager {
         );
 
         // Query venue for position reports
-        let mut venue_positions = AHashMap::new();
+        let mut venue_positions = IndexMap::new();
 
         for client in clients {
             let mut cmd = GeneratePositionStatusReports::new(
@@ -1103,7 +1102,7 @@ impl ExecutionManager {
         // Check for discrepancies (one check per instrument per cycle to avoid
         // burning multiple retries for hedging positions on the same instrument)
         let mut events = Vec::new();
-        let mut checked_instruments = AHashSet::new();
+        let mut checked_instruments = IndexSet::new();
 
         for position in &open_positions {
             if !checked_instruments.insert(position.instrument_id) {
@@ -1131,7 +1130,7 @@ impl ExecutionManager {
 
         // Prune retry counters for instruments no longer actively tracked,
         // excluding flat venue reports which shouldn't protect stale counters
-        let active_instruments: AHashSet<InstrumentId> = open_positions
+        let active_instruments: IndexSet<InstrumentId> = open_positions
             .iter()
             .map(|p| p.instrument_id)
             .chain(
@@ -1160,8 +1159,8 @@ impl ExecutionManager {
             },
         );
         self.recon_check_retries.insert(client_order_id, 0);
-        self.ts_last_query.remove(&client_order_id);
-        self.order_local_activity_ns.remove(&client_order_id);
+        self.ts_last_query.shift_remove(&client_order_id);
+        self.order_local_activity_ns.shift_remove(&client_order_id);
     }
 
     /// Records local activity for the specified order.
@@ -1176,13 +1175,13 @@ impl ExecutionManager {
 
     /// Clears reconciliation tracking state for an order.
     pub fn clear_recon_tracking(&mut self, client_order_id: &ClientOrderId, drop_last_query: bool) {
-        self.inflight_checks.remove(client_order_id);
-        self.recon_check_retries.remove(client_order_id);
+        self.inflight_checks.shift_remove(client_order_id);
+        self.recon_check_retries.shift_remove(client_order_id);
 
         if drop_last_query {
-            self.ts_last_query.remove(client_order_id);
+            self.ts_last_query.shift_remove(client_order_id);
         }
-        self.order_local_activity_ns.remove(client_order_id);
+        self.order_local_activity_ns.shift_remove(client_order_id);
     }
 
     /// Claims external orders for a specific strategy and instrument.
@@ -1426,7 +1425,8 @@ impl ExecutionManager {
 
         let tolerance = Decimal::from_str("0.00000001").unwrap();
         if (cached_signed_qty - venue_signed_qty).abs() <= tolerance {
-            self.position_recon_retries.remove(&position.instrument_id);
+            self.position_recon_retries
+                .shift_remove(&position.instrument_id);
             return None; // No discrepancy
         }
 
@@ -1581,7 +1581,7 @@ impl ExecutionManager {
                 );
             }
         } else {
-            self.position_recon_retries.remove(&instrument_id);
+            self.position_recon_retries.shift_remove(&instrument_id);
         }
 
         result
@@ -1769,8 +1769,8 @@ impl ExecutionManager {
         &mut self,
         report: &PositionStatusReport,
         account_id: &AccountId,
-        instruments_with_unattributed_fills: &AHashSet<InstrumentId>,
-        positions_with_fills: &AHashSet<PositionId>,
+        instruments_with_unattributed_fills: &IndexSet<InstrumentId>,
+        positions_with_fills: &IndexSet<PositionId>,
     ) -> Option<Vec<OrderEventAny>> {
         if report.venue_position_id.is_some() {
             self.reconcile_position_report_hedging(
@@ -1788,8 +1788,8 @@ impl ExecutionManager {
         &mut self,
         report: &PositionStatusReport,
         account_id: &AccountId,
-        instruments_with_unattributed_fills: &AHashSet<InstrumentId>,
-        positions_with_fills: &AHashSet<PositionId>,
+        instruments_with_unattributed_fills: &IndexSet<InstrumentId>,
+        positions_with_fills: &IndexSet<PositionId>,
     ) -> Option<Vec<OrderEventAny>> {
         let venue_position_id = report.venue_position_id?;
 
@@ -2515,8 +2515,8 @@ impl ExecutionManager {
     fn deduplicate_order_reports<'a>(
         &self,
         reports: impl Iterator<Item = &'a OrderStatusReport>,
-    ) -> AHashMap<VenueOrderId, &'a OrderStatusReport> {
-        let mut best_reports: AHashMap<VenueOrderId, &'a OrderStatusReport> = AHashMap::new();
+    ) -> IndexMap<VenueOrderId, &'a OrderStatusReport> {
+        let mut best_reports: IndexMap<VenueOrderId, &'a OrderStatusReport> = IndexMap::new();
 
         for report in reports {
             let dominated = best_reports

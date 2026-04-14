@@ -147,6 +147,7 @@ where
             let result = match (self.config.operation_timeout_ms, cancel) {
                 (Some(timeout_ms), Some(token)) => {
                     tokio::select! {
+                        biased;
                         result = tokio::time::timeout(Duration::from_millis(timeout_ms), operation()) => result,
                         () = token.cancelled() => {
                             log::debug!("Operation '{operation_name}' canceled during execution");
@@ -159,6 +160,7 @@ where
                 }
                 (None, Some(token)) => {
                     tokio::select! {
+                        biased;
                         result = operation() => Ok(result),
                         () = token.cancelled() => {
                             log::debug!("Operation '{operation_name}' canceled during execution");
@@ -222,6 +224,7 @@ where
 
                     if let Some(token) = cancel {
                         tokio::select! {
+                            biased;
                             () = tokio::time::sleep(delay) => {},
                             () = token.cancelled() => {
                                 log::debug!("Operation '{operation_name}' canceled during retry delay (attempt {})", attempt + 1);
@@ -281,6 +284,7 @@ where
 
                     if let Some(token) = cancel {
                         tokio::select! {
+                            biased;
                             () = tokio::time::sleep(delay) => {},
                             () = token.cancelled() => {
                                 log::debug!("Operation '{operation_name}' canceled during retry delay (attempt {})", attempt + 1);

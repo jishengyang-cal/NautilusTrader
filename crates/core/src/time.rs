@@ -88,9 +88,30 @@ pub fn duration_since_unix_epoch() -> Duration {
     // - This would affect the entire application's ability to function
     // - Alternative error handling would complicate all time-dependent code paths
     // - Such failures are extremely rare in practice and indicate hardware/OS problems
-    SystemTime::now()
+    wall_clock_now()
         .duration_since(UNIX_EPOCH)
         .expect("Error calling `SystemTime`")
+}
+
+/// Returns the current wall-clock time as [`SystemTime`].
+///
+/// Under simulation (`simulation` + `cfg(madsim)`), returns virtual wall-clock
+/// time from the madsim deterministic scheduler. Under normal builds, returns
+/// [`SystemTime::now()`].
+///
+/// This is the wall-clock seam. It preserves Unix-epoch semantics (unlike
+/// `tokio::time::Instant` which is monotonic and carries no epoch).
+#[inline(always)]
+#[must_use]
+fn wall_clock_now() -> SystemTime {
+    #[cfg(not(all(feature = "simulation", madsim)))]
+    {
+        SystemTime::now()
+    }
+    #[cfg(all(feature = "simulation", madsim))]
+    {
+        madsim::time::TimeHandle::current().now_time()
+    }
 }
 
 /// Returns the current UNIX time in nanoseconds, based on [`SystemTime::now()`].
