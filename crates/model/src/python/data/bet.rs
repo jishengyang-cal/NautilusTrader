@@ -60,8 +60,8 @@ impl Bet {
 
     /// Creates a bet from a stake or liability depending on the bet side.
     ///
-    /// For `BetSide::Back` this calls [`Self::from_stake`] and for
-    /// `BetSide::Lay` it calls [`Self::from_liability`].
+    /// For `BetSide::Back` this calls `Self.from_stake` and for
+    /// `BetSide::Lay` it calls `Self.from_liability`.
     #[staticmethod]
     #[pyo3(name = "from_stake_or_liability")]
     fn py_from_stake_or_liability(price: Decimal, volume: Decimal, side: BetSide) -> Self {

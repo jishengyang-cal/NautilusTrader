@@ -321,6 +321,7 @@ impl OKXHttpClient {
         })
     }
 
+    /// Requests trades for the `instrument_id` and `start` -> `end` time range.
     #[pyo3(name = "request_trades")]
     #[pyo3(signature = (instrument_id, start=None, end=None, limit=None))]
     fn py_request_trades<'py>(
@@ -346,6 +347,42 @@ impl OKXHttpClient {
         })
     }
 
+    /// Requests historical bars for the given bar type and time range.
+    ///
+    /// The aggregation source must be `EXTERNAL`. Time range validation ensures start < end.
+    /// Returns bars sorted oldest to newest.
+    ///
+    /// # Endpoint Selection
+    ///
+    /// The OKX API has different endpoints with different limits:
+    /// - Regular endpoint (`/api/v5/market/candles`): ≤ 300 rows/call, ≤ 40 req/2s
+    ///   - Used when: start is None OR age ≤ 100 days
+    /// - History endpoint (`/api/v5/market/history-candles`): ≤ 100 rows/call, ≤ 20 req/2s
+    ///   - Used when: start is Some AND age > 100 days
+    ///
+    /// Age is calculated as `Utc::now() - start` at the time of the first request.
+    ///
+    /// # Supported Aggregations
+    ///
+    /// Maps to OKX bar query parameter:
+    /// - `Second` → `{n}s`
+    /// - `Minute` → `{n}m`
+    /// - `Hour` → `{n}H`
+    /// - `Day` → `{n}D`
+    /// - `Week` → `{n}W`
+    /// - `Month` → `{n}M`
+    ///
+    /// # Pagination
+    ///
+    /// - Uses `before` parameter for backwards pagination
+    /// - Pages backwards from end time (or now) to start time
+    /// - Stops when: limit reached, time window covered, or API returns empty
+    /// - Rate limit safety: ≥ 50ms between requests
+    ///
+    /// # References
+    ///
+    /// - <https://tr.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks>
+    /// - <https://tr.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history>
     #[pyo3(name = "request_bars")]
     #[pyo3(signature = (bar_type, start=None, end=None, limit=None))]
     fn py_request_bars<'py>(

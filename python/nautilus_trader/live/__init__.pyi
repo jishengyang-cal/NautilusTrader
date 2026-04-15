@@ -28,14 +28,20 @@ class InstrumentProviderConfig:
     @property
     def load_all(self) -> bool: ...
     @property
-    def load_ids(self) -> bool: ...
+    def load_ids(self) -> list[str] | None: ...
     @property
-    def filters(self) -> dict[str, str]: ...
+    def filters(self) -> typing.Any: ...
+    @property
+    def filter_callable(self) -> str | None: ...
+    @property
+    def log_warnings(self) -> bool: ...
     def __new__(
         cls,
         load_all: bool | None = None,
-        load_ids: bool | None = None,
-        filters: typing.Mapping[str, str] | None = None,
+        load_ids: typing.Sequence[str] | None = None,
+        filters: typing.Mapping[str, typing.Any] | None = None,
+        filter_callable: str | None = None,
+        log_warnings: bool | None = None,
     ) -> InstrumentProviderConfig: ...
 
 @typing.final
@@ -62,10 +68,14 @@ class LiveDataEngineConfig:
         time_bars_skip_first_non_full_bar: bool | None = None,
         time_bars_interval_type: typing.Any | None = None,
         time_bars_build_delay: int | None = None,
+        time_bars_origins: typing.Mapping[str, int] | None = None,
         validate_data_sequence: bool | None = None,
         buffer_deltas: bool | None = None,
+        emit_quotes_from_book: bool | None = None,
+        emit_quotes_from_book_depths: bool | None = None,
         external_clients: typing.Sequence[model.ClientId] | None = None,
         debug: bool | None = None,
+        graceful_shutdown_on_error: bool | None = None,
     ) -> LiveDataEngineConfig: ...
 
 @typing.final
@@ -84,7 +94,9 @@ class LiveExecClientConfig:
 class LiveExecEngineConfig:
     def __new__(
         cls,
+        load_cache: bool | None = None,
         manage_own_order_books: bool | None = None,
+        snapshot_positions_interval_secs: float | None = None,
         external_clients: typing.Sequence[model.ClientId] | None = None,
         allow_overfills: bool | None = None,
         reconciliation: bool | None = None,
@@ -140,6 +152,8 @@ class LiveNode:
     def stop(self) -> None: ...
     def add_actor_from_config(self, config: common.ImportableActorConfig) -> None: ...
     def add_strategy_from_config(self, config: trading.ImportableStrategyConfig) -> None: ...
+    def add_native_strategy(self, config: typing.Any) -> None: ...
+    def add_native_actor(self, config: typing.Any) -> None: ...
     def add_exec_algorithm_from_config(
         self, config: trading.ImportableExecAlgorithmConfig
     ) -> None: ...
@@ -210,6 +224,7 @@ class LiveNodeConfig:
         cache: common.CacheConfig | None = None,
         msgbus: common.MessageBusConfig | None = None,
         portfolio: portfolio.PortfolioConfig | None = None,
+        loop_debug: bool | None = None,
         data_engine: LiveDataEngineConfig | None = None,
         risk_engine: LiveRiskEngineConfig | None = None,
         exec_engine: LiveExecEngineConfig | None = None,
@@ -224,6 +239,7 @@ class LiveRiskEngineConfig:
         max_order_modify_rate: str | None = None,
         max_notional_per_order: typing.Mapping[str, typing.Any] | None = None,
         debug: bool | None = None,
+        graceful_shutdown_on_error: bool | None = None,
     ) -> LiveRiskEngineConfig: ...
 
 @typing.final

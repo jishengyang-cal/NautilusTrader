@@ -193,7 +193,11 @@ impl KrakenSpotHttpClient {
         })
     }
 
-    /// Requests current market status for Kraken Spot instruments.
+    /// Requests the current market status for Kraken Spot instruments.
+    ///
+    /// Fetches both regular and tokenized asset pairs. The call returns an error if
+    /// either fetch fails so callers can avoid emitting partial snapshots that would
+    /// otherwise cause the missing tokenized symbols to be diffed as removed.
     #[pyo3(name = "request_instrument_statuses")]
     #[pyo3(signature = (pairs=None))]
     fn py_request_instrument_statuses<'py>(
@@ -557,9 +561,10 @@ impl KrakenSpotHttpClient {
 // Stub is maintained manually in nautilus_pyo3.pyi.
 #[pymethods]
 impl KrakenSpotHttpClient {
-    /// Submits multiple spot orders in batch-compatible format.
+    /// Submits multiple orders to the Kraken Spot exchange.
     ///
-    /// GTD and trailing-stop variants are not exposed through this helper.
+    /// Automatically groups orders by pair and chunks batch requests at the venue
+    /// limit. Single-order groups fall back to `AddOrder`.
     #[pyo3(name = "submit_orders_batch")]
     #[expect(clippy::type_complexity)]
     fn py_submit_orders_batch<'py>(

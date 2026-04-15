@@ -151,7 +151,7 @@ impl KrakenFuturesHttpClient {
         })
     }
 
-    /// Requests current market status for Kraken Futures instruments.
+    /// Requests the current market status for Kraken Futures instruments.
     #[pyo3(name = "request_instrument_statuses")]
     fn py_request_instrument_statuses<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
