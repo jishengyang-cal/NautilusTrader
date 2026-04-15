@@ -43,7 +43,7 @@ use nautilus_model::{
     instruments::{Instrument, InstrumentAny},
     orderbook::OrderBook,
     reports::{FillReport, OrderStatusReport, PositionStatusReport},
-    types::{AccountBalance, Currency, Money, Price, Quantity},
+    types::{AccountBalance, Currency, Price, Quantity},
 };
 use nautilus_network::{
     http::{HttpClient, Method, USER_AGENT},
@@ -1562,8 +1562,8 @@ impl KrakenSpotHttpClient {
         let balances: Vec<AccountBalance> = balances_raw
             .iter()
             .filter_map(|(currency_code, amount_str)| {
-                let amount = amount_str.parse::<f64>().ok()?;
-                if amount == 0.0 {
+                let amount = Decimal::from_str_exact(amount_str).ok()?;
+                if amount.is_zero() {
                     return None;
                 }
 
@@ -1581,11 +1581,8 @@ impl KrakenSpotHttpClient {
                     CurrencyType::Crypto,
                 );
 
-                let total = Money::new(amount, currency);
-                let locked = Money::new(0.0, currency);
-
                 // Balance endpoint returns total only, so free = total (no locked info)
-                Some(AccountBalance::new(total, locked, total))
+                AccountBalance::from_total_and_locked(amount, Decimal::ZERO, currency).ok()
             })
             .collect();
 

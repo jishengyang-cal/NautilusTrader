@@ -312,36 +312,22 @@ impl BinanceFuturesExecutionClient {
             .assets
             .iter()
             .filter_map(|b| {
-                let wallet_balance: f64 = b.wallet_balance.parse().unwrap_or(0.0);
-                let available_balance: f64 = b.available_balance.parse().unwrap_or(0.0);
-                let locked = wallet_balance - available_balance;
-
-                if wallet_balance == 0.0 {
+                if b.wallet_balance.is_zero() {
                     return None;
                 }
 
                 let currency = Currency::from(&b.asset);
-                Some(AccountBalance::new(
-                    Money::new(wallet_balance, currency),
-                    Money::new(locked.max(0.0), currency),
-                    Money::new(available_balance, currency),
-                ))
+                AccountBalance::from_total_and_free(b.wallet_balance, b.available_balance, currency)
+                    .ok()
             })
             .collect();
 
         let mut margins: Vec<MarginBalance> = Vec::new();
 
-        let initial_margin_dec = account_info
-            .total_initial_margin
-            .as_ref()
-            .and_then(|s| Decimal::from_str_exact(s).ok());
-        let maint_margin_dec = account_info
-            .total_maint_margin
-            .as_ref()
-            .and_then(|s| Decimal::from_str_exact(s).ok());
-
-        if let (Some(initial_dec), Some(maint_dec)) = (initial_margin_dec, maint_margin_dec)
-            && (!initial_dec.is_zero() || !maint_dec.is_zero())
+        if let (Some(initial_dec), Some(maint_dec)) = (
+            account_info.total_initial_margin,
+            account_info.total_maint_margin,
+        ) && (!initial_dec.is_zero() || !maint_dec.is_zero())
         {
             let margin_currency = Currency::USDT();
             let margin_instrument_id = InstrumentId::new(Symbol::new("ACCOUNT"), *BINANCE_VENUE);

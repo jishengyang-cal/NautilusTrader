@@ -972,16 +972,9 @@ pub fn parse_ws_account_state(
         let total_dec = coin_data.wallet_balance - coin_data.spot_borrow;
         let locked_dec = coin_data.total_order_im + coin_data.total_position_im;
 
-        let total = Money::from_decimal(total_dec, currency)?;
-        let locked_raw = Money::from_decimal(locked_dec, currency)?.raw;
-
-        // Clamp locked between 0 and total so free stays non-negative
-        // when total itself is non-negative, and locked stays zero when
-        // total is negative (spot borrow deficit).
-        let clamped_locked = Money::from_raw(locked_raw.clamp(0, total.raw.max(0)), currency);
-        let free = Money::from_raw(total.raw - clamped_locked.raw, currency);
-
-        balances.push(AccountBalance::new(total, clamped_locked, free));
+        balances.push(AccountBalance::from_total_and_locked(
+            total_dec, locked_dec, currency,
+        )?);
 
         let initial_margin_dec = coin_data.total_position_im;
         let maintenance_margin_dec = match &coin_data.total_position_mm {

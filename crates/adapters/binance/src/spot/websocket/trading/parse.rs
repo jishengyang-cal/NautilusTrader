@@ -177,17 +177,10 @@ pub fn parse_spot_account_position(
     let balances: Vec<AccountBalance> = msg
         .balances
         .iter()
-        .map(|b| {
-            let free: f64 = b.free.parse().unwrap_or(0.0);
-            let locked: f64 = b.locked.parse().unwrap_or(0.0);
-            let total = free + locked;
-
+        .filter_map(|b| {
+            let total = b.free + b.locked;
             let currency = Currency::get_or_create_crypto(b.asset.as_str());
-            AccountBalance::new(
-                Money::new(total, currency),
-                Money::new(locked, currency),
-                Money::new(free, currency),
-            )
+            AccountBalance::from_total_and_locked(total, b.locked, currency).ok()
         })
         .collect();
 
@@ -358,5 +351,31 @@ mod tests {
         assert_eq!(state.account_type, AccountType::Cash);
         assert!(state.is_reported);
         assert_eq!(state.balances.len(), 2);
+    }
+
+    // Regression for the #3867 bug class: WS `free` and `locked` with more decimal places
+    // than the asset's currency precision used to trip the invariant when Money::new rounded
+    // each side independently.
+    #[rstest]
+    fn test_parse_account_position_precision_drift() {
+        let json = r#"{
+            "e": "outboundAccountPosition",
+            "E": 1700000000000,
+            "u": 1700000000000,
+            "B": [{
+                "a": "ETH",
+                "f": "9.999999994999",
+                "l": "0.000000040000"
+            }]
+        }"#;
+        let msg: BinanceSpotAccountPositionMsg = serde_json::from_str(json).unwrap();
+        let account_id = AccountId::from("BINANCE-001");
+        let ts_init = UnixNanos::from(1_000_000_000u64);
+
+        let state = parse_spot_account_position(&msg, account_id, ts_init);
+
+        assert_eq!(state.balances.len(), 1);
+        let balance = &state.balances[0];
+        assert_eq!(balance.total.raw, balance.locked.raw + balance.free.raw);
     }
 }

@@ -943,11 +943,9 @@ pub fn parse_account_state(
         let locked_dec = coin.locked;
 
         let currency = get_currency(&coin.coin);
-        let total = Money::from_decimal(total_dec, currency)?;
-        let locked = Money::from_decimal(locked_dec, currency)?;
-        let free = Money::from_raw(total.raw - locked.raw, currency);
-
-        balances.push(AccountBalance::new(total, locked, free));
+        balances.push(AccountBalance::from_total_and_locked(
+            total_dec, locked_dec, currency,
+        )?);
     }
 
     let mut margins = Vec::new();

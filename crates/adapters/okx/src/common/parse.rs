@@ -2031,14 +2031,9 @@ pub fn parse_option_instrument(
 
 /// Parses an OKX account into a Nautilus account state.
 ///
-fn parse_balance_field(
-    value_str: &str,
-    field_name: &str,
-    currency: Currency,
-    ccy_str: &str,
-) -> Option<Money> {
+fn parse_balance_field(value_str: &str, field_name: &str, ccy_str: &str) -> Option<Decimal> {
     match Decimal::from_str(value_str) {
-        Ok(decimal) => Money::from_decimal(decimal, currency).ok(),
+        Ok(decimal) => Some(decimal),
         Err(e) => {
             log::warn!(
                 "Skipping balance detail for {ccy_str} with invalid {field_name} '{value_str}': {e}"
@@ -2070,17 +2065,20 @@ pub fn parse_account_state(
         let currency = Currency::get_or_create_crypto_with_context(ccy_str, Some("balance detail"));
 
         // Parse balance values, skip if invalid
-        let Some(total) = parse_balance_field(&b.cash_bal, "cash_bal", currency, ccy_str) else {
+        let Some(total) = parse_balance_field(&b.cash_bal, "cash_bal", ccy_str) else {
             continue;
         };
 
-        let Some(free) = parse_balance_field(&b.avail_bal, "avail_bal", currency, ccy_str) else {
+        let Some(free) = parse_balance_field(&b.avail_bal, "avail_bal", ccy_str) else {
             continue;
         };
 
-        let locked = total - free;
-        let balance = AccountBalance::new(total, locked, free);
-        balances.push(balance);
+        match AccountBalance::from_total_and_free(total, free, currency) {
+            Ok(balance) => balances.push(balance),
+            Err(e) => {
+                log::warn!("Skipping balance detail for {ccy_str} with invalid total/free: {e}");
+            }
+        }
     }
 
     // Ensure at least one balance exists (Nautilus requires non-empty balances)
@@ -2226,20 +2224,19 @@ mod tests {
 
     #[rstest]
     fn test_parse_balance_field_valid() {
-        let result = parse_balance_field("100.5", "test_field", Currency::BTC(), "BTC");
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().as_f64(), 100.5);
+        let result = parse_balance_field("100.5", "test_field", "BTC");
+        assert_eq!(result, Some(dec!(100.5)));
     }
 
     #[rstest]
     fn test_parse_balance_field_invalid_numeric() {
-        let result = parse_balance_field("not_a_number", "test_field", Currency::BTC(), "BTC");
+        let result = parse_balance_field("not_a_number", "test_field", "BTC");
         assert!(result.is_none());
     }
 
     #[rstest]
     fn test_parse_balance_field_empty() {
-        let result = parse_balance_field("", "test_field", Currency::BTC(), "BTC");
+        let result = parse_balance_field("", "test_field", "BTC");
         assert!(result.is_none());
     }
 

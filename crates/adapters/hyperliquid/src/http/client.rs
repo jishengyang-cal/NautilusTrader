@@ -46,7 +46,7 @@ use nautilus_model::{
     instruments::{CurrencyPair, Instrument, InstrumentAny},
     orders::{Order, OrderAny},
     reports::{FillReport, OrderStatusReport, PositionStatusReport},
-    types::{AccountBalance, Currency, Money, Price, Quantity},
+    types::{AccountBalance, Currency, Price, Quantity},
 };
 use nautilus_network::{
     http::{HttpClient, HttpClientError, HttpResponse, Method, USER_AGENT},
@@ -2014,13 +2014,10 @@ impl HyperliquidHttpClient {
                 total = free;
             }
 
-            let locked = (total - free).max(Decimal::ZERO);
-
-            vec![AccountBalance::new(
-                Money::from_decimal(total, usdc).map_err(|e| Error::decode(e.to_string()))?,
-                Money::from_decimal(locked, usdc).map_err(|e| Error::decode(e.to_string()))?,
-                Money::from_decimal(free, usdc).map_err(|e| Error::decode(e.to_string()))?,
-            )]
+            vec![
+                AccountBalance::from_total_and_free(total, free, usdc)
+                    .map_err(|e| Error::decode(e.to_string()))?,
+            ]
         } else {
             // No margin summary, use withdrawable if available
             let free = state
@@ -2028,11 +2025,10 @@ impl HyperliquidHttpClient {
                 .unwrap_or(Decimal::ZERO)
                 .max(Decimal::ZERO);
 
-            vec![AccountBalance::new(
-                Money::from_decimal(free, usdc).map_err(|e| Error::decode(e.to_string()))?,
-                Money::zero(usdc),
-                Money::from_decimal(free, usdc).map_err(|e| Error::decode(e.to_string()))?,
-            )]
+            vec![
+                AccountBalance::from_total_and_free(free, free, usdc)
+                    .map_err(|e| Error::decode(e.to_string()))?,
+            ]
         };
 
         Ok(AccountState::new(

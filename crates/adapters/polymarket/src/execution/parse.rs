@@ -331,11 +331,8 @@ pub fn parse_balance_allowance(
     currency: Currency,
 ) -> anyhow::Result<AccountBalance> {
     let balance_usdc = balance_raw / USDC_SCALE;
-    let total = Money::from_decimal(balance_usdc, currency)
-        .map_err(|e| anyhow::anyhow!("Failed to convert balance: {e}"))?;
-    let locked = Money::new(0.0, currency);
-    let free = total;
-    Ok(AccountBalance::new(total, locked, free))
+    AccountBalance::from_total_and_locked(balance_usdc, Decimal::ZERO, currency)
+        .map_err(|e| anyhow::anyhow!("Failed to convert balance: {e}"))
 }
 
 /// Result of walking the order book to compute market order parameters.

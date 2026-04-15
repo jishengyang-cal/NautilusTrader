@@ -292,9 +292,9 @@ impl HyperliquidExecutionClient {
             state.asset_positions.len()
         );
 
-        // Parse balances and margins from cross margin summary
-        if let Some(ref cross_margin_summary) = state.cross_margin_summary {
-            let (balances, margins) = parse_account_balances_and_margins(cross_margin_summary)
+        // Parse balances and margins from clearinghouse state
+        if state.cross_margin_summary.is_some() {
+            let (balances, margins) = parse_account_balances_and_margins(&state)
                 .context("failed to parse account balances and margins")?;
 
             // Generate account state event
@@ -1158,8 +1158,8 @@ impl ExecutionClient for HyperliquidExecutionClient {
             let state: ClearinghouseState = serde_json::from_value(clearinghouse_state)
                 .context("failed to deserialize clearinghouse state")?;
 
-            if let Some(ref cross_margin_summary) = state.cross_margin_summary {
-                let (balances, margins) = parse_account_balances_and_margins(cross_margin_summary)
+            if state.cross_margin_summary.is_some() {
+                let (balances, margins) = parse_account_balances_and_margins(&state)
                     .context("failed to parse account balances and margins")?;
                 let ts_event = clock.get_time_ns();
                 emitter.emit_account_state(balances, margins, true, ts_event);

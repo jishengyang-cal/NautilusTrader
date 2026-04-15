@@ -20,10 +20,14 @@
 //! The handler emits venue-specific types via [`BinanceFuturesWsStreamsMessage`].
 //! Data and execution client layers convert these to Nautilus domain types.
 
+use nautilus_core::serialization::{
+    deserialize_decimal_from_str, deserialize_optional_decimal_from_str,
+};
 use nautilus_model::identifiers::{
     ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId,
 };
 use nautilus_network::websocket::WebSocketClient;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
@@ -575,14 +579,18 @@ pub struct BalanceUpdate {
     #[serde(rename = "a")]
     pub asset: Ustr,
     /// Wallet balance.
-    #[serde(rename = "wb")]
-    pub wallet_balance: String,
+    #[serde(rename = "wb", deserialize_with = "deserialize_decimal_from_str")]
+    pub wallet_balance: Decimal,
     /// Cross wallet balance.
-    #[serde(rename = "cw")]
-    pub cross_wallet_balance: String,
+    #[serde(rename = "cw", deserialize_with = "deserialize_decimal_from_str")]
+    pub cross_wallet_balance: Decimal,
     /// Balance change (except for PnL and commission).
-    #[serde(rename = "bc", default)]
-    pub balance_change: Option<String>,
+    #[serde(
+        rename = "bc",
+        default,
+        deserialize_with = "deserialize_optional_decimal_from_str"
+    )]
+    pub balance_change: Option<Decimal>,
 }
 
 /// Position update within account update.

@@ -60,6 +60,7 @@ Released on TBD (UTC).
 - Fixed Polymarket reconciliation fills using incorrect commission (#3860), thanks for reporting @fedoraiver
 
 ### Internal Improvements
+- Added `AccountBalance::from_total_and_locked` and `AccountBalance::from_total_and_free` constructors that derive the third component in fixed-point to guarantee the `total == locked + free` invariant at the currency precision; migrated Betfair, Binance, Bybit, Hyperliquid, Kraken, OKX, Polymarket, and Architect AX adapter balance parses to the new helpers (Rust)
 - Added typed `CorrectnessError` enum to replace `anyhow::Error` in `correctness` helpers (Rust)
 - Added `CorrectnessResultExt::expect_display` for display-formatted panics on typed correctness errors (Rust)
 - Added deterministic simulation testing (DST) re-export module gated behind `simulation` feature (Rust)

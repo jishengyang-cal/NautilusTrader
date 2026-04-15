@@ -412,11 +412,7 @@ pub fn parse_account_state(
     let exposure = funds.exposure.unwrap_or_default().abs();
     let total = available + exposure;
 
-    let total_money = Money::from_decimal(total, currency)?;
-    let locked_money = Money::from_decimal(exposure, currency)?;
-    let free_money = Money::from_decimal(available, currency)?;
-
-    let balance = AccountBalance::new(total_money, locked_money, free_money);
+    let balance = AccountBalance::from_total_and_locked(total, exposure, currency)?;
 
     Ok(AccountState::new(
         account_id,
