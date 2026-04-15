@@ -44,6 +44,7 @@ Released on TBD (UTC).
 - Fixed Kraken Futures margin-account balance parse violating the `AccountBalance` invariant (`total == locked + free`) when Kraken's `af` field and the derived `amount - af` round independently at the currency precision
 - Fixed Kraken Spot quote-quantity orders never reaching terminal state from base/quote size mismatch
 - Fixed Kraken trade dedup clearing the entire set at capacity instead of evicting the oldest entry
+- Fixed Kraken Futures `AccountBalance` invariant panic on margin parse, thanks @Stamppot82
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
 - Fixed Polymarket commission formula and fee source for fills (#3838), thanks for reporting @santivazq
 - Fixed Polymarket reconciliation fills using incorrect commission (#3860), thanks for reporting @fedoraiver

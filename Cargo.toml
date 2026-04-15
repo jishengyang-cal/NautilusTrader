@@ -266,7 +266,7 @@ tabled = { version = "0.20.0", default-features = false, features = [
   "derive",
 ] }
 thiserror = "2.0.18"
-tokio = { version = "1.51.1", default-features = false, features = [
+tokio = { version = "1.52.0", default-features = false, features = [
   "rt-multi-thread",
   "sync",
   "fs",
@@ -342,7 +342,7 @@ zeroize = { version = "1.8.2", features = ["alloc", "zeroize_derive"] }
 # -----------------------------------------------------------------------------
 # Dev dependencies
 # -----------------------------------------------------------------------------
-axum = { version = "0.8.8", default-features = false, features = [
+axum = { version = "0.8.9", default-features = false, features = [
   "tokio",
   "http1",
   "json",

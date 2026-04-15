@@ -162,7 +162,7 @@ version = "1.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-chains]]
-version = "0.2.33"
+version = "0.2.34"
 criteria = "safe-to-deploy"
 
 [[exemptions.alloy-consensus]]
@@ -481,6 +481,10 @@ criteria = "safe-to-deploy"
 version = "58.1.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.async-channel]]
+version = "2.5.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.async-compression]]
 version = "0.4.41"
 criteria = "safe-to-deploy"
@@ -518,7 +522,7 @@ version = "0.39.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.axum]]
-version = "0.8.8"
+version = "0.8.9"
 criteria = "safe-to-run"
 
 [[exemptions.axum-core]]
@@ -558,7 +562,7 @@ version = "0.14.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.bitflags]]
-version = "2.11.0"
+version = "2.11.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.bitvec]]
@@ -806,6 +810,10 @@ version = "4.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.darling]]
+version = "0.14.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.darling]]
 version = "0.20.11"
 criteria = "safe-to-deploy"
 
@@ -814,11 +822,19 @@ version = "0.23.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.darling_core]]
+version = "0.14.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.darling_core]]
 version = "0.20.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.darling_core]]
 version = "0.23.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.darling_macro]]
+version = "0.14.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.darling_macro]]
@@ -1017,6 +1033,10 @@ criteria = "safe-to-deploy"
 version = "0.15.7"
 criteria = "safe-to-deploy"
 
+[[exemptions.downcast-rs]]
+version = "1.2.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.dydx-proto]]
 version = "0.4.0"
 criteria = "safe-to-deploy"
@@ -1205,10 +1225,6 @@ criteria = "safe-to-deploy"
 version = "0.3.4"
 criteria = "safe-to-deploy"
 
-[[exemptions.getrandom]]
-version = "0.4.2"
-criteria = "safe-to-deploy"
-
 [[exemptions.group]]
 version = "0.13.0"
 criteria = "safe-to-deploy"
@@ -1266,7 +1282,7 @@ version = "1.8.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hyper-rustls]]
-version = "0.27.8"
+version = "0.27.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.hyper-timeout]]
@@ -1454,7 +1470,7 @@ version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.libc]]
-version = "0.2.184"
+version = "0.2.185"
 criteria = "safe-to-deploy"
 
 [[exemptions.libm]]
@@ -1482,7 +1498,7 @@ version = "0.4.14"
 criteria = "safe-to-deploy"
 
 [[exemptions.lru]]
-version = "0.16.3"
+version = "0.16.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.lru-slab]]
@@ -1499,6 +1515,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.macro-string]]
 version = "0.1.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.madsim]]
+version = "0.2.34"
+criteria = "safe-to-deploy"
+
+[[exemptions.madsim-macros]]
+version = "0.2.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.maplit]]
@@ -1531,6 +1555,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.multimap]]
 version = "0.10.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.naive-timer]]
+version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.nautilus-analysis]]
@@ -1731,6 +1759,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.page_size]]
 version = "0.6.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.panic-message]]
+version = "0.3.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.papergrid]]
@@ -1954,10 +1986,10 @@ version = "0.7.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rand]]
-version = "0.9.3"
+version = "0.9.4"
 criteria = "safe-to-deploy"
 
-[[exemptions.rand]]
+[[exemptions.rand_core]]
 version = "0.10.1"
 criteria = "safe-to-deploy"
 
@@ -1965,8 +1997,16 @@ criteria = "safe-to-deploy"
 version = "0.4.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.rand_xoshiro]]
+version = "0.6.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.rapidhash]]
 version = "4.4.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.rayon]]
+version = "1.12.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.redis]]
@@ -2118,7 +2158,7 @@ version = "0.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls-webpki]]
-version = "0.103.11"
+version = "0.103.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustpython-ast]]
@@ -2458,7 +2498,7 @@ version = "1.10.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
-version = "1.51.0"
+version = "1.52.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-macros]]

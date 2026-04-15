@@ -153,6 +153,10 @@ skip = [
   { crate = "derive_more" },
   { crate = "derive_more-impl" },
 
+  # syn 1 and strsim 0.10 - transitive via madsim -> darling 0.14 (dev-only simulator)
+  { crate = "syn" },
+  { crate = "strsim" },
+
   # Enum derive macros - strum 0.27 (alloy, hypersync) vs 0.28 (nautilus)
   { crate = "strum" },
   { crate = "strum_macros" },
@@ -182,7 +186,6 @@ skip = [
   { crate = "redox_syscall" },
 
   # Common utility crates with version fragmentation across ecosystem
-  { crate = "base64" },
   { crate = "hashbrown" },
   { crate = "itertools" },
   { crate = "foldhash" },
