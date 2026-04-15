@@ -462,7 +462,9 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         await self._ws_public_client.subscribe_book_ticker(command.instrument_id.symbol.value)
 
     async def _subscribe_trade_ticks(self, command: SubscribeTradeTicks) -> None:
-        if self._use_agg_trade_ticks:
+        # Binance Futures only publishes @aggTrade on the WebSocket; the legacy
+        # undocumented @trade stream was silenced around the 2026 URL migration.
+        if self._use_agg_trade_ticks or self._binance_account_type.is_futures:
             await self._ws_client.subscribe_agg_trades(command.instrument_id.symbol.value)
         else:
             await self._ws_client.subscribe_trades(command.instrument_id.symbol.value)
@@ -514,7 +516,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         await self._ws_public_client.unsubscribe_book_ticker(command.instrument_id.symbol.value)
 
     async def _unsubscribe_trade_ticks(self, command: UnsubscribeTradeTicks) -> None:
-        if self._use_agg_trade_ticks:
+        if self._use_agg_trade_ticks or self._binance_account_type.is_futures:
             await self._ws_client.unsubscribe_agg_trades(command.instrument_id.symbol.value)
         else:
             await self._ws_client.unsubscribe_trades(command.instrument_id.symbol.value)
@@ -589,9 +591,13 @@ class BinanceCommonDataClient(LiveMarketDataClient):
                 limit=limit,
             )
         else:
-            # Convert from timestamps to milliseconds
-            start_time_ms = secs_to_millis(request.start.timestamp())
-            end_time_ms = secs_to_millis(request.end.timestamp())
+            # Convert from timestamps to milliseconds (start/end may be None)
+            start_time_ms = (
+                secs_to_millis(request.start.timestamp()) if request.start is not None else None
+            )
+            end_time_ms = (
+                secs_to_millis(request.end.timestamp()) if request.end is not None else None
+            )
             ticks = await self._http_market.request_agg_trade_ticks(
                 instrument_id=request.instrument_id,
                 limit=limit,

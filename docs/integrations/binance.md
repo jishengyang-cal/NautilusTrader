@@ -666,7 +666,7 @@ definitive list of Rust config options.
 | `environment`                      | `None`    | Binance environment: `LIVE`, `TESTNET`, or `DEMO`. Defaults to `LIVE` when `None`. |
 | `testnet`                          | `False`   | **Deprecated**: use `environment=BinanceEnvironment.TESTNET` instead. |
 | `update_instruments_interval_mins` | `60`      | Interval (minutes) between instrument catalogue refreshes. |
-| `use_agg_trade_ticks`              | `False`   | When `True`, subscribe to aggregated trade ticks instead of raw trades. |
+| `use_agg_trade_ticks`              | `False`   | When `True`, subscribe to aggregated trade ticks instead of raw trades. Futures WebSocket subscriptions always use `@aggTrade` regardless of this flag. |
 | `instrument_status_poll_secs`      | `3600`    | *Rust only.* Interval (seconds) between exchange info polls to detect instrument status changes. Set to `0` to disable. |
 
 ### Execution client configuration options
@@ -983,6 +983,13 @@ trades. Unlike the default trade endpoints, aggregated trade endpoints can
 return all ticks between a `start_time` and `end_time`.
 
 Set `use_agg_trade_ticks=True` to use aggregated trades (`False` by default).
+
+:::note
+For Futures (USD-M and COIN-M), the WebSocket trade subscription always uses
+`@aggTrade`. Binance only publishes aggregated trades on the Futures WebSocket;
+the legacy `@trade` stream was undocumented and has been silenced. The HTTP
+`request_trade_ticks` path continues to honour `use_agg_trade_ticks`.
+:::
 
 ### Commission rate queries
 

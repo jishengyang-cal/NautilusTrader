@@ -36,6 +36,7 @@ Released on TBD (UTC).
 - Fixed execution engine ignoring user-supplied `position_id` from `submit_order` (Rust)
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Binance user data stream not recovering after keepalive failure (#3861), thanks for reporting @KaizynX
+- Fixed Binance Futures WebSocket trades by forcing `@aggTrade` (#3861), thanks for reporting @KaizynX
 - Fixed Bybit position deserialization for closed positions (#3836), thanks for reporting @pusteckiy
 - Fixed Bybit perpetual instrument status to emit `PreClose` when scheduled for delisting (#3829), thanks @dxwil
 - Fixed Bybit `load_all_async` dropping `base_coin` filter for options (#3865), thanks for reporting @Baerenstein

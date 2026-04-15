@@ -106,6 +106,9 @@ class BinanceDataClientConfig(LiveDataClientConfig, frozen=True):
     use_agg_trade_ticks : bool, default False
         Whether to use aggregated trade tick endpoints instead of raw trades.
         TradeId of ticks will be the Aggregate tradeId returned by Binance.
+        For Futures account types the WebSocket trade subscription always uses
+        ``@aggTrade`` (the non-aggregated ``@trade`` stream is not published),
+        but the HTTP ``request_trade_ticks`` path still honours this flag.
 
     """
 
