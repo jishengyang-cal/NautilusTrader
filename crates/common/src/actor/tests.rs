@@ -84,6 +84,7 @@ use crate::{
     },
     nautilus_actor,
     runner::{SyncDataCommandSender, set_data_cmd_sender},
+    signal::Signal,
     testing::init_logger_for_testing,
     timer::TimeEvent,
 };
@@ -153,6 +154,8 @@ struct TestDataActor {
     pub received_closes: Vec<InstrumentClose>,
     pub received_greeks: Vec<OptionGreeks>,
     pub received_chain_slices: Vec<OptionChainSlice>,
+    pub received_signals: Vec<Signal>,
+    pub received_custom_data: Vec<CustomData>,
     #[cfg(feature = "defi")]
     pub received_blocks: Vec<Block>,
     #[cfg(feature = "defi")]
@@ -183,6 +186,12 @@ impl DataActor for TestDataActor {
 
     fn on_data(&mut self, data: &CustomData) -> anyhow::Result<()> {
         self.received_data.push(data.data_type.to_string());
+        self.received_custom_data.push(data.clone());
+        Ok(())
+    }
+
+    fn on_signal(&mut self, signal: &Signal) -> anyhow::Result<()> {
+        self.received_signals.push(signal.clone());
         Ok(())
     }
 
@@ -322,6 +331,8 @@ impl TestDataActor {
             received_closes: Vec::new(),
             received_greeks: Vec::new(),
             received_chain_slices: Vec::new(),
+            received_signals: Vec::new(),
+            received_custom_data: Vec::new(),
             #[cfg(feature = "defi")]
             received_blocks: Vec::new(),
             #[cfg(feature = "defi")]
@@ -2374,4 +2385,311 @@ fn test_data_actor_core_multiple_subscriptions_tracked(
     let gbp_topic = get_quotes_topic(gbpusd_sim.id);
     assert!(!actor.has_quote_handler(aud_topic.as_str()));
     assert!(actor.has_quote_handler(gbp_topic.as_str()));
+}
+
+#[rstest]
+fn test_publish_data_reaches_subscriber(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+) {
+    let actor_id = register_data_actor(clock, cache, trader_id);
+    let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    actor.start().unwrap();
+
+    let data = make_test_custom_data("published-42");
+    actor.subscribe_data(data.data_type.clone(), None, None);
+
+    actor.publish_data(&data.data_type, &data);
+
+    assert_eq!(actor.received_custom_data.len(), 1);
+    assert_eq!(actor.received_custom_data[0], data);
+}
+
+#[rstest]
+#[should_panic(expected = "Actor has not been registered")]
+fn test_publish_data_panics_when_unregistered() {
+    let actor = TestDataActor::new(DataActorConfig::default());
+    let data = make_test_custom_data("x");
+    actor.publish_data(&data.data_type, &data);
+}
+
+#[rstest]
+#[should_panic(expected = "Actor has not been registered")]
+fn test_publish_signal_panics_when_unregistered() {
+    let actor = TestDataActor::new(DataActorConfig::default());
+    actor.publish_signal("example", "1".to_string(), UnixNanos::default());
+}
+
+#[rstest]
+#[should_panic(expected = "Actor has not been registered")]
+fn test_subscribe_signal_panics_when_unregistered() {
+    let mut actor = TestDataActor::new(DataActorConfig::default());
+    actor.subscribe_signal("example");
+}
+
+#[rstest]
+#[should_panic(expected = "Actor has not been registered")]
+fn test_unsubscribe_signal_panics_when_unregistered() {
+    let mut actor = TestDataActor::new(DataActorConfig::default());
+    actor.unsubscribe_signal("example");
+}
+
+#[rstest]
+#[should_panic(expected = "Actor has not been registered")]
+fn test_add_synthetic_panics_when_unregistered() {
+    use std::str::FromStr;
+
+    use nautilus_model::{
+        identifiers::{InstrumentId, Symbol},
+        instruments::SyntheticInstrument,
+    };
+
+    let actor = TestDataActor::new(DataActorConfig::default());
+    let comp1 = InstrumentId::from_str("BTC-USD.VENUE").unwrap();
+    let comp2 = InstrumentId::from_str("ETH-USD.VENUE").unwrap();
+    let formula = format!("({comp1} + {comp2}) / 2.0");
+    let synthetic = SyntheticInstrument::new(
+        Symbol::from("SYN"),
+        2,
+        vec![comp1, comp2],
+        &formula,
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    let _ = actor.add_synthetic(synthetic);
+}
+
+#[rstest]
+#[should_panic(expected = "Actor has not been registered")]
+fn test_update_synthetic_panics_when_unregistered() {
+    use std::str::FromStr;
+
+    use nautilus_model::{
+        identifiers::{InstrumentId, Symbol},
+        instruments::SyntheticInstrument,
+    };
+
+    let actor = TestDataActor::new(DataActorConfig::default());
+    let comp1 = InstrumentId::from_str("BTC-USD.VENUE").unwrap();
+    let comp2 = InstrumentId::from_str("ETH-USD.VENUE").unwrap();
+    let formula = format!("({comp1} + {comp2}) / 2.0");
+    let synthetic = SyntheticInstrument::new(
+        Symbol::from("SYN"),
+        2,
+        vec![comp1, comp2],
+        &formula,
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    let _ = actor.update_synthetic(synthetic);
+}
+
+#[rstest]
+fn test_subscribe_signal_multi_word_name_matches_published_topic(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+) {
+    // Multi-word / mixed-case names round-trip through the Python-compatible
+    // title-case topic scheme (`data.Signal<TitleName>`), matching v1 behavior.
+    let actor_id = register_data_actor(clock, cache, trader_id);
+    let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    actor.start().unwrap();
+
+    actor.subscribe_signal("hello world");
+    drop(actor);
+
+    let publisher = get_actor_unchecked::<TestDataActor>(&actor_id);
+    publisher.publish_signal("hello world", "ok".to_string(), UnixNanos::default());
+    // A differently-cased input produces a different title-cased topic and
+    // therefore must not match the `hello world` subscription.
+    publisher.publish_signal("unrelated", "skip".to_string(), UnixNanos::default());
+    drop(publisher);
+
+    let actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    assert_eq!(actor.received_signals.len(), 1);
+    assert_eq!(actor.received_signals[0].name.as_str(), "hello world");
+    assert_eq!(actor.received_signals[0].value, "ok");
+}
+
+#[rstest]
+#[case("example", "1.5", 0)]
+#[case("risk", "HIGH", 1_700_000_000_000_000_000)]
+fn test_publish_signal_reaches_subscriber(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+    #[case] name: &str,
+    #[case] value: &str,
+    #[case] ts_event: u64,
+) {
+    let actor_id = register_data_actor(clock, cache, trader_id);
+    let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    actor.start().unwrap();
+
+    actor.subscribe_signal(name);
+    drop(actor);
+
+    let publisher = get_actor_unchecked::<TestDataActor>(&actor_id);
+    publisher.publish_signal(name, value.to_string(), UnixNanos::from(ts_event));
+    drop(publisher);
+
+    let actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    assert_eq!(actor.received_signals.len(), 1);
+    let signal = &actor.received_signals[0];
+    assert_eq!(signal.name.as_str(), name);
+    assert_eq!(signal.value, value);
+    if ts_event != 0 {
+        assert_eq!(signal.ts_event, UnixNanos::from(ts_event));
+    }
+}
+
+#[rstest]
+fn test_subscribe_signal_wildcard_matches_all_names(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+) {
+    let actor_id = register_data_actor(clock, cache, trader_id);
+    let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    actor.start().unwrap();
+
+    // Empty name = subscribe to all signals
+    actor.subscribe_signal("");
+    drop(actor);
+
+    let publisher = get_actor_unchecked::<TestDataActor>(&actor_id);
+    publisher.publish_signal("alpha", "1".to_string(), UnixNanos::default());
+    publisher.publish_signal("beta", "2".to_string(), UnixNanos::default());
+    drop(publisher);
+
+    let actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    assert_eq!(actor.received_signals.len(), 2);
+    assert_eq!(actor.received_signals[0].name.as_str(), "alpha");
+    assert_eq!(actor.received_signals[1].name.as_str(), "beta");
+}
+
+#[rstest]
+fn test_unsubscribe_signal_stops_delivery(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+) {
+    let actor_id = register_data_actor(clock, cache, trader_id);
+    let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    actor.start().unwrap();
+
+    actor.subscribe_signal("alpha");
+    drop(actor);
+
+    let publisher = get_actor_unchecked::<TestDataActor>(&actor_id);
+    publisher.publish_signal("alpha", "1".to_string(), UnixNanos::default());
+    drop(publisher);
+
+    let mut actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    assert_eq!(actor.received_signals.len(), 1);
+
+    actor.unsubscribe_signal("alpha");
+    drop(actor);
+
+    let publisher = get_actor_unchecked::<TestDataActor>(&actor_id);
+    publisher.publish_signal("alpha", "2".to_string(), UnixNanos::default());
+    drop(publisher);
+
+    let actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+    assert_eq!(actor.received_signals.len(), 1);
+}
+
+#[rstest]
+fn test_add_synthetic_stores_in_cache(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+) {
+    use std::str::FromStr;
+
+    use nautilus_model::{
+        identifiers::{InstrumentId, Symbol},
+        instruments::SyntheticInstrument,
+    };
+
+    let actor_id = register_data_actor(clock, cache.clone(), trader_id);
+    let actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+
+    let comp1 = InstrumentId::from_str("BTC-USD.VENUE").unwrap();
+    let comp2 = InstrumentId::from_str("ETH-USD.VENUE").unwrap();
+    let formula = format!("({comp1} + {comp2}) / 2.0");
+    let synthetic = SyntheticInstrument::new(
+        Symbol::from("SYN"),
+        2,
+        vec![comp1, comp2],
+        &formula,
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    let synthetic_id = synthetic.id;
+
+    actor.add_synthetic(synthetic.clone()).unwrap();
+
+    assert!(cache.borrow().synthetic(&synthetic_id).is_some());
+
+    // Adding again should error
+    let err = actor.add_synthetic(synthetic).unwrap_err().to_string();
+    assert!(err.contains("already exists"));
+}
+
+#[rstest]
+fn test_update_synthetic_replaces_existing(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+) {
+    use std::str::FromStr;
+
+    use nautilus_model::{
+        identifiers::{InstrumentId, Symbol},
+        instruments::SyntheticInstrument,
+    };
+
+    let actor_id = register_data_actor(clock, cache.clone(), trader_id);
+    let actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+
+    let comp1 = InstrumentId::from_str("BTC-USD.VENUE").unwrap();
+    let comp2 = InstrumentId::from_str("ETH-USD.VENUE").unwrap();
+    let symbol = Symbol::from("SYN");
+    let original_formula = format!("({comp1} + {comp2}) / 2.0");
+    let synthetic = SyntheticInstrument::new(
+        symbol,
+        2,
+        vec![comp1, comp2],
+        &original_formula,
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    let synthetic_id = synthetic.id;
+
+    // update before add should error
+    let err = actor
+        .update_synthetic(synthetic.clone())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("does not exist"));
+
+    actor.add_synthetic(synthetic).unwrap();
+
+    let new_formula = format!("{comp1} + {comp2}");
+    let updated = SyntheticInstrument::new(
+        symbol,
+        2,
+        vec![comp1, comp2],
+        &new_formula,
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    actor.update_synthetic(updated).unwrap();
+
+    let guard = cache.borrow();
+    let stored = guard.synthetic(&synthetic_id).unwrap();
+    assert_eq!(stored.formula, new_formula);
 }

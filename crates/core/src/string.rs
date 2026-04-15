@@ -221,6 +221,44 @@ fn push_lower_unicode(result: &mut String, word: &str, first_word: &mut bool) {
     }
 }
 
+/// Title-cases `s` by capitalizing the first letter of each alphabetic run.
+///
+/// Mirrors Python's `str.title()`: word boundaries fall at any non-alphabetic
+/// character, the first letter of each run is uppercased, and the rest are
+/// lowercased.
+///
+/// # Examples
+///
+/// ```
+/// use nautilus_core::string::title_case;
+///
+/// assert_eq!(title_case("example"), "Example");
+/// assert_eq!(title_case("hello_world"), "Hello_World");
+/// assert_eq!(title_case("hello world"), "Hello World");
+/// assert_eq!(title_case(""), "");
+/// ```
+#[must_use]
+pub fn title_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_alpha = false;
+
+    for ch in s.chars() {
+        if ch.is_alphabetic() {
+            if prev_alpha {
+                out.extend(ch.to_lowercase());
+            } else {
+                out.extend(ch.to_uppercase());
+            }
+            prev_alpha = true;
+        } else {
+            out.push(ch);
+            prev_alpha = false;
+        }
+    }
+
+    out
+}
+
 /// Masks an API key by showing only the first and last 4 characters.
 ///
 /// For keys 8 characters or shorter, returns asterisks only.
@@ -353,5 +391,20 @@ mod tests {
     #[rstest]
     fn test_semver_parse_invalid() {
         assert!(SemVer::parse("abc").is_err());
+    }
+
+    #[rstest]
+    #[case("", "")]
+    #[case("a", "A")]
+    #[case("example", "Example")]
+    #[case("EXAMPLE", "Example")]
+    #[case("hello_world", "Hello_World")]
+    #[case("hello-world", "Hello-World")]
+    #[case("hello world", "Hello World")]
+    #[case("hELLO wORLD", "Hello World")]
+    #[case("123abc", "123Abc")]
+    #[case("_leading", "_Leading")]
+    fn test_title_case(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(title_case(input), expected);
     }
 }

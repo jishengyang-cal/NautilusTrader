@@ -41,7 +41,7 @@ use nautilus_model::{
     },
     enums::BookType,
     identifiers::{ActorId, ClientId, InstrumentId, OptionSeriesId, TraderId, Venue},
-    instruments::InstrumentAny,
+    instruments::{InstrumentAny, SyntheticInstrument},
     orderbook::OrderBook,
     python::{data::option_chain::PyStrikeRange, instruments::instrument_any_to_pyobject},
 };
@@ -1053,6 +1053,45 @@ impl PyDataActor {
         self.inner().core.shutdown_system(reason);
     }
 
+    #[pyo3(name = "publish_data")]
+    fn py_publish_data(&self, data_type: &DataType, data: &CustomData) {
+        self.inner().core.publish_data(data_type, data);
+    }
+
+    #[pyo3(name = "publish_signal")]
+    #[pyo3(signature = (name, value, ts_event=0))]
+    #[allow(clippy::needless_pass_by_value)]
+    fn py_publish_signal(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        value: Py<PyAny>,
+        ts_event: u64,
+    ) -> PyResult<()> {
+        // Accept any int / float / str / bool — match v1 behaviour by coercing with `str(value)`.
+        let value_str: String = value.bind(py).str()?.extract()?;
+        self.inner()
+            .core
+            .publish_signal(name, value_str, UnixNanos::from(ts_event));
+        Ok(())
+    }
+
+    #[pyo3(name = "add_synthetic")]
+    fn py_add_synthetic(&self, synthetic: SyntheticInstrument) -> PyResult<()> {
+        self.inner()
+            .core
+            .add_synthetic(synthetic)
+            .map_err(to_pyvalue_err)
+    }
+
+    #[pyo3(name = "update_synthetic")]
+    fn py_update_synthetic(&self, synthetic: SyntheticInstrument) -> PyResult<()> {
+        self.inner()
+            .core
+            .update_synthetic(synthetic)
+            .map_err(to_pyvalue_err)
+    }
+
     #[pyo3(name = "on_start")]
     fn py_on_start(&self) {}
 
@@ -1150,6 +1189,12 @@ impl PyDataActor {
         let params = dict_to_params(py, params)?;
         DataActor::subscribe_data(self.inner_mut(), data_type, client_id, params);
         Ok(())
+    }
+
+    #[pyo3(name = "subscribe_signal")]
+    #[pyo3(signature = (name=""))]
+    fn py_subscribe_signal(&mut self, name: &str) {
+        DataActor::subscribe_signal(self.inner_mut(), name);
     }
 
     #[pyo3(name = "subscribe_instruments")]
@@ -1410,6 +1455,12 @@ impl PyDataActor {
         let params = dict_to_params(py, params)?;
         DataActor::unsubscribe_data(self.inner_mut(), data_type, client_id, params);
         Ok(())
+    }
+
+    #[pyo3(name = "unsubscribe_signal")]
+    #[pyo3(signature = (name=""))]
+    fn py_unsubscribe_signal(&mut self, name: &str) {
+        DataActor::unsubscribe_signal(self.inner_mut(), name);
     }
 
     #[pyo3(name = "unsubscribe_instruments")]
@@ -2124,7 +2175,7 @@ mod tests {
 
     #[cfg(feature = "defi")]
     use alloy_primitives::{I256, U160, U256};
-    use nautilus_core::{UUID4, UnixNanos};
+    use nautilus_core::{UUID4, UnixNanos, python::IntoPyObjectNautilusExt};
     #[cfg(feature = "defi")]
     use nautilus_model::defi::{
         AmmType, Block, Blockchain, Chain, Dex, DexType, Pool, PoolFeeCollect, PoolFlash,
@@ -2331,6 +2382,421 @@ mod tests {
 
         actor.py_shutdown_system(Some("Test shutdown".to_string()));
         actor.py_shutdown_system(None);
+    }
+
+    #[rstest]
+    fn test_publish_data_delivers_to_any_subscriber(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::msgbus::{
+            self, MessageBus, get_message_bus, switchboard::get_custom_topic,
+            typed_handler::ShareableMessageHandler,
+        };
+
+        // Ensure clean msgbus for this test
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        let actor = create_registered_actor(clock, cache, trader_id);
+        let data = stub_custom_data(1, 42, None, None);
+        let topic = get_custom_topic(&data.data_type);
+
+        let received: Rc<RefCell<Vec<CustomData>>> = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+        let handler = ShareableMessageHandler::from_typed(move |d: &CustomData| {
+            received_clone.borrow_mut().push(d.clone());
+        });
+        msgbus::subscribe_any(topic.into(), handler, None);
+
+        actor.py_publish_data(&data.data_type, &data);
+
+        let received = received.borrow();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].data_type, data.data_type);
+    }
+
+    #[rstest]
+    fn test_publish_signal_delivers_to_customdata_subscriber(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::{
+            msgbus::{
+                self, MessageBus, Pattern, get_message_bus, typed_handler::ShareableMessageHandler,
+            },
+            signal::Signal,
+        };
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        let actor = create_registered_actor(clock, cache, trader_id);
+
+        // Signals travel as `CustomData` on the bus so persistence and other
+        // `CustomData`-aware subscribers pick them up. Downcast inside the handler.
+        let received: Rc<RefCell<Vec<Signal>>> = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+        let handler = ShareableMessageHandler::from_typed(move |data: &CustomData| {
+            if let Some(sig) = data.data.as_any().downcast_ref::<Signal>() {
+                received_clone.borrow_mut().push(sig.clone());
+            }
+        });
+        let pattern: crate::msgbus::MStr<Pattern> = "data.Signal*".to_string().into();
+        msgbus::subscribe_any(pattern, handler, None);
+
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let val1: Py<PyAny> = 1.0_f64.into_py_any_unwrap(py);
+            let val2: Py<PyAny> = "HIGH".into_py_any_unwrap(py);
+            actor.py_publish_signal(py, "example", val1, 0).unwrap();
+            actor
+                .py_publish_signal(py, "risk", val2, 1_700_000_000_000_000_000)
+                .unwrap();
+        });
+
+        let received = received.borrow();
+        assert_eq!(received.len(), 2);
+        assert_eq!(received[0].name.as_str(), "example");
+        assert_eq!(received[0].value, "1.0");
+        assert_eq!(received[1].name.as_str(), "risk");
+        assert_eq!(received[1].value, "HIGH");
+        assert_eq!(
+            received[1].ts_event,
+            UnixNanos::from(1_700_000_000_000_000_000_u64)
+        );
+    }
+
+    #[rstest]
+    fn test_publish_signal_accepts_numeric_py_values(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::{
+            msgbus::{
+                self, MessageBus, Pattern, get_message_bus, typed_handler::ShareableMessageHandler,
+            },
+            signal::Signal,
+        };
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        let actor = create_registered_actor(clock, cache, trader_id);
+
+        let received: Rc<RefCell<Vec<Signal>>> = Rc::new(RefCell::new(Vec::new()));
+        let received_clone = received.clone();
+        let handler = ShareableMessageHandler::from_typed(move |data: &CustomData| {
+            if let Some(sig) = data.data.as_any().downcast_ref::<Signal>() {
+                received_clone.borrow_mut().push(sig.clone());
+            }
+        });
+        let pattern: crate::msgbus::MStr<Pattern> = "data.Signal*".to_string().into();
+        msgbus::subscribe_any(pattern, handler, None);
+
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let int_value: Py<PyAny> = 42_i64.into_py_any_unwrap(py);
+            let float_value: Py<PyAny> = 3.5_f64.into_py_any_unwrap(py);
+            let bool_value: Py<PyAny> = true.into_py_any_unwrap(py);
+            actor.py_publish_signal(py, "count", int_value, 0).unwrap();
+            actor
+                .py_publish_signal(py, "ratio", float_value, 0)
+                .unwrap();
+            actor
+                .py_publish_signal(py, "active", bool_value, 0)
+                .unwrap();
+        });
+
+        let received = received.borrow();
+        assert_eq!(received.len(), 3);
+        assert_eq!(received[0].value, "42");
+        assert_eq!(received[1].value, "3.5");
+        assert_eq!(received[2].value, "True");
+    }
+
+    #[rstest]
+    fn test_subscribe_and_unsubscribe_signal_compile(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::msgbus::{MessageBus, get_message_bus};
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        let mut actor = create_registered_actor(clock, cache, trader_id);
+        actor.py_subscribe_signal("example");
+        actor.py_unsubscribe_signal("example");
+        actor.py_subscribe_signal("");
+        actor.py_unsubscribe_signal("");
+    }
+
+    #[rstest]
+    fn test_publish_data_dispatches_to_python_on_data(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::msgbus::{MessageBus, get_message_bus};
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let py_actor = create_tracking_python_actor(py).unwrap();
+
+            let mut rust_actor = PyDataActor::new(None);
+            rust_actor.set_python_instance(py_actor.clone_ref(py));
+            rust_actor.register(trader_id, clock, cache).unwrap();
+            rust_actor.register_in_global_registries();
+            rust_actor.py_start().unwrap();
+
+            let data = stub_custom_data(1, 42, None, None);
+            rust_actor
+                .py_subscribe_data(py, data.data_type.clone(), None, None)
+                .unwrap();
+
+            rust_actor.py_publish_data(&data.data_type, &data);
+            rust_actor.py_publish_data(&data.data_type, &data);
+
+            assert!(python_method_was_called(&py_actor, py, "on_data"));
+            assert_eq!(python_method_call_count(&py_actor, py, "on_data"), 2);
+        });
+    }
+
+    #[rstest]
+    fn test_publish_signal_dispatches_to_python_on_signal(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::msgbus::{MessageBus, get_message_bus};
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let py_actor = create_tracking_python_actor(py).unwrap();
+
+            let mut rust_actor = PyDataActor::new(None);
+            rust_actor.set_python_instance(py_actor.clone_ref(py));
+            rust_actor.register(trader_id, clock, cache).unwrap();
+            rust_actor.register_in_global_registries();
+            rust_actor.py_start().unwrap();
+
+            rust_actor.py_subscribe_signal("example");
+            let val1: Py<PyAny> = "1.5".into_py_any_unwrap(py);
+            let val2: Py<PyAny> = 2.0_f64.into_py_any_unwrap(py);
+            rust_actor
+                .py_publish_signal(py, "example", val1, 0)
+                .unwrap();
+            rust_actor
+                .py_publish_signal(py, "example", val2, 1_700_000_000_000_000_000)
+                .unwrap();
+
+            assert!(python_method_was_called(&py_actor, py, "on_signal"));
+            assert_eq!(python_method_call_count(&py_actor, py, "on_signal"), 2);
+        });
+    }
+
+    #[rstest]
+    fn test_unsubscribe_signal_stops_python_dispatch(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::msgbus::{MessageBus, get_message_bus};
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let py_actor = create_tracking_python_actor(py).unwrap();
+
+            let mut rust_actor = PyDataActor::new(None);
+            rust_actor.set_python_instance(py_actor.clone_ref(py));
+            rust_actor.register(trader_id, clock, cache).unwrap();
+            rust_actor.register_in_global_registries();
+            rust_actor.py_start().unwrap();
+
+            rust_actor.py_subscribe_signal("example");
+            let val1: Py<PyAny> = "1".into_py_any_unwrap(py);
+            let val2: Py<PyAny> = "2".into_py_any_unwrap(py);
+            rust_actor
+                .py_publish_signal(py, "example", val1, 0)
+                .unwrap();
+
+            rust_actor.py_unsubscribe_signal("example");
+            rust_actor
+                .py_publish_signal(py, "example", val2, 0)
+                .unwrap();
+
+            assert_eq!(python_method_call_count(&py_actor, py, "on_signal"), 1);
+        });
+    }
+
+    #[rstest]
+    fn test_subscribe_signal_wildcard_dispatches_all_names_to_python(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use crate::msgbus::{MessageBus, get_message_bus};
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let py_actor = create_tracking_python_actor(py).unwrap();
+
+            let mut rust_actor = PyDataActor::new(None);
+            rust_actor.set_python_instance(py_actor.clone_ref(py));
+            rust_actor.register(trader_id, clock, cache).unwrap();
+            rust_actor.register_in_global_registries();
+            rust_actor.py_start().unwrap();
+
+            rust_actor.py_subscribe_signal("");
+            let val1: Py<PyAny> = "1".into_py_any_unwrap(py);
+            let val2: Py<PyAny> = "2".into_py_any_unwrap(py);
+            let val3: Py<PyAny> = "3".into_py_any_unwrap(py);
+            rust_actor.py_publish_signal(py, "alpha", val1, 0).unwrap();
+            rust_actor.py_publish_signal(py, "beta", val2, 0).unwrap();
+            rust_actor.py_publish_signal(py, "gamma", val3, 0).unwrap();
+
+            assert_eq!(python_method_call_count(&py_actor, py, "on_signal"), 3);
+        });
+    }
+
+    #[rstest]
+    fn test_signal_customdata_unwraps_to_python_signal(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        // Exercises the `Signal::to_pyobject` path: a `CustomData` wrapping a
+        // `Signal` reaches Python `on_data`, and the PyO3 `.data` getter must
+        // successfully unwrap the inner `Arc<dyn CustomDataTrait>` into a
+        // Python `Signal`. Without `Signal::to_pyobject`, the getter raises
+        // `TypeError` and this assertion fails.
+        use crate::msgbus::{MessageBus, get_message_bus};
+
+        *get_message_bus().borrow_mut() = MessageBus::default();
+
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let capture_code = c_str!(
+                r#"
+class CapturingActor:
+    def __init__(self):
+        self.captured = []
+
+    def on_start(self): pass
+    def on_stop(self): pass
+    def on_resume(self): pass
+    def on_reset(self): pass
+    def on_dispose(self): pass
+    def on_degrade(self): pass
+    def on_fault(self): pass
+    def on_signal(self, signal): pass
+
+    def on_data(self, custom):
+        # Exercise the CustomData.data getter: raises TypeError if the
+        # inner payload cannot be converted back to a Python object.
+        inner = custom.data
+        self.captured.append((type(inner).__name__, inner.name, inner.value))
+"#
+            );
+            py.run(capture_code, None, None).unwrap();
+            let cls = py.eval(c_str!("CapturingActor"), None, None).unwrap();
+            let py_actor: Py<PyAny> = cls.call0().unwrap().unbind();
+
+            let mut rust_actor = PyDataActor::new(None);
+            rust_actor.set_python_instance(py_actor.clone_ref(py));
+            rust_actor.register(trader_id, clock, cache).unwrap();
+            rust_actor.register_in_global_registries();
+            rust_actor.py_start().unwrap();
+
+            // Subscribe as custom-data for the signal's advertised DataType
+            // (`data.SignalExample`) so `on_data` fires with the wrapping CustomData.
+            let data_type = DataType::new("SignalExample", None, None);
+            rust_actor
+                .py_subscribe_data(py, data_type, None, None)
+                .unwrap();
+
+            let val: Py<PyAny> = "1.5".into_py_any_unwrap(py);
+            rust_actor.py_publish_signal(py, "example", val, 0).unwrap();
+
+            let captured = py_actor
+                .bind(py)
+                .getattr("captured")
+                .unwrap()
+                .extract::<Vec<(String, String, String)>>()
+                .unwrap();
+            assert_eq!(captured.len(), 1);
+            assert_eq!(captured[0].0, "Signal");
+            assert_eq!(captured[0].1, "example");
+            assert_eq!(captured[0].2, "1.5");
+        });
+    }
+
+    #[rstest]
+    fn test_add_and_update_synthetic_via_pyo3(
+        clock: Rc<RefCell<TestClock>>,
+        cache: Rc<RefCell<Cache>>,
+        trader_id: TraderId,
+    ) {
+        use nautilus_model::{
+            identifiers::{InstrumentId, Symbol},
+            instruments::SyntheticInstrument,
+        };
+
+        let actor = create_registered_actor(clock, cache.clone(), trader_id);
+
+        let comp1 = InstrumentId::from_str("BTC-USD.VENUE").unwrap();
+        let comp2 = InstrumentId::from_str("ETH-USD.VENUE").unwrap();
+        let formula = format!("({comp1} + {comp2}) / 2.0");
+        let synthetic = SyntheticInstrument::new(
+            Symbol::from("SYN"),
+            2,
+            vec![comp1, comp2],
+            &formula,
+            UnixNanos::default(),
+            UnixNanos::default(),
+        );
+        let synthetic_id = synthetic.id;
+
+        actor.py_add_synthetic(synthetic.clone()).unwrap();
+        assert!(cache.borrow().synthetic(&synthetic_id).is_some());
+
+        // Adding again raises
+        assert!(actor.py_add_synthetic(synthetic).is_err());
+
+        let new_formula = format!("{comp1} + {comp2}");
+        let updated = SyntheticInstrument::new(
+            Symbol::from("SYN"),
+            2,
+            vec![comp1, comp2],
+            &new_formula,
+            UnixNanos::default(),
+            UnixNanos::default(),
+        );
+        actor.py_update_synthetic(updated).unwrap();
+        assert_eq!(
+            cache.borrow().synthetic(&synthetic_id).unwrap().formula,
+            new_formula
+        );
+
+        // Updating a non-existent raises
+        let missing = SyntheticInstrument::new(
+            Symbol::from("GONE"),
+            2,
+            vec![comp1, comp2],
+            &formula,
+            UnixNanos::default(),
+            UnixNanos::default(),
+        );
+        assert!(actor.py_update_synthetic(missing).is_err());
     }
 
     #[rstest]

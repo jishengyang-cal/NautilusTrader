@@ -42,7 +42,7 @@ use nautilus_model::{
     enums::BookType,
     events::order::{any::OrderEventAny, canceled::OrderCanceled, filled::OrderFilled},
     identifiers::{ActorId, ClientId, ComponentId, InstrumentId, OptionSeriesId, TraderId, Venue},
-    instruments::InstrumentAny,
+    instruments::{InstrumentAny, SyntheticInstrument},
     orderbook::OrderBook,
 };
 use ustr::Ustr;
@@ -91,7 +91,7 @@ use crate::{
             get_instrument_close_topic, get_instrument_status_topic, get_instrument_topic,
             get_instruments_pattern, get_mark_price_topic, get_option_chain_topic,
             get_option_greeks_topic, get_order_cancels_topic, get_order_fills_topic,
-            get_quotes_topic, get_trades_topic,
+            get_quotes_topic, get_signal_pattern, get_trades_topic,
         },
     },
     signal::Signal,
@@ -1035,6 +1035,30 @@ pub trait DataActor:
         DataActorCore::subscribe_data(self, handler, data_type, client_id, params);
     }
 
+    /// Subscribe to [`Signal`] data by `name`.
+    ///
+    /// An empty `name` subscribes to every signal.
+    fn subscribe_signal(&mut self, name: &str)
+    where
+        Self: 'static + Debug + Sized,
+    {
+        let actor_id = self.actor_id().inner();
+        // Signals ride on the shared custom-data bus as `CustomData` wrapping a
+        // `Signal`. Downcast the inner `Arc<dyn CustomDataTrait>` back to `Signal`
+        // so subscribers observe the typed value in `on_signal`.
+        let handler = ShareableMessageHandler::from_typed(move |data: &CustomData| {
+            if let Some(signal) = data.data.as_any().downcast_ref::<Signal>() {
+                if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {
+                    actor.handle_signal(signal);
+                } else {
+                    log::error!("Actor {actor_id} not found for signal handling");
+                }
+            }
+        });
+
+        DataActorCore::subscribe_signal(self, handler, name);
+    }
+
     /// Subscribe to streaming [`QuoteTick`] data for the `instrument_id`.
     fn subscribe_quotes(
         &mut self,
@@ -1588,6 +1612,14 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         DataActorCore::unsubscribe_data(self, data_type, client_id, params);
+    }
+
+    /// Unsubscribe from [`Signal`] data by `name`.
+    fn unsubscribe_signal(&mut self, name: &str)
+    where
+        Self: 'static + Debug + Sized,
+    {
+        DataActorCore::unsubscribe_signal(self, name);
     }
 
     /// Unsubscribe from streaming [`InstrumentAny`] data for the `venue`.
@@ -2888,8 +2920,6 @@ impl DataActorCore {
             .clone()
     }
 
-    // -- REGISTRATION ----------------------------------------------------------------------------
-
     /// Register the data actor with a trader.
     ///
     /// # Errors
@@ -3005,7 +3035,87 @@ impl DataActorCore {
         msgbus::publish_any(topic, command.as_any());
     }
 
-    // -- SUBSCRIPTIONS ---------------------------------------------------------------------------
+    /// Publishes `data` on the message bus under the topic derived from `data_type`.
+    ///
+    /// `data_type` is kept as an explicit parameter (rather than deriving it from
+    /// `data.data_type`) to mirror the v1 Python `publish_data(data_type, data)` API and
+    /// to allow callers to override the routing topic from the payload's intrinsic type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the actor is not registered with a trader.
+    pub fn publish_data(&self, data_type: &DataType, data: &CustomData) {
+        self.check_registered();
+
+        let topic = get_custom_topic(data_type);
+        msgbus::publish_any(topic, data);
+    }
+
+    /// Publishes a [`Signal`] constructed from `name` and `value`, wrapped in [`CustomData`]
+    /// so it is consumed by signal subscribers and by any `CustomData`-aware pipeline
+    /// (for example the feather persistence writer).
+    ///
+    /// The topic mirrors the v1 Python scheme `data.Signal<TitleName>` so subscribers
+    /// using either a specific name or the global wildcard are both notified.
+    /// If `ts_event` is zero then the current clock timestamp is used.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the actor is not registered with a trader.
+    pub fn publish_signal(&self, name: &str, value: String, ts_event: UnixNanos) {
+        self.check_registered();
+
+        let now = self.timestamp_ns();
+        let ts_event = if ts_event.as_u64() == 0 {
+            now
+        } else {
+            ts_event
+        };
+        let signal = Signal::new(Ustr::from(name), value, ts_event, now);
+
+        let data_type = DataType::new(
+            &format!("Signal{}", nautilus_core::string::title_case(name)),
+            None,
+            None,
+        );
+        let data = CustomData::new(Arc::new(signal), data_type);
+        let topic = get_custom_topic(&data.data_type);
+        msgbus::publish_any(topic, &data);
+    }
+
+    /// Adds the `synthetic` instrument to the cache.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a synthetic with the same ID already exists, or if the
+    /// backing cache fails to persist it. Panics if the actor is not registered
+    /// with a trader. // panics-doc-ok
+    pub fn add_synthetic(&self, synthetic: SyntheticInstrument) -> anyhow::Result<()> {
+        self.check_registered();
+
+        let cache = self.cache_rc();
+        if cache.borrow().synthetic(&synthetic.id).is_some() {
+            anyhow::bail!("`synthetic` {} already exists", synthetic.id);
+        }
+        cache.borrow_mut().add_synthetic(synthetic)
+    }
+
+    /// Updates the `synthetic` instrument in the cache, replacing the existing entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no synthetic with the same ID already exists, or if the
+    /// backing cache fails to persist the replacement. Panics if the actor is not
+    /// registered with a trader. // panics-doc-ok
+    pub fn update_synthetic(&self, synthetic: SyntheticInstrument) -> anyhow::Result<()> {
+        self.check_registered();
+
+        let cache = self.cache_rc();
+        if cache.borrow().synthetic(&synthetic.id).is_none() {
+            anyhow::bail!("`synthetic` {} does not exist", synthetic.id);
+        }
+        cache.borrow_mut().add_synthetic(synthetic)
+    }
 
     /// Helper method for registering data subscriptions from the trait.
     ///
@@ -3047,6 +3157,28 @@ impl DataActorCore {
         });
 
         self.send_data_cmd(DataCommand::Subscribe(command));
+    }
+
+    /// Helper method for registering signal subscriptions from the trait.
+    ///
+    /// An empty `name` subscribes to every signal via the `data.Signal*` wildcard pattern.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the actor is not registered with a trader.
+    pub fn subscribe_signal(&mut self, handler: ShareableMessageHandler, name: &str) {
+        self.check_registered();
+
+        let pattern = get_signal_pattern(name);
+        if self.topic_handlers.contains_key(&pattern) {
+            log::warn!(
+                "Actor {} attempted duplicate signal subscription to '{pattern}'",
+                self.actor_id,
+            );
+            return;
+        }
+        self.topic_handlers.insert(pattern, handler.clone());
+        msgbus::subscribe_any(pattern, handler, None);
     }
 
     /// Helper method for registering quotes subscriptions from the trait.
@@ -3477,6 +3609,25 @@ impl DataActorCore {
         });
 
         self.send_data_cmd(DataCommand::Unsubscribe(command));
+    }
+
+    /// Helper method for unsubscribing from signals.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the actor is not registered with a trader.
+    pub fn unsubscribe_signal(&mut self, name: &str) {
+        self.check_registered();
+
+        let pattern = get_signal_pattern(name);
+        if let Some(handler) = self.topic_handlers.remove(&pattern) {
+            msgbus::unsubscribe_any(pattern, &handler);
+        } else {
+            log::warn!(
+                "Actor {} attempted to unsubscribe from signal pattern '{pattern}' when not subscribed",
+                self.actor_id,
+            );
+        }
     }
 
     /// Helper method for unsubscribing from instruments.
