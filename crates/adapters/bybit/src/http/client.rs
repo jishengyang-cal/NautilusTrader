@@ -2669,9 +2669,13 @@ impl BybitHttpClient {
     async fn fetch_fee_map(
         &self,
         product_type: BybitProductType,
+        base_coin: Option<Ustr>,
     ) -> anyhow::Result<AHashMap<Ustr, BybitFeeRate>> {
         let mut fee_params = BybitFeeRateParamsBuilder::default();
         fee_params.category(product_type);
+        if let Some(bc) = base_coin {
+            fee_params.base_coin(bc.to_string());
+        }
         let Ok(params) = fee_params.build() else {
             return Ok(AHashMap::new());
         };
@@ -2700,9 +2704,15 @@ impl BybitHttpClient {
         }
     }
 
-    async fn fetch_option_fee_map(&self) -> anyhow::Result<AHashMap<Ustr, BybitFeeRate>> {
+    async fn fetch_option_fee_map(
+        &self,
+        base_coin: Option<Ustr>,
+    ) -> anyhow::Result<AHashMap<Ustr, BybitFeeRate>> {
         let mut fee_params = BybitFeeRateParamsBuilder::default();
         fee_params.category(BybitProductType::Option);
+        if let Some(bc) = base_coin {
+            fee_params.base_coin(bc.to_string());
+        }
         let Ok(params) = fee_params.build() else {
             return Ok(AHashMap::new());
         };
@@ -2738,6 +2748,7 @@ impl BybitHttpClient {
         &self,
         product_type: BybitProductType,
         symbol: &Option<String>,
+        base_coin: Option<Ustr>,
         mut parse: F,
     ) -> anyhow::Result<Vec<InstrumentAny>>
     where
@@ -2754,7 +2765,7 @@ impl BybitHttpClient {
                 category: product_type,
                 symbol: symbol.clone(),
                 status: None,
-                base_coin: None,
+                base_coin: base_coin.map(|u| u.to_string()),
                 limit: Some(1000),
                 cursor: cursor.clone(),
             };
@@ -2876,6 +2887,10 @@ impl BybitHttpClient {
 
     /// Request instruments for a given product type.
     ///
+    /// When `base_coin` is provided, the request is narrowed to that base coin.
+    /// This is required for `Option`: Bybit's API returns only `BTC` options when
+    /// `baseCoin` is omitted.
+    ///
     /// # Errors
     ///
     /// Returns an error if the request fails or parsing fails.
@@ -2883,6 +2898,7 @@ impl BybitHttpClient {
         &self,
         product_type: BybitProductType,
         symbol: Option<String>,
+        base_coin: Option<Ustr>,
     ) -> anyhow::Result<Vec<InstrumentAny>> {
         let ts_init = self.generate_ts_init();
 
@@ -2895,21 +2911,27 @@ impl BybitHttpClient {
 
         let instruments = match product_type {
             BybitProductType::Spot => {
-                let fee_map = self.fetch_fee_map(product_type).await?;
-                self.paginate_instruments::<BybitInstrumentSpot, _>(product_type, &symbol, |def| {
-                    let fee = fee_map
-                        .get(&def.symbol)
-                        .cloned()
-                        .unwrap_or_else(|| default_fee_rate(def.symbol));
-                    parse_spot_instrument(def, &fee, ts_init, ts_init).ok()
-                })
+                let fee_map = self.fetch_fee_map(product_type, base_coin).await?;
+                self.paginate_instruments::<BybitInstrumentSpot, _>(
+                    product_type,
+                    &symbol,
+                    base_coin,
+                    |def| {
+                        let fee = fee_map
+                            .get(&def.symbol)
+                            .cloned()
+                            .unwrap_or_else(|| default_fee_rate(def.symbol));
+                        parse_spot_instrument(def, &fee, ts_init, ts_init).ok()
+                    },
+                )
                 .await?
             }
             BybitProductType::Linear => {
-                let fee_map = self.fetch_fee_map(product_type).await?;
+                let fee_map = self.fetch_fee_map(product_type, base_coin).await?;
                 self.paginate_instruments::<BybitInstrumentLinear, _>(
                     product_type,
                     &symbol,
+                    base_coin,
                     |def| {
                         let fee = fee_map
                             .get(&def.symbol)
@@ -2921,10 +2943,11 @@ impl BybitHttpClient {
                 .await?
             }
             BybitProductType::Inverse => {
-                let fee_map = self.fetch_fee_map(product_type).await?;
+                let fee_map = self.fetch_fee_map(product_type, base_coin).await?;
                 self.paginate_instruments::<BybitInstrumentInverse, _>(
                     product_type,
                     &symbol,
+                    base_coin,
                     |def| {
                         let fee = fee_map
                             .get(&def.symbol)
@@ -2936,10 +2959,11 @@ impl BybitHttpClient {
                 .await?
             }
             BybitProductType::Option => {
-                let fee_map = self.fetch_option_fee_map().await?;
+                let fee_map = self.fetch_option_fee_map(base_coin).await?;
                 self.paginate_instruments::<BybitInstrumentOption, _>(
                     product_type,
                     &symbol,
+                    base_coin,
                     |def| {
                         let fee = fee_map.get(&def.base_coin);
                         parse_option_instrument(def, fee, ts_init, ts_init).ok()

@@ -7085,6 +7085,7 @@ class BybitHttpClient:
         self,
         product_type: BybitProductType,
         symbol: str | None = None,
+        base_coin: str | None = None,
     ) -> list[Instrument]: ...
     async def request_instrument_statuses(
         self,

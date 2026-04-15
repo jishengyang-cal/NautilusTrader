@@ -377,7 +377,7 @@ impl ExecutionClient for BybitExecutionClient {
             for product_type in &product_types {
                 let instruments = self
                     .http_client
-                    .request_instruments(*product_type, None)
+                    .request_instruments(*product_type, None, None)
                     .await
                     .with_context(|| {
                         format!("failed to request Bybit instruments for {product_type:?}")
@@ -592,7 +592,10 @@ impl ExecutionClient for BybitExecutionClient {
             let mut all_instruments = Vec::new();
 
             for product_type in product_types {
-                match http_client.request_instruments(product_type, None).await {
+                match http_client
+                    .request_instruments(product_type, None, None)
+                    .await
+                {
                     Ok(instruments) => {
                         if instruments.is_empty() {
                             log::warn!("No instruments returned for {product_type:?}");

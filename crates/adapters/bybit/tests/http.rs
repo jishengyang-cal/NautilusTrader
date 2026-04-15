@@ -1424,7 +1424,7 @@ async fn test_request_order_status_reports_calls_both_endpoints() {
 
     // Required for parsing order reports
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -1489,7 +1489,7 @@ async fn test_request_order_status_reports_requires_settle_coin_for_linear() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -1535,7 +1535,7 @@ async fn test_order_deduplication_by_order_id() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -1595,7 +1595,7 @@ async fn test_request_order_status_reports_linear_queries_all_settle_coins() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -1661,7 +1661,7 @@ async fn test_request_order_status_reports_respects_limit_across_settle_coins() 
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -1726,7 +1726,7 @@ async fn test_request_order_status_reports_stops_before_next_coin() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -1792,7 +1792,7 @@ async fn test_request_order_status_reports_combines_orders_from_each_settle_coin
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -2072,7 +2072,7 @@ async fn test_request_order_status_reports_with_time_filtering() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -2459,7 +2459,7 @@ async fn test_request_bars_continues_pagination_when_first_page_only_partial() {
     let client = BybitHttpClient::new(Some(base_url), 60, 3, 1000, 10_000, 5_000, None).unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -2532,7 +2532,7 @@ async fn test_submit_order_stop_market_with_trigger_price() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -2615,7 +2615,7 @@ async fn test_submit_order_stop_limit_with_trigger_price_and_limit_price() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -2700,7 +2700,7 @@ async fn test_submit_order_market_if_touched_trigger_direction() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -2769,7 +2769,7 @@ async fn test_submit_order_post_only() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -2836,7 +2836,7 @@ async fn test_submit_order_spot_market_base_quantity() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Spot, None)
+        .request_instruments(BybitProductType::Spot, None, None)
         .await
         .unwrap();
 
@@ -2908,7 +2908,7 @@ async fn test_submit_order_spot_market_quote_quantity() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Spot, None)
+        .request_instruments(BybitProductType::Spot, None, None)
         .await
         .unwrap();
 
@@ -2980,7 +2980,7 @@ async fn test_submit_order_linear_does_not_send_market_unit() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -3049,7 +3049,7 @@ async fn test_submit_order_limit_if_touched_trigger_direction() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 
@@ -3183,7 +3183,7 @@ async fn test_query_order_option_not_found_returns_none() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Option, None)
+        .request_instruments(BybitProductType::Option, None, None)
         .await
         .unwrap();
 
@@ -3294,7 +3294,7 @@ async fn test_request_order_status_reports_tp_sl_orders() {
     .unwrap();
 
     let instruments = client
-        .request_instruments(BybitProductType::Linear, None)
+        .request_instruments(BybitProductType::Linear, None, None)
         .await
         .unwrap();
 

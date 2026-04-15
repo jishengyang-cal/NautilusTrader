@@ -34,6 +34,7 @@ use pyo3::{
     prelude::*,
     types::{PyDict, PyList},
 };
+use ustr::Ustr;
 
 use crate::{
     common::{
@@ -453,19 +454,25 @@ impl BybitHttpClient {
     }
 
     /// Request instruments for a given product type.
+    ///
+    /// When `base_coin` is provided, the request is narrowed to that base coin.
+    /// This is required for `Option`: Bybit's API returns only `BTC` options when
+    /// `baseCoin` is omitted.
     #[pyo3(name = "request_instruments")]
-    #[pyo3(signature = (product_type, symbol=None))]
+    #[pyo3(signature = (product_type, symbol=None, base_coin=None))]
     fn py_request_instruments<'py>(
         &self,
         py: Python<'py>,
         product_type: BybitProductType,
         symbol: Option<String>,
+        base_coin: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.clone();
+        let base_coin = base_coin.map(|s| Ustr::from(&s));
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let instruments = client
-                .request_instruments(product_type, symbol)
+                .request_instruments(product_type, symbol, base_coin)
                 .await
                 .map_err(to_pyvalue_err)?;
 

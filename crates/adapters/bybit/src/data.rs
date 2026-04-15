@@ -629,7 +629,7 @@ impl DataClient for BybitDataClient {
         for product_type in &product_types {
             let fetched = self
                 .http_client
-                .request_instruments(*product_type, None)
+                .request_instruments(*product_type, None, None)
                 .await
                 .with_context(|| {
                     format!("failed to request Bybit instruments for {product_type:?}")
@@ -1453,7 +1453,7 @@ impl DataClient for BybitDataClient {
             let mut all_instruments = Vec::new();
 
             for product_type in product_types {
-                match http.request_instruments(product_type, None).await {
+                match http.request_instruments(product_type, None, None).await {
                     Ok(instruments) => {
                         for instrument in instruments {
                             upsert_instrument(&instruments_cache, instrument.clone());
@@ -1505,7 +1505,7 @@ impl DataClient for BybitDataClient {
 
         get_runtime().spawn(async move {
             match http
-                .request_instruments(product_type, Some(raw_symbol))
+                .request_instruments(product_type, Some(raw_symbol), None)
                 .await
                 .context("fetch instrument from API")
             {
