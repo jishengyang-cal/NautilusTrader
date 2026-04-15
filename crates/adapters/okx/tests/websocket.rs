@@ -87,6 +87,22 @@ fn load_json(filename: &str) -> Value {
     serde_json::from_str(&content).expect("invalid json")
 }
 
+fn load_swap_instruments() -> Vec<InstrumentAny> {
+    let payload = load_json("http_get_instruments_swap.json");
+    let response: OKXResponse<OKXInstrument> =
+        serde_json::from_value(payload).expect("invalid instrument payload");
+    let ts_init = UnixNanos::default();
+    response
+        .data
+        .iter()
+        .filter_map(|raw| {
+            parse_instrument_any(raw, None, None, None, None, ts_init)
+                .ok()
+                .flatten()
+        })
+        .collect()
+}
+
 fn load_instruments() -> Vec<InstrumentAny> {
     let payload = load_json("http_get_instruments_spot.json");
     let response: OKXResponse<OKXInstrument> =
@@ -2091,6 +2107,233 @@ async fn test_is_active_false_during_reconnection() {
         client.is_active(),
         "Client should be active after reconnection completes"
     );
+
+    client.close().await.expect("close failed");
+}
+
+/// Verifies the per-base-pair refcount on `subscribe_index_prices` /
+/// `unsubscribe_index_prices`. Two instruments sharing a base pair must
+/// yield exactly one venue subscribe, and the venue unsubscribe only fires
+/// once the last instrument drops off.
+#[tokio::test]
+async fn test_index_price_refcount_shares_venue_subscription() {
+    let state = Arc::new(TestServerState::default());
+    let addr = start_ws_server(state.clone()).await;
+    let ws_url = format!("ws://{addr}/ws");
+
+    let instruments = load_swap_instruments();
+
+    let mut client = connect_client(&ws_url).await;
+    client.cache_instruments(&instruments);
+    client.connect().await.expect("connect failed");
+    client
+        .wait_until_active(5.0)
+        .await
+        .expect("client inactive");
+
+    // Two swaps that share the BTC-USDT base pair. Only one venue subscribe
+    // should hit the index-tickers channel.
+    let perp = InstrumentId::from("BTC-USDT-SWAP.OKX");
+    let alt = InstrumentId::from("ETH-USDT-SWAP.OKX");
+
+    client
+        .subscribe_index_prices(perp)
+        .await
+        .expect("subscribe perp failed");
+
+    wait_until_async(
+        || {
+            let state = state.clone();
+            async move {
+                state
+                    .subscriptions
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|value| value_matches_channel(value, "index-tickers"))
+            }
+        },
+        Duration::from_secs(1),
+    )
+    .await;
+
+    // Second subscribe on the same BTC-USDT base pair. Must not produce a
+    // second venue subscribe.
+    client
+        .subscribe_index_prices(perp)
+        .await
+        .expect("second subscribe must succeed");
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let index_subs = state
+        .subscriptions
+        .lock()
+        .await
+        .iter()
+        .filter(|v| value_matches_channel(v, "index-tickers"))
+        .count();
+    assert_eq!(
+        index_subs, 1,
+        "two subscribers on the same base pair must produce only one venue subscribe",
+    );
+
+    // Subscribe a different base pair to confirm refcount is per-pair.
+    client
+        .subscribe_index_prices(alt)
+        .await
+        .expect("subscribe alt base pair failed");
+
+    wait_until_async(
+        || {
+            let state = state.clone();
+            async move {
+                state
+                    .subscriptions
+                    .lock()
+                    .await
+                    .iter()
+                    .filter(|v| value_matches_channel(v, "index-tickers"))
+                    .count()
+                    >= 2
+            }
+        },
+        Duration::from_secs(1),
+    )
+    .await;
+
+    // First unsubscribe on BTC-USDT: one subscriber remains, no venue
+    // unsubscribe yet.
+    client
+        .unsubscribe_index_prices(perp)
+        .await
+        .expect("first unsubscribe must succeed");
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let btc_unsub = state
+        .unsubscriptions
+        .lock()
+        .await
+        .iter()
+        .filter(|v| {
+            value_matches_channel(v, "index-tickers")
+                && v.get("instId").and_then(|s| s.as_str()) == Some("BTC-USDT")
+        })
+        .count();
+    assert_eq!(
+        btc_unsub, 0,
+        "last subscriber must still be live, no venue unsubscribe expected yet",
+    );
+
+    // Second unsubscribe on BTC-USDT: now refcount hits zero and the
+    // venue unsubscribe fires.
+    client
+        .unsubscribe_index_prices(perp)
+        .await
+        .expect("last unsubscribe must succeed");
+
+    wait_until_async(
+        || {
+            let state = state.clone();
+            async move {
+                state.unsubscriptions.lock().await.iter().any(|v| {
+                    value_matches_channel(v, "index-tickers")
+                        && v.get("instId").and_then(|s| s.as_str()) == Some("BTC-USDT")
+                })
+            }
+        },
+        Duration::from_secs(1),
+    )
+    .await;
+
+    client.close().await.expect("close failed");
+}
+
+/// After `close()`, the internal refcount must be cleared so a fresh
+/// subscribe on the same base pair re-arms the venue subscription. Without
+/// the clear, the stale count short-circuits subsequent subscribes and the
+/// feed stays dark after any reconnect cycle.
+#[tokio::test]
+async fn test_index_price_refcount_cleared_on_close() {
+    let state = Arc::new(TestServerState::default());
+    let addr = start_ws_server(state.clone()).await;
+    let ws_url = format!("ws://{addr}/ws");
+
+    let instruments = load_swap_instruments();
+
+    let mut client = connect_client(&ws_url).await;
+    client.cache_instruments(&instruments);
+    client.connect().await.expect("connect failed");
+    client
+        .wait_until_active(5.0)
+        .await
+        .expect("client inactive");
+
+    let perp = InstrumentId::from("BTC-USDT-SWAP.OKX");
+
+    client
+        .subscribe_index_prices(perp)
+        .await
+        .expect("first subscribe failed");
+
+    wait_until_async(
+        || {
+            let state = state.clone();
+            async move {
+                state
+                    .subscriptions
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|v| value_matches_channel(v, "index-tickers"))
+            }
+        },
+        Duration::from_secs(1),
+    )
+    .await;
+
+    // Close tears down the active subscription; the refcount must be wiped
+    // alongside it so the next lifecycle can re-arm the venue subscribe.
+    client.close().await.expect("close failed");
+
+    // Bring the client back up and subscribe again on the same base pair.
+    client.connect().await.expect("reconnect failed");
+    client
+        .wait_until_active(5.0)
+        .await
+        .expect("client inactive on reconnect");
+
+    let before_second = state
+        .subscriptions
+        .lock()
+        .await
+        .iter()
+        .filter(|v| value_matches_channel(v, "index-tickers"))
+        .count();
+
+    client
+        .subscribe_index_prices(perp)
+        .await
+        .expect("post-close subscribe must succeed");
+
+    wait_until_async(
+        || {
+            let state = state.clone();
+            async move {
+                state
+                    .subscriptions
+                    .lock()
+                    .await
+                    .iter()
+                    .filter(|v| value_matches_channel(v, "index-tickers"))
+                    .count()
+                    > before_second
+            }
+        },
+        Duration::from_secs(1),
+    )
+    .await;
 
     client.close().await.expect("close failed");
 }

@@ -132,6 +132,19 @@ use crate::{
 
 const OKX_SUCCESS_CODE: &str = "0";
 
+/// Ranks a spot instrument's quote currency for deterministic tie-breaking
+/// when multiple pairs share the same base. Matches OKX's dominant-quote
+/// ordering so spot-margin position reports stay on a stable instrument id
+/// across restarts.
+fn spot_quote_priority(symbol: &str) -> u8 {
+    symbol.rsplit_once('-').map_or(4, |(_, quote)| match quote {
+        "USDT" => 0,
+        "USDC" => 1,
+        "USD" => 2,
+        _ => 3,
+    })
+}
+
 fn resolve_okx_error_message(response_body: &[u8], top_level_msg: &str) -> String {
     let message = top_level_msg.trim();
     let is_generic_top_level = message.eq_ignore_ascii_case("All operations failed");
@@ -635,7 +648,10 @@ impl OKXRawHttpClient {
                     }
 
                     Err(OKXHttpError::UnexpectedStatus {
-                        status: StatusCode::from_u16(resp.status.as_u16()).unwrap(),
+                        // Fall back to 500 if the venue returns a non-standard
+                        // code so we never panic in the error path.
+                        status: StatusCode::from_u16(resp.status.as_u16())
+                            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                         body: error_body.to_string(),
                     })
                 }
@@ -3694,31 +3710,52 @@ impl OKXHttpClient {
         let ts_init = self.generate_ts_init();
         let mut reports = Vec::new();
 
+        // Build a base-currency lookup over the cached spot pairs once per
+        // call. Restricting to `CurrencyPair` (spot) ensures a derivative
+        // sharing the same base (e.g. `BTC-USDT-SWAP`) is never reported as
+        // a spot margin position with the wrong instrument id or size
+        // precision.
+        //
+        // When multiple spot pairs share the same base currency, prefer the
+        // dominant OKX quote (USDT, then USDC, then USD) so a live
+        // `BTC-USDT` margin position stays reported under `BTC-USDT.OKX`
+        // rather than being redirected to `BTC-USD.OKX` or any other
+        // lexically-earlier pair. Unknown quotes fall back to a stable
+        // lexical order by symbol, matching OKX's own listing precedence
+        // and keeping the selection deterministic across runs.
+        let cache_snapshot = self.instruments_cache.load();
+        let mut candidates: Vec<&InstrumentAny> = cache_snapshot
+            .values()
+            .filter(|inst| matches!(inst, InstrumentAny::CurrencyPair(_)))
+            .collect();
+        candidates.sort_by(|a, b| {
+            let a_sym = a.id().symbol.as_str().to_string();
+            let b_sym = b.id().symbol.as_str().to_string();
+            spot_quote_priority(&a_sym)
+                .cmp(&spot_quote_priority(&b_sym))
+                .then_with(|| a_sym.cmp(&b_sym))
+        });
+
+        let mut by_base: AHashMap<Ustr, (InstrumentId, u8)> = AHashMap::new();
+
+        for inst in candidates {
+            if let Some(base) = inst.base_currency() {
+                let base_code = Ustr::from(base.code.as_str());
+                by_base
+                    .entry(base_code)
+                    .or_insert_with(|| (inst.id(), inst.size_precision()));
+            }
+        }
+
         for account in accounts {
             for balance in account.details {
                 let ccy_str = balance.ccy.as_str();
 
-                // Try to find instrument by constructing potential spot pair symbols
-                let potential_symbols = [
-                    format!("{ccy_str}-USDT"),
-                    format!("{ccy_str}-USD"),
-                    format!("{ccy_str}-USDC"),
-                ];
-
-                let instrument_result = potential_symbols.iter().find_map(|symbol| {
-                    self.instrument_from_cache(Ustr::from(symbol))
-                        .ok()
-                        .map(|inst| (inst.id(), inst.size_precision()))
-                });
-
-                let (instrument_id, size_precision) = match instrument_result {
-                    Some((id, prec)) => (id, prec),
-                    None => {
-                        log::debug!(
-                            "Skipping balance for {ccy_str} - no matching instrument in cache"
-                        );
-                        continue;
-                    }
+                let Some((instrument_id, size_precision)) =
+                    by_base.get(&Ustr::from(ccy_str)).copied()
+                else {
+                    log::debug!("Skipping balance for {ccy_str} - no matching instrument in cache");
+                    continue;
                 };
 
                 match parse_spot_margin_position_from_balance(
@@ -4491,27 +4528,37 @@ impl OKXHttpClient {
                 return Ok(reports);
             }
 
-            let remaining = limit.map(|l| (l as usize).saturating_sub(reports.len()));
-            let history = self.paginate_algo_history(&params, remaining).await?;
-            self.collect_algo_reports(
-                account_id,
-                &history,
-                &mut instruments_cache,
-                ts_init,
-                &mut seen,
-                &mut reports,
-            )
-            .await?;
+            // OKX's `/orders-algo-history` endpoint rejects calls that
+            // carry neither a `state` nor an `algoId` / `algoClOrdId`
+            // narrowing with code 50015. The reconciliation path wants
+            // only currently-live algo orders (those already appear in
+            // the pending response above), so skip the history leg when
+            // the caller supplied no narrowing. Specific-lookup callers
+            // still hit history because `has_specific_lookup` implies
+            // `algoId` or `algoClOrdId`, which the endpoint accepts.
+            if state.is_some() || has_specific_lookup {
+                let remaining = limit.map(|l| (l as usize).saturating_sub(reports.len()));
+                let history = self.paginate_algo_history(&params, remaining).await?;
+                self.collect_algo_reports(
+                    account_id,
+                    &history,
+                    &mut instruments_cache,
+                    ts_init,
+                    &mut seen,
+                    &mut reports,
+                )
+                .await?;
 
-            if has_specific_lookup && !reports.is_empty() {
-                return Ok(reports);
-            }
+                if has_specific_lookup && !reports.is_empty() {
+                    return Ok(reports);
+                }
 
-            if let Some(lim) = limit
-                && reports.len() >= lim as usize
-            {
-                reports.truncate(lim as usize);
-                return Ok(reports);
+                if let Some(lim) = limit
+                    && reports.len() >= lim as usize
+                {
+                    reports.truncate(lim as usize);
+                    return Ok(reports);
+                }
             }
         }
 

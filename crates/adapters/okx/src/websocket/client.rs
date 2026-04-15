@@ -186,6 +186,18 @@ pub struct OKXWebSocketClient {
     pub(crate) pending_cancels: Arc<DashMap<String, PendingOrderInfo>>,
     pub(crate) pending_amends: Arc<DashMap<String, PendingOrderInfo>>,
     option_greeks_subs: Arc<AtomicSet<InstrumentId>>,
+    /// Per-base-pair refcount for the `index-tickers` channel. Multiple
+    /// instruments commonly share one base pair (e.g. `BTC-USDT-SWAP` and
+    /// `BTC-USDT-240628` both depend on `BTC-USDT`), so the venue
+    /// (un)subscribe must only fire on the 0↔1 transitions. Without this
+    /// refcount, a Python caller unsubscribing one instrument would tear
+    /// down the channel for every other subscriber on the same pair.
+    index_pair_subscribers: Arc<DashMap<Ustr, usize>>,
+    /// Serializes index-tickers transitions so a concurrent
+    /// subscribe/unsubscribe pair on the same base pair cannot interleave
+    /// the refcount check with the venue send and leave the channel
+    /// unsubscribed while the local count says it is live.
+    index_pair_transition: Arc<tokio::sync::Mutex<()>>,
     cancellation_token: CancellationToken,
 }
 
@@ -271,6 +283,8 @@ impl OKXWebSocketClient {
             pending_cancels: Arc::new(DashMap::new()),
             pending_amends: Arc::new(DashMap::new()),
             option_greeks_subs: Arc::new(AtomicSet::new()),
+            index_pair_subscribers: Arc::new(DashMap::new()),
+            index_pair_transition: Arc::new(tokio::sync::Mutex::new(())),
             cancellation_token: CancellationToken::new(),
         })
     }
@@ -866,6 +880,11 @@ impl OKXWebSocketClient {
             log::debug!("No stream handle to await");
         }
 
+        // Wipe per-base-pair refcounts so a subsequent reconnect can re-arm
+        // the index-tickers channel. Otherwise the stale count short-circuits
+        // every future `subscribe_index_prices` call and the feed stays dark.
+        self.index_pair_subscribers.clear();
+
         log::debug!("Close process completed");
 
         Ok(())
@@ -1086,6 +1105,11 @@ impl OKXWebSocketClient {
         for chunk in all_args.chunks(BATCH_SIZE) {
             self.unsubscribe(chunk.to_vec()).await?;
         }
+
+        // The index-pair refcount mirrors live subscriptions; after a bulk
+        // unsubscribe the venue knows nothing, so any retained count would
+        // wedge the next `subscribe_index_prices`.
+        self.index_pair_subscribers.clear();
 
         Ok(())
     }
@@ -1360,13 +1384,49 @@ impl OKXWebSocketClient {
             .map_err(|e| OKXWsError::ClientError(e.to_string()))?;
         let base_pair = Ustr::from(&format!("{base}-{quote}"));
 
+        // Hold the transition lock across both the refcount update and the
+        // venue send so a concurrent `unsubscribe_index_prices` cannot
+        // observe a transient 0 state between our decrement and the venue
+        // unsubscribe, or vice versa. Without this, contract rolls can
+        // leave the venue unsubscribed while the local count says active.
+        let _guard = self.index_pair_transition.lock().await;
+
+        // Bump the per-base-pair refcount so a later unsubscribe can decide
+        // whether it is the last subscriber. Only the 0→1 transition fires
+        // a venue subscribe; subsequent callers piggy-back on the existing
+        // channel.
+        let is_first = {
+            let mut count = self.index_pair_subscribers.entry(base_pair).or_insert(0);
+            *count += 1;
+            *count == 1
+        };
+
+        if !is_first {
+            return Ok(());
+        }
+
         let arg = OKXSubscriptionArg {
             channel: OKXWsChannel::IndexTickers,
             inst_type: None,
             inst_family: None,
             inst_id: Some(base_pair),
         };
-        self.subscribe(vec![arg]).await
+
+        match self.subscribe(vec![arg]).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // When the venue subscribe fails there is no live channel,
+                // even though other local callers may have piggy-backed on
+                // the in-flight attempt (they saw `!is_first` and returned
+                // `Ok`). Removing the entry entirely ensures the next
+                // caller re-enters the 0→1 branch and re-arms the venue
+                // subscription; a mere decrement would leave the map at 1+
+                // without a matching feed and every later subscribe would
+                // short-circuit into a silent no-op.
+                self.index_pair_subscribers.remove(&base_pair);
+                Err(e)
+            }
+        }
     }
 
     /// Subscribes to option summary data for an instrument family.
@@ -1561,18 +1621,54 @@ impl OKXWebSocketClient {
             .await
     }
 
-    /// Unsubscribe from index price data for an instrument.
+    /// Unsubscribe from index price data for the base pair derived from
+    /// `instrument_id`.
+    ///
+    /// Refcounting is handled internally so any caller (Rust data client,
+    /// Python wrapper, etc.) can pair every `subscribe_index_prices` with
+    /// exactly one `unsubscribe_index_prices`. The OKX `index-tickers`
+    /// channel is keyed by base pair (e.g. `BTC-USDT`), so the venue
+    /// unsubscribe only fires when the last subscriber for that pair drops.
     ///
     /// # Errors
     ///
-    /// Returns an error if the subscription request fails.
+    /// Returns an error if the unsubscription request fails.
     pub async fn unsubscribe_index_prices(
         &self,
-        _instrument_id: InstrumentId,
+        instrument_id: InstrumentId,
     ) -> Result<(), OKXWsError> {
-        // Don't send WS unsubscribe — other instruments may share the same
-        // base pair. Index ticker mapping is managed by the pyo3 wrapper layer.
-        Ok(())
+        let symbol = instrument_id.symbol.inner();
+        let (base, quote) = parse_base_quote_from_symbol(symbol.as_str())
+            .map_err(|e| OKXWsError::ClientError(e.to_string()))?;
+        let base_pair = Ustr::from(&format!("{base}-{quote}"));
+
+        // Serialize with any concurrent `subscribe_index_prices` on the same
+        // base pair. See the subscribe path for the race this prevents.
+        let _guard = self.index_pair_transition.lock().await;
+
+        let is_last = {
+            let Some(mut count) = self.index_pair_subscribers.get_mut(&base_pair) else {
+                // No matching subscriber recorded; nothing to do.
+                return Ok(());
+            };
+            *count = count.saturating_sub(1);
+            *count == 0
+        };
+
+        if !is_last {
+            return Ok(());
+        }
+
+        self.index_pair_subscribers
+            .remove_if(&base_pair, |_, count| *count == 0);
+
+        let arg = OKXSubscriptionArg {
+            channel: OKXWsChannel::IndexTickers,
+            inst_type: None,
+            inst_family: None,
+            inst_id: Some(base_pair),
+        };
+        self.unsubscribe(vec![arg]).await
     }
 
     /// Unsubscribe from option summary data for an instrument family.

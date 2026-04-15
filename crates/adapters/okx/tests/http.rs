@@ -3865,3 +3865,179 @@ async fn test_http_place_algo_order_returns_error_on_nonzero_scode() {
         "error should contain sMsg, was: {err_str}"
     );
 }
+
+/// Verifies that `request_spot_margin_position_reports` resolves a BTC
+/// margin balance to the highest-priority spot pair, never to a derivative
+/// sharing the same base currency. With BTC-USD, BTC-USDT, and
+/// BTC-USDT-SWAP all cached, the USDT-quoted spot pair must win (quote
+/// priority USDT > USD) and the perpetual must never be selected.
+#[rstest]
+#[tokio::test]
+async fn test_http_request_spot_margin_position_reports_prefers_currency_pair() {
+    // Balance payload with a BTC short margin position (`spotInUseAmt` < 0,
+    // non-zero `liab`). Built from a raw string to stay under the `json!`
+    // macro recursion limit on the `OKXBalanceDetail` shape.
+    let balance_body: serde_json::Value = serde_json::from_str(
+        r#"{
+            "code": "0",
+            "msg": "",
+            "data": [{
+                "adjEq": "",
+                "borrowFroz": "",
+                "imr": "0",
+                "isoEq": "0",
+                "mgnRatio": "",
+                "mmr": "0",
+                "notionalUsd": "0",
+                "notionalUsdForBorrow": "0",
+                "notionalUsdForFutures": "0",
+                "notionalUsdForOption": "0",
+                "notionalUsdForSwap": "0",
+                "ordFroz": "0",
+                "totalEq": "0",
+                "uTime": "1744498994783",
+                "upl": "0",
+                "details": [{
+                    "accAvgPx": "",
+                    "availBal": "0",
+                    "availEq": "0",
+                    "borrowFroz": "",
+                    "cashBal": "0",
+                    "ccy": "BTC",
+                    "clSpotInUseAmt": "",
+                    "collateralEnabled": false,
+                    "crossLiab": "0.1",
+                    "disEq": "0",
+                    "eq": "-0.1",
+                    "eqUsd": "0",
+                    "fixedBal": "0",
+                    "frozenBal": "0",
+                    "imr": "0",
+                    "interest": "",
+                    "isoEq": "0",
+                    "isoLiab": "",
+                    "isoUpl": "0",
+                    "liab": "0.1",
+                    "maxLoan": "",
+                    "maxSpotInUseAmt": "",
+                    "mgnRatio": "",
+                    "mmr": "0",
+                    "notionalLever": "0",
+                    "openAvgPx": "",
+                    "ordFrozen": "0",
+                    "rewardBal": "0",
+                    "smtSyncEq": "0",
+                    "spotBal": "",
+                    "spotCopyTradingEq": "0",
+                    "spotInUseAmt": "-0.1",
+                    "spotIsoBal": "0",
+                    "spotUpl": "",
+                    "spotUplRatio": "",
+                    "stgyEq": "0",
+                    "totalPnl": "",
+                    "totalPnlRatio": "",
+                    "twap": "0",
+                    "uTime": "1744498994783",
+                    "upl": "0",
+                    "uplLiab": ""
+                }]
+            }]
+        }"#,
+    )
+    .expect("balance fixture must parse");
+
+    let router = Router::new().route(
+        "/api/v5/account/balance",
+        get(move |headers: HeaderMap| {
+            let body = balance_body.clone();
+            async move {
+                if !has_auth_headers(&headers) {
+                    return (
+                        StatusCode::UNAUTHORIZED,
+                        Json(json!({"code": "401", "msg": "", "data": []})),
+                    )
+                        .into_response();
+                }
+                Json(body).into_response()
+            }
+        }),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router.into_make_service())
+            .await
+            .unwrap();
+    });
+
+    // No /public/instruments route, so poll an always-404 path to confirm the
+    // server is accepting connections.
+    wait_until_async(
+        || {
+            let addr_copy = addr;
+            async move { tokio::net::TcpStream::connect(addr_copy).await.is_ok() }
+        },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let base_url = format!("http://{addr}");
+    let client = OKXHttpClient::with_credentials(
+        Some("test_key".to_string()),
+        Some("test_secret".to_string()),
+        Some("test_passphrase".to_string()),
+        Some(base_url),
+        60,
+        3,
+        1000,
+        10_000,
+        OKXEnvironment::Live,
+        None,
+    )
+    .unwrap();
+
+    // Seed three sources that all share BTC as the base currency:
+    //   - `http_get_instruments_spot.json` contributes BTC-USD (CurrencyPair)
+    //   - `http_get_instruments_margin.json` contributes BTC-USDT (also
+    //     parses to CurrencyPair via the Margin → spot path)
+    //   - `http_get_instruments_swap.json` contributes BTC-USDT-SWAP
+    //     (CryptoPerpetual)
+    // The filter must pick BTC-USDT (quote-priority USDT > USD), never the
+    // lexically-earlier BTC-USD and never the BTC-USDT-SWAP derivative.
+    for instrument in load_instruments_any() {
+        client.cache_instrument(instrument);
+    }
+
+    for instrument in load_instruments_from("http_get_instruments_margin.json") {
+        client.cache_instrument(instrument);
+    }
+
+    for instrument in load_swap_instruments_any() {
+        client.cache_instrument(instrument);
+    }
+
+    let reports = client
+        .request_spot_margin_position_reports(AccountId::new("OKX-001"))
+        .await
+        .unwrap();
+
+    assert_eq!(reports.len(), 1, "expected one BTC margin report");
+    let report = &reports[0];
+
+    assert_eq!(
+        report.instrument_id,
+        InstrumentId::from("BTC-USDT.OKX"),
+        "spot-margin report must prefer the USDT-quoted pair over USD and never a derivative",
+    );
+    assert_ne!(
+        report.instrument_id,
+        InstrumentId::from("BTC-USDT-SWAP.OKX"),
+        "derivative must never win the base-currency lookup",
+    );
+    assert_ne!(
+        report.instrument_id,
+        InstrumentId::from("BTC-USD.OKX"),
+        "USD must lose to USDT in the quote-priority tiebreaker",
+    );
+}

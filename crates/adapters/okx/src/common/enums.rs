@@ -183,14 +183,21 @@ pub enum OKXOrderStatus {
     OrderPlaced,
 }
 
-impl From<OrderStatus> for OKXOrderStatus {
-    fn from(value: OrderStatus) -> Self {
+impl TryFrom<OrderStatus> for OKXOrderStatus {
+    type Error = OrderStatus;
+
+    /// Converts a Nautilus [`OrderStatus`] into the matching [`OKXOrderStatus`].
+    ///
+    /// Returns the original [`OrderStatus`] in the error case for any variant
+    /// that has no representable OKX equivalent (e.g. `Submitted`, `PendingNew`,
+    /// `Triggered`, `PendingCancel`, `Expired`, `Rejected`).
+    fn try_from(value: OrderStatus) -> Result<Self, Self::Error> {
         match value {
-            OrderStatus::Canceled => Self::Canceled,
-            OrderStatus::Accepted => Self::Live,
-            OrderStatus::PartiallyFilled => Self::PartiallyFilled,
-            OrderStatus::Filled => Self::Filled,
-            _ => panic!("Invalid `OrderStatus` for OKX: {value:?}"),
+            OrderStatus::Canceled => Ok(Self::Canceled),
+            OrderStatus::Accepted => Ok(Self::Live),
+            OrderStatus::PartiallyFilled => Ok(Self::PartiallyFilled),
+            OrderStatus::Filled => Ok(Self::Filled),
+            other => Err(other),
         }
     }
 }
@@ -363,12 +370,20 @@ pub enum OKXOptionType {
     Put,
 }
 
-impl From<OKXOptionType> for OptionKind {
-    fn from(option_type: OKXOptionType) -> Self {
+impl TryFrom<OKXOptionType> for OptionKind {
+    type Error = OKXOptionType;
+
+    /// Converts an OKX option type into the matching Nautilus [`OptionKind`].
+    ///
+    /// Returns the source variant in the error case for [`OKXOptionType::None`]
+    /// (sent by OKX as an empty `optType` for non-option instruments and the
+    /// occasional malformed payload). Callers should skip such instruments
+    /// rather than treating the unknown variant as a default option kind.
+    fn try_from(option_type: OKXOptionType) -> Result<Self, Self::Error> {
         match option_type {
-            OKXOptionType::Call => Self::Call,
-            OKXOptionType::Put => Self::Put,
-            _ => panic!("Invalid `OKXOptionType` for OptionKind: {option_type:?}"),
+            OKXOptionType::Call => Ok(Self::Call),
+            OKXOptionType::Put => Ok(Self::Put),
+            other => Err(other),
         }
     }
 }
@@ -642,9 +657,10 @@ impl From<TriggerType> for OKXTriggerType {
 mod tests {
     use std::str::FromStr;
 
+    use nautilus_model::enums::{OptionKind, OrderStatus};
     use rstest::rstest;
 
-    use super::{OKXOrderType, OKXTriggerType};
+    use super::{OKXOptionType, OKXOrderStatus, OKXOrderType, OKXTriggerType};
 
     #[rstest]
     fn test_okx_trigger_type_from_str_accepts_snake_case_values() {
@@ -679,6 +695,37 @@ mod tests {
         use nautilus_model::enums::OrderType;
         let order_type: OrderType = OKXOrderType::OpFok.into();
         assert_eq!(order_type, OrderType::Limit);
+    }
+
+    #[rstest]
+    #[case::call(OKXOptionType::Call, Ok(OptionKind::Call))]
+    #[case::put(OKXOptionType::Put, Ok(OptionKind::Put))]
+    #[case::none(OKXOptionType::None, Err(OKXOptionType::None))]
+    fn test_try_from_okx_option_type(
+        #[case] input: OKXOptionType,
+        #[case] expected: Result<OptionKind, OKXOptionType>,
+    ) {
+        let actual: Result<OptionKind, OKXOptionType> = input.try_into();
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[case::canceled(OrderStatus::Canceled, Ok(OKXOrderStatus::Canceled))]
+    #[case::accepted(OrderStatus::Accepted, Ok(OKXOrderStatus::Live))]
+    #[case::partially_filled(OrderStatus::PartiallyFilled, Ok(OKXOrderStatus::PartiallyFilled))]
+    #[case::filled(OrderStatus::Filled, Ok(OKXOrderStatus::Filled))]
+    #[case::submitted(OrderStatus::Submitted, Err(OrderStatus::Submitted))]
+    #[case::pending_update(OrderStatus::PendingUpdate, Err(OrderStatus::PendingUpdate))]
+    #[case::pending_cancel(OrderStatus::PendingCancel, Err(OrderStatus::PendingCancel))]
+    #[case::triggered(OrderStatus::Triggered, Err(OrderStatus::Triggered))]
+    #[case::expired(OrderStatus::Expired, Err(OrderStatus::Expired))]
+    #[case::rejected(OrderStatus::Rejected, Err(OrderStatus::Rejected))]
+    fn test_try_from_order_status(
+        #[case] input: OrderStatus,
+        #[case] expected: Result<OKXOrderStatus, OrderStatus>,
+    ) {
+        let actual: Result<OKXOrderStatus, OrderStatus> = input.try_into();
+        assert_eq!(actual, expected);
     }
 }
 

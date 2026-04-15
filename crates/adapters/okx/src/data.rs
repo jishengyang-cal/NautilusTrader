@@ -99,7 +99,10 @@ pub struct OKXDataClient {
     book_channels: Arc<AtomicMap<InstrumentId, OKXBookChannel>>,
     index_ticker_map: Arc<AtomicMap<Ustr, AHashSet<Ustr>>>,
     option_greeks_subs: Arc<AtomicSet<InstrumentId>>,
-    option_summary_family_subs: AHashMap<Ustr, usize>,
+    // `Mutex<AHashMap>` so the spawned subscribe task can roll back the
+    // refcount on failure. A bare `AHashMap` would leave the count
+    // permanently incremented and wedge future Greeks subscribes.
+    option_summary_family_subs: Arc<std::sync::Mutex<AHashMap<Ustr, usize>>>,
     clock: &'static AtomicTime,
 }
 
@@ -188,7 +191,7 @@ impl OKXDataClient {
             book_channels: Arc::new(AtomicMap::new()),
             index_ticker_map: Arc::new(AtomicMap::new()),
             option_greeks_subs: Arc::new(AtomicSet::new()),
-            option_summary_family_subs: AHashMap::new(),
+            option_summary_family_subs: Arc::new(std::sync::Mutex::new(AHashMap::new())),
             clock,
         })
     }
@@ -649,7 +652,10 @@ impl DataClient for OKXDataClient {
         self.tasks.clear();
         self.book_channels.store(AHashMap::new());
         self.option_greeks_subs.store(AHashSet::new());
-        self.option_summary_family_subs.clear();
+        self.option_summary_family_subs
+            .lock()
+            .expect("option_summary_family_subs mutex poisoned")
+            .clear();
         Ok(())
     }
 
@@ -897,7 +903,10 @@ impl DataClient for OKXDataClient {
 
         self.book_channels.store(AHashMap::new());
         self.option_greeks_subs.store(AHashSet::new());
-        self.option_summary_family_subs.clear();
+        self.option_summary_family_subs
+            .lock()
+            .expect("option_summary_family_subs mutex poisoned")
+            .clear();
         self.is_connected.store(false, Ordering::Release);
         log::info!("Disconnected: client_id={}", self.client_id);
         Ok(())
@@ -1111,15 +1120,41 @@ impl DataClient for OKXDataClient {
         self.option_greeks_subs.insert(instrument_id);
 
         let family = extract_inst_family(instrument_id.symbol.inner().as_str())?;
-        let count = self.option_summary_family_subs.entry(family).or_default();
-        *count += 1;
-        if *count == 1 {
+        let is_first = {
+            let mut family_subs = self
+                .option_summary_family_subs
+                .lock()
+                .expect("option_summary_family_subs mutex poisoned");
+            let count = family_subs.entry(family).or_default();
+            *count += 1;
+            *count == 1
+        };
+
+        if is_first {
             let ws = self.public_ws()?.clone();
+            let family_subs = self.option_summary_family_subs.clone();
             self.spawn_ws(
                 async move {
-                    ws.subscribe_option_summary(family)
+                    let result = ws
+                        .subscribe_option_summary(family)
                         .await
-                        .context("opt-summary subscription")
+                        .context("opt-summary subscription");
+
+                    if result.is_err() {
+                        // Roll back the refcount so a retry can re-arm the subscribe;
+                        // otherwise the family wedges and Greeks stay dark.
+                        let mut subs = family_subs
+                            .lock()
+                            .expect("option_summary_family_subs mutex poisoned");
+
+                        if let Some(count) = subs.get_mut(&family) {
+                            *count = count.saturating_sub(1);
+                            if *count == 0 {
+                                subs.remove(&family);
+                            }
+                        }
+                    }
+                    result
                 },
                 "option greeks subscription",
             );
@@ -1232,6 +1267,12 @@ impl DataClient for OKXDataClient {
         let instrument_id = cmd.instrument_id;
         let symbol = instrument_id.symbol.inner();
 
+        // The OKX index-tickers channel is keyed by base pair, so multiple
+        // instruments on the same pair share one subscription. Per-base-pair
+        // refcounting lives on the WS client, so we always forward the
+        // unsubscribe and let the WS layer fire the venue request only when
+        // it knows the last subscriber dropped. Local routing in
+        // `index_ticker_map` is still maintained for downstream emit fan-out.
         if let Ok((base, quote)) = parse_base_quote_from_symbol(symbol.as_str()) {
             let base_pair = Ustr::from(&format!("{base}-{quote}"));
             self.index_ticker_map.rcu(|m| {
@@ -1290,20 +1331,35 @@ impl DataClient for OKXDataClient {
         self.option_greeks_subs.remove(&instrument_id);
 
         let family = extract_inst_family(instrument_id.symbol.inner().as_str())?;
-        if let Some(count) = self.option_summary_family_subs.get_mut(&family) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                self.option_summary_family_subs.remove(&family);
-                let ws = self.public_ws()?.clone();
-                self.spawn_ws(
-                    async move {
-                        ws.unsubscribe_option_summary(family)
-                            .await
-                            .context("opt-summary unsubscription")
-                    },
-                    "option greeks unsubscription",
-                );
+        let should_unsubscribe = {
+            let mut family_subs = self
+                .option_summary_family_subs
+                .lock()
+                .expect("option_summary_family_subs mutex poisoned");
+
+            if let Some(count) = family_subs.get_mut(&family) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    family_subs.remove(&family);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
             }
+        };
+
+        if should_unsubscribe {
+            let ws = self.public_ws()?.clone();
+            self.spawn_ws(
+                async move {
+                    ws.unsubscribe_option_summary(family)
+                        .await
+                        .context("opt-summary unsubscription")
+                },
+                "option greeks unsubscription",
+            );
         }
         Ok(())
     }

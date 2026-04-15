@@ -299,6 +299,34 @@ pub fn parse_order_event(
 
 /// Case-insensitive substring check.
 #[inline]
+/// Builds a deterministic synthesized `TradeId` for fills where OKX omits
+/// the venue `trade_id`. Hashes the immutable fill fields with FNV-1a so
+/// the result fits inside the 36-character `TradeId` cap and stays stable
+/// across reconnect replays of the same physical fill.
+fn synthesize_trade_id(msg: &OKXOrderMsg) -> String {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hasher: u64 = FNV_OFFSET;
+    let mut update = |bytes: &[u8]| {
+        for byte in bytes {
+            hasher ^= u64::from(*byte);
+            hasher = hasher.wrapping_mul(FNV_PRIME);
+        }
+        // Field separator so that "ab" + "c" doesn't hash to the same as "a" + "bc".
+        hasher ^= 0xff;
+        hasher = hasher.wrapping_mul(FNV_PRIME);
+    };
+
+    update(msg.ord_id.as_bytes());
+    update(msg.fill_time.to_string().as_bytes());
+    update(msg.fill_sz.as_bytes());
+    update(msg.fill_px.as_bytes());
+    update(msg.acc_fill_sz.as_deref().unwrap_or("").as_bytes());
+
+    format!("synth-{hasher:016x}")
+}
+
 fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
     haystack
         .as_bytes()
@@ -1620,10 +1648,16 @@ pub fn parse_fill_report(
         .or_else(|| parse_client_order_id(&msg.cl_ord_id));
     let venue_order_id = VenueOrderId::new(msg.ord_id);
 
-    // TODO: Extract to dedicated function:
-    // OKX may not provide a trade_id, so generate a UUID4 as fallback
+    // OKX may not provide a `trade_id` (some algo trigger payloads, manual
+    // settlements). Derive a deterministic id from the immutable fill fields
+    // via FNV-1a so reconnect replays of the same fill collapse to one event
+    // in the downstream `WsDispatchState::check_and_insert_trade` dedup. A
+    // random UUID4 here would defeat dedup, since each replay would mint a
+    // new id. The hash output keeps the synthesized id within `TradeId`'s
+    // 36-character cap.
     let trade_id = if msg.trade_id.is_empty() {
-        TradeId::new(UUID4::new().as_str())
+        let synthetic = synthesize_trade_id(msg);
+        TradeId::new(&synthetic)
     } else {
         TradeId::new(&msg.trade_id)
     };
@@ -4897,6 +4931,96 @@ mod tests {
             code: None,
             msg: None,
         }
+    }
+
+    #[rstest]
+    fn test_synthesize_trade_id_is_deterministic_and_under_36_chars() {
+        let mut msg = create_order_msg_for_event_test(
+            OKXOrderStatus::Filled,
+            "client-1",
+            "venue-1",
+            "50000.0",
+            "0.001",
+        );
+        msg.fill_px = "50000.0".to_string();
+        msg.fill_sz = "0.001".to_string();
+        msg.fill_time = 1_746_947_317_500;
+        msg.acc_fill_sz = Some("0.001".to_string());
+
+        let id1 = synthesize_trade_id(&msg);
+        let id2 = synthesize_trade_id(&msg);
+
+        assert_eq!(id1, id2, "synthesized id must be deterministic");
+        assert!(
+            id1.len() <= 36,
+            "synthesized id must fit in TradeId, was {}",
+            id1.len()
+        );
+        assert!(id1.starts_with("synth-"));
+    }
+
+    #[rstest]
+    fn test_synthesize_trade_id_changes_with_fill_fields() {
+        let mut msg = create_order_msg_for_event_test(
+            OKXOrderStatus::Filled,
+            "client-1",
+            "venue-1",
+            "50000.0",
+            "0.001",
+        );
+        msg.fill_px = "50000.0".to_string();
+        msg.fill_sz = "0.001".to_string();
+        msg.fill_time = 1_746_947_317_500;
+        msg.acc_fill_sz = Some("0.001".to_string());
+
+        let baseline = synthesize_trade_id(&msg);
+
+        msg.fill_sz = "0.002".to_string();
+        let different_size = synthesize_trade_id(&msg);
+        assert_ne!(baseline, different_size);
+
+        msg.fill_sz = "0.001".to_string();
+        msg.fill_time = 1_746_947_317_999;
+        let different_time = synthesize_trade_id(&msg);
+        assert_ne!(baseline, different_time);
+    }
+
+    #[rstest]
+    fn test_empty_trade_id_fill_deduped_across_replays() {
+        use crate::websocket::dispatch::WsDispatchState;
+
+        // Two identical fill messages with no venue trade_id — the dedup in
+        // `WsDispatchState::check_and_insert_trade` must suppress the replay.
+        // Regression lock for the empty-trade_id UUID fabrication bug: if
+        // `synthesize_trade_id` drifts back to a non-deterministic id, the
+        // second `check_and_insert_trade` would return false (not a dupe)
+        // and this test fails.
+        let mut msg = create_order_msg_for_event_test(
+            OKXOrderStatus::Filled,
+            "client-1",
+            "venue-1",
+            "50000.0",
+            "0.001",
+        );
+        msg.trade_id = String::new();
+        msg.fill_px = "50000.0".to_string();
+        msg.fill_sz = "0.001".to_string();
+        msg.fill_time = 1_746_947_317_500;
+        msg.acc_fill_sz = Some("0.001".to_string());
+
+        let first_id = TradeId::new(synthesize_trade_id(&msg));
+        let second_id = TradeId::new(synthesize_trade_id(&msg));
+        assert_eq!(first_id, second_id, "synthesized id must survive replay");
+
+        let state = WsDispatchState::default();
+        assert!(
+            !state.check_and_insert_trade(first_id),
+            "first insert is not a duplicate"
+        );
+        assert!(
+            state.check_and_insert_trade(second_id),
+            "replayed fill with empty trade_id must dedup"
+        );
     }
 
     #[rstest]

@@ -565,36 +565,35 @@ impl OKXExecutionClient {
     ///
     /// Needed for cancel/modify commands on orders loaded via reconciliation
     /// (which bypass `submit_order` and therefore have no identity entry).
+    /// Uses `DashMap::entry().or_insert_with` to keep the check-and-insert
+    /// atomic; without it, two concurrent reconciliation tasks could race
+    /// past a `contains_key` check and overwrite each other with stale
+    /// cache state.
     fn ensure_order_identity(
         &self,
         client_order_id: ClientOrderId,
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
     ) {
-        if self
-            .ws_dispatch_state
+        self.ws_dispatch_state
             .order_identities
-            .contains_key(&client_order_id)
-        {
-            return;
-        }
-        let cache = self.core.cache();
-        let (order_side, order_type) = cache
-            .order(&client_order_id)
-            .map_or((OrderSide::NoOrderSide, OrderType::Market), |o| {
-                (o.order_side(), o.order_type())
-            });
-        drop(cache);
+            .entry(client_order_id)
+            .or_insert_with(|| {
+                let cache = self.core.cache();
+                let (order_side, order_type) = cache
+                    .order(&client_order_id)
+                    .map_or((OrderSide::NoOrderSide, OrderType::Market), |o| {
+                        (o.order_side(), o.order_type())
+                    });
+                drop(cache);
 
-        self.ws_dispatch_state.order_identities.insert(
-            client_order_id,
-            OrderIdentity {
-                instrument_id,
-                strategy_id,
-                order_side,
-                order_type,
-            },
-        );
+                OrderIdentity {
+                    instrument_id,
+                    strategy_id,
+                    order_side,
+                    order_type,
+                }
+            });
     }
 
     fn spawn_task<F>(&self, description: &'static str, fut: F)
@@ -1173,6 +1172,29 @@ impl ExecutionClient for OKXExecutionClient {
             )
             .await?;
 
+        // Merge algo orders (stop, OCO, TP/SL, trailing). They live on a
+        // separate OKX endpoint and would otherwise be dropped from
+        // reconciliation, leaving stop/conditional orders unrecovered after
+        // a restart.
+        match self
+            .http_client
+            .request_algo_order_status_reports(
+                self.core.account_id,
+                None,
+                Some(instrument_id),
+                None,
+                cmd.client_order_id,
+                None,
+                None,
+            )
+            .await
+        {
+            Ok(mut algo_reports) => reports.append(&mut algo_reports),
+            Err(e) => {
+                log::warn!("Failed to fetch algo order status reports for {instrument_id}: {e}");
+            }
+        }
+
         if let Some(client_order_id) = cmd.client_order_id {
             reports.retain(|report| report.client_order_id == Some(client_order_id));
         }
@@ -1204,6 +1226,32 @@ impl ExecutionClient for OKXExecutionClient {
                 )
                 .await?;
             reports.append(&mut fetched);
+
+            // Merge algo orders for the requested instrument so reconciliation
+            // recovers stop, OCO, TP/SL, and trailing orders alongside regular
+            // ones. Failure here is logged but does not abort the regular
+            // reconciliation; an algo-endpoint outage should not blank the
+            // entire status report.
+            match self
+                .http_client
+                .request_algo_order_status_reports(
+                    self.core.account_id,
+                    None,
+                    Some(instrument_id),
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+            {
+                Ok(mut algo) => reports.append(&mut algo),
+                Err(e) => {
+                    log::warn!(
+                        "Failed to fetch algo order status reports for {instrument_id}: {e}"
+                    );
+                }
+            }
         } else {
             for inst_type in self.instrument_types() {
                 let mut fetched = self
@@ -1219,6 +1267,25 @@ impl ExecutionClient for OKXExecutionClient {
                     )
                     .await?;
                 reports.append(&mut fetched);
+
+                match self
+                    .http_client
+                    .request_algo_order_status_reports(
+                        self.core.account_id,
+                        Some(inst_type),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                {
+                    Ok(mut algo) => reports.append(&mut algo),
+                    Err(e) => log::warn!(
+                        "Failed to fetch algo order status reports for {inst_type:?}: {e}"
+                    ),
+                }
             }
         }
 
