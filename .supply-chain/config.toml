@@ -514,11 +514,11 @@ version = "1.3.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.aws-lc-rs]]
-version = "1.16.2"
+version = "1.16.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.aws-lc-sys]]
-version = "0.39.1"
+version = "0.40.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.axum]]
@@ -559,10 +559,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.bitcoin_hashes]]
 version = "0.14.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.bitflags]]
-version = "2.11.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.bitvec]]
@@ -670,11 +666,11 @@ version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap]]
-version = "4.6.0"
+version = "4.6.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap_derive]]
-version = "4.6.0"
+version = "4.6.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.cmake]]
@@ -854,7 +850,7 @@ version = "2.10.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.databento]]
-version = "0.43.0"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion]]
@@ -982,11 +978,11 @@ version = "53.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn]]
-version = "0.51.0"
+version = "0.54.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn-macros]]
-version = "0.51.0"
+version = "0.54.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.derivative]]
@@ -1993,10 +1989,6 @@ criteria = "safe-to-deploy"
 version = "0.10.1"
 criteria = "safe-to-deploy"
 
-[[exemptions.rand_xorshift]]
-version = "0.4.0"
-criteria = "safe-to-deploy"
-
 [[exemptions.rand_xoshiro]]
 version = "0.6.0"
 criteria = "safe-to-deploy"
@@ -2577,14 +2569,6 @@ criteria = "safe-to-deploy"
 version = "2.1.2"
 criteria = "safe-to-deploy"
 
-[[exemptions.typed-builder]]
-version = "0.23.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.typed-builder-macro]]
-version = "0.23.2"
-criteria = "safe-to-deploy"
-
 [[exemptions.typenum]]
 version = "1.19.0"
 criteria = "safe-to-deploy"
@@ -2595,10 +2579,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.uint]]
 version = "0.9.5"
-criteria = "safe-to-deploy"
-
-[[exemptions.unarray]]
-version = "0.1.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.unbounded-interval-tree]]

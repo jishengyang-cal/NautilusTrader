@@ -80,8 +80,8 @@ Released on TBD (UTC).
 - Optimized Hyperliquid L1 signing by caching `PrivateKeySigner` and EIP-712 domain (#3851)
 - Upgraded Cap'n Proto to v1.4.0
 - Upgraded `capnp` crate to v0.25.4 (regenerated schemas with 4-space indents and version headers)
-- Upgraded `databento` crate to v0.46.0
-- Upgraded `msgspec` to v0.21.0
+- Upgraded `databento` crate to v0.47.0
+- Upgraded `msgspec` to v0.21.1
 - Upgraded `tokio` crate to v1.52.0
 
 ### Documentation Updates

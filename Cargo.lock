@@ -1498,9 +1498,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.16.2"
+version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a054912289d18629dc78375ba2c3726a3afe3ff71b4edba9dedfca0e3446d1fc"
+checksum = "0ec6fb3fe69024a75fa7e1bfb48aa6cf59706a101658ea01bfd33b2b248a038f"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -1508,9 +1508,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.39.1"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83a25cf98105baa966497416dbd42565ce3a8cf8dbfd59803ec9ad46f3126399"
+checksum = "f50037ee5e1e41e7b8f9d161680a725bd1626cb6f8c7e901f91f942850852fe7"
 dependencies = [
  "cc",
  "cmake",
@@ -2023,9 +2023,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b193af5b67834b676abd72466a96c1024e6a6ad978a1f484bd90b85c94041351"
+checksum = "1ddb117e43bbf7dacf0a4190fef4d345b9bad68dfc649cb349e7d17d28428e51"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -2045,9 +2045,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.6.0"
+version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1110bd8a634a1ab8cb04345d8d878267d57c3cf1b38d91b71af6686408bbca6a"
+checksum = "f2ce8604710f6733aa641a2b3731eaa1e8b3d9973d5e3565da11800813f997a9"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -2574,11 +2574,12 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "databento"
-version = "0.46.0"
+version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63c7042720f4ee8c73bfbf1446a317af2138720cd3bd89306124dc32fbaca3fc"
+checksum = "ded5e7fb985db6c369422bd20506ded09999d06f5cc70dab5afcff106165703c"
 dependencies = [
  "async-compression",
+ "bon",
  "dbn",
  "futures",
  "hex",
@@ -2591,7 +2592,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "typed-builder",
  "zstd",
 ]
 
@@ -3241,9 +3241,9 @@ dependencies = [
 
 [[package]]
 name = "dbn"
-version = "0.53.0"
+version = "0.54.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6503c7bd919f784f944aaab0d7d86172c9088b10b73a8c2d550d889191bf3071"
+checksum = "79da4673cf1c9f0cf3880a5ddd2f2dbd8f2d6635c1c100ebefb7e2eae3c18d3d"
 dependencies = [
  "async-compression",
  "csv",
@@ -3261,9 +3261,9 @@ dependencies = [
 
 [[package]]
 name = "dbn-macros"
-version = "0.53.0"
+version = "0.54.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b95751bfd0be39d0d25c46748e8582fd73480e7f3e0ceebae802e251cfbbcf1"
+checksum = "9011e0c316ec3b807936fa6f45e574474bbe9c478ca75134f9fd784dcedcf94c"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -9739,26 +9739,6 @@ name = "twox-hash"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
-
-[[package]]
-name = "typed-builder"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31aa81521b70f94402501d848ccc0ecaa8f93c8eb6999eb9747e72287757ffda"
-dependencies = [
- "typed-builder-macro",
-]
-
-[[package]]
-name = "typed-builder-macro"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "076a02dc54dd46795c2e9c8282ed40bcfb1e22747e955de9389a1de28190fb26"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
 
 [[package]]
 name = "typenum"
