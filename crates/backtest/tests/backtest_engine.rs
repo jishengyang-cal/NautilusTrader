@@ -791,6 +791,113 @@ fn test_ema_cross_strategy_generates_orders(crypto_perpetual_ethusdt: CryptoPerp
     );
 }
 
+struct ShutdownOnTick {
+    core: StrategyCore,
+    instrument_id: InstrumentId,
+    shutdown_after: usize,
+    tick_count: usize,
+}
+
+impl ShutdownOnTick {
+    fn new(instrument_id: InstrumentId, shutdown_after: usize) -> Self {
+        let config = StrategyConfig {
+            strategy_id: Some(StrategyId::from("SHUTDOWN-001")),
+            order_id_tag: Some("001".to_string()),
+            ..Default::default()
+        };
+        Self {
+            core: StrategyCore::new(config),
+            instrument_id,
+            shutdown_after,
+            tick_count: 0,
+        }
+    }
+}
+
+nautilus_strategy!(ShutdownOnTick);
+
+impl Debug for ShutdownOnTick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(ShutdownOnTick)).finish()
+    }
+}
+
+impl DataActor for ShutdownOnTick {
+    fn on_start(&mut self) -> anyhow::Result<()> {
+        self.subscribe_quotes(self.instrument_id, None, None);
+        Ok(())
+    }
+
+    fn on_quote(&mut self, _quote: &QuoteTick) -> anyhow::Result<()> {
+        self.tick_count += 1;
+        if self.tick_count == self.shutdown_after {
+            self.shutdown_system(Some("shutdown on tick".to_string()));
+        }
+        Ok(())
+    }
+}
+
+#[rstest]
+fn test_streaming_shutdown_finalizes_engine(crypto_perpetual_ethusdt: CryptoPerpetual) {
+    let mut engine = create_engine();
+    let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
+    let instrument_id = instrument.id();
+    engine.add_instrument(&instrument).unwrap();
+    engine
+        .add_strategy(ShutdownOnTick::new(instrument_id, 2))
+        .unwrap();
+
+    let batch = vec![
+        quote(instrument_id, "1000.00", "1000.10", 1_000_000_000),
+        quote(instrument_id, "1001.00", "1001.10", 2_000_000_000),
+        quote(instrument_id, "1002.00", "1002.10", 3_000_000_000),
+        quote(instrument_id, "1003.00", "1003.10", 4_000_000_000),
+    ];
+    engine.add_data(batch, None, true, true);
+
+    engine.run(None, None, None, true).unwrap();
+
+    let result = engine.get_result();
+    assert_eq!(
+        result.iterations, 2,
+        "Run must stop after the shutdown tick"
+    );
+    assert!(
+        !engine.kernel().trader.borrow().is_running(),
+        "Trader must be stopped after streaming shutdown finalization",
+    );
+}
+
+#[rstest]
+fn test_streaming_shutdown_on_last_tick_finalizes_engine(
+    crypto_perpetual_ethusdt: CryptoPerpetual,
+) {
+    // Regression: shutdown published on the last quote leaves the loop via
+    // streaming data-exhaustion rather than the top-of-loop force_stop check.
+    // The finalize branch in run() must still observe the shutdown flag.
+    let mut engine = create_engine();
+    let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
+    let instrument_id = instrument.id();
+    engine.add_instrument(&instrument).unwrap();
+    engine
+        .add_strategy(ShutdownOnTick::new(instrument_id, 3))
+        .unwrap();
+
+    let batch = vec![
+        quote(instrument_id, "1000.00", "1000.10", 1_000_000_000),
+        quote(instrument_id, "1001.00", "1001.10", 2_000_000_000),
+        quote(instrument_id, "1002.00", "1002.10", 3_000_000_000),
+    ];
+    engine.add_data(batch, None, true, true);
+
+    engine.run(None, None, None, true).unwrap();
+
+    assert!(
+        !engine.kernel().trader.borrow().is_running(),
+        "Trader must be stopped when shutdown fires on the last streaming tick",
+    );
+}
+
 #[rstest]
 fn test_streaming_mode_processes_data_in_batches(crypto_perpetual_ethusdt: CryptoPerpetual) {
     let mut engine = create_engine();

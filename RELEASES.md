@@ -31,7 +31,7 @@ Released on TBD (UTC).
 - Fixed `OrderTriggered` ValueError on market-style stop orders (#3812), thanks for reporting @jindrichsirucek
 - Fixed PyO3 `LiveNode` `request_bars()` historical callbacks dropped during startup warmup (#3825), thanks @BurnOutTrader
 - Fixed PyO3 `DataActor` missing `on_historical_funding_rates` and `on_historical_data` forwarding `None`
-- Fixed execution engine v2 ignoring user-supplied `position_id` from `submit_order` (Rust)
+- Fixed execution engine ignoring user-supplied `position_id` from `submit_order` (Rust)
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Binance user data stream not recovering after keepalive failure (#3861), thanks for reporting @KaizynX
 - Fixed Bybit position deserialization for closed positions (#3836), thanks for reporting @pusteckiy
@@ -59,6 +59,7 @@ Released on TBD (UTC).
 - Added engine config methods on PyO3 `LiveNodeBuilder` (#3848), thanks @BurnOutTrader
 - Added read-only `params()` accessor to `SubscribeCommand` and `TradingCommand` (#3846), thanks @faysou
 - Added Hyperliquid criterion benchmarks for L1 signing path
+- Added `ShutdownSystem` handling via `commands.system.shutdown` pub/sub topic, wired to kernel, backtest, and live (Rust)
 - Replaced `AHashMap`/`AHashSet` with `IndexMap`/`IndexSet` in `ExecutionManager` for deterministic ordering in simulations (Rust)
 - Refined make cargo-test to not include binaries for test harness builds (#3828), thanks @faysou
 - Refined Interactive Brokers combo fill average price calculation (#3834), thanks @faysou
@@ -68,7 +69,7 @@ Released on TBD (UTC).
 - Upgraded `capnp` crate to v0.25.4 (regenerated schemas with 4-space indents and version headers)
 - Upgraded `databento` crate to v0.46.0
 - Upgraded `msgspec` to v0.21.0
-- Upgraded `tokio` crate to v1.51.1
+- Upgraded `tokio` crate to v1.52.0
 
 ### Documentation Updates
 - Refined docs to follow style guide for symbols and filler words (#3830), thanks @JKDasondee

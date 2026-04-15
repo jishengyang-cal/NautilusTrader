@@ -644,8 +644,10 @@ impl LiveNode {
 
         self.handle.set_state(NodeState::Starting);
         self.kernel.start_async().await;
+        self.kernel.reset_shutdown_flag();
 
         let stop_handle = self.handle.clone();
+        let shutdown_flag = self.kernel.shutdown_flag();
         let mut pending = PendingEvents::default();
 
         // Startup phase 1: Connect data clients and drain instrument events into cache.
@@ -820,6 +822,13 @@ impl LiveNode {
 
         let mut prune_fills_timer = make_timer(Some(Duration::from_secs(60)));
 
+        // Stop-check timer is not subject to the reconciliation startup delay,
+        // so shutdown signals remain responsive from the moment the node reaches
+        // `Running`. Set `MissedTickBehavior::Skip` so backlog ticks do not fire
+        // a burst after the select arm was suspended by other branches.
+        let mut stop_check_timer = dst::time::interval(Duration::from_millis(100));
+        stop_check_timer.set_missed_tick_behavior(dst::time::MissedTickBehavior::Skip);
+
         // Running phase: runs until shutdown deadline expires
         let mut residual_events = 0usize;
         let ctrl_c = tokio::signal::ctrl_c();
@@ -841,17 +850,14 @@ impl LiveNode {
                     }
                     self.initiate_shutdown();
                 }
-                () = async {
-                    loop {
-                        dst::time::sleep(Duration::from_millis(100)).await;
-
-                        if stop_handle.should_stop() {
-                            log::info!("Received stop signal from handle");
-                            return;
-                        }
+                _ = stop_check_timer.tick(), if is_running => {
+                    if stop_handle.should_stop() {
+                        log::info!("Received stop signal from handle");
+                        self.initiate_shutdown();
+                    } else if shutdown_flag.get() {
+                        log::info!("Received ShutdownSystem command, shutting down");
+                        self.initiate_shutdown();
                     }
-                }, if is_running => {
-                    self.initiate_shutdown();
                 }
                 () = async {
                     match shutdown_deadline {

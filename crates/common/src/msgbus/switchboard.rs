@@ -42,6 +42,7 @@ static RISK_QUEUE_EXECUTE_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static RISK_PROCESS_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static ORDER_EMULATOR_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
 static PORTFOLIO_ACCOUNT_ENDPOINT: OnceLock<MStr<Endpoint>> = OnceLock::new();
+static SHUTDOWN_SYSTEM_TOPIC: OnceLock<MStr<Topic>> = OnceLock::new();
 
 macro_rules! define_switchboard {
     ($(
@@ -170,6 +171,18 @@ macro_rules! define_switchboard {
             #[must_use]
             pub fn portfolio_update_account() -> MStr<Endpoint> {
                 *PORTFOLIO_ACCOUNT_ENDPOINT.get_or_init(|| "Portfolio.update_account".into())
+            }
+
+            /// Pub/sub topic carrying `ShutdownSystem` commands published by
+            /// actors, engines, and strategies.
+            ///
+            /// Matches the Python topic. The kernel subscribes to validate the
+            /// command and signal graceful shutdown; additional components may
+            /// subscribe to react to the same signal.
+            #[inline]
+            #[must_use]
+            pub fn shutdown_system_topic() -> MStr<Topic> {
+                *SHUTDOWN_SYSTEM_TOPIC.get_or_init(|| "commands.system.shutdown".into())
             }
 
             /// Returns a wildcard pattern for matching all instrument topics for a venue.

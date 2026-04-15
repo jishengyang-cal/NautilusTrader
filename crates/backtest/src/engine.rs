@@ -472,7 +472,11 @@ impl BacktestEngine {
     ) -> anyhow::Result<()> {
         self.run_impl(start, end, run_config_id, streaming)?;
 
-        if !streaming {
+        // Finalize on non-streaming runs, or when a shutdown was triggered
+        // at any point during the run (including the trailing settle, module,
+        // and flush callbacks that execute after the main data loop) so the
+        // trader and engines actually stop.
+        if !streaming || self.force_stop || self.kernel.is_shutdown_requested() {
             self.end();
         }
 
@@ -519,6 +523,7 @@ impl BacktestEngine {
 
             // Reset force stop flag
             self.force_stop = false;
+            self.kernel.reset_shutdown_flag();
 
             // Initialize sync command senders (once per thread)
             Self::init_command_senders();
@@ -558,6 +563,11 @@ impl BacktestEngine {
         }
 
         loop {
+            if self.kernel.is_shutdown_requested() {
+                log::info!("Shutdown requested via ShutdownSystem, ending backtest");
+                self.force_stop = true;
+            }
+
             if self.force_stop {
                 log::error!("Force stop triggered, ending backtest");
                 break;
@@ -635,10 +645,18 @@ impl BacktestEngine {
         // Flush remaining timer events to the backtest end boundary so that
         // tail alerts/expiries scheduled after the last data point still fire.
         // Must run before stopping engines since DataEngine::stop() cancels
-        // bar aggregator timers.
+        // bar aggregator timers. When a shutdown was requested, cap the flush
+        // at the last processed timestamp so timers scheduled past the stop
+        // point do not fire extra callbacks after the graceful stop request.
         if self.end_ns.as_u64() > 0 {
             let clocks = self.collect_all_clocks();
-            self.flush_accumulator_events(&clocks, self.end_ns);
+            let flush_ts = if self.force_stop || self.kernel.is_shutdown_requested() {
+                self.last_ns
+            } else {
+                self.end_ns
+            };
+
+            self.flush_accumulator_events(&clocks, flush_ts);
         }
 
         // Stop trader

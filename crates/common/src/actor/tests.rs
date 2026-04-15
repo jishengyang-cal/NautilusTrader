@@ -2125,6 +2125,38 @@ impl DataActor for SaveLoadActor {
 }
 
 #[rstest]
+#[case::with_reason(Some("graceful exit".to_string()))]
+#[case::no_reason(None)]
+fn test_shutdown_system_publishes_command(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+    trader_id: TraderId,
+    #[case] reason: Option<String>,
+) {
+    use crate::{messages::system::ShutdownSystem, msgbus::typed_handler::ShareableMessageHandler};
+
+    let actor_id = register_data_actor(clock, cache, trader_id);
+    let actor = get_actor_unchecked::<TestDataActor>(&actor_id);
+
+    let received: Rc<RefCell<Vec<ShutdownSystem>>> = Rc::new(RefCell::new(Vec::new()));
+    let received_clone = received.clone();
+    let handler = ShareableMessageHandler::from_typed(move |cmd: &ShutdownSystem| {
+        received_clone.borrow_mut().push(cmd.clone());
+    });
+    let topic = MessagingSwitchboard::shutdown_system_topic();
+    msgbus::subscribe_any(topic.into(), handler, None);
+
+    actor.shutdown_system(reason.clone());
+
+    let received = received.borrow();
+    assert_eq!(received.len(), 1);
+    let cmd = &received[0];
+    assert_eq!(cmd.trader_id, trader_id);
+    assert_eq!(cmd.component_id, actor_id);
+    assert_eq!(cmd.reason, reason);
+}
+
+#[rstest]
 fn test_on_save_and_on_load(
     clock: Rc<RefCell<TestClock>>,
     cache: Rc<RefCell<Cache>>,

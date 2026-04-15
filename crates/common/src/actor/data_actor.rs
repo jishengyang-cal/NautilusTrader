@@ -3001,8 +3001,8 @@ impl DataActorCore {
             self.timestamp_ns(),
         );
 
-        let endpoint = "command.system.shutdown".into();
-        msgbus::send_any(endpoint, command.as_any());
+        let topic = MessagingSwitchboard::shutdown_system_topic();
+        msgbus::publish_any(topic, command.as_any());
     }
 
     // -- SUBSCRIPTIONS ---------------------------------------------------------------------------
