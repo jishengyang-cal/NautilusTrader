@@ -48,6 +48,7 @@ Released on TBD (UTC).
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
 - Fixed Polymarket commission formula and fee source for fills (#3838), thanks for reporting @santivazq
 - Fixed Polymarket reconciliation fills using incorrect commission (#3860), thanks for reporting @fedoraiver
+- Fixed `consolidate_data_by_period` pairwise merging on fragment-per-flush catalogs (#3857), thanks for reporting @M-Advis
 
 ### Internal Improvements
 - Added typed `CorrectnessError` enum to replace `anyhow::Error` in `correctness` helpers (Rust)

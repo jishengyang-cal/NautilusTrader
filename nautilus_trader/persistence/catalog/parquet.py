@@ -1103,28 +1103,27 @@ class ParquetDataCatalog(BaseDataCatalog):
                 "all files in the consolidation range must have contiguous timestamps."
             )
 
-        # Group intervals into contiguous groups to preserve holes between groups
-        # but allow consolidation within each contiguous group
+        # Convert period to nanoseconds for calculations
+        period_in_ns = period.value
+
+        # Group intervals by the target period: split only when the gap between files
+        # exceeds one period, since sub-period gaps land in the same consolidated file
+        # anyway. This works for both legacy chunked files (gap ~1ns) and fragment-per-flush
+        # catalogs (gap ~bar interval) without inferring spacing from the data.
         contiguous_groups = []
         current_group = [filtered_intervals[0]]
 
         for i in range(1, len(filtered_intervals)):
-            prev_interval = filtered_intervals[i - 1]
-            curr_interval = filtered_intervals[i]
+            prev_end = filtered_intervals[i - 1][1]
+            curr_start = filtered_intervals[i][0]
 
-            # Check if current interval is contiguous with previous (end + 1 == start)
-            if prev_interval[1] + 1 == curr_interval[0]:
-                current_group.append(curr_interval)
-            else:
-                # Gap found, start new group
+            if curr_start - prev_end > period_in_ns:
                 contiguous_groups.append(current_group)
-                current_group = [curr_interval]
+                current_group = [filtered_intervals[i]]
+            else:
+                current_group.append(filtered_intervals[i])
 
-        # Add the last group
         contiguous_groups.append(current_group)
-
-        # Convert period to nanoseconds for calculations
-        period_in_ns = period.value
 
         # Start with split queries for data preservation
         queries_to_execute = []

@@ -1297,9 +1297,9 @@ impl ParquetDataCatalog {
             );
         }
 
-        // Group intervals into contiguous groups to preserve holes between groups
-        // but allow consolidation within each contiguous group
-        let contiguous_groups = self.group_contiguous_intervals(&filtered_intervals);
+        // Group intervals by the target period: split only when the gap between files
+        // exceeds one period, since sub-period gaps land in the same consolidated file.
+        let contiguous_groups = self.group_contiguous_intervals(&filtered_intervals, period_nanos);
 
         let mut queries_to_execute = Vec::new();
 
@@ -1401,69 +1401,59 @@ impl ParquetDataCatalog {
         Ok(queries_to_execute)
     }
 
-    /// Groups intervals into contiguous groups for efficient consolidation.
+    /// Groups intervals for period-based consolidation.
     ///
-    /// This method analyzes a list of time intervals and groups them into contiguous sequences.
-    /// Intervals are considered contiguous if the end of one interval is exactly one nanosecond
-    /// before the start of the next interval. This grouping preserves data gaps while allowing
-    /// consolidation within each contiguous group.
+    /// Groups adjacent intervals into the same bucket unless the gap between them exceeds
+    /// `period_nanos`. Sub-period gaps land in the same consolidated file anyway, so they
+    /// do not warrant a split. Gaps larger than one period represent genuine data holes.
     ///
     /// # Parameters
     ///
-    /// - `intervals`: A slice of timestamp intervals as (start, end) tuples.
+    /// - `intervals`: A slice of timestamp intervals as (start, end) tuples, sorted by start.
+    /// - `period_nanos`: The target consolidation period; gaps larger than this split groups.
     ///
     /// # Returns
     ///
-    /// Returns a vector of groups, where each group is a vector of contiguous intervals.
-    /// Returns an empty vector if the input is empty.
-    ///
-    /// # Algorithm
-    ///
-    /// 1. Starts with the first interval in a new group.
-    /// 2. For each subsequent interval, checks if it's contiguous with the previous.
-    /// 3. If contiguous (`prev_end` + 1 == `curr_start`), adds to current group.
-    /// 4. If not contiguous, starts a new group.
-    /// 5. Returns all groups.
+    /// Returns a vector of groups. Returns an empty vector if the input is empty.
     ///
     /// # Examples
     ///
     /// ```text
-    /// Contiguous intervals: [(1,5), (6,10), (11,15)]
-    /// Returns: [[(1,5), (6,10), (11,15)]]
+    /// Legacy chunked files with period=86_400_000_000_000 (1 day):
+    ///   [(1,5), (6,10), (11,15)] -> [[(1,5), (6,10), (11,15)]]
     ///
-    /// Non-contiguous intervals: [(1,5), (8,10), (12,15)]
-    /// Returns: [[(1,5)], [(8,10)], [(12,15)]]
+    /// Small period=1 with mixed gaps:
+    ///   [(1,5), (8,10), (12,15)] -> [[(1,5)], [(8,10)], [(12,15)]]
     /// ```
-    ///
-    /// # Notes
-    ///
-    /// - Input intervals should be sorted by start timestamp.
-    /// - Gaps between groups are preserved and not consolidated.
-    /// - Used internally by period-based consolidation methods.
     #[must_use]
-    pub fn group_contiguous_intervals(&self, intervals: &[(u64, u64)]) -> Vec<Vec<(u64, u64)>> {
+    pub fn group_contiguous_intervals(
+        &self,
+        intervals: &[(u64, u64)],
+        period_nanos: u64,
+    ) -> Vec<Vec<(u64, u64)>> {
         if intervals.is_empty() {
             return Vec::new();
         }
 
+        // Split groups only when the gap between files exceeds one period,
+        // since sub-period gaps land in the same consolidated file anyway.
+        // This works for both legacy chunked files (gap ~1ns) and fragment-per-flush
+        // catalogs (gap ~bar interval) without inferring spacing from the data.
         let mut contiguous_groups = Vec::new();
         let mut current_group = vec![intervals[0]];
 
         for i in 1..intervals.len() {
-            let prev_interval = intervals[i - 1];
-            let curr_interval = intervals[i];
+            let prev_end = intervals[i - 1].1;
+            let curr_start = intervals[i].0;
 
-            // Check if current interval is contiguous with previous (end + 1 == start)
-            if prev_interval.1 + 1 == curr_interval.0 {
-                current_group.push(curr_interval);
-            } else {
-                // Gap found, start new group
+            if curr_start.saturating_sub(prev_end) > period_nanos {
                 contiguous_groups.push(current_group);
-                current_group = vec![curr_interval];
+                current_group = vec![intervals[i]];
+            } else {
+                current_group.push(intervals[i]);
             }
         }
 
-        // Add the last group
         contiguous_groups.push(current_group);
 
         contiguous_groups
