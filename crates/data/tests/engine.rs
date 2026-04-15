@@ -69,12 +69,13 @@ use nautilus_model::defi::{
 };
 use nautilus_model::{
     data::{
-        Bar, BarType, Data, DataType, FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate,
-        OrderBookDeltas, OrderBookDeltas_API, OrderBookDepth10, QuoteTick, TradeTick,
+        Bar, BarType, Data, DataType, FundingRateUpdate, IndexPriceUpdate, InstrumentStatus,
+        MarkPriceUpdate, OrderBookDeltas, OrderBookDeltas_API, OrderBookDepth10, QuoteTick,
+        TradeTick,
         option_chain::StrikeRange,
         stubs::{OrderBookDeltaTestBuilder, stub_delta, stub_deltas, stub_depth10},
     },
-    enums::{BookType, OptionKind, PriceType},
+    enums::{BookType, MarketStatusAction, OptionKind, PriceType},
     identifiers::{ClientId, InstrumentId, OptionSeriesId, TraderId, Venue},
     instruments::{
         CurrencyPair, Instrument, InstrumentAny,
@@ -2045,6 +2046,52 @@ fn test_process_bar(data_engine: Rc<RefCell<DataEngine>>, data_client: DataClien
     assert_eq!(cache.bar(&bar.bar_type), Some(bar).as_ref());
     assert_eq!(messages.len(), 1);
     assert!(messages.contains(&bar));
+}
+
+#[rstest]
+fn test_process_instrument_status(
+    audusd_sim: CurrencyPair,
+    data_engine: Rc<RefCell<DataEngine>>,
+    data_client: DataClientAdapter,
+) {
+    let client_id = data_client.client_id;
+    let venue = data_client.venue;
+    data_engine.borrow_mut().register_client(data_client, None);
+
+    let sub = SubscribeInstrumentStatus::new(
+        audusd_sim.id,
+        Some(client_id),
+        venue,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    let cmd = DataCommand::Subscribe(SubscribeCommand::InstrumentStatus(sub));
+
+    data_engine.borrow_mut().execute(cmd);
+
+    let status = InstrumentStatus::new(
+        audusd_sim.id,
+        MarketStatusAction::Trading,
+        UnixNanos::from(1),
+        UnixNanos::from(2),
+        None,
+        None,
+        Some(true),
+        Some(true),
+        None,
+    );
+    let handler = msgbus::stubs::get_message_saving_handler::<InstrumentStatus>(None);
+    let topic = switchboard::get_instrument_status_topic(status.instrument_id);
+    msgbus::subscribe_any(topic.into(), handler.clone(), None);
+
+    let mut data_engine = data_engine.borrow_mut();
+    data_engine.process_data(Data::InstrumentStatus(status));
+    let messages = msgbus::stubs::get_saved_messages::<InstrumentStatus>(&handler);
+
+    assert_eq!(messages.len(), 1);
+    assert!(messages.contains(&status));
 }
 
 #[cfg(feature = "defi")]

@@ -15,17 +15,20 @@
 
 use std::io::Cursor;
 
-use arrow::{ipc::writer::StreamWriter, record_batch::RecordBatch};
+use arrow::{
+    ipc::{reader::StreamReader, writer::StreamWriter},
+    record_batch::RecordBatch,
+};
 use nautilus_core::python::{to_pyruntime_err, to_pytype_err, to_pyvalue_err};
 use nautilus_model::{
     data::{
-        Bar, IndexPriceUpdate, MarkPriceUpdate, OrderBookDelta, OrderBookDepth10, QuoteTick,
-        TradeTick, close::InstrumentClose,
+        Bar, IndexPriceUpdate, InstrumentStatus, MarkPriceUpdate, OrderBookDelta, OrderBookDepth10,
+        QuoteTick, TradeTick, close::InstrumentClose,
     },
     python::data::{
         pyobjects_to_bars, pyobjects_to_book_deltas, pyobjects_to_index_prices,
-        pyobjects_to_instrument_closes, pyobjects_to_mark_prices, pyobjects_to_quotes,
-        pyobjects_to_trades,
+        pyobjects_to_instrument_closes, pyobjects_to_instrument_statuses, pyobjects_to_mark_prices,
+        pyobjects_to_quotes, pyobjects_to_trades,
     },
 };
 use pyo3::{
@@ -35,9 +38,10 @@ use pyo3::{
 };
 
 use crate::arrow::{
-    ArrowSchemaProvider, bars_to_arrow_record_batch_bytes, book_deltas_to_arrow_record_batch_bytes,
-    book_depth10_to_arrow_record_batch_bytes, index_prices_to_arrow_record_batch_bytes,
-    instrument_closes_to_arrow_record_batch_bytes, mark_prices_to_arrow_record_batch_bytes,
+    ArrowSchemaProvider, DecodeTypedFromRecordBatch, bars_to_arrow_record_batch_bytes,
+    book_deltas_to_arrow_record_batch_bytes, book_depth10_to_arrow_record_batch_bytes,
+    index_prices_to_arrow_record_batch_bytes, instrument_closes_to_arrow_record_batch_bytes,
+    instrument_status_to_arrow_record_batch_bytes, mark_prices_to_arrow_record_batch_bytes,
     quotes_to_arrow_record_batch_bytes, trades_to_arrow_record_batch_bytes,
 };
 
@@ -81,6 +85,7 @@ pub fn get_arrow_schema_map(py: Python<'_>, cls: &Bound<'_, PyType>) -> PyResult
         stringify!(Bar) => Bar::get_schema_map(),
         stringify!(MarkPriceUpdate) => MarkPriceUpdate::get_schema_map(),
         stringify!(IndexPriceUpdate) => IndexPriceUpdate::get_schema_map(),
+        stringify!(InstrumentStatus) => InstrumentStatus::get_schema_map(),
         stringify!(InstrumentClose) => InstrumentClose::get_schema_map(),
         _ => {
             return Err(to_pytype_err(format!(
@@ -142,6 +147,10 @@ pub fn pyobjects_to_arrow_record_batch_bytes(
         stringify!(IndexPriceUpdate) => {
             let index_prices = pyobjects_to_index_prices(data)?;
             py_index_prices_to_arrow_record_batch_bytes(py, index_prices)
+        }
+        stringify!(InstrumentStatus) => {
+            let statuses = pyobjects_to_instrument_statuses(data)?;
+            py_instrument_status_to_arrow_record_batch_bytes(py, statuses)
         }
         stringify!(InstrumentClose) => {
             let closes = pyobjects_to_instrument_closes(data)?;
@@ -274,6 +283,51 @@ pub fn py_index_prices_to_arrow_record_batch_bytes(
         Ok(batch) => arrow_record_batch_to_pybytes(py, &batch),
         Err(e) => Err(to_pyvalue_err(e)),
     }
+}
+
+/// Converts a list of `InstrumentStatus` into Arrow IPC bytes for Python.
+///
+/// # Errors
+///
+/// Returns a `PyErr` if encoding fails.
+#[pyfunction(name = "instrument_status_to_arrow_record_batch_bytes")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.serialization")]
+#[expect(clippy::needless_pass_by_value)]
+pub fn py_instrument_status_to_arrow_record_batch_bytes(
+    py: Python,
+    data: Vec<InstrumentStatus>,
+) -> PyResult<Py<PyBytes>> {
+    match instrument_status_to_arrow_record_batch_bytes(&data) {
+        Ok(batch) => arrow_record_batch_to_pybytes(py, &batch),
+        Err(e) => Err(to_pyvalue_err(e)),
+    }
+}
+
+/// Decodes Arrow IPC bytes into a list of `InstrumentStatus`.
+///
+/// # Errors
+///
+/// Returns a `PyErr` if decoding fails.
+#[pyfunction(name = "instrument_status_from_arrow_record_batch_bytes")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.serialization")]
+pub fn py_instrument_status_from_arrow_record_batch_bytes(
+    _py: Python,
+    data: Vec<u8>,
+) -> PyResult<Vec<InstrumentStatus>> {
+    let cursor = Cursor::new(data);
+    let reader = StreamReader::try_new(cursor, None).map_err(to_pyruntime_err)?;
+
+    let mut results = Vec::new();
+
+    for batch_result in reader {
+        let batch = batch_result.map_err(to_pyruntime_err)?;
+        let metadata = batch.schema().metadata().clone();
+        let decoded =
+            InstrumentStatus::decode_typed_batch(&metadata, batch).map_err(to_pyvalue_err)?;
+        results.extend(decoded);
+    }
+
+    Ok(results)
 }
 
 /// Converts a list of `InstrumentClose` into Arrow IPC bytes for Python.

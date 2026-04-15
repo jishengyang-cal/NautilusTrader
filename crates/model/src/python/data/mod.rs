@@ -47,8 +47,8 @@ use pyo3::{prelude::*, types::PyCapsule};
 #[cfg(feature = "cython-compat")]
 use crate::data::DataFFI;
 use crate::data::{
-    Bar, CustomData, Data, DataType, FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate,
-    OrderBookDelta, QuoteTick, TradeTick, close::InstrumentClose,
+    Bar, CustomData, Data, DataType, FundingRateUpdate, IndexPriceUpdate, InstrumentStatus,
+    MarkPriceUpdate, OrderBookDelta, QuoteTick, TradeTick, close::InstrumentClose,
     is_monotonically_increasing_by_init, register_python_data_class,
 };
 
@@ -318,6 +318,26 @@ pub fn pyobjects_to_index_prices(data: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<In
     }
 
     Ok(index_prices)
+}
+
+/// Transforms the given Python objects into a vector of [`InstrumentStatus`] objects.
+///
+/// # Errors
+///
+/// Returns a `PyErr` if element conversion fails or the data is not monotonically increasing.
+pub fn pyobjects_to_instrument_statuses(
+    data: Vec<Bound<'_, PyAny>>,
+) -> PyResult<Vec<InstrumentStatus>> {
+    let statuses: Vec<InstrumentStatus> = data
+        .into_iter()
+        .map(|obj| InstrumentStatus::from_pyobject(&obj))
+        .collect::<PyResult<Vec<InstrumentStatus>>>()?;
+
+    if !is_monotonically_increasing_by_init(&statuses) {
+        return Err(to_pyvalue_err(ERROR_MONOTONICITY));
+    }
+
+    Ok(statuses)
 }
 
 /// Transforms the given Python objects into a vector of [`InstrumentClose`] objects.

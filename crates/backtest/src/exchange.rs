@@ -836,6 +836,10 @@ impl SimulatedExchange {
     ///
     /// Panics if adding a missing instrument during instrument status processing fails.
     pub fn process_instrument_status(&mut self, status: InstrumentStatus) {
+        for module in &self.modules {
+            module.pre_process(&Data::InstrumentStatus(status));
+        }
+
         if !self.matching_engines.contains_key(&status.instrument_id) {
             let instrument = {
                 let cache = self.cache.as_ref().borrow();
@@ -1973,6 +1977,32 @@ mod tests {
             UnixNanos::default(),
         );
         exchange.borrow_mut().process_quote_tick(&quote);
+
+        assert_eq!(counts.pre_process.get(), 1);
+        assert_eq!(counts.process.get(), 0);
+    }
+
+    #[rstest]
+    fn test_module_pre_process_called_on_instrument_status(
+        crypto_perpetual_ethusdt: CryptoPerpetual,
+    ) {
+        let counts = MockModuleCounts::new();
+        let exchange = get_exchange_with_module(Venue::new("BINANCE"), counts.clone());
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt.clone());
+        exchange.borrow_mut().add_instrument(instrument).unwrap();
+
+        let status = InstrumentStatus::new(
+            crypto_perpetual_ethusdt.id,
+            MarketStatusAction::Close,
+            UnixNanos::from(1),
+            UnixNanos::from(1),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        exchange.borrow_mut().process_instrument_status(status);
 
         assert_eq!(counts.pre_process.get(), 1);
         assert_eq!(counts.process.get(), 0);

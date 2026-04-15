@@ -50,8 +50,9 @@ use arrow::{
 };
 use nautilus_model::{
     data::{
-        Data, IndexPriceUpdate, MarkPriceUpdate, bar::Bar, close::InstrumentClose,
-        delta::OrderBookDelta, depth::OrderBookDepth10, quote::QuoteTick, trade::TradeTick,
+        Data, IndexPriceUpdate, InstrumentStatus, MarkPriceUpdate, bar::Bar,
+        close::InstrumentClose, delta::OrderBookDelta, depth::OrderBookDepth10, quote::QuoteTick,
+        trade::TradeTick,
     },
     types::{
         PRICE_ERROR, PRICE_UNDEF, Price, QUANTITY_UNDEF, Quantity,
@@ -620,6 +621,26 @@ pub fn index_prices_to_arrow_record_batch_bytes(
     let first = data.first().unwrap();
     let metadata = first.metadata();
     IndexPriceUpdate::encode_batch(&metadata, data).map_err(EncodingError::ArrowError)
+}
+
+/// Converts a vector of `InstrumentStatus` into an Arrow `RecordBatch`.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - `data` is empty: `EncodingError::EmptyData`.
+/// - Encoding fails: `EncodingError::ArrowError`.
+#[expect(clippy::missing_panics_doc)] // Guarded by empty check
+pub fn instrument_status_to_arrow_record_batch_bytes(
+    data: &[InstrumentStatus],
+) -> Result<RecordBatch, EncodingError> {
+    if data.is_empty() {
+        return Err(EncodingError::EmptyData);
+    }
+
+    let first = data.first().unwrap();
+    let metadata = first.metadata();
+    InstrumentStatus::encode_batch(&metadata, data).map_err(EncodingError::ArrowError)
 }
 
 /// Converts a vector of `InstrumentClose` into an Arrow `RecordBatch`.

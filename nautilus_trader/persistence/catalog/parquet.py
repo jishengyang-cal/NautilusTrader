@@ -52,6 +52,7 @@ from nautilus_trader.core.nautilus_pyo3 import NautilusDataType
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import CustomData
 from nautilus_trader.model.data import DataType
+from nautilus_trader.model.data import InstrumentStatus
 from nautilus_trader.model.data import MarkPriceUpdate
 from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
@@ -66,7 +67,6 @@ from nautilus_trader.persistence.funcs import combine_filters
 from nautilus_trader.persistence.funcs import filename_to_class
 from nautilus_trader.persistence.funcs import urisafe_identifier
 from nautilus_trader.serialization.arrow.serializer import ArrowSerializer
-from nautilus_trader.serialization.arrow.serializer import list_schemas
 
 
 TimestampLike = int | str | float
@@ -1999,6 +1999,8 @@ class ParquetDataCatalog(BaseDataCatalog):
             return NautilusDataType.Bar
         elif data_cls == MarkPriceUpdate:
             return NautilusDataType.MarkPriceUpdate
+        elif data_cls == InstrumentStatus:
+            return NautilusDataType.InstrumentStatus
         else:
             return None
 
@@ -2457,7 +2459,6 @@ class ParquetDataCatalog(BaseDataCatalog):
         identifiers: list[str] | None = None,
         return_as_dict: bool = False,
     ) -> list[Data] | dict[str, list[Data]]:
-        class_mapping: dict[str, type] = {class_to_filename(cls): cls for cls in list_schemas()}
         data = defaultdict(list)
 
         for feather_file in self._list_feather_files(kind, instance_id, data_cls, identifiers):
@@ -2473,8 +2474,11 @@ class ParquetDataCatalog(BaseDataCatalog):
                 continue
 
             try:
-                data_cls = class_mapping[cls_name]
-                data_objects = self._handle_table_nautilus(table=table, data_cls=data_cls)
+                mapped_cls = filename_to_class(cls_name)
+                if mapped_cls is None:
+                    raise KeyError(cls_name)
+
+                data_objects = self._handle_table_nautilus(table=table, data_cls=mapped_cls)
                 data[cls_name].extend(data_objects)
             except Exception as e:
                 if raise_on_failed_deserialize:
@@ -2775,15 +2779,13 @@ class ParquetDataCatalog(BaseDataCatalog):
             subdirs = self._list_directory_stems(f"{kind}/{urisafe_identifier(instance_id)}")
             discovered_classes.update(subdirs)
 
-            # Use _list_feather_data_files for each discovered class
-            class_mapping: dict[str, type] = {class_to_filename(cls): cls for cls in list_schemas()}
-
             for cls_name in discovered_classes:
-                if cls_name in class_mapping:
+                data_cls = filename_to_class(cls_name)
+                if data_cls is not None:
                     yield from self._list_feather_data_files(
                         kind,
                         instance_id,
-                        class_mapping[cls_name],
+                        data_cls,
                         identifiers,
                     )
 

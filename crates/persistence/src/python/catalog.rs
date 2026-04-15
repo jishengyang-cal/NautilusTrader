@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use nautilus_core::{UnixNanos, python::to_pytype_err};
 use nautilus_model::{
     data::{
-        Bar, Data, IndexPriceUpdate, MarkPriceUpdate, OrderBookDelta, OrderBookDepth10, QuoteTick,
-        TradeTick, close::InstrumentClose,
+        Bar, Data, IndexPriceUpdate, InstrumentStatus, MarkPriceUpdate, OrderBookDelta,
+        OrderBookDepth10, QuoteTick, TradeTick, close::InstrumentClose,
     },
     python::instruments::{instrument_any_to_pyobject, pyobject_to_instrument_any},
 };
@@ -38,6 +38,7 @@ fn data_to_pyobject(py: Python<'_>, item: Data) -> PyResult<Py<PyAny>> {
         Data::Depth10(depth) => Py::new(py, *depth).map(|x| x.into_any()),
         Data::IndexPriceUpdate(price) => Py::new(py, price).map(|x| x.into_any()),
         Data::MarkPriceUpdate(price) => Py::new(py, price).map(|x| x.into_any()),
+        Data::InstrumentStatus(status) => Py::new(py, status).map(|x| x.into_any()),
         Data::InstrumentClose(close) => Py::new(py, close).map(|x| x.into_any()),
         Data::Custom(custom) => Py::new(py, custom).map(|x| x.into_any()),
     }
@@ -947,6 +948,20 @@ impl PyParquetDataCatalog {
                     )
                     .map_err(|e| PyIOError::new_err(format!("Query failed: {e}")))?;
                 prices.into_iter().map(Data::from).collect()
+            }
+            "instrument_status" => {
+                let statuses = self
+                    .inner
+                    .query_typed_data::<InstrumentStatus>(
+                        identifiers,
+                        start_nanos,
+                        end_nanos,
+                        where_clause,
+                        files,
+                        optimize_file_loading,
+                    )
+                    .map_err(|e| PyIOError::new_err(format!("Query failed: {e}")))?;
+                statuses.into_iter().map(Data::from).collect()
             }
             "instrument_closes" => {
                 let closes = self

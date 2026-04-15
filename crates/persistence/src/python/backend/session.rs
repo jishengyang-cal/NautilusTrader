@@ -20,7 +20,8 @@ use nautilus_core::{
     python::{IntoPyObjectNautilusExt, to_pyruntime_err},
 };
 use nautilus_model::data::{
-    Bar, Data, DataFFI, MarkPriceUpdate, OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick,
+    Bar, Data, DataFFI, InstrumentStatus, MarkPriceUpdate, OrderBookDelta, OrderBookDepth10,
+    QuoteTick, TradeTick,
 };
 use nautilus_serialization::arrow::custom::CustomDataDecoder;
 use pyo3::{prelude::*, types::PyCapsule};
@@ -44,6 +45,7 @@ fn data_to_pyobject(py: Python<'_>, item: Data) -> PyResult<Py<PyAny>> {
         Data::Depth10(depth) => Py::new(py, *depth).map(|x| x.into_any()),
         Data::IndexPriceUpdate(price) => Py::new(py, price).map(|x| x.into_any()),
         Data::MarkPriceUpdate(price) => Py::new(py, price).map(|x| x.into_any()),
+        Data::InstrumentStatus(status) => Py::new(py, status).map(|x| x.into_any()),
         Data::InstrumentClose(close) => Py::new(py, close).map(|x| x.into_any()),
         Data::Custom(custom) => Py::new(py, custom).map(|x| x.into_any()),
     }
@@ -61,6 +63,7 @@ pub enum NautilusDataType {
     TradeTick = 4,
     Bar = 5,
     MarkPriceUpdate = 6,
+    InstrumentStatus = 7,
 }
 
 #[pymethods]
@@ -121,6 +124,9 @@ impl DataBackendSession {
                 .map_err(to_pyruntime_err),
             NautilusDataType::MarkPriceUpdate => slf
                 .add_file::<MarkPriceUpdate>(table_name, file_path, sql_query, None)
+                .map_err(to_pyruntime_err),
+            NautilusDataType::InstrumentStatus => slf
+                .add_file::<InstrumentStatus>(table_name, file_path, sql_query, None)
                 .map_err(to_pyruntime_err),
         }
     }
@@ -212,10 +218,12 @@ impl DataQueryResult {
 
         match acc {
             Some(acc) if !acc.is_empty() => {
-                let has_custom = acc.iter().any(|d| matches!(d, Data::Custom(_)));
+                let has_non_ffi = acc
+                    .iter()
+                    .any(|d| matches!(d, Data::Custom(_) | Data::InstrumentStatus(_)));
 
-                if has_custom {
-                    // Custom data: convert directly to Python objects (bypasses FFI)
+                if has_non_ffi {
+                    // Custom and instrument-status data: convert directly to Python objects (bypasses FFI)
                     let objects: Vec<Py<PyAny>> = acc
                         .into_iter()
                         .map(|item| data_to_pyobject(py, item))

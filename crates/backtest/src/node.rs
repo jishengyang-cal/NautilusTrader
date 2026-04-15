@@ -22,8 +22,8 @@ use nautilus_core::UnixNanos;
 use nautilus_execution::models::{fee::FeeModelAny, fill::FillModelAny};
 use nautilus_model::{
     data::{
-        Bar, Data, HasTsInit, IndexPriceUpdate, InstrumentClose, MarkPriceUpdate, OrderBookDelta,
-        OrderBookDepth10, QuoteTick, TradeTick,
+        Bar, Data, HasTsInit, IndexPriceUpdate, InstrumentClose, InstrumentStatus, MarkPriceUpdate,
+        OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick,
     },
     enums::{BookType, OtoTriggerMode},
     identifiers::{InstrumentId, Venue},
@@ -537,6 +537,9 @@ fn dispatch_query(
         }
         NautilusDataType::IndexPriceUpdate => {
             catalog.query::<IndexPriceUpdate>(identifiers, start, end, filter, None, optimize)
+        }
+        NautilusDataType::InstrumentStatus => {
+            catalog.query::<InstrumentStatus>(identifiers, start, end, filter, None, optimize)
         }
         NautilusDataType::InstrumentClose => {
             catalog.query::<InstrumentClose>(identifiers, start, end, filter, None, optimize)

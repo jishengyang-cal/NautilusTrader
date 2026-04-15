@@ -103,6 +103,7 @@ pub enum Data {
     Bar(Bar),
     MarkPriceUpdate(MarkPriceUpdate), // TODO: Rename to MarkPrice once Cython gone
     IndexPriceUpdate(IndexPriceUpdate), // TODO: Rename to IndexPrice once Cython gone
+    InstrumentStatus(InstrumentStatus),
     InstrumentClose(InstrumentClose),
     Custom(CustomData),
 }
@@ -141,6 +142,9 @@ impl TryFrom<Data> for DataFFI {
             Data::Bar(x) => Ok(Self::Bar(x)),
             Data::MarkPriceUpdate(x) => Ok(Self::MarkPriceUpdate(x)),
             Data::IndexPriceUpdate(x) => Ok(Self::IndexPriceUpdate(x)),
+            Data::InstrumentStatus(_) => {
+                anyhow::bail!("Cannot convert Data::InstrumentStatus to DataFFI")
+            }
             Data::InstrumentClose(x) => Ok(Self::InstrumentClose(x)),
             Data::Custom(_) => anyhow::bail!("Cannot convert Data::Custom to DataFFI"),
         }
@@ -202,6 +206,9 @@ impl<'de> Deserialize<'de> for Data {
             "IndexPriceUpdate" => Ok(Self::IndexPriceUpdate(
                 serde_json::from_value(value).map_err(D::Error::custom)?,
             )),
+            "InstrumentStatus" => Ok(Self::InstrumentStatus(
+                serde_json::from_value(value).map_err(D::Error::custom)?,
+            )),
             "InstrumentClose" => Ok(Self::InstrumentClose(
                 serde_json::from_value(value).map_err(D::Error::custom)?,
             )),
@@ -229,6 +236,7 @@ impl Clone for Data {
             Self::Bar(x) => Self::Bar(*x),
             Self::MarkPriceUpdate(x) => Self::MarkPriceUpdate(*x),
             Self::IndexPriceUpdate(x) => Self::IndexPriceUpdate(*x),
+            Self::InstrumentStatus(x) => Self::InstrumentStatus(*x),
             Self::InstrumentClose(x) => Self::InstrumentClose(*x),
             Self::Custom(x) => Self::Custom(x.clone()),
         }
@@ -246,6 +254,7 @@ impl PartialEq for Data {
             (Self::Bar(a), Self::Bar(b)) => a == b,
             (Self::MarkPriceUpdate(a), Self::MarkPriceUpdate(b)) => a == b,
             (Self::IndexPriceUpdate(a), Self::IndexPriceUpdate(b)) => a == b,
+            (Self::InstrumentStatus(a), Self::InstrumentStatus(b)) => a == b,
             (Self::InstrumentClose(a), Self::InstrumentClose(b)) => a == b,
             (Self::Custom(a), Self::Custom(b)) => a == b,
             _ => false,
@@ -267,6 +276,7 @@ impl Serialize for Data {
             Self::Bar(x) => x.serialize(serializer),
             Self::MarkPriceUpdate(x) => x.serialize(serializer),
             Self::IndexPriceUpdate(x) => x.serialize(serializer),
+            Self::InstrumentStatus(x) => x.serialize(serializer),
             Self::InstrumentClose(x) => x.serialize(serializer),
             Self::Custom(x) => x.serialize(serializer),
         }
@@ -306,6 +316,7 @@ impl_try_from_data!(Trade, TradeTick);
 impl_try_from_data!(Bar, Bar);
 impl_try_from_data!(MarkPriceUpdate, MarkPriceUpdate);
 impl_try_from_data!(IndexPriceUpdate, IndexPriceUpdate);
+impl_try_from_data!(InstrumentStatus, InstrumentStatus);
 impl_try_from_data!(InstrumentClose, InstrumentClose);
 
 /// Converts a vector of `Data` items to a specific variant type.
@@ -332,6 +343,7 @@ impl Data {
             Self::Bar(bar) => bar.bar_type.instrument_id(),
             Self::MarkPriceUpdate(mark_price) => mark_price.instrument_id,
             Self::IndexPriceUpdate(index_price) => index_price.instrument_id,
+            Self::InstrumentStatus(status) => status.instrument_id,
             Self::InstrumentClose(close) => close.instrument_id,
             Self::Custom(custom) => custom
                 .data_type
@@ -417,6 +429,7 @@ impl HasTsInit for Data {
             Self::Bar(b) => b.ts_init,
             Self::MarkPriceUpdate(p) => p.ts_init,
             Self::IndexPriceUpdate(p) => p.ts_init,
+            Self::InstrumentStatus(s) => s.ts_init,
             Self::InstrumentClose(c) => c.ts_init,
             Self::Custom(c) => c.data.ts_init(),
         }
@@ -476,6 +489,12 @@ impl From<MarkPriceUpdate> for Data {
 impl From<IndexPriceUpdate> for Data {
     fn from(value: IndexPriceUpdate) -> Self {
         Self::IndexPriceUpdate(value)
+    }
+}
+
+impl From<InstrumentStatus> for Data {
+    fn from(value: InstrumentStatus) -> Self {
+        Self::InstrumentStatus(value)
     }
 }
 

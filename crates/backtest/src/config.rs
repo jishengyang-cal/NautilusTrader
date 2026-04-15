@@ -46,6 +46,7 @@ pub enum NautilusDataType {
     OrderBookDepth10,
     MarkPriceUpdate,
     IndexPriceUpdate,
+    InstrumentStatus,
     InstrumentClose,
 }
 
@@ -67,6 +68,7 @@ impl FromStr for NautilusDataType {
             stringify!(OrderBookDepth10) => Ok(Self::OrderBookDepth10),
             stringify!(MarkPriceUpdate) => Ok(Self::MarkPriceUpdate),
             stringify!(IndexPriceUpdate) => Ok(Self::IndexPriceUpdate),
+            stringify!(InstrumentStatus) => Ok(Self::InstrumentStatus),
             stringify!(InstrumentClose) => Ok(Self::InstrumentClose),
             _ => anyhow::bail!("Invalid `NautilusDataType`: '{s}'"),
         }

@@ -907,6 +907,7 @@ impl BacktestEngine {
                 Data::Quote(quote) => exchange.process_quote_tick(quote),
                 Data::Trade(trade) => exchange.process_trade_tick(trade),
                 Data::Bar(bar) => exchange.process_bar(*bar),
+                Data::InstrumentStatus(status) => exchange.process_instrument_status(*status),
                 Data::InstrumentClose(close) => exchange.process_instrument_close(*close),
                 Data::Depth10(depth) => exchange.process_order_book_depth10(depth),
                 Data::MarkPriceUpdate(_) | Data::IndexPriceUpdate(_) | Data::Custom(_) => {
@@ -1358,4 +1359,90 @@ fn log_portfolio_performance(analyzer: &PortfolioAnalyzer) {
         log::info!("{line}");
     }
     log_info!("-----------------------------------------------------------------", color = LogColor::Cyan);
+}
+
+#[cfg(test)]
+mod tests {
+    use ahash::AHashMap;
+    use nautilus_model::{
+        data::{Data, InstrumentStatus},
+        enums::{AccountType, BookType, MarketStatus, MarketStatusAction, OmsType},
+        identifiers::Venue,
+        instruments::{
+            CryptoPerpetual, Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt,
+        },
+        types::Money,
+    };
+    use rstest::*;
+
+    use super::*;
+
+    fn create_engine() -> BacktestEngine {
+        let mut engine = BacktestEngine::new(BacktestEngineConfig::default()).unwrap();
+        engine
+            .add_venue(
+                Venue::from("BINANCE"),
+                OmsType::Netting,
+                AccountType::Margin,
+                BookType::L1_MBP,
+                vec![Money::from("1_000_000 USDT")],
+                None,
+                None,
+                AHashMap::new(),
+                None,
+                vec![],
+                FillModelAny::default(),
+                FeeModelAny::default(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        engine
+    }
+
+    #[rstest]
+    fn test_route_data_to_exchange_instrument_status(crypto_perpetual_ethusdt: CryptoPerpetual) {
+        let mut engine = create_engine();
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt);
+        let instrument_id = instrument.id();
+        engine.add_instrument(&instrument).unwrap();
+
+        let status = InstrumentStatus::new(
+            instrument_id,
+            MarketStatusAction::Close,
+            UnixNanos::from(1),
+            UnixNanos::from(1),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        engine.route_data_to_exchange(&Data::InstrumentStatus(status));
+
+        let exchange = engine.venues.get(&instrument_id.venue).unwrap().borrow();
+        let market_status = exchange
+            .get_matching_engine(&instrument_id)
+            .unwrap()
+            .market_status;
+        assert_eq!(market_status, MarketStatus::Closed);
+    }
 }
