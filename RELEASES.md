@@ -60,6 +60,7 @@ Released on TBD (UTC).
 - Fixed OKX panics on unmapped `OrderStatus` and empty `OptionType` values via `TryFrom` conversion (Rust)
 - Fixed Polymarket commission formula and fee source for fills (#3838), thanks for reporting @santivazq
 - Fixed Polymarket reconciliation fills using incorrect commission (#3860), thanks for reporting @fedoraiver
+- Fixed Polymarket instrument `min_quantity` denying market orders via limit-order shares rule (#3874), thanks for reporting @fedoraiver
 
 ### Internal Improvements
 - Added `AccountBalance::from_total_and_locked` and `AccountBalance::from_total_and_free` constructors that derive the third component in fixed-point to guarantee the `total == locked + free` invariant at the currency precision; migrated Betfair, Binance, Bybit, Hyperliquid, Kraken, OKX, Polymarket, and Architect AX adapter balance parses to the new helpers (Rust)

@@ -202,7 +202,10 @@ pub fn create_instrument_from_def(
 
     let max_price = Some(Price::from(MAX_PRICE));
     let min_price = Some(Price::from(MIN_PRICE));
-    let min_quantity = def.min_size.map(|s| Quantity::from(s.to_string()));
+    // Polymarket exposes `orderMinSize` (limit-order minimum shares) and a separate
+    // $1 market-order minimum amount; the instrument model can only carry one
+    // `min_quantity`, so leave it unset and let the venue reject out-of-bounds orders.
+    let min_quantity: Option<Quantity> = None;
 
     let info: Params = serde_json::from_value(build_info_json(def))?;
 
@@ -286,7 +289,7 @@ pub fn rebuild_instrument_with_tick_size(
         bo.outcome,
         bo.description,
         bo.max_quantity,
-        bo.min_quantity,
+        None, // min_quantity: see `create_instrument_from_def`
         bo.max_notional,
         bo.min_notional,
         bo.max_price,
