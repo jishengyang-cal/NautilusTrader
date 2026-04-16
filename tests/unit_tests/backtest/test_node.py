@@ -542,6 +542,20 @@ class TestBacktestNodeStreaming:
         base_config = {
             "engine": {
                 "logging": {"bypass_logging": True},
+                "strategies": [
+                    {
+                        "strategy_path": "nautilus_trader.examples.strategies.ema_cross:EMACross",
+                        "config_path": "nautilus_trader.examples.strategies.ema_cross:EMACrossConfig",
+                        "config": {
+                            "instrument_id": str(_BTCUSDT_HUOBI.id),
+                            "bar_type": f"{_BTCUSDT_HUOBI.id}-1000-TICK-MID-INTERNAL",
+                            "fast_ema_period": 10,
+                            "slow_ema_period": 20,
+                            "trade_size": "0.01",
+                            "order_id_tag": "001",
+                        },
+                    },
+                ],
             },
             "venues": [
                 {
@@ -560,20 +574,6 @@ class TestBacktestNodeStreaming:
                     "instrument_id": str(_BTCUSDT_HUOBI.id),
                     "start_time": start_ns,
                     "end_time": end_ns,
-                },
-            ],
-            "strategies": [
-                {
-                    "strategy_path": "nautilus_trader.examples.strategies.ema_cross:EMACross",
-                    "config_path": "nautilus_trader.examples.strategies.ema_cross:EMACrossConfig",
-                    "config": {
-                        "instrument_id": str(_BTCUSDT_HUOBI.id),
-                        "bar_type": f"{_BTCUSDT_HUOBI.id}-1000-TICK-MID-INTERNAL",
-                        "fast_ema_period": 10,
-                        "slow_ema_period": 20,
-                        "trade_size": "0.01",
-                        "order_id_tag": "001",
-                    },
                 },
             ],
         }

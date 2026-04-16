@@ -31,7 +31,7 @@ use nautilus_execution::models::{
         ProbabilisticFillModel, SizeAwareFillModel, ThreeTierFillModel, TwoTierFillModel,
         VolumeSensitiveFillModel,
     },
-    latency::{LatencyModel, StaticLatencyModel},
+    latency::{LatencyModelAny, StaticLatencyModel},
 };
 use nautilus_model::{
     accounts::margin_model::{LeveragedMarginModel, MarginModelAny, StandardMarginModel},
@@ -43,7 +43,7 @@ use nautilus_model::{
     enums::{AccountType, BookType, OmsType, OtoTriggerMode},
     identifiers::{ActorId, ClientId, ComponentId, InstrumentId, StrategyId, TraderId, Venue},
     python::instruments::pyobject_to_instrument_any,
-    types::{Currency, Money},
+    types::{Currency, Money, Price},
 };
 use nautilus_trading::{
     ImportableStrategyConfig,
@@ -56,7 +56,7 @@ use super::node::create_config_instance;
 use crate::{
     config::BacktestEngineConfig,
     engine::BacktestEngine,
-    modules::{FXRolloverInterestModule, SimulationModule},
+    modules::{FXRolloverInterestModule, SimulationModuleAny},
     result::BacktestResult,
 };
 
@@ -117,6 +117,7 @@ impl PyBacktestEngine {
             frozen_account = false,
             oto_trigger_mode = OtoTriggerMode::Partial,
             price_protection_points = None,
+            settlement_prices = None,
         )
     )]
     #[expect(clippy::too_many_arguments)]
@@ -153,8 +154,12 @@ impl PyBacktestEngine {
         frozen_account: bool,
         oto_trigger_mode: OtoTriggerMode,
         price_protection_points: Option<u32>,
+        settlement_prices: Option<HashMap<InstrumentId, Price>>,
     ) -> PyResult<()> {
         let leverages: AHashMap<InstrumentId, Decimal> = leverages
+            .map(|m| m.into_iter().collect())
+            .unwrap_or_default();
+        let settlement_prices: AHashMap<InstrumentId, Price> = settlement_prices
             .map(|m| m.into_iter().collect())
             .unwrap_or_default();
         let margin_model = margin_model
@@ -169,16 +174,22 @@ impl PyBacktestEngine {
             .transpose()?
             .unwrap_or_default();
         let latency_model = latency_model
-            .map(|obj| Python::attach(|py| pyobject_to_latency_model(py, obj.bind(py))))
-            .transpose()?;
+            .map(|obj| Python::attach(|py| pyobject_to_latency_model_any(py, obj.bind(py))))
+            .transpose()?
+            .map(Into::into);
         let modules = modules
             .map(|objs| {
                 objs.into_iter()
-                    .map(|obj| Python::attach(|py| pyobject_to_simulation_module(py, obj.bind(py))))
+                    .map(|obj| {
+                        Python::attach(|py| pyobject_to_simulation_module_any(py, obj.bind(py)))
+                    })
                     .collect::<PyResult<Vec<_>>>()
             })
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(Into::into)
+            .collect();
 
         self.0
             .add_venue(
@@ -214,7 +225,15 @@ impl PyBacktestEngine {
                 Some(oto_trigger_mode == OtoTriggerMode::Full),
                 price_protection_points,
             )
-            .map_err(to_pyruntime_err)
+            .map_err(to_pyruntime_err)?;
+
+        for (instrument_id, price) in settlement_prices {
+            self.0
+                .set_settlement_price(venue, instrument_id, price)
+                .map_err(to_pyruntime_err)?;
+        }
+
+        Ok(())
     }
 
     /// Changes the fill model for a venue.
@@ -710,7 +729,10 @@ impl PyBacktestEngine {
     }
 }
 
-fn pyobject_to_fill_model_any(_py: Python, obj: &Bound<'_, PyAny>) -> PyResult<FillModelAny> {
+pub(crate) fn pyobject_to_fill_model_any(
+    _py: Python,
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<FillModelAny> {
     if let Ok(m) = obj.extract::<DefaultFillModel>() {
         return Ok(FillModelAny::Default(m));
     }
@@ -761,7 +783,10 @@ fn pyobject_to_fill_model_any(_py: Python, obj: &Bound<'_, PyAny>) -> PyResult<F
     )))
 }
 
-fn pyobject_to_fee_model_any(_py: Python, obj: &Bound<'_, PyAny>) -> PyResult<FeeModelAny> {
+pub(crate) fn pyobject_to_fee_model_any(
+    _py: Python,
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<FeeModelAny> {
     if let Ok(m) = obj.extract::<FixedFeeModel>() {
         return Ok(FeeModelAny::Fixed(m));
     }
@@ -780,13 +805,13 @@ fn pyobject_to_fee_model_any(_py: Python, obj: &Bound<'_, PyAny>) -> PyResult<Fe
     )))
 }
 
-fn pyobject_to_simulation_module(
+pub(crate) fn pyobject_to_simulation_module_any(
     _py: Python,
     obj: &Bound<'_, PyAny>,
-) -> PyResult<Box<dyn SimulationModule>> {
+) -> PyResult<SimulationModuleAny> {
     if let Ok(cell) = obj.cast::<FXRolloverInterestModule>() {
         let module = cell.borrow().clone();
-        return Ok(Box::new(module));
+        return Ok(SimulationModuleAny::FXRolloverInterest(module));
     }
 
     let type_name = obj.get_type().name()?;
@@ -795,12 +820,12 @@ fn pyobject_to_simulation_module(
     )))
 }
 
-fn pyobject_to_latency_model(
+pub(crate) fn pyobject_to_latency_model_any(
     _py: Python,
     obj: &Bound<'_, PyAny>,
-) -> PyResult<Box<dyn LatencyModel>> {
+) -> PyResult<LatencyModelAny> {
     if let Ok(m) = obj.extract::<StaticLatencyModel>() {
-        return Ok(Box::new(m));
+        return Ok(LatencyModelAny::Static(m));
     }
 
     let type_name = obj.get_type().name()?;
@@ -809,7 +834,10 @@ fn pyobject_to_latency_model(
     )))
 }
 
-fn pyobject_to_margin_model_any(_py: Python, obj: &Bound<'_, PyAny>) -> PyResult<MarginModelAny> {
+pub(crate) fn pyobject_to_margin_model_any(
+    _py: Python,
+    obj: &Bound<'_, PyAny>,
+) -> PyResult<MarginModelAny> {
     if let Ok(m) = obj.extract::<StandardMarginModel>() {
         return Ok(MarginModelAny::Standard(m));
     }

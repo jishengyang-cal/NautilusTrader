@@ -25,8 +25,14 @@ use nautilus_model::{
     identifiers::{ClientId, InstrumentId, TraderId},
     types::Currency,
 };
+use pyo3::{Py, PyAny, Python};
+use rust_decimal::Decimal;
 use ustr::Ustr;
 
+use super::engine::{
+    pyobject_to_fee_model_any, pyobject_to_fill_model_any, pyobject_to_latency_model_any,
+    pyobject_to_margin_model_any, pyobject_to_simulation_module_any,
+};
 use crate::config::{
     BacktestDataConfig, BacktestEngineConfig, BacktestRunConfig, BacktestVenueConfig,
     NautilusDataType,
@@ -159,7 +165,13 @@ impl BacktestVenueConfig {
         base_currency = None,
         default_leverage = None,
         leverages = None,
+        margin_model = None,
+        modules = None,
+        fill_model = None,
+        latency_model = None,
+        fee_model = None,
         price_protection_points = None,
+        settlement_prices = None,
     ))]
     #[expect(clippy::too_many_arguments)]
     fn py_new(
@@ -185,11 +197,40 @@ impl BacktestVenueConfig {
         queue_position: Option<bool>,
         oto_trigger_mode: Option<OtoTriggerMode>,
         base_currency: Option<Currency>,
-        default_leverage: Option<f64>,
-        leverages: Option<HashMap<InstrumentId, f64>>,
+        default_leverage: Option<Decimal>,
+        leverages: Option<HashMap<InstrumentId, Decimal>>,
+        margin_model: Option<Py<PyAny>>,
+        modules: Option<Vec<Py<PyAny>>>,
+        fill_model: Option<Py<PyAny>>,
+        latency_model: Option<Py<PyAny>>,
+        fee_model: Option<Py<PyAny>>,
         price_protection_points: Option<u32>,
-    ) -> Self {
-        Self::builder()
+        settlement_prices: Option<HashMap<InstrumentId, f64>>,
+    ) -> pyo3::PyResult<Self> {
+        let margin_model = margin_model
+            .map(|obj| Python::attach(|py| pyobject_to_margin_model_any(py, obj.bind(py))))
+            .transpose()?;
+        let modules = modules
+            .map(|objs| {
+                objs.into_iter()
+                    .map(|obj| {
+                        Python::attach(|py| pyobject_to_simulation_module_any(py, obj.bind(py)))
+                    })
+                    .collect::<pyo3::PyResult<Vec<_>>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let fill_model = fill_model
+            .map(|obj| Python::attach(|py| pyobject_to_fill_model_any(py, obj.bind(py))))
+            .transpose()?;
+        let latency_model = latency_model
+            .map(|obj| Python::attach(|py| pyobject_to_latency_model_any(py, obj.bind(py))))
+            .transpose()?;
+        let fee_model = fee_model
+            .map(|obj| Python::attach(|py| pyobject_to_fee_model_any(py, obj.bind(py))))
+            .transpose()?;
+
+        Ok(Self::builder()
             .name(Ustr::from(name))
             .oms_type(oms_type)
             .account_type(account_type)
@@ -214,8 +255,14 @@ impl BacktestVenueConfig {
             .maybe_base_currency(base_currency)
             .maybe_default_leverage(default_leverage)
             .maybe_leverages(leverages.map(|m| m.into_iter().collect()))
+            .maybe_margin_model(margin_model)
+            .modules(modules)
+            .maybe_fill_model(fill_model)
+            .maybe_latency_model(latency_model)
+            .maybe_fee_model(fee_model)
             .maybe_price_protection_points(price_protection_points)
-            .build()
+            .maybe_settlement_prices(settlement_prices.map(|m| m.into_iter().collect()))
+            .build())
     }
 
     #[getter]
@@ -275,6 +322,7 @@ impl BacktestDataConfig {
         catalog_path,
         catalog_fs_protocol = None,
         catalog_fs_storage_options = None,
+        catalog_fs_rust_storage_options = None,
         instrument_id = None,
         instrument_ids = None,
         start_time = None,
@@ -292,6 +340,7 @@ impl BacktestDataConfig {
         catalog_path: String,
         catalog_fs_protocol: Option<String>,
         catalog_fs_storage_options: Option<HashMap<String, String>>,
+        catalog_fs_rust_storage_options: Option<HashMap<String, String>>,
         instrument_id: Option<InstrumentId>,
         instrument_ids: Option<Vec<InstrumentId>>,
         start_time: Option<u64>,
@@ -312,6 +361,9 @@ impl BacktestDataConfig {
             .maybe_catalog_fs_protocol(catalog_fs_protocol)
             .maybe_catalog_fs_storage_options(
                 catalog_fs_storage_options.map(|m| m.into_iter().collect()),
+            )
+            .maybe_catalog_fs_rust_storage_options(
+                catalog_fs_rust_storage_options.map(|m| m.into_iter().collect()),
             )
             .maybe_instrument_id(instrument_id)
             .maybe_instrument_ids(instrument_ids)
@@ -361,6 +413,7 @@ impl BacktestRunConfig {
         engine = None,
         id = None,
         chunk_size = None,
+        raise_exception = None,
         dispose_on_completion = None,
         start = None,
         end = None,
@@ -372,6 +425,7 @@ impl BacktestRunConfig {
         engine: Option<BacktestEngineConfig>,
         id: Option<String>,
         chunk_size: Option<usize>,
+        raise_exception: Option<bool>,
         dispose_on_completion: Option<bool>,
         start: Option<u64>,
         end: Option<u64>,
@@ -382,6 +436,7 @@ impl BacktestRunConfig {
             .maybe_engine(engine)
             .maybe_id(id)
             .maybe_chunk_size(chunk_size)
+            .maybe_raise_exception(raise_exception)
             .maybe_dispose_on_completion(dispose_on_completion)
             .maybe_start(start.map(UnixNanos::from))
             .maybe_end(end.map(UnixNanos::from))

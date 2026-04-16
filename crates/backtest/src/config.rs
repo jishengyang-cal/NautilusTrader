@@ -24,8 +24,12 @@ use nautilus_common::{
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_data::engine::config::DataEngineConfig;
-use nautilus_execution::engine::config::ExecutionEngineConfig;
+use nautilus_execution::{
+    engine::config::ExecutionEngineConfig,
+    models::{fee::FeeModelAny, fill::FillModelAny, latency::LatencyModelAny},
+};
 use nautilus_model::{
+    accounts::margin_model::MarginModelAny,
     data::{BarSpecification, BarType},
     enums::{AccountType, BookType, OmsType, OtoTriggerMode},
     identifiers::{ClientId, InstrumentId, TraderId},
@@ -34,7 +38,10 @@ use nautilus_model::{
 use nautilus_portfolio::config::PortfolioConfig;
 use nautilus_risk::engine::config::RiskEngineConfig;
 use nautilus_system::config::{NautilusKernelConfig, StreamingConfig};
+use rust_decimal::Decimal;
 use ustr::Ustr;
+
+use crate::modules::SimulationModuleAny;
 
 /// Represents a type of market data for catalog queries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,7 +86,11 @@ impl FromStr for NautilusDataType {
 #[derive(Debug, Clone, bon::Builder)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.backtest", from_py_object)
+    pyo3::pyclass(
+        module = "nautilus_trader.core.nautilus_pyo3.backtest",
+        from_py_object,
+        unsendable
+    )
 )]
 #[cfg_attr(
     feature = "python",
@@ -231,7 +242,11 @@ impl Default for BacktestEngineConfig {
 #[derive(Debug, Clone, bon::Builder)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.backtest", from_py_object)
+    pyo3::pyclass(
+        module = "nautilus_trader.core.nautilus_pyo3.backtest",
+        from_py_object,
+        unsendable
+    )
 )]
 #[cfg_attr(
     feature = "python",
@@ -306,13 +321,27 @@ pub struct BacktestVenueConfig {
     /// The account base currency for the exchange. Use `None` for multi-currency accounts.
     base_currency: Option<Currency>,
     /// The account default leverage (for margin accounts).
-    default_leverage: Option<f64>,
+    #[builder(default = Decimal::ONE)]
+    default_leverage: Decimal,
     /// The instrument specific leverage configuration (for margin accounts).
-    leverages: Option<AHashMap<InstrumentId, f64>>,
+    leverages: Option<AHashMap<InstrumentId, Decimal>>,
+    /// The margin model for the venue.
+    margin_model: Option<MarginModelAny>,
+    /// The simulation modules for the venue.
+    #[builder(default)]
+    modules: Vec<SimulationModuleAny>,
+    /// The fill model for the venue.
+    fill_model: Option<FillModelAny>,
+    /// The latency model for the venue.
+    latency_model: Option<LatencyModelAny>,
+    /// The fee model for the venue.
+    fee_model: Option<FeeModelAny>,
     /// Defines an exchange-calculated price boundary to prevent a market order from being
     /// filled at an extremely aggressive price.
     #[builder(default)]
     price_protection_points: u32,
+    /// Settlement prices for expiring instruments keyed by instrument ID.
+    settlement_prices: Option<AHashMap<InstrumentId, f64>>,
 }
 
 impl BacktestVenueConfig {
@@ -427,18 +456,48 @@ impl BacktestVenueConfig {
     }
 
     #[must_use]
-    pub fn default_leverage(&self) -> Option<f64> {
+    pub fn default_leverage(&self) -> Decimal {
         self.default_leverage
     }
 
     #[must_use]
-    pub fn leverages(&self) -> Option<&AHashMap<InstrumentId, f64>> {
+    pub fn leverages(&self) -> Option<&AHashMap<InstrumentId, Decimal>> {
         self.leverages.as_ref()
+    }
+
+    #[must_use]
+    pub fn margin_model(&self) -> Option<&MarginModelAny> {
+        self.margin_model.as_ref()
+    }
+
+    #[must_use]
+    pub fn modules(&self) -> &[SimulationModuleAny] {
+        &self.modules
+    }
+
+    #[must_use]
+    pub fn fill_model(&self) -> Option<&FillModelAny> {
+        self.fill_model.as_ref()
+    }
+
+    #[must_use]
+    pub fn latency_model(&self) -> Option<&LatencyModelAny> {
+        self.latency_model.as_ref()
+    }
+
+    #[must_use]
+    pub fn fee_model(&self) -> Option<&FeeModelAny> {
+        self.fee_model.as_ref()
     }
 
     #[must_use]
     pub fn price_protection_points(&self) -> u32 {
         self.price_protection_points
+    }
+
+    #[must_use]
+    pub fn settlement_prices(&self) -> Option<&AHashMap<InstrumentId, f64>> {
+        self.settlement_prices.as_ref()
     }
 }
 
@@ -446,7 +505,11 @@ impl BacktestVenueConfig {
 #[derive(Debug, Clone, bon::Builder)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.backtest", from_py_object)
+    pyo3::pyclass(
+        module = "nautilus_trader.core.nautilus_pyo3.backtest",
+        from_py_object,
+        unsendable
+    )
 )]
 #[cfg_attr(
     feature = "python",
@@ -461,6 +524,8 @@ pub struct BacktestDataConfig {
     catalog_fs_protocol: Option<String>,
     /// The filesystem storage options for the catalog (e.g. cloud auth credentials).
     catalog_fs_storage_options: Option<AHashMap<String, String>>,
+    /// Rust-specific storage options for the catalog backend.
+    catalog_fs_rust_storage_options: Option<AHashMap<String, String>>,
     /// The instrument ID for the data configuration (single).
     instrument_id: Option<InstrumentId>,
     /// Multiple instrument IDs for the data configuration.
@@ -504,6 +569,11 @@ impl BacktestDataConfig {
     #[must_use]
     pub fn catalog_fs_storage_options(&self) -> Option<&AHashMap<String, String>> {
         self.catalog_fs_storage_options.as_ref()
+    }
+
+    #[must_use]
+    pub fn catalog_fs_rust_storage_options(&self) -> Option<&AHashMap<String, String>> {
+        self.catalog_fs_rust_storage_options.as_ref()
     }
 
     #[must_use]
@@ -635,7 +705,11 @@ impl BacktestDataConfig {
 #[derive(Debug, Clone, bon::Builder)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.backtest", from_py_object)
+    pyo3::pyclass(
+        module = "nautilus_trader.core.nautilus_pyo3.backtest",
+        from_py_object,
+        unsendable
+    )
 )]
 #[cfg_attr(
     feature = "python",
@@ -655,6 +729,9 @@ pub struct BacktestRunConfig {
     /// The number of data points to process in each chunk during streaming mode.
     /// If `None`, the backtest will run without streaming, loading all data at once.
     chunk_size: Option<usize>,
+    /// If exceptions during build or run should interrupt processing.
+    #[builder(default)]
+    raise_exception: bool,
     /// If the backtest engine should be disposed on completion of the run.
     /// If `True`, then will drop data and all state.
     /// If `False`, then will *only* drop data.
@@ -692,6 +769,11 @@ impl BacktestRunConfig {
     #[must_use]
     pub fn chunk_size(&self) -> Option<usize> {
         self.chunk_size
+    }
+
+    #[must_use]
+    pub fn raise_exception(&self) -> bool {
+        self.raise_exception
     }
 
     #[must_use]

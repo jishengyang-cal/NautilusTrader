@@ -60,7 +60,7 @@ use serde::{Deserialize, Serialize};
     feature = "python",
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.network")
 )]
-#[expect(
+#[allow(
     clippy::unsafe_derive_deserialize,
     reason = "PyO3-backed config still needs serde deserialization for strict config decoding"
 )]

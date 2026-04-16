@@ -237,7 +237,7 @@ impl SimulatedExchange {
             bar_execution: bar_execution.unwrap_or(true),
             bar_adaptive_high_low_ordering: bar_adaptive_high_low_ordering.unwrap_or(false),
             trade_execution: trade_execution.unwrap_or(true),
-            liquidity_consumption: liquidity_consumption.unwrap_or(true),
+            liquidity_consumption: liquidity_consumption.unwrap_or(false),
             reject_stop_orders: reject_stop_orders.unwrap_or(true),
             support_gtd_orders: support_gtd_orders.unwrap_or(true),
             support_contingent_orders: support_contingent_orders.unwrap_or(true),

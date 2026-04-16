@@ -19,7 +19,6 @@ use std::iter::Peekable;
 
 use ahash::{AHashMap, AHashSet};
 use nautilus_core::UnixNanos;
-use nautilus_execution::models::{fee::FeeModelAny, fill::FillModelAny};
 use nautilus_model::{
     data::{
         Bar, Data, HasTsInit, IndexPriceUpdate, InstrumentClose, InstrumentStatus, MarkPriceUpdate,
@@ -27,10 +26,10 @@ use nautilus_model::{
     },
     enums::{BookType, OtoTriggerMode},
     identifiers::{InstrumentId, Venue},
+    instruments::Instrument,
     types::Money,
 };
 use nautilus_persistence::backend::{catalog::ParquetDataCatalog, session::QueryResult};
-use rust_decimal::{Decimal, prelude::FromPrimitive};
 
 use crate::{
     config::{BacktestDataConfig, BacktestRunConfig, NautilusDataType},
@@ -107,21 +106,18 @@ impl BacktestNode {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| anyhow::anyhow!("Invalid starting balance: {e}"))?;
 
-                let default_leverage = venue_config.default_leverage().and_then(Decimal::from_f64);
-                let leverages: AHashMap<InstrumentId, Decimal> = venue_config
-                    .leverages()
-                    .map(|m| {
-                        m.iter()
-                            .map(|(k, v)| {
-                                Decimal::from_f64(*v).map(|d| (*k, d)).ok_or_else(|| {
-                                    anyhow::anyhow!("Invalid leverage {v} for instrument {k}")
-                                })
-                            })
-                            .collect::<anyhow::Result<AHashMap<_, _>>>()
-                    })
-                    .transpose()?
-                    .unwrap_or_default();
-
+                let default_leverage = venue_config.default_leverage();
+                let leverages = venue_config.leverages().cloned().unwrap_or_default();
+                let margin_model = venue_config.margin_model().cloned();
+                let modules = venue_config
+                    .modules()
+                    .iter()
+                    .cloned()
+                    .map(Into::into)
+                    .collect();
+                let fill_model = venue_config.fill_model().cloned().unwrap_or_default();
+                let fee_model = venue_config.fee_model().cloned().unwrap_or_default();
+                let latency_model = venue_config.latency_model().cloned().map(Into::into);
                 engine.add_venue(
                     Venue::from(venue_config.name().as_str()),
                     venue_config.oms_type(),
@@ -129,13 +125,13 @@ impl BacktestNode {
                     venue_config.book_type(),
                     starting_balances,
                     venue_config.base_currency(),
-                    default_leverage,
+                    Some(default_leverage),
                     leverages,
-                    None, // margin_model
-                    Vec::new(),
-                    FillModelAny::default(),
-                    FeeModelAny::default(),
-                    None, // latency_model
+                    margin_model,
+                    modules,
+                    fill_model,
+                    fee_model,
+                    latency_model,
                     Some(venue_config.routing()),
                     Some(venue_config.reject_stop_orders()),
                     Some(venue_config.support_gtd_orders()),
@@ -178,6 +174,26 @@ impl BacktestNode {
 
                 for instrument in instruments {
                     engine.add_instrument(&instrument)?;
+                }
+            }
+
+            for venue_config in config.venues() {
+                let Some(settlement_prices) = venue_config.settlement_prices() else {
+                    continue;
+                };
+                let venue = Venue::from(venue_config.name().as_str());
+
+                for (instrument_id, raw_price) in settlement_prices {
+                    let price = {
+                        let cache = engine.kernel().cache.borrow();
+                        let instrument = cache.instrument(instrument_id).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "No instrument found for settlement price configuration: {instrument_id}"
+                            )
+                        })?;
+                        instrument.make_price(*raw_price)
+                    };
+                    engine.set_settlement_price(venue, *instrument_id, price)?;
                 }
             }
 
@@ -483,13 +499,11 @@ fn create_catalog(config: &BacktestDataConfig) -> anyhow::Result<ParquetDataCata
         Some(protocol) => format!("{protocol}://{}", config.catalog_path()),
         None => config.catalog_path().to_string(),
     };
-    ParquetDataCatalog::from_uri(
-        &uri,
-        config.catalog_fs_storage_options().cloned(),
-        None,
-        None,
-        None,
-    )
+    let storage_options = config
+        .catalog_fs_rust_storage_options()
+        .cloned()
+        .or_else(|| config.catalog_fs_storage_options().cloned());
+    ParquetDataCatalog::from_uri(&uri, storage_options, None, None, None)
 }
 
 fn load_data(

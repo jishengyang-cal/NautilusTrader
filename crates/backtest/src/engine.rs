@@ -47,7 +47,7 @@ use nautilus_model::{
     instruments::{Instrument, InstrumentAny},
     orders::Order,
     position::Position,
-    types::{Currency, Money},
+    types::{Currency, Money, Price},
 };
 use nautilus_system::{config::NautilusKernelConfig, kernel::NautilusKernel};
 use nautilus_trading::{ExecutionAlgorithm, strategy::Strategy};
@@ -222,7 +222,7 @@ impl BacktestEngine {
             if account_type == AccountType::Margin {
                 Decimal::from(10)
             } else {
-                Decimal::from(0)
+                Decimal::from(1)
             }
         });
 
@@ -288,6 +288,27 @@ impl BacktestEngine {
 
         log::info!("Adding exchange {venue} to engine");
 
+        Ok(())
+    }
+
+    /// Sets the settlement price for the specified venue instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the venue has not been added to the engine.
+    pub fn set_settlement_price(
+        &mut self,
+        venue: Venue,
+        instrument_id: InstrumentId,
+        price: Price,
+    ) -> anyhow::Result<()> {
+        let exchange = self
+            .venues
+            .get_mut(&venue)
+            .ok_or_else(|| anyhow::anyhow!("Unknown venue {venue}"))?;
+        exchange
+            .borrow_mut()
+            .set_settlement_price(instrument_id, price);
         Ok(())
     }
 
