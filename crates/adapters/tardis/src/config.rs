@@ -30,6 +30,7 @@ pub enum BookSnapshotOutput {
 
 /// Provides a configuration for a Tardis Machine -> Nautilus data -> Parquet replay run.
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct TardisReplayConfig {
     /// The Tardis Machine websocket url.
     pub tardis_ws_url: Option<String>,

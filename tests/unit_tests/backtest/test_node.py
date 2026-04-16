@@ -300,7 +300,23 @@ class TestBacktestNode:
             {
                 "engine": {
                     "trader_id": "Test-111",
-                    "log_level": "INFO",
+                    "logging": {
+                        "log_level": "INFO",
+                    },
+                    "strategies": [
+                        {
+                            "strategy_path": "nautilus_trader.examples.strategies.ema_cross:EMACross",
+                            "config_path": "nautilus_trader.examples.strategies.ema_cross:EMACrossConfig",
+                            "config": {
+                                "instrument_id": "AUD/USD.SIM",
+                                "bar_type": "AUD/USD.SIM-100-TICK-MID-INTERNAL",
+                                "fast_ema_period": 10,
+                                "slow_ema_period": 20,
+                                "trade_size": 1_000_000,
+                                "order_id_tag": "001",
+                            },
+                        },
+                    ],
                 },
                 "venues": [
                     {
@@ -318,20 +334,6 @@ class TestBacktestNode:
                         "instrument_id": "AUD/USD.SIM",
                         "start_time": 1580398089820000000,
                         "end_time": 1580504394501000000,
-                    },
-                ],
-                "strategies": [
-                    {
-                        "strategy_path": "nautilus_trader.examples.strategies.ema_cross:EMACross",
-                        "config_path": "nautilus_trader.examples.strategies.ema_cross:EMACrossConfig",
-                        "config": {
-                            "instrument_id": "AUD/USD.SIM",
-                            "bar_type": "AUD/USD.SIM-100-TICK-MID-INTERNAL",
-                            "fast_ema_period": 10,
-                            "slow_ema_period": 20,
-                            "trade_size": 1_000_000,
-                            "order_id_tag": "001",
-                        },
                     },
                 ],
             },

@@ -19,6 +19,8 @@ Released on TBD (UTC).
 - Changed `HyperliquidExchangeRequest::new/with_vault` to accept `HyperliquidSignature` directly (Rust)
 - Changed Binance USD-M Futures WebSocket URLs from `/ws` to `/market/ws` and `/private/ws`
 - Changed Cap'n Proto and SBE wire formats to preserve `Option` state (unstable, may change)
+- Changed Python and Serde-backed Rust config decoding to reject unknown fields, so stale or misspelled keys now fail fast during config parsing
+- Renamed Python `DatabaseConfig.timeout` to `connection_timeout` and `response_timeout` to match the Redis/PyO3 wire schema
 
 ### Security
 
@@ -30,6 +32,7 @@ Released on TBD (UTC).
 - Fixed PyO3 `InstrumentStatus` persistence and backtest streaming through `ParquetDataCatalog` (#3855)
 - Fixed Rust book snapshot subscriptions to preserve exact `(instrument_id, interval_ms)` semantics for shared intervals and exact unsubscribe handling (#3823), thanks for reporting @dwolfesberger
 - Fixed WebSocket auth state during reconnection for Bybit, OKX, and Deribit (#3820), thanks for reporting @KaizynX
+- Fixed `TradingNodeConfig.parse` dropping importable live client config `path` and `factory` fields during raw config decoding
 - Fixed `OrderTriggered` ValueError on market-style stop orders (#3812), thanks for reporting @jindrichsirucek
 - Fixed `consolidate_data_by_period` pairwise merging on fragment-per-flush catalogs (#3857), thanks for reporting @M-Advis
 - Fixed empty error log on `TradingNode` clean shutdown from `CancelledError` (#3862), thanks for reporting @jxstanford
@@ -89,6 +92,7 @@ Released on TBD (UTC).
 ### Documentation Updates
 - Refined docs to follow style guide for symbols and filler words (#3830), thanks @JKDasondee
 - Refined Interactive Brokers documentation regarding UTC timestamps (#3826), thanks @faysou
+- Updated the configuration concept guide to define unknown-field rejection as the config standard in Python and Rust
 
 ### Deprecations
 - Deprecated `demo`/`testnet` bools on `BybitDataClientConfig`/`BybitExecClientConfig` - use `environment`

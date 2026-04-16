@@ -50,6 +50,7 @@ const DEFAULT_ORDER_RATE_LIMIT: &str = "100/00:00:01";
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct LiveDataEngineConfig {
     /// If time bar aggregators will build and emit bars with no new market updates.
     #[builder(default = true)]
@@ -147,6 +148,7 @@ impl From<LiveDataEngineConfig> for DataEngineConfig {
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct LiveRiskEngineConfig {
     /// If all pre-trade risk checks should be bypassed.
     #[builder(default)]
@@ -263,6 +265,7 @@ fn parse_rate_limit(input: &str) -> anyhow::Result<RateLimit> {
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct LiveExecEngineConfig {
     /// If the cache should be loaded on initialization.
     #[builder(default = true)]
@@ -426,6 +429,7 @@ impl From<LiveExecEngineConfig> for ExecutionEngineConfig {
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct RoutingConfig {
     /// If the client should be registered as the default routing client.
     #[builder(default)]
@@ -444,6 +448,7 @@ pub struct RoutingConfig {
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct InstrumentProviderConfig {
     /// Whether to load all instruments on startup.
     #[builder(default)]
@@ -476,6 +481,7 @@ impl Default for InstrumentProviderConfig {
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct LiveDataClientConfig {
     /// If `DataClient` will emit bar updates when a new bar opens.
     #[builder(default)]
@@ -498,6 +504,7 @@ pub struct LiveDataClientConfig {
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.live")
 )]
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct LiveExecClientConfig {
     /// The client's instrument provider configuration.
     #[builder(default)]
@@ -1347,5 +1354,29 @@ mod tests {
         assert!(config.instrument_provider.filter_callable.is_none());
         assert!(config.instrument_provider.log_warnings);
         assert!(!config.routing.default);
+    }
+
+    #[rstest]
+    fn test_live_data_client_config_rejects_unknown_field() {
+        let error = serde_json::from_str::<LiveDataClientConfig>(
+            r#"{"handle_revised_bars":true,"unexpected":true}"#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field `unexpected`"));
+    }
+
+    #[rstest]
+    fn test_live_data_client_config_rejects_unknown_nested_field() {
+        let error = serde_json::from_str::<LiveDataClientConfig>(
+            r#"{"instrument_provider":{"load_all":true,"instrument_provider":{"load_all":false}}}"#,
+        )
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("unknown field `instrument_provider`")
+        );
     }
 }

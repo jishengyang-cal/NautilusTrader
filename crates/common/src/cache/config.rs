@@ -27,7 +27,7 @@ use crate::{enums::SerializationEncoding, msgbus::database::DatabaseConfig};
     pyo3_stub_gen::derive::gen_stub_pyclass(module = "nautilus_trader.common")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct CacheConfig {
     /// The configuration for the cache backing database.
     pub database: Option<DatabaseConfig>,

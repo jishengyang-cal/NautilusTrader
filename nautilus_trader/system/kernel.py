@@ -46,7 +46,7 @@ from nautilus_trader.common.component import register_component_clock
 from nautilus_trader.common.component import set_backtest_force_stop
 from nautilus_trader.common.component import set_logging_pyo3
 from nautilus_trader.common.config import InvalidConfiguration
-from nautilus_trader.common.config import msgspec_encoding_hook
+from nautilus_trader.common.config import pyo3_config_json
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.common.enums import log_level_from_str
@@ -291,7 +291,7 @@ class NautilusKernel:
             self._msgbus_db = nautilus_pyo3.RedisMessageBusDatabase(
                 trader_id=nautilus_pyo3.TraderId(self._trader_id.value),
                 instance_id=nautilus_pyo3.UUID4.from_str(self._instance_id.value),
-                config_json=msgspec.json.encode(config.message_bus, enc_hook=msgspec_encoding_hook),
+                config_json=pyo3_config_json(config.message_bus),
             )
         else:
             raise ValueError(

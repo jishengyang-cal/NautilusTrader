@@ -459,7 +459,10 @@ to ensure a simple and predictable stream key that the consumer nodes can regist
 
 ```python
 message_bus=MessageBusConfig(
-    database=DatabaseConfig(timeout=2),
+    database=DatabaseConfig(
+        connection_timeout=2,
+        response_timeout=2,
+    ),
     use_trader_id=False,
     use_trader_prefix=False,
     use_instance_id=False,
@@ -482,7 +485,10 @@ data_engine=LiveDataEngineConfig(
     external_clients=[ClientId("BINANCE_EXT")],
 ),
 message_bus=MessageBusConfig(
-    database=DatabaseConfig(timeout=2),
+    database=DatabaseConfig(
+        connection_timeout=2,
+        response_timeout=2,
+    ),
     external_streams=["binance"],  # <---
 ),
 ```

@@ -29,6 +29,7 @@ use std::{
 };
 
 use nautilus_core::{UnixNanos, correctness::FAILED};
+use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
 use crate::{
@@ -42,7 +43,8 @@ use crate::{
 };
 
 /// Represents a throttling limit per interval.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimit {
     pub limit: usize,
     pub interval_ns: u64,

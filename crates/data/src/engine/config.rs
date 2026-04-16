@@ -19,9 +19,11 @@ use nautilus_model::{
     enums::{BarAggregation, BarIntervalType},
     identifiers::ClientId,
 };
+use serde::{Deserialize, Serialize};
 
 /// Configuration for `DataEngine` instances.
-#[derive(Clone, Debug, bon::Builder)]
+#[derive(Clone, Debug, Deserialize, Serialize, bon::Builder)]
+#[serde(default, deny_unknown_fields)]
 pub struct DataEngineConfig {
     /// If time bar aggregators will build and emit bars with no new market updates.
     #[builder(default = true)]

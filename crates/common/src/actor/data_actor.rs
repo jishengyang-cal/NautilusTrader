@@ -45,6 +45,7 @@ use nautilus_model::{
     instruments::{InstrumentAny, SyntheticInstrument},
     orderbook::OrderBook,
 };
+use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
 #[cfg(feature = "indicators")]
@@ -99,7 +100,8 @@ use crate::{
 };
 
 /// Common configuration for [`DataActor`] based components.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
@@ -132,7 +134,8 @@ impl Default for DataActorConfig {
 }
 
 /// Configuration for creating actors from importable paths.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.common", from_py_object)

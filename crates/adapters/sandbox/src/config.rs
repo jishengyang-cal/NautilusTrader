@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for `SandboxExecutionClient` instances.
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.sandbox", from_py_object)

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for `ExecutionEngine` instances.
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct ExecutionEngineConfig {
     /// If the cache should be loaded on initialization.
     #[serde(default = "default_true")]

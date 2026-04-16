@@ -20,9 +20,11 @@ use nautilus_common::throttler::RateLimit;
 use nautilus_core::datetime::NANOSECONDS_IN_SECOND;
 use nautilus_model::identifiers::InstrumentId;
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 
 /// Configuration for `RiskEngineConfig` instances.
-#[derive(Debug, Clone, bon::Builder)]
+#[derive(Debug, Clone, Deserialize, Serialize, bon::Builder)]
+#[serde(default, deny_unknown_fields)]
 pub struct RiskEngineConfig {
     #[builder(default)]
     pub bypass: bool,

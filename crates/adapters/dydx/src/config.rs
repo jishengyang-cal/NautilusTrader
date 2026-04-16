@@ -28,6 +28,7 @@ use crate::{
 
 /// Configuration for the dYdX adapter.
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct DydxAdapterConfig {
     /// Network environment (mainnet or testnet).
     #[serde(default)]
@@ -202,6 +203,7 @@ impl Default for DydxAdapterConfig {
 
 /// Configuration for the dYdX data client.
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.dydx", from_py_object)
@@ -257,6 +259,7 @@ impl Default for DydxDataClientConfig {
 
 /// Configuration for the dYdX execution client.
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.dydx", from_py_object)

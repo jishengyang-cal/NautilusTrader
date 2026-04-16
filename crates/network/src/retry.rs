@@ -17,12 +17,14 @@
 
 use std::{future::Future, marker::PhantomData, time::Duration};
 
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::backoff::ExponentialBackoff;
 
 /// Configuration for retry behavior.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct RetryConfig {
     /// Maximum number of retry attempts (total attempts = 1 initial + `max_retries`).
     pub max_retries: u32,

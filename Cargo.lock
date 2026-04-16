@@ -5607,6 +5607,7 @@ dependencies = [
  "pyo3",
  "pyo3-stub-gen",
  "rstest",
+ "serde",
  "tokio",
  "ustr",
 ]
@@ -6248,6 +6249,7 @@ dependencies = [
  "rstest",
  "rust_decimal",
  "rust_decimal_macros",
+ "serde",
  "ustr",
 ]
 
@@ -6407,6 +6409,7 @@ dependencies = [
  "rstest",
  "rust_decimal",
  "rust_decimal_macros",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

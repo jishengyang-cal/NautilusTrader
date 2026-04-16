@@ -13,8 +13,11 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+use serde::{Deserialize, Serialize};
+
 /// Configuration for `OrderMatchingEngine` instances.
-#[derive(Debug, Clone, bon::Builder)]
+#[derive(Debug, Clone, Deserialize, Serialize, bon::Builder)]
+#[serde(default, deny_unknown_fields)]
 pub struct OrderMatchingEngineConfig {
     #[builder(default)]
     pub bar_execution: bool,
