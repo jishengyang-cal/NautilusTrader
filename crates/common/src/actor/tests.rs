@@ -37,7 +37,7 @@ use nautilus_model::{
         option_chain::{OptionChainSlice, OptionGreeks, StrikeRange},
         stubs::*,
     },
-    enums::{BookAction, BookType, OrderSide},
+    enums::{BookAction, BookType, GreeksConvention, OrderSide},
     identifiers::{ClientId, InstrumentId, OptionSeriesId, TraderId, Venue},
     instruments::{CurrencyPair, Instrument, InstrumentAny, stubs::*},
     orderbook::OrderBook,
@@ -1299,6 +1299,7 @@ fn test_subscribe_and_receive_option_greeks(
 
     let greeks = OptionGreeks {
         instrument_id,
+        convention: GreeksConvention::BlackScholes,
         greeks: OptionGreekValues {
             delta: 0.55,
             gamma: 0.03,
@@ -1623,6 +1624,7 @@ fn test_unsubscribe_option_greeks(
 
     let greeks = OptionGreeks {
         instrument_id,
+        convention: GreeksConvention::BlackScholes,
         greeks: OptionGreekValues {
             delta: 0.55,
             gamma: 0.03,

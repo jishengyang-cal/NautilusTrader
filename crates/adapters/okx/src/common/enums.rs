@@ -388,6 +388,63 @@ impl TryFrom<OKXOptionType> for OptionKind {
     }
 }
 
+/// Represents the convention used for option greeks on OKX.
+///
+/// OKX publishes two parallel greek sets on `opt-summary` and related endpoints:
+/// Black-Scholes greeks denominated in USD, and price-adjusted greeks denominated
+/// in the underlying/coin units.
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Display,
+    PartialEq,
+    Eq,
+    Hash,
+    AsRefStr,
+    EnumIter,
+    EnumString,
+    Serialize,
+    Deserialize,
+)]
+#[serde(rename_all = "UPPERCASE")]
+#[strum(serialize_all = "UPPERCASE", ascii_case_insensitive)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(
+        eq,
+        eq_int,
+        module = "nautilus_trader.core.nautilus_pyo3.okx",
+        from_py_object,
+        rename_all = "SCREAMING_SNAKE_CASE",
+    )
+)]
+#[cfg_attr(
+    feature = "python",
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "nautilus_trader.okx")
+)]
+pub enum OKXGreeksType {
+    /// Black-Scholes greeks in USD.
+    #[default]
+    Bs = 0,
+    /// Price-adjusted greeks in the underlying/coin units.
+    Pa = 1,
+}
+
+impl From<u8> for OKXGreeksType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => Self::Bs,
+            1 => Self::Pa,
+            _ => {
+                log::warn!("Invalid OKXGreeksType {value}, defaulting to Bs");
+                Self::Bs
+            }
+        }
+    }
+}
+
 /// Represents the trading mode for OKX orders.
 #[derive(
     Copy,
@@ -660,7 +717,7 @@ mod tests {
     use nautilus_model::enums::{OptionKind, OrderStatus};
     use rstest::rstest;
 
-    use super::{OKXOptionType, OKXOrderStatus, OKXOrderType, OKXTriggerType};
+    use super::{OKXGreeksType, OKXOptionType, OKXOrderStatus, OKXOrderType, OKXTriggerType};
 
     #[rstest]
     fn test_okx_trigger_type_from_str_accepts_snake_case_values() {
@@ -676,6 +733,28 @@ mod tests {
             OKXTriggerType::from_str("index").unwrap(),
             OKXTriggerType::Index
         );
+    }
+
+    #[rstest]
+    #[case(OKXGreeksType::Bs, "\"BS\"")]
+    #[case(OKXGreeksType::Pa, "\"PA\"")]
+    fn test_greeks_type_serde_roundtrip(#[case] input: OKXGreeksType, #[case] expected: &str) {
+        let json = serde_json::to_string(&input).unwrap();
+        assert_eq!(json, expected);
+        let parsed: OKXGreeksType = serde_json::from_str(expected).unwrap();
+        assert_eq!(parsed, input);
+    }
+
+    #[rstest]
+    fn test_greeks_type_default_is_bs() {
+        assert_eq!(OKXGreeksType::default(), OKXGreeksType::Bs);
+    }
+
+    #[rstest]
+    fn test_greeks_type_from_u8() {
+        assert_eq!(OKXGreeksType::from(0_u8), OKXGreeksType::Bs);
+        assert_eq!(OKXGreeksType::from(1_u8), OKXGreeksType::Pa);
+        assert_eq!(OKXGreeksType::from(99_u8), OKXGreeksType::Bs);
     }
 
     #[rstest]

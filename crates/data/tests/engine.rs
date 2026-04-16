@@ -4844,7 +4844,10 @@ fn test_process_option_greeks_caches_and_publishes(
     clock: Rc<RefCell<TestClock>>,
     cache: Rc<RefCell<Cache>>,
 ) {
-    use nautilus_model::data::{greeks::OptionGreekValues, option_chain::OptionGreeks};
+    use nautilus_model::{
+        data::{greeks::OptionGreekValues, option_chain::OptionGreeks},
+        enums::GreeksConvention,
+    };
 
     let _ = msgbus::get_message_bus();
     let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
@@ -4873,6 +4876,7 @@ fn test_process_option_greeks_caches_and_publishes(
     // Process greeks data through the engine
     let greeks = OptionGreeks {
         instrument_id,
+        convention: GreeksConvention::BlackScholes,
         greeks: OptionGreekValues {
             delta: 0.55,
             gamma: 0.001,

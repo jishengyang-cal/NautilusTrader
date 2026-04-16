@@ -70,7 +70,10 @@ use super::{extract_optional_string, extract_optional_trigger_type};
 use crate::{
     common::{
         consts::{OKX_FIELD_CLORDID, OKX_FIELD_SCODE, OKX_FIELD_SMSG, OKX_SUCCESS_CODE},
-        enums::{OKXBookAction, OKXInstrumentStatus, OKXInstrumentType, OKXTradeMode, OKXVipLevel},
+        enums::{
+            OKXBookAction, OKXGreeksType, OKXInstrumentStatus, OKXInstrumentType, OKXTradeMode,
+            OKXVipLevel,
+        },
         models::OKXInstrument,
         parse::{
             okx_status_to_market_action, parse_account_state, parse_instrument_any,
@@ -333,7 +336,6 @@ impl OKXWebSocketClient {
                 let mut fee_cache: AHashMap<Ustr, Money> = AHashMap::new();
                 let mut filled_qty_cache: AHashMap<Ustr, Quantity> = AHashMap::new();
                 let option_greeks_subs_arc = client.option_greeks_subs().clone();
-                let _client = client;
                 tokio::pin!(stream);
 
                 while let Some(msg) = stream.next().await {
@@ -425,7 +427,7 @@ impl OKXWebSocketClient {
                                 &code,
                                 &msg,
                                 &data,
-                                &_client,
+                                &client,
                                 account_id,
                                 clock,
                                 &call_soon,
@@ -443,7 +445,7 @@ impl OKXWebSocketClient {
                                 client_order_id,
                                 op.as_ref(),
                                 &error,
-                                &_client,
+                                &client,
                                 account_id,
                                 clock,
                                 &call_soon,
@@ -1485,7 +1487,12 @@ fn handle_channel_data(
                         continue;
                     }
 
-                    match parse_option_summary_greeks(msg, &instrument_id, ts_init) {
+                    match parse_option_summary_greeks(
+                        msg,
+                        &instrument_id,
+                        OKXGreeksType::Bs,
+                        ts_init,
+                    ) {
                         Ok(greeks) => {
                             Python::attach(|py| match greeks.into_py_any(py) {
                                 Ok(py_obj) => {

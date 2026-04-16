@@ -63,7 +63,8 @@ use crate::{
             OKX_VENUE, OKX_WS_HEARTBEAT_SECS, resolve_book_depth, resolve_instrument_families,
         },
         enums::{
-            OKXBookChannel, OKXContractType, OKXInstrumentStatus, OKXInstrumentType, OKXVipLevel,
+            OKXBookChannel, OKXContractType, OKXGreeksType, OKXInstrumentStatus, OKXInstrumentType,
+            OKXVipLevel,
         },
         parse::{
             extract_inst_family, okx_instrument_type_from_symbol, okx_status_to_market_action,
@@ -243,6 +244,7 @@ impl OKXDataClient {
         funding_cache: &mut AHashMap<Ustr, (Ustr, u64)>,
         index_ticker_map: &Arc<AtomicMap<Ustr, AHashSet<Ustr>>>,
         option_greeks_subs: &Arc<AtomicSet<InstrumentId>>,
+        greeks_type: OKXGreeksType,
         clock: &AtomicTime,
     ) {
         match message {
@@ -298,7 +300,12 @@ impl OKXDataClient {
                                     continue;
                                 }
 
-                                match parse_option_summary_greeks(msg, &instrument_id, ts_init) {
+                                match parse_option_summary_greeks(
+                                    msg,
+                                    &instrument_id,
+                                    greeks_type,
+                                    ts_init,
+                                ) {
                                     Ok(greeks) => {
                                         if let Err(e) =
                                             data_sender.send(DataEvent::OptionGreeks(greeks))
@@ -782,6 +789,7 @@ impl DataClient for OKXDataClient {
                                 &mut funding_cache,
                                 &idx_map,
                                 &greeks_subs,
+                                OKXGreeksType::Bs,
                                 clock,
                             );
                         }
@@ -845,6 +853,7 @@ impl DataClient for OKXDataClient {
                                 &mut funding_cache,
                                 &idx_map,
                                 &greeks_subs,
+                                OKXGreeksType::Bs,
                                 clock,
                             );
                         }

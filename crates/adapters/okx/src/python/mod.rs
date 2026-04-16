@@ -124,6 +124,7 @@ pub fn okx(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::http::models::OKXBalanceDetail>()?;
     m.add_class::<crate::common::enums::OKXInstrumentType>()?;
     m.add_class::<crate::common::enums::OKXContractType>()?;
+    m.add_class::<crate::common::enums::OKXGreeksType>()?;
     m.add_class::<crate::common::enums::OKXMarginMode>()?;
     m.add_class::<crate::common::enums::OKXTradeMode>()?;
     m.add_class::<crate::common::enums::OKXOrderStatus>()?;

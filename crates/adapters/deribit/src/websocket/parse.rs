@@ -26,8 +26,9 @@ use nautilus_model::{
         option_chain::OptionGreeks,
     },
     enums::{
-        AggregationSource, AggressorSide, BarAggregation, BookAction, LiquiditySide, OrderSide,
-        OrderStatus, OrderType, PositionSideSpecified, PriceType, RecordFlag, TimeInForce,
+        AggregationSource, AggressorSide, BarAggregation, BookAction, GreeksConvention,
+        LiquiditySide, OrderSide, OrderStatus, OrderType, PositionSideSpecified, PriceType,
+        RecordFlag, TimeInForce,
     },
     events::{OrderAccepted, OrderCanceled, OrderExpired, OrderUpdated},
     identifiers::{
@@ -577,6 +578,7 @@ pub fn parse_ticker_to_option_greeks(
 
     Some(OptionGreeks {
         instrument_id,
+        convention: GreeksConvention::BlackScholes,
         greeks: deribit_greeks.to_greek_values(),
         mark_iv: msg.mark_iv.and_then(|v| v.to_f64()),
         bid_iv: msg.bid_iv.and_then(|v| v.to_f64()),

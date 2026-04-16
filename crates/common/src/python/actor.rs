@@ -2191,7 +2191,9 @@ mod tests {
             option_chain::{OptionChainSlice, OptionGreeks},
             stubs::stub_custom_data,
         },
-        enums::{AggressorSide, BookType, InstrumentCloseType, MarketStatusAction},
+        enums::{
+            AggressorSide, BookType, GreeksConvention, InstrumentCloseType, MarketStatusAction,
+        },
         identifiers::{ClientId, OptionSeriesId, TradeId, TraderId, Venue},
         instruments::{CurrencyPair, InstrumentAny, stubs::audusd_sim},
         orderbook::OrderBook,
@@ -2986,6 +2988,7 @@ class CapturingActor:
     fn sample_option_greeks() -> OptionGreeks {
         OptionGreeks {
             instrument_id: sample_instrument().id,
+            convention: GreeksConvention::BlackScholes,
             greeks: OptionGreekValues {
                 delta: 0.55,
                 gamma: 0.03,

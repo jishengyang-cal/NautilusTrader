@@ -2651,8 +2651,8 @@ mod tests {
             stubs::stub_custom_data,
         },
         enums::{
-            AggressorSide, BookType, InstrumentCloseType, MarketStatusAction, OrderSide,
-            PositionSide,
+            AggressorSide, BookType, GreeksConvention, InstrumentCloseType, MarketStatusAction,
+            OrderSide, PositionSide,
         },
         events::{
             OrderAccepted, OrderCancelRejected, OrderCanceled, OrderDenied, OrderEmulated,
@@ -2909,6 +2909,7 @@ class TrackingStrategy:
     fn sample_option_greeks() -> OptionGreeks {
         OptionGreeks {
             instrument_id: InstrumentId::from("AUD/USD.SIM"),
+            convention: GreeksConvention::BlackScholes,
             greeks: OptionGreekValues {
                 delta: 0.55,
                 gamma: 0.03,

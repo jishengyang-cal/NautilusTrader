@@ -503,6 +503,12 @@ order = strategy.order_factory.limit(
 When modifying an order, the same `px_usd` or `px_vol` params can be passed to the modify
 command to amend the price in the original pricing mode.
 
+### Option Greeks
+
+OKX publishes two parallel greek sets on the `opt-summary` channel. The adapter currently
+emits Black-Scholes greeks in USD. This matches the convention used by the Deribit and
+Bybit adapters.
+
 ### Position Greeks
 
 The adapter exposes position-level Black-Scholes Greeks (`delta_bs`, `gamma_bs`, `theta_bs`,

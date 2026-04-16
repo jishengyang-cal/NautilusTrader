@@ -1171,9 +1171,12 @@ class OptionGreeks:
         open_interest: float | None = None,
         ts_event: int = 0,
         ts_init: int = 0,
+        convention: GreeksConvention | None = None,
     ) -> None: ...
     @property
     def instrument_id(self) -> InstrumentId: ...
+    @property
+    def convention(self) -> GreeksConvention: ...
     @property
     def delta(self) -> float: ...
     @property
@@ -1542,6 +1545,10 @@ class OmsType(Enum):
 class OptionKind(Enum):
     CALL = "CALL"
     PUT = "PUT"
+
+class GreeksConvention(Enum):
+    BLACK_SCHOLES = "BLACK_SCHOLES"
+    PRICE_ADJUSTED = "PRICE_ADJUSTED"
 
 class OrderSide(Enum):
     NO_ORDER_SIDE = "NO_ORDER_SIDE"
@@ -8654,6 +8661,13 @@ class OKXOrderStatus(Enum):
     FILLED = ...
     MMP_CANCELED = ...
     ORDER_PLACED = ...
+
+class OKXGreeksType(Enum):
+    BS = "BS"
+    PA = "PA"
+
+    @property
+    def value(self) -> int: ...  # type: ignore[override]
 
 class OKXVipLevel(Enum):
     VIP0 = "VIP0"

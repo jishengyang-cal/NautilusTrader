@@ -22,7 +22,11 @@
 //! 4. Subscribes to OptionGreeks for each one
 //! 5. Logs received greeks in the `on_option_greeks` handler
 //!
+//! The greeks convention (Black-Scholes or price-adjusted) is picked via the
+//! `OKX_GREEKS_TYPE` env var. Accepted values: `BS` (default) or `PA`.
+//!
 //! Run with: `cargo run --example okx-greeks-tester --package nautilus-okx`
+//! PA example: `OKX_GREEKS_TYPE=PA cargo run --example okx-greeks-tester --package nautilus-okx`
 
 use std::fmt::Debug;
 
@@ -41,7 +45,9 @@ use nautilus_model::{
     stubs::TestDefault,
 };
 use nautilus_okx::{
-    common::enums::OKXInstrumentType, config::OKXDataClientConfig, factories::OKXDataClientFactory,
+    common::enums::{OKXGreeksType, OKXInstrumentType},
+    config::OKXDataClientConfig,
+    factories::OKXDataClientFactory,
 };
 use ustr::Ustr;
 
@@ -175,12 +181,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trader_id = TraderId::test_default();
     let client_id = ClientId::new("OKX");
 
+    let greeks_type = match std::env::var("OKX_GREEKS_TYPE").ok().as_deref() {
+        Some("PA") | Some("pa") => OKXGreeksType::Pa,
+        Some("BS") | Some("bs") | None => OKXGreeksType::Bs,
+        Some(other) => {
+            log::warn!("Unknown OKX_GREEKS_TYPE {other:?}, defaulting to BS");
+            OKXGreeksType::Bs
+        }
+    };
+    log::info!("Using OKX greeks convention: {greeks_type}");
+
     let okx_config = OKXDataClientConfig {
         api_key: None,        // Will use 'OKX_API_KEY' env var
         api_secret: None,     // Will use 'OKX_API_SECRET' env var
         api_passphrase: None, // Will use 'OKX_API_PASSPHRASE' env var
         instrument_types: vec![OKXInstrumentType::Option],
         instrument_families: Some(vec!["BTC-USD".to_string()]),
+        greeks_type,
         ..Default::default()
     };
 

@@ -26,6 +26,7 @@ use crate::{
             OptionChainSlice, OptionGreeks, OptionStrikeData, StrikeRange as RustStrikeRange,
         },
     },
+    enums::GreeksConvention,
     identifiers::{InstrumentId, OptionSeriesId},
     types::Price,
 };
@@ -89,7 +90,7 @@ impl PyStrikeRange {
 impl OptionGreeks {
     /// Exchange-provided option Greeks and implied volatility for a single instrument.
     #[new]
-    #[pyo3(signature = (instrument_id, delta, gamma, vega, theta, rho=0.0, mark_iv=None, bid_iv=None, ask_iv=None, underlying_price=None, open_interest=None, ts_event=0, ts_init=0))]
+    #[pyo3(signature = (instrument_id, delta, gamma, vega, theta, rho=0.0, mark_iv=None, bid_iv=None, ask_iv=None, underlying_price=None, open_interest=None, ts_event=0, ts_init=0, convention=None))]
     #[expect(clippy::too_many_arguments)]
     fn py_new(
         instrument_id: InstrumentId,
@@ -105,9 +106,11 @@ impl OptionGreeks {
         open_interest: Option<f64>,
         ts_event: u64,
         ts_init: u64,
+        convention: Option<GreeksConvention>,
     ) -> Self {
         Self {
             instrument_id,
+            convention: convention.unwrap_or_default(),
             greeks: OptionGreekValues {
                 delta,
                 gamma,
@@ -123,6 +126,12 @@ impl OptionGreeks {
             ts_event: UnixNanos::from(ts_event),
             ts_init: UnixNanos::from(ts_init),
         }
+    }
+
+    #[getter]
+    #[pyo3(name = "convention")]
+    fn py_convention(&self) -> GreeksConvention {
+        self.convention
     }
 
     #[getter]
@@ -232,9 +241,15 @@ impl OptionGreeks {
         let open_interest = obj.getattr("open_interest")?.extract::<Option<f64>>()?;
         let ts_event = obj.getattr("ts_event")?.extract::<u64>()?;
         let ts_init = obj.getattr("ts_init")?.extract::<u64>()?;
+        let convention = obj
+            .getattr("convention")
+            .ok()
+            .and_then(|v| v.extract::<GreeksConvention>().ok())
+            .unwrap_or_default();
 
         Ok(Self {
             instrument_id,
+            convention,
             greeks: OptionGreekValues {
                 delta,
                 gamma,

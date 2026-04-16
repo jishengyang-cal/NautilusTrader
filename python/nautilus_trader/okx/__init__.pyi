@@ -15,6 +15,7 @@ __all__ = [
     "OKXEnvironment",
     "OKXExecClientConfig",
     "OKXExecutionClientFactory",
+    "OKXGreeksType",
     "OKXHttpClient",
     "OKXInstrumentType",
     "OKXMarginMode",
@@ -435,6 +436,11 @@ class OKXEnvironment(enum.Enum):
     def variants(cls) -> list[str]: ...
     @classmethod
     def from_str(cls, data: typing.Any) -> OKXEnvironment: ...
+
+@typing.final
+class OKXGreeksType(enum.Enum):
+    BS = ...
+    PA = ...
 
 @typing.final
 class OKXInstrumentType(enum.Enum):
