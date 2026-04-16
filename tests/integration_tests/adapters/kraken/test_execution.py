@@ -26,12 +26,15 @@ from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.execution.messages import CancelOrder
 from nautilus_trader.execution.messages import GenerateFillReports
+from nautilus_trader.execution.messages import GenerateOrderStatusReport
 from nautilus_trader.execution.messages import GenerateOrderStatusReports
 from nautilus_trader.execution.messages import GeneratePositionStatusReports
 from nautilus_trader.execution.messages import SubmitOrder
 from nautilus_trader.model.currencies import BTC
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderStatus
+from nautilus_trader.model.enums import OrderType
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import TrailingOffsetType
 from nautilus_trader.model.enums import TriggerType
@@ -2382,6 +2385,310 @@ async def test_generate_order_status_report_with_instrument_id_queries_one_clien
         http_client_futures.request_order_status_reports.assert_not_awaited()
     finally:
         pass  # No disconnect needed - not connected
+
+
+@pytest.mark.asyncio
+async def test_generate_order_status_report_futures_fill_fallback_queries_futures_client_only(
+    exec_client_builder_dual,
+    monkeypatch,
+    futures_instrument,
+    cache,
+):
+    # Arrange
+    cache.add_instrument(futures_instrument)
+    (
+        client,
+        _,
+        _,
+        http_client_spot,
+        http_client_futures,
+        _,
+    ) = exec_client_builder_dual(monkeypatch)
+    venue_order_id = VenueOrderId("KRAKEN-788")
+
+    order = MarketOrder(
+        trader_id=TestIdStubs.trader_id(),
+        strategy_id=TestIdStubs.strategy_id(),
+        instrument_id=futures_instrument.id,
+        client_order_id=ClientOrderId("O-FAST-FILL-000"),
+        order_side=OrderSide.BUY,
+        quantity=Quantity.from_str("100"),
+        time_in_force=TimeInForce.IOC,
+        reduce_only=False,
+        quote_quantity=False,
+        init_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+    cache.add_order(order, None)
+    cache.add_venue_order_id(order.client_order_id, venue_order_id)
+
+    http_client_futures.request_order_status_reports.return_value = []
+    http_client_futures.request_fill_reports.return_value = [
+        nautilus_pyo3.FillReport(
+            account_id=nautilus_pyo3.AccountId("KRAKEN-UNIFIED"),
+            instrument_id=nautilus_pyo3.InstrumentId.from_str(futures_instrument.id.value),
+            venue_order_id=nautilus_pyo3.VenueOrderId(venue_order_id.value),
+            trade_id=nautilus_pyo3.TradeId("T-000"),
+            order_side=nautilus_pyo3.OrderSide.BUY,
+            last_qty=nautilus_pyo3.Quantity.from_str("100"),
+            last_px=nautilus_pyo3.Price.from_str("50000.0"),
+            commission=nautilus_pyo3.Money.from_str("0 USD"),
+            liquidity_side=nautilus_pyo3.LiquiditySide.TAKER,
+            ts_event=1,
+            client_order_id=nautilus_pyo3.ClientOrderId(order.client_order_id.value),
+            report_id=nautilus_pyo3.UUID4(),
+            ts_init=1,
+        ),
+    ]
+
+    command = GenerateOrderStatusReport(
+        instrument_id=futures_instrument.id,
+        client_order_id=order.client_order_id,
+        venue_order_id=venue_order_id,
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    http_client_spot.request_order_status_reports.assert_not_awaited()
+    http_client_futures.request_order_status_reports.assert_awaited_once()
+    http_client_spot.request_fill_reports.assert_not_awaited()
+    http_client_futures.request_fill_reports.assert_awaited_once()
+    assert report is not None
+    assert report.order_status == OrderStatus.FILLED
+
+
+@pytest.mark.asyncio
+async def test_generate_order_status_report_futures_falls_back_to_matched_fills(
+    exec_client_builder_futures,
+    monkeypatch,
+    futures_instrument,
+    cache,
+):
+    # Arrange
+    cache.add_instrument(futures_instrument)
+    client, _, http_client, _ = exec_client_builder_futures(monkeypatch)
+    venue_order_id = VenueOrderId("KRAKEN-789")
+
+    order = MarketOrder(
+        trader_id=TestIdStubs.trader_id(),
+        strategy_id=TestIdStubs.strategy_id(),
+        instrument_id=futures_instrument.id,
+        client_order_id=ClientOrderId("O-FAST-FILL-001"),
+        order_side=OrderSide.BUY,
+        quantity=Quantity.from_str("100"),
+        time_in_force=TimeInForce.IOC,
+        reduce_only=False,
+        quote_quantity=False,
+        init_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+    cache.add_order(order, None)
+    cache.add_venue_order_id(order.client_order_id, venue_order_id)
+
+    http_client.request_order_status_reports.return_value = []
+    http_client.request_fill_reports.return_value = [
+        nautilus_pyo3.FillReport(
+            account_id=nautilus_pyo3.AccountId("KRAKEN-UNIFIED"),
+            instrument_id=nautilus_pyo3.InstrumentId.from_str(futures_instrument.id.value),
+            venue_order_id=nautilus_pyo3.VenueOrderId(venue_order_id.value),
+            trade_id=nautilus_pyo3.TradeId("T-001"),
+            order_side=nautilus_pyo3.OrderSide.BUY,
+            last_qty=nautilus_pyo3.Quantity.from_str("40"),
+            last_px=nautilus_pyo3.Price.from_str("50000.0"),
+            commission=nautilus_pyo3.Money.from_str("0 USD"),
+            liquidity_side=nautilus_pyo3.LiquiditySide.TAKER,
+            ts_event=1,
+            client_order_id=nautilus_pyo3.ClientOrderId(order.client_order_id.value),
+            report_id=nautilus_pyo3.UUID4(),
+            ts_init=1,
+        ),
+        nautilus_pyo3.FillReport(
+            account_id=nautilus_pyo3.AccountId("KRAKEN-UNIFIED"),
+            instrument_id=nautilus_pyo3.InstrumentId.from_str(futures_instrument.id.value),
+            venue_order_id=nautilus_pyo3.VenueOrderId(venue_order_id.value),
+            trade_id=nautilus_pyo3.TradeId("T-002"),
+            order_side=nautilus_pyo3.OrderSide.BUY,
+            last_qty=nautilus_pyo3.Quantity.from_str("60"),
+            last_px=nautilus_pyo3.Price.from_str("50010.0"),
+            commission=nautilus_pyo3.Money.from_str("0 USD"),
+            liquidity_side=nautilus_pyo3.LiquiditySide.TAKER,
+            ts_event=2,
+            client_order_id=nautilus_pyo3.ClientOrderId(order.client_order_id.value),
+            report_id=nautilus_pyo3.UUID4(),
+            ts_init=2,
+        ),
+        nautilus_pyo3.FillReport(
+            account_id=nautilus_pyo3.AccountId("KRAKEN-UNIFIED"),
+            instrument_id=nautilus_pyo3.InstrumentId.from_str(futures_instrument.id.value),
+            venue_order_id=nautilus_pyo3.VenueOrderId("KRAKEN-OTHER"),
+            trade_id=nautilus_pyo3.TradeId("T-OTHER"),
+            order_side=nautilus_pyo3.OrderSide.BUY,
+            last_qty=nautilus_pyo3.Quantity.from_str("999"),
+            last_px=nautilus_pyo3.Price.from_str("1.0"),
+            commission=nautilus_pyo3.Money.from_str("0 USD"),
+            liquidity_side=nautilus_pyo3.LiquiditySide.TAKER,
+            ts_event=3,
+            client_order_id=nautilus_pyo3.ClientOrderId(order.client_order_id.value),
+            report_id=nautilus_pyo3.UUID4(),
+            ts_init=3,
+        ),
+    ]
+
+    command = GenerateOrderStatusReport(
+        instrument_id=futures_instrument.id,
+        client_order_id=order.client_order_id,
+        venue_order_id=venue_order_id,
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    http_client.request_order_status_reports.assert_awaited_once()
+    http_client.request_fill_reports.assert_awaited_once()
+    assert report is not None
+    assert report.venue_order_id == venue_order_id
+    assert report.client_order_id == order.client_order_id
+    assert report.order_status == OrderStatus.FILLED
+    assert report.order_type == OrderType.MARKET
+    assert report.time_in_force == TimeInForce.IOC
+    assert report.quantity == order.quantity
+    assert report.filled_qty == order.quantity
+    assert report.avg_px == Decimal("50006.0")
+
+
+@pytest.mark.asyncio
+async def test_generate_order_status_report_futures_fill_fallback_requires_full_size(
+    exec_client_builder_futures,
+    monkeypatch,
+    futures_instrument,
+    cache,
+):
+    # Arrange
+    cache.add_instrument(futures_instrument)
+    client, _, http_client, _ = exec_client_builder_futures(monkeypatch)
+    venue_order_id = VenueOrderId("KRAKEN-790")
+
+    order = MarketOrder(
+        trader_id=TestIdStubs.trader_id(),
+        strategy_id=TestIdStubs.strategy_id(),
+        instrument_id=futures_instrument.id,
+        client_order_id=ClientOrderId("O-FAST-FILL-002"),
+        order_side=OrderSide.BUY,
+        quantity=Quantity.from_str("100"),
+        time_in_force=TimeInForce.IOC,
+        reduce_only=False,
+        quote_quantity=False,
+        init_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+    cache.add_order(order, None)
+    cache.add_venue_order_id(order.client_order_id, venue_order_id)
+
+    http_client.request_order_status_reports.return_value = []
+    http_client.request_fill_reports.return_value = [
+        nautilus_pyo3.FillReport(
+            account_id=nautilus_pyo3.AccountId("KRAKEN-UNIFIED"),
+            instrument_id=nautilus_pyo3.InstrumentId.from_str(futures_instrument.id.value),
+            venue_order_id=nautilus_pyo3.VenueOrderId(venue_order_id.value),
+            trade_id=nautilus_pyo3.TradeId("T-003"),
+            order_side=nautilus_pyo3.OrderSide.BUY,
+            last_qty=nautilus_pyo3.Quantity.from_str("40"),
+            last_px=nautilus_pyo3.Price.from_str("50000.0"),
+            commission=nautilus_pyo3.Money.from_str("0 USD"),
+            liquidity_side=nautilus_pyo3.LiquiditySide.TAKER,
+            ts_event=1,
+            client_order_id=nautilus_pyo3.ClientOrderId(order.client_order_id.value),
+            report_id=nautilus_pyo3.UUID4(),
+            ts_init=1,
+        ),
+    ]
+
+    command = GenerateOrderStatusReport(
+        instrument_id=futures_instrument.id,
+        client_order_id=order.client_order_id,
+        venue_order_id=venue_order_id,
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    http_client.request_fill_reports.assert_awaited_once()
+    assert report is None
+
+
+@pytest.mark.asyncio
+async def test_generate_order_status_report_futures_fill_fallback_matches_truncated_client_order_id(
+    exec_client_builder_futures,
+    monkeypatch,
+    futures_instrument,
+    cache,
+):
+    # Arrange
+    cache.add_instrument(futures_instrument)
+    client, _, http_client, _ = exec_client_builder_futures(monkeypatch)
+
+    order = MarketOrder(
+        trader_id=TestIdStubs.trader_id(),
+        strategy_id=TestIdStubs.strategy_id(),
+        instrument_id=futures_instrument.id,
+        client_order_id=ClientOrderId("O202602270023210040011"),
+        order_side=OrderSide.BUY,
+        quantity=Quantity.from_str("100"),
+        time_in_force=TimeInForce.IOC,
+        reduce_only=False,
+        quote_quantity=False,
+        init_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+    cache.add_order(order, None)
+
+    http_client.request_order_status_reports.return_value = []
+    http_client.request_fill_reports.return_value = [
+        nautilus_pyo3.FillReport(
+            account_id=nautilus_pyo3.AccountId("KRAKEN-UNIFIED"),
+            instrument_id=nautilus_pyo3.InstrumentId.from_str(futures_instrument.id.value),
+            venue_order_id=nautilus_pyo3.VenueOrderId("KRAKEN-791"),
+            trade_id=nautilus_pyo3.TradeId("T-004"),
+            order_side=nautilus_pyo3.OrderSide.BUY,
+            last_qty=nautilus_pyo3.Quantity.from_str("100"),
+            last_px=nautilus_pyo3.Price.from_str("50000.0"),
+            commission=nautilus_pyo3.Money.from_str("0 USD"),
+            liquidity_side=nautilus_pyo3.LiquiditySide.TAKER,
+            ts_event=1,
+            client_order_id=nautilus_pyo3.ClientOrderId(
+                client._truncate_client_order_id(order.client_order_id),
+            ),
+            report_id=nautilus_pyo3.UUID4(),
+            ts_init=1,
+        ),
+    ]
+
+    command = GenerateOrderStatusReport(
+        instrument_id=futures_instrument.id,
+        client_order_id=order.client_order_id,
+        venue_order_id=None,
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    http_client.request_fill_reports.assert_awaited_once()
+    assert report is not None
+    assert report.client_order_id == order.client_order_id
+    assert report.order_status == OrderStatus.FILLED
 
 
 # ============================================================================

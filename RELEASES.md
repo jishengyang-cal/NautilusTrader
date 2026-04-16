@@ -50,6 +50,7 @@ Released on TBD (UTC).
 - Fixed Hyperliquid modify cancel-replace emitting stale `OrderCanceled` (#3827), thanks for reporting @P1YU5H-50N1
 - Fixed IB Gateway Docker image failing on ARM64 hosts (#3813), thanks for reporting @Baki-0501
 - Fixed Kraken Futures limit order `OrderUpdated` panic from wire `stop_price: 0.0` treated as trigger price
+- Fixed Kraken Futures fast-fill market orders resolving as rejected during order status reconciliation (#3870), thanks for reporting @Stamppot82
 - Fixed Kraken Futures margin-account balance parse violating the `AccountBalance` invariant (`total == locked + free`) when Kraken's `af` field and the derived `amount - af` round independently at the currency precision
 - Fixed Kraken Spot quote-quantity orders never reaching terminal state from base/quote size mismatch
 - Fixed Kraken trade dedup clearing the entire set at capacity instead of evicting the oldest entry
@@ -67,7 +68,7 @@ Released on TBD (UTC).
 - Fixed Polymarket instrument `min_quantity` denying market orders via limit-order shares rule (#3874), thanks for reporting @fedoraiver
 
 ### Internal Improvements
-- Added `AccountBalance::from_total_and_locked` and `AccountBalance::from_total_and_free` constructors that derive the third component in fixed-point to guarantee the `total == locked + free` invariant at the currency precision; migrated Betfair, Binance, Bybit, Hyperliquid, Kraken, OKX, Polymarket, and Architect AX adapter balance parses to the new helpers (Rust)
+- Added `AccountBalance::from_total_and_locked` and `AccountBalance::from_total_and_free`, and migrated adapter balance parsing to preserve the `total == locked + free` invariant at currency precision (Rust)
 - Added typed `CorrectnessError` enum to replace `anyhow::Error` in `correctness` helpers (Rust)
 - Added `CorrectnessResultExt::expect_display` for display-formatted panics on typed correctness errors (Rust)
 - Added deterministic simulation testing (DST) re-export module gated behind `simulation` feature (Rust)

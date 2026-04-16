@@ -40,13 +40,14 @@ use nautilus_core::{
 use nautilus_live::{ExecutionClientCore, ExecutionEventEmitter};
 use nautilus_model::{
     accounts::AccountAny,
-    enums::{AccountType, OmsType, OrderSide, OrderType},
+    enums::{AccountType, OmsType, OrderSide, OrderStatus, OrderType},
     identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
     orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, MarginBalance, Quantity},
 };
+use rust_decimal::Decimal;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -665,7 +666,7 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
 
         // Match by venue_order_id or client_order_id (comparing truncated form
         // since Kraken stores the truncated cl_ord_id for long IDs)
-        Ok(reports.into_iter().find(|r| {
+        let matched = reports.into_iter().find(|r| {
             cmd.venue_order_id
                 .is_some_and(|id| r.venue_order_id.as_str() == id.as_str())
                 || cmd.client_order_id.is_some_and(|id| {
@@ -673,7 +674,29 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
                         .as_ref()
                         .is_some_and(|r_id| r_id.as_str() == truncate_cl_ord_id(&id))
                 })
-        }))
+        });
+
+        if matched.is_some() {
+            return Ok(matched);
+        }
+
+        let Some(order) = self.get_cached_order_for_status_command(cmd) else {
+            return Ok(None);
+        };
+
+        let now = Utc::now();
+        let start = now - Duration::from_secs(5 * 60);
+        let fills = self
+            .http
+            .request_fill_reports(
+                account_id,
+                Some(order.instrument_id()),
+                Some(start),
+                Some(now),
+            )
+            .await?;
+
+        Ok(synthesize_filled_order_status_report(cmd, &order, &fills))
     }
 
     async fn generate_order_status_reports(
@@ -706,9 +729,16 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
         let account_id = self.core.account_id;
         let start = cmd.start.map(DateTime::<Utc>::from);
         let end = cmd.end.map(DateTime::<Utc>::from);
-        self.http
+        let mut reports = self
+            .http
             .request_fill_reports(account_id, cmd.instrument_id, start, end)
-            .await
+            .await?;
+
+        if let Some(venue_order_id) = cmd.venue_order_id {
+            reports.retain(|report| report.venue_order_id == venue_order_id);
+        }
+
+        Ok(reports)
     }
 
     async fn generate_position_status_reports(
@@ -1037,5 +1067,247 @@ impl ExecutionClient for KrakenFuturesExecutionClient {
         }
 
         Ok(())
+    }
+}
+
+impl KrakenFuturesExecutionClient {
+    fn get_cached_order_for_status_command(
+        &self,
+        cmd: &GenerateOrderStatusReport,
+    ) -> Option<OrderAny> {
+        let cache = self.core.cache();
+
+        if let Some(client_order_id) = cmd.client_order_id {
+            return cache.order(&client_order_id).cloned();
+        }
+
+        let venue_order_id = cmd.venue_order_id?;
+        let client_order_id = *cache.client_order_id(&venue_order_id)?;
+        cache.order(&client_order_id).cloned()
+    }
+}
+
+fn synthesize_filled_order_status_report(
+    cmd: &GenerateOrderStatusReport,
+    order: &OrderAny,
+    fills: &[FillReport],
+) -> Option<OrderStatusReport> {
+    let venue_order_id = cmd.venue_order_id.or(order.venue_order_id());
+    let truncated_client_order_id = truncate_cl_ord_id(&order.client_order_id());
+
+    let mut matched: Vec<&FillReport> = if let Some(venue_order_id) = venue_order_id {
+        fills
+            .iter()
+            .filter(|fill| fill.venue_order_id == venue_order_id)
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    if matched.is_empty() {
+        matched = fills
+            .iter()
+            .filter(|fill| {
+                fill.client_order_id == Some(order.client_order_id())
+                    || fill
+                        .client_order_id
+                        .as_ref()
+                        .is_some_and(|fill_client_order_id| {
+                            fill_client_order_id.as_str() == truncated_client_order_id
+                        })
+            })
+            .collect();
+    }
+
+    if matched.is_empty() {
+        return None;
+    }
+
+    matched.sort_by_key(|fill| fill.ts_event);
+    let first_fill = *matched.first()?;
+    let last_fill = *matched.last()?;
+
+    let total_filled = matched
+        .iter()
+        .fold(Decimal::ZERO, |acc, fill| acc + fill.last_qty.as_decimal());
+    if total_filled < order.quantity().as_decimal() {
+        return None;
+    }
+
+    let total_notional = matched.iter().fold(Decimal::ZERO, |acc, fill| {
+        acc + fill.last_qty.as_decimal() * fill.last_px.as_decimal()
+    });
+    let avg_px = if total_filled.is_zero() {
+        None
+    } else {
+        Some(total_notional / total_filled)
+    };
+    let venue_order_id = venue_order_id.unwrap_or(first_fill.venue_order_id);
+
+    let mut report = OrderStatusReport::new(
+        first_fill.account_id,
+        order.instrument_id(),
+        Some(order.client_order_id()),
+        venue_order_id,
+        order.order_side(),
+        order.order_type(),
+        order.time_in_force(),
+        OrderStatus::Filled,
+        order.quantity(),
+        order.quantity(),
+        first_fill.ts_event,
+        last_fill.ts_event,
+        last_fill.ts_init,
+        None,
+    );
+    report.order_list_id = order.order_list_id();
+    report.venue_position_id = matched.iter().rev().find_map(|fill| fill.venue_position_id);
+    report.linked_order_ids = order
+        .linked_order_ids()
+        .map(|linked_order_ids| linked_order_ids.to_vec());
+    report.parent_order_id = order.parent_order_id();
+    report.expire_time = order.expire_time();
+    report.price = order.price();
+    report.trigger_price = order.trigger_price();
+    report.trigger_type = order.trigger_type();
+    report.avg_px = avg_px;
+    report.display_qty = order.display_qty();
+    report.post_only = order.is_post_only();
+    report.reduce_only = order.is_reduce_only();
+    Some(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use nautilus_core::{UUID4, UnixNanos};
+    use nautilus_model::{
+        enums::{LiquiditySide, OrderSide, OrderType, TimeInForce},
+        identifiers::{AccountId, ClientOrderId, InstrumentId, TradeId, VenueOrderId},
+        orders::OrderTestBuilder,
+        reports::FillReport,
+        types::{Currency, Money, Price, Quantity},
+    };
+    use rstest::rstest;
+
+    use super::*;
+
+    const TEST_INSTRUMENT_ID: &str = "PF_XBTUSD.KRAKEN";
+
+    fn make_fill(
+        venue_order_id: &str,
+        client_order_id: Option<&str>,
+        quantity: &str,
+        price: &str,
+        ts_event: u64,
+    ) -> FillReport {
+        FillReport::new(
+            AccountId::from("KRAKEN-001"),
+            InstrumentId::from(TEST_INSTRUMENT_ID),
+            VenueOrderId::from(venue_order_id),
+            TradeId::from(format!("T-{ts_event}").as_str()),
+            OrderSide::Buy,
+            Quantity::from(quantity),
+            Price::from(price),
+            Money::new(0.0, Currency::USD()),
+            LiquiditySide::Taker,
+            client_order_id.map(ClientOrderId::from),
+            None,
+            UnixNanos::from(ts_event),
+            UnixNanos::from(ts_event),
+            None,
+        )
+    }
+
+    fn make_cmd(
+        client_order_id: Option<&str>,
+        venue_order_id: Option<&str>,
+    ) -> GenerateOrderStatusReport {
+        GenerateOrderStatusReport::new(
+            UUID4::new(),
+            UnixNanos::default(),
+            Some(InstrumentId::from(TEST_INSTRUMENT_ID)),
+            client_order_id.map(ClientOrderId::from),
+            venue_order_id.map(VenueOrderId::from),
+            None,
+            None,
+        )
+    }
+
+    fn make_order(client_order_id: &str) -> OrderAny {
+        OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(InstrumentId::from(TEST_INSTRUMENT_ID))
+            .client_order_id(ClientOrderId::from(client_order_id))
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("100"))
+            .time_in_force(TimeInForce::Ioc)
+            .build()
+    }
+
+    #[rstest]
+    fn test_synthesize_filled_order_status_report_matches_full_fill_by_venue_order_id() {
+        let order = make_order("O-123456");
+        let cmd = make_cmd(Some("O-123456"), Some("KRAKEN-789"));
+        let fills = vec![
+            make_fill("KRAKEN-789", Some("O-123456"), "40", "50000.0", 1),
+            make_fill("KRAKEN-789", Some("O-123456"), "60", "50010.0", 2),
+            make_fill("KRAKEN-OTHER", Some("O-123456"), "999", "1.0", 3),
+        ];
+
+        let report = synthesize_filled_order_status_report(&cmd, &order, &fills)
+            .expect("expected a filled report");
+
+        assert_eq!(report.venue_order_id, VenueOrderId::from("KRAKEN-789"));
+        assert_eq!(
+            report.client_order_id,
+            Some(ClientOrderId::from("O-123456"))
+        );
+        assert_eq!(report.order_status, OrderStatus::Filled);
+        assert_eq!(report.order_type, OrderType::Market);
+        assert_eq!(report.time_in_force, TimeInForce::Ioc);
+        assert_eq!(report.quantity, Quantity::from("100"));
+        assert_eq!(report.filled_qty, Quantity::from("100"));
+        assert_eq!(
+            report.avg_px,
+            Some(Decimal::from_str_exact("50006.0").unwrap())
+        );
+    }
+
+    #[rstest]
+    fn test_synthesize_filled_order_status_report_requires_full_fill_size() {
+        let order = make_order("O-123457");
+        let cmd = make_cmd(Some("O-123457"), Some("KRAKEN-790"));
+        let fills = vec![make_fill(
+            "KRAKEN-790",
+            Some("O-123457"),
+            "40",
+            "50000.0",
+            1,
+        )];
+
+        assert!(synthesize_filled_order_status_report(&cmd, &order, &fills).is_none());
+    }
+
+    #[rstest]
+    fn test_synthesize_filled_order_status_report_matches_truncated_client_order_id() {
+        let long_client_order_id = "O202602270023210040011";
+        let order = make_order(long_client_order_id);
+        let cmd = make_cmd(Some(long_client_order_id), None);
+        let fills = vec![make_fill(
+            "KRAKEN-791",
+            Some(truncate_cl_ord_id(&ClientOrderId::from(long_client_order_id)).as_str()),
+            "100",
+            "50000.0",
+            1,
+        )];
+
+        let report = synthesize_filled_order_status_report(&cmd, &order, &fills)
+            .expect("expected a filled report");
+
+        assert_eq!(
+            report.client_order_id,
+            Some(ClientOrderId::from(long_client_order_id))
+        );
+        assert_eq!(report.venue_order_id, VenueOrderId::from("KRAKEN-791"));
+        assert_eq!(report.order_status, OrderStatus::Filled);
     }
 }
