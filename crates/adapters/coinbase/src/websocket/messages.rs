@@ -20,10 +20,21 @@
 //! subscription messages use a flat format with `type`, `product_ids`,
 //! `channel`, and `jwt`.
 
+use std::collections::HashMap;
+
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use ustr::Ustr;
 
-use crate::common::enums::{CoinbaseOrderSide, CoinbaseOrderStatus, CoinbaseWsChannel};
+use crate::common::{
+    enums::{
+        CoinbaseContractExpiryType, CoinbaseMarginLevel, CoinbaseMarginWindowType,
+        CoinbaseOrderSide, CoinbaseOrderStatus, CoinbaseOrderType, CoinbaseProductStatus,
+        CoinbaseProductType, CoinbaseRiskManagedBy, CoinbaseTimeInForce, CoinbaseTriggerStatus,
+        CoinbaseWsChannel,
+    },
+    parse::deserialize_decimal_from_str,
+};
 
 /// Subscribe or unsubscribe request sent to the WebSocket.
 ///
@@ -101,6 +112,9 @@ pub enum CoinbaseWsMessage {
     },
 
     /// User order status updates.
+    ///
+    /// The feed handler deserializes this channel but ignores it until the
+    /// execution client is wired.
     #[serde(rename = "user")]
     User {
         timestamp: String,
@@ -117,19 +131,25 @@ pub enum CoinbaseWsMessage {
     },
 
     /// Futures balance summary (requires auth).
+    ///
+    /// The feed handler deserializes this channel but ignores it until account
+    /// state handling is added.
     #[serde(rename = "futures_balance_summary")]
     FuturesBalanceSummary {
         timestamp: String,
         sequence_num: u64,
-        events: Vec<serde_json::Value>,
+        events: Vec<WsFuturesBalanceSummaryEvent>,
     },
 
     /// System status updates.
+    ///
+    /// The feed handler deserializes this channel but ignores it until venue
+    /// status handling is added.
     #[serde(rename = "status")]
     Status {
         timestamp: String,
         sequence_num: u64,
-        events: Vec<serde_json::Value>,
+        events: Vec<WsStatusEvent>,
     },
 
     /// Subscription confirmation.
@@ -251,15 +271,20 @@ pub struct WsUserEvent {
 pub struct WsOrderUpdate {
     pub order_id: String,
     pub client_order_id: String,
+    pub contract_expiry_type: CoinbaseContractExpiryType,
     pub cumulative_quantity: String,
     pub leaves_quantity: String,
     pub avg_price: String,
     pub total_fees: String,
     pub status: CoinbaseOrderStatus,
     pub product_id: Ustr,
+    pub product_type: CoinbaseProductType,
     pub creation_time: String,
     pub order_side: CoinbaseOrderSide,
-    pub order_type: String,
+    pub order_type: CoinbaseOrderType,
+    pub risk_managed_by: CoinbaseRiskManagedBy,
+    pub time_in_force: CoinbaseTimeInForce,
+    pub trigger_status: CoinbaseTriggerStatus,
     #[serde(default)]
     pub cancel_reason: String,
     #[serde(default)]
@@ -275,10 +300,91 @@ pub struct WsHeartbeatEvent {
     pub heartbeat_counter: u64,
 }
 
+/// Futures balance summary event.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WsFuturesBalanceSummaryEvent {
+    #[serde(rename = "type")]
+    pub event_type: WsEventType,
+    pub fcm_balance_summary: WsFcmBalanceSummary,
+}
+
+/// Futures balance summary snapshot.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WsFcmBalanceSummary {
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub futures_buying_power: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub total_usd_balance: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub cbi_usd_balance: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub cfm_usd_balance: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub total_open_orders_hold_amount: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub unrealized_pnl: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub daily_realized_pnl: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub initial_margin: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub available_margin: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub liquidation_threshold: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub liquidation_buffer_amount: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub liquidation_buffer_percentage: Decimal,
+    pub intraday_margin_window_measure: WsMarginWindowMeasure,
+    pub overnight_margin_window_measure: WsMarginWindowMeasure,
+}
+
+/// Margin window summary inside a futures balance snapshot.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WsMarginWindowMeasure {
+    pub margin_window_type: CoinbaseMarginWindowType,
+    pub margin_level: CoinbaseMarginLevel,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub initial_margin: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub maintenance_margin: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub liquidation_buffer_percentage: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub total_hold: Decimal,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub futures_buying_power: Decimal,
+}
+
+/// Status channel event.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WsStatusEvent {
+    #[serde(rename = "type")]
+    pub event_type: WsEventType,
+    #[serde(default)]
+    pub products: Vec<WsStatusProduct>,
+}
+
+/// Status channel product snapshot.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WsStatusProduct {
+    pub product_type: CoinbaseProductType,
+    pub id: Ustr,
+    pub base_currency: Ustr,
+    pub quote_currency: Ustr,
+    pub base_increment: String,
+    pub quote_increment: String,
+    pub display_name: String,
+    pub status: CoinbaseProductStatus,
+    pub status_message: String,
+    #[serde(deserialize_with = "deserialize_decimal_from_str")]
+    pub min_market_funds: Decimal,
+}
+
 /// Subscription confirmation event.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WsSubscriptionsEvent {
-    pub subscriptions: serde_json::Value,
+    pub subscriptions: HashMap<CoinbaseWsChannel, Vec<Ustr>>,
 }
 
 /// Event type discriminator for snapshot vs incremental update.
@@ -424,6 +530,18 @@ mod tests {
                 assert_eq!(order.product_id, "BTC-USD");
                 assert_eq!(order.status, CoinbaseOrderStatus::Open);
                 assert_eq!(order.order_side, CoinbaseOrderSide::Buy);
+                assert_eq!(order.order_type, CoinbaseOrderType::Limit);
+                assert_eq!(
+                    order.contract_expiry_type,
+                    CoinbaseContractExpiryType::Unknown
+                );
+                assert_eq!(order.product_type, CoinbaseProductType::Spot);
+                assert_eq!(order.risk_managed_by, CoinbaseRiskManagedBy::Unknown);
+                assert_eq!(order.time_in_force, CoinbaseTimeInForce::GoodUntilCancelled);
+                assert_eq!(
+                    order.trigger_status,
+                    CoinbaseTriggerStatus::InvalidOrderType
+                );
             }
             other => panic!("Expected User, was {other:?}"),
         }
@@ -445,6 +563,121 @@ mod tests {
     }
 
     #[rstest]
+    fn test_deserialize_status_channel() {
+        let json = r#"{
+          "channel": "status",
+          "client_id": "",
+          "timestamp": "2023-02-09T20:29:49.753424311Z",
+          "sequence_num": 0,
+          "events": [
+            {
+              "type": "snapshot",
+              "products": [
+                {
+                  "product_type": "SPOT",
+                  "id": "BTC-USD",
+                  "base_currency": "BTC",
+                  "quote_currency": "USD",
+                  "base_increment": "0.00000001",
+                  "quote_increment": "0.01",
+                  "display_name": "BTC/USD",
+                  "status": "online",
+                  "status_message": "",
+                  "min_market_funds": "1"
+                }
+              ]
+            }
+          ]
+        }"#;
+        let msg: CoinbaseWsMessage = serde_json::from_str(json).unwrap();
+
+        match msg {
+            CoinbaseWsMessage::Status { events, .. } => {
+                assert_eq!(events.len(), 1);
+                assert_eq!(events[0].event_type, WsEventType::Snapshot);
+                assert_eq!(events[0].products.len(), 1);
+                let product = &events[0].products[0];
+                assert_eq!(product.id, "BTC-USD");
+                assert_eq!(product.product_type, CoinbaseProductType::Spot);
+                assert_eq!(product.status, CoinbaseProductStatus::Online);
+                assert_eq!(product.min_market_funds, Decimal::ONE);
+            }
+            other => panic!("Expected Status, was {other:?}"),
+        }
+    }
+
+    #[rstest]
+    fn test_deserialize_futures_balance_summary_channel() {
+        let json = r#"{
+          "channel": "futures_balance_summary",
+          "client_id": "",
+          "timestamp": "2023-02-09T20:33:57.609931463Z",
+          "sequence_num": 0,
+          "events": [
+            {
+              "type": "snapshot",
+              "fcm_balance_summary": {
+                "futures_buying_power": "100.00",
+                "total_usd_balance": "200.00",
+                "cbi_usd_balance": "300.00",
+                "cfm_usd_balance": "400.00",
+                "total_open_orders_hold_amount": "500.00",
+                "unrealized_pnl": "600.00",
+                "daily_realized_pnl": "0",
+                "initial_margin": "700.00",
+                "available_margin": "800.00",
+                "liquidation_threshold": "900.00",
+                "liquidation_buffer_amount": "1000.00",
+                "liquidation_buffer_percentage": "1000",
+                "intraday_margin_window_measure": {
+                  "margin_window_type": "FCM_MARGIN_WINDOW_TYPE_INTRADAY",
+                  "margin_level": "MARGIN_LEVEL_TYPE_BASE",
+                  "initial_margin": "100.00",
+                  "maintenance_margin": "200.00",
+                  "liquidation_buffer_percentage": "1000",
+                  "total_hold": "100.00",
+                  "futures_buying_power": "400.00"
+                },
+                "overnight_margin_window_measure": {
+                  "margin_window_type": "FCM_MARGIN_WINDOW_TYPE_OVERNIGHT",
+                  "margin_level": "MARGIN_LEVEL_TYPE_BASE",
+                  "initial_margin": "300.00",
+                  "maintenance_margin": "200.00",
+                  "liquidation_buffer_percentage": "1000",
+                  "total_hold": "-30.00",
+                  "futures_buying_power": "2000.00"
+                }
+              }
+            }
+          ]
+        }"#;
+        let msg: CoinbaseWsMessage = serde_json::from_str(json).unwrap();
+
+        match msg {
+            CoinbaseWsMessage::FuturesBalanceSummary { events, .. } => {
+                assert_eq!(events.len(), 1);
+                assert_eq!(events[0].event_type, WsEventType::Snapshot);
+                let summary = &events[0].fcm_balance_summary;
+                assert_eq!(summary.futures_buying_power, Decimal::from(100));
+                assert_eq!(summary.daily_realized_pnl, Decimal::ZERO);
+                assert_eq!(
+                    summary.intraday_margin_window_measure.margin_window_type,
+                    CoinbaseMarginWindowType::Intraday
+                );
+                assert_eq!(
+                    summary.overnight_margin_window_measure.margin_level,
+                    CoinbaseMarginLevel::Base
+                );
+                assert_eq!(
+                    summary.overnight_margin_window_measure.total_hold,
+                    "-30.00".parse::<Decimal>().unwrap()
+                );
+            }
+            other => panic!("Expected FuturesBalanceSummary, was {other:?}"),
+        }
+    }
+
+    #[rstest]
     fn test_deserialize_subscriptions() {
         let json = load_test_fixture("ws_subscriptions.json");
         let msg: CoinbaseWsMessage = serde_json::from_str(&json).unwrap();
@@ -452,7 +685,16 @@ mod tests {
         match msg {
             CoinbaseWsMessage::Subscriptions { events, .. } => {
                 assert_eq!(events.len(), 1);
-                assert!(events[0].subscriptions.is_object());
+                assert_eq!(
+                    events[0].subscriptions.get(&CoinbaseWsChannel::Level2),
+                    Some(&vec![Ustr::from("BTC-USD")])
+                );
+                assert_eq!(
+                    events[0]
+                        .subscriptions
+                        .get(&CoinbaseWsChannel::MarketTrades),
+                    Some(&vec![Ustr::from("BTC-USD"), Ustr::from("ETH-USD")])
+                );
             }
             other => panic!("Expected Subscriptions, was {other:?}"),
         }

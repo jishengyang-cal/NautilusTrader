@@ -35,10 +35,13 @@ use rust_decimal::Decimal;
 
 use crate::{
     common::{
-        consts::COINBASE_VENUE,
+        consts::{
+            COINBASE_VENUE, ORDER_CONFIG_BASE_SIZE, ORDER_CONFIG_END_TIME,
+            ORDER_CONFIG_LIMIT_PRICE, ORDER_CONFIG_POST_ONLY, ORDER_CONFIG_STOP_PRICE,
+        },
         enums::{
             CoinbaseContractExpiryType, CoinbaseLiquidityIndicator, CoinbaseOrderSide,
-            CoinbaseOrderStatus, CoinbaseProductType, CoinbaseTimeInForce,
+            CoinbaseOrderStatus, CoinbaseOrderType, CoinbaseProductType, CoinbaseTimeInForce,
         },
     },
     http::models::{Account, BookLevel, Candle, Fill, Order, PriceBook, Product, Trade},
@@ -507,6 +510,7 @@ pub fn parse_order_status(status: CoinbaseOrderStatus) -> OrderStatus {
         CoinbaseOrderStatus::Filled => OrderStatus::Filled,
         CoinbaseOrderStatus::Cancelled => OrderStatus::Canceled,
         CoinbaseOrderStatus::CancelQueued => OrderStatus::PendingCancel,
+        CoinbaseOrderStatus::EditQueued => OrderStatus::PendingUpdate,
         CoinbaseOrderStatus::Expired => OrderStatus::Expired,
         CoinbaseOrderStatus::Failed => OrderStatus::Rejected,
         CoinbaseOrderStatus::Unknown => OrderStatus::Rejected,
@@ -517,7 +521,7 @@ pub fn parse_order_status(status: CoinbaseOrderStatus) -> OrderStatus {
 pub fn parse_time_in_force(tif: Option<CoinbaseTimeInForce>) -> TimeInForce {
     match tif {
         Some(CoinbaseTimeInForce::GoodUntilCancelled) => TimeInForce::Gtc,
-        Some(CoinbaseTimeInForce::GoodUntilDate) => TimeInForce::Gtd,
+        Some(CoinbaseTimeInForce::GoodUntilDateTime) => TimeInForce::Gtd,
         Some(CoinbaseTimeInForce::ImmediateOrCancel) => TimeInForce::Ioc,
         Some(CoinbaseTimeInForce::FillOrKill) => TimeInForce::Fok,
         Some(CoinbaseTimeInForce::Unknown) | None => TimeInForce::Gtc,
@@ -533,20 +537,23 @@ pub fn parse_liquidity_side(indicator: &CoinbaseLiquidityIndicator) -> Liquidity
     }
 }
 
-/// Converts the Coinbase `order_type` string to the Nautilus [`OrderType`].
+/// Converts a Coinbase order type to the Nautilus [`OrderType`].
 ///
-/// Coinbase returns order_type as a plain string (`"LIMIT"`, `"MARKET"`,
-/// `"STOP_LIMIT"`, ...) on the order history endpoint. Unrecognized values
-/// fall back to [`OrderType::Limit`] rather than surfacing an error, matching
-/// the OKX parser's tolerance.
-pub fn parse_order_type(order_type: &str) -> OrderType {
+/// Coinbase uses `BRACKET` on history endpoints for multi-leg orders. Nautilus
+/// has no bracket order type, so the parser falls back to [`OrderType::Limit`].
+pub fn parse_order_type(order_type: CoinbaseOrderType) -> OrderType {
     match order_type {
-        "MARKET" => OrderType::Market,
-        "LIMIT" => OrderType::Limit,
-        "STOP" => OrderType::StopMarket,
-        "STOP_LIMIT" => OrderType::StopLimit,
-        "BRACKET" => OrderType::Limit,
-        _ => OrderType::Limit,
+        CoinbaseOrderType::Market => OrderType::Market,
+        CoinbaseOrderType::Limit => OrderType::Limit,
+        CoinbaseOrderType::Stop => OrderType::StopMarket,
+        CoinbaseOrderType::StopLimit => OrderType::StopLimit,
+        CoinbaseOrderType::Liquidation => OrderType::Market,
+        CoinbaseOrderType::Bracket
+        | CoinbaseOrderType::Twap
+        | CoinbaseOrderType::RollOpen
+        | CoinbaseOrderType::RollClose
+        | CoinbaseOrderType::Scaled
+        | CoinbaseOrderType::Unknown => OrderType::Limit,
     }
 }
 
@@ -571,7 +578,7 @@ pub fn parse_order_status_report(
     let size_precision = instrument.size_precision();
 
     let order_side = parse_order_side(&order.side);
-    let order_type = parse_order_type(&order.order_type);
+    let order_type = parse_order_type(order.order_type);
     let time_in_force = parse_time_in_force(order.time_in_force);
     let mut order_status = parse_order_status(order.status);
 
@@ -663,7 +670,7 @@ pub fn parse_order_status_report(
 ///
 /// # Errors
 ///
-/// Returns an error when the price, size, or commission cannot be parsed.
+/// Returns an error when the price or size cannot be parsed, or the commission cannot be converted to `Money`.
 pub fn parse_fill_report(
     fill: &Fill,
     instrument: &InstrumentAny,
@@ -681,9 +688,7 @@ pub fn parse_fill_report(
     let last_qty = parse_quantity(&fill.size, size_precision)?;
 
     let commission_currency = instrument.quote_currency();
-    let commission_dec =
-        Decimal::from_str(&fill.commission).context("failed to parse commission")?;
-    let commission = Money::from_decimal(commission_dec, commission_currency)
+    let commission = Money::from_decimal(fill.commission, commission_currency)
         .context("failed to build commission Money")?;
 
     let liquidity_side = parse_liquidity_side(&fill.liquidity_indicator);
@@ -746,7 +751,7 @@ pub fn parse_account_state(
             Currency::get_or_create_crypto_with_context(currency_code, Some("coinbase account"));
 
         let Some(free) = parse_money_field(
-            &account.available_balance.value,
+            account.available_balance.value,
             "available_balance",
             currency,
         ) else {
@@ -755,7 +760,7 @@ pub fn parse_account_state(
 
         let locked = match account.hold.as_ref() {
             Some(hold) => {
-                parse_money_field(&hold.value, "hold", currency).unwrap_or(Money::zero(currency))
+                parse_money_field(hold.value, "hold", currency).unwrap_or(Money::zero(currency))
             }
             None => Money::zero(currency),
         };
@@ -796,25 +801,12 @@ pub fn parse_account_state(
     ))
 }
 
-fn parse_money_field(value: &str, field: &str, currency: Currency) -> Option<Money> {
-    if value.trim().is_empty() {
-        return Some(Money::zero(currency));
-    }
-
-    match Decimal::from_str(value.trim()) {
-        Ok(dec) => match Money::from_decimal(dec, currency) {
-            Ok(money) => Some(money),
-            Err(e) => {
-                log::debug!(
-                    "Skipping {field}='{value}' for currency {}: {e}",
-                    currency.code
-                );
-                None
-            }
-        },
+fn parse_money_field(value: Decimal, field: &str, currency: Currency) -> Option<Money> {
+    match Money::from_decimal(value, currency) {
+        Ok(money) => Some(money),
         Err(e) => {
             log::debug!(
-                "Failed to parse {field}='{value}' for currency {}: {e}",
+                "Skipping {field}='{value}' for currency {}: {e}",
                 currency.code
             );
             None
@@ -835,7 +827,9 @@ fn base_quantity_from_configuration(order: &Order, size_precision: u8) -> Option
             continue;
         };
 
-        if let Some(size) = inner_obj.get("base_size").and_then(|v| v.as_str())
+        if let Some(size) = inner_obj
+            .get(ORDER_CONFIG_BASE_SIZE)
+            .and_then(|v| v.as_str())
             && !size.is_empty()
             && let Ok(qty) = parse_quantity(size, size_precision)
         {
@@ -854,7 +848,9 @@ fn limit_price_from_configuration(order: &Order, price_precision: u8) -> Option<
             continue;
         };
 
-        if let Some(price) = inner_obj.get("limit_price").and_then(|v| v.as_str())
+        if let Some(price) = inner_obj
+            .get(ORDER_CONFIG_LIMIT_PRICE)
+            .and_then(|v| v.as_str())
             && !price.is_empty()
             && let Ok(parsed) = parse_price(price, price_precision)
         {
@@ -873,7 +869,9 @@ fn stop_price_from_configuration(order: &Order, price_precision: u8) -> Option<P
             continue;
         };
 
-        if let Some(stop) = inner_obj.get("stop_price").and_then(|v| v.as_str())
+        if let Some(stop) = inner_obj
+            .get(ORDER_CONFIG_STOP_PRICE)
+            .and_then(|v| v.as_str())
             && !stop.is_empty()
             && let Ok(parsed) = parse_price(stop, price_precision)
         {
@@ -895,7 +893,9 @@ fn post_only_from_configuration(order: &Order) -> bool {
 
     for (_key, inner) in config {
         if let Some(inner_obj) = inner.as_object()
-            && let Some(post_only) = inner_obj.get("post_only").and_then(|v| v.as_bool())
+            && let Some(post_only) = inner_obj
+                .get(ORDER_CONFIG_POST_ONLY)
+                .and_then(|v| v.as_bool())
         {
             return post_only;
         }
@@ -908,7 +908,9 @@ fn end_time_from_configuration(order: &Order) -> Option<UnixNanos> {
 
     for (_key, inner) in config {
         if let Some(inner_obj) = inner.as_object()
-            && let Some(end_time) = inner_obj.get("end_time").and_then(|v| v.as_str())
+            && let Some(end_time) = inner_obj
+                .get(ORDER_CONFIG_END_TIME)
+                .and_then(|v| v.as_str())
             && !end_time.is_empty()
             && let Ok(ts) = parse_rfc3339_timestamp(end_time)
         {
@@ -1403,7 +1405,7 @@ mod tests {
                 name: "wallet".to_string(),
                 currency: Ustr::from(currency),
                 available_balance: Balance {
-                    value: available.to_string(),
+                    value: Decimal::from_str(available).unwrap(),
                     currency: Ustr::from(currency),
                 },
                 default: false,
@@ -1411,10 +1413,10 @@ mod tests {
                 created_at: String::new(),
                 updated_at: String::new(),
                 deleted_at: None,
-                account_type: "ACCOUNT_TYPE_FIAT".to_string(),
+                account_type: crate::common::enums::CoinbaseAccountType::Fiat,
                 ready: true,
                 hold: Some(Balance {
-                    value: hold.to_string(),
+                    value: Decimal::from_str(hold).unwrap(),
                     currency: Ustr::from(currency),
                 }),
                 retail_portfolio_id: portfolio.to_string(),
@@ -1479,11 +1481,18 @@ mod tests {
     }
 
     #[rstest]
-    #[case("MARKET", OrderType::Market)]
-    #[case("LIMIT", OrderType::Limit)]
-    #[case("STOP_LIMIT", OrderType::StopLimit)]
-    #[case("UNKNOWN", OrderType::Limit)]
-    fn test_parse_order_type(#[case] input: &str, #[case] expected: OrderType) {
+    #[case(CoinbaseOrderType::Market, OrderType::Market)]
+    #[case(CoinbaseOrderType::Limit, OrderType::Limit)]
+    #[case(CoinbaseOrderType::Stop, OrderType::StopMarket)]
+    #[case(CoinbaseOrderType::StopLimit, OrderType::StopLimit)]
+    #[case(CoinbaseOrderType::Bracket, OrderType::Limit)]
+    #[case(CoinbaseOrderType::Twap, OrderType::Limit)]
+    #[case(CoinbaseOrderType::RollOpen, OrderType::Limit)]
+    #[case(CoinbaseOrderType::RollClose, OrderType::Limit)]
+    #[case(CoinbaseOrderType::Liquidation, OrderType::Market)]
+    #[case(CoinbaseOrderType::Scaled, OrderType::Limit)]
+    #[case(CoinbaseOrderType::Unknown, OrderType::Limit)]
+    fn test_parse_order_type(#[case] input: CoinbaseOrderType, #[case] expected: OrderType) {
         assert_eq!(parse_order_type(input), expected);
     }
 
@@ -1492,6 +1501,7 @@ mod tests {
     #[case(CoinbaseOrderStatus::Filled, OrderStatus::Filled)]
     #[case(CoinbaseOrderStatus::Cancelled, OrderStatus::Canceled)]
     #[case(CoinbaseOrderStatus::CancelQueued, OrderStatus::PendingCancel)]
+    #[case(CoinbaseOrderStatus::EditQueued, OrderStatus::PendingUpdate)]
     #[case(CoinbaseOrderStatus::Expired, OrderStatus::Expired)]
     #[case(CoinbaseOrderStatus::Failed, OrderStatus::Rejected)]
     #[case(CoinbaseOrderStatus::Pending, OrderStatus::Submitted)]
@@ -1527,27 +1537,28 @@ mod tests {
             completion_percentage: String::new(),
             filled_size: filled_size.to_string(),
             average_filled_price: String::new(),
-            fee: String::new(),
-            number_of_fills: String::new(),
-            filled_value: String::new(),
+            fee: Decimal::ZERO,
+            number_of_fills: 0,
+            filled_value: Decimal::ZERO,
             pending_cancel: false,
             size_in_quote: false,
-            total_fees: String::new(),
+            total_fees: Decimal::ZERO,
             size_inclusive_of_fees: false,
-            total_value_after_fees: String::new(),
-            trigger_status: String::new(),
-            order_type: "LIMIT".to_string(),
+            total_value_after_fees: Decimal::ZERO,
+            trigger_status: crate::common::enums::CoinbaseTriggerStatus::Unknown,
+            order_type: CoinbaseOrderType::Limit,
             reject_reason: String::new(),
             settled: false,
-            product_type: "SPOT".to_string(),
+            product_type: CoinbaseProductType::Spot,
             reject_message: String::new(),
             cancel_message: String::new(),
-            order_placement_source: String::new(),
-            outstanding_hold_amount: String::new(),
+            order_placement_source:
+                crate::common::enums::CoinbaseOrderPlacementSource::RetailAdvanced,
+            outstanding_hold_amount: Decimal::ZERO,
             is_liquidation: false,
             last_fill_time: None,
             leverage: String::new(),
-            margin_type: String::new(),
+            margin_type: None,
             retail_portfolio_id: String::new(),
             originating_order_id: String::new(),
             attached_order_id: String::new(),
@@ -1606,10 +1617,10 @@ mod tests {
             trade_id: "trade-1".to_string(),
             order_id: "venue-1".to_string(),
             trade_time: trade_time.to_string(),
-            trade_type: "FILL".to_string(),
+            trade_type: crate::common::enums::CoinbaseFillTradeType::Fill,
             price: price.to_string(),
             size: size.to_string(),
-            commission: commission.to_string(),
+            commission: Decimal::from_str(commission).unwrap(),
             product_id: Ustr::from("BTC-USD"),
             sequence_timestamp: "2024-01-15T10:30:00.000Z".to_string(),
             liquidity_indicator: CoinbaseLiquidityIndicator::Maker,
@@ -1621,8 +1632,13 @@ mod tests {
     }
 
     #[rstest]
-    fn test_parse_fill_report_rejects_malformed_commission() {
-        let fill = make_fill("not-a-number", "45000.00", "0.001", "2024-01-15T10:30:00Z");
+    fn test_parse_fill_report_rejects_out_of_range_commission() {
+        let fill = make_fill(
+            "9999999999999999999999999999",
+            "45000.00",
+            "0.001",
+            "2024-01-15T10:30:00Z",
+        );
         let instrument = btc_usd_instrument();
 
         let err = parse_fill_report(
@@ -1635,8 +1651,8 @@ mod tests {
 
         let chain = format!("{err:#}");
         assert!(
-            chain.contains("failed to parse commission"),
-            "expected failed to parse commission in error chain, was: {chain}"
+            chain.contains("failed to build commission Money"),
+            "expected failed to build commission Money in error chain, was: {chain}"
         );
     }
 
@@ -1655,13 +1671,13 @@ mod tests {
     }
 
     #[rstest]
-    fn test_parse_account_state_skips_malformed_entry() {
+    fn test_parse_account_state_skips_entry_with_out_of_range_money() {
         let valid = Account {
             uuid: "uuid-valid".to_string(),
             name: "USD Wallet".to_string(),
             currency: Ustr::from("USD"),
             available_balance: Balance {
-                value: "1000.00".to_string(),
+                value: Decimal::from_str("1000.00").unwrap(),
                 currency: Ustr::from("USD"),
             },
             default: false,
@@ -1669,27 +1685,31 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             deleted_at: None,
-            account_type: "ACCOUNT_TYPE_FIAT".to_string(),
+            account_type: crate::common::enums::CoinbaseAccountType::Fiat,
             ready: true,
             hold: Some(Balance {
-                value: "50.00".to_string(),
+                value: Decimal::from_str("50.00").unwrap(),
                 currency: Ustr::from("USD"),
             }),
             retail_portfolio_id: String::new(),
         };
 
-        let malformed = Account {
+        let over_precision = Account {
             available_balance: Balance {
-                value: "not-a-number".to_string(),
-                currency: Ustr::from("BTC"),
+                value: Decimal::from_str("9999999999999999999999999999").unwrap(),
+                currency: Ustr::from("USD"),
             },
-            currency: Ustr::from("BTC"),
-            uuid: "uuid-malformed".to_string(),
+            hold: Some(Balance {
+                value: Decimal::ZERO,
+                currency: Ustr::from("USD"),
+            }),
+            currency: Ustr::from("USD"),
+            uuid: "uuid-over-precision".to_string(),
             ..valid.clone()
         };
 
         let state = parse_account_state(
-            &[malformed, valid],
+            &[over_precision, valid],
             AccountId::new("COINBASE-001"),
             true,
             UnixNanos::from(1),
@@ -1697,7 +1717,7 @@ mod tests {
         )
         .unwrap();
 
-        // Malformed entry was skipped; only the valid USD row survives.
+        // Out-of-range entry was skipped; only the valid USD row survives.
         assert_eq!(state.balances.len(), 1);
         assert_eq!(state.balances[0].currency.code.as_str(), "USD");
         assert_eq!(
@@ -1717,7 +1737,7 @@ mod tests {
                     "stop_direction": "STOP_DIRECTION_STOP_DOWN"
                 }
             })),
-            order_type: "STOP_LIMIT".to_string(),
+            order_type: CoinbaseOrderType::StopLimit,
             ..make_limit_gtc_order("0.001", "0", "0", CoinbaseOrderStatus::Open)
         };
         let instrument = btc_usd_instrument();
@@ -1785,7 +1805,7 @@ mod tests {
                 "side": "BUY",
                 "client_order_id": "client-bracket-1",
                 "status": "OPEN",
-                "time_in_force": "GOOD_UNTIL_DATE",
+                "time_in_force": "GOOD_UNTIL_DATE_TIME",
                 "created_time": "2024-01-15T10:00:00Z",
                 "completion_percentage": "0",
                 "filled_size": "0",
@@ -1848,8 +1868,8 @@ mod tests {
                     "post_only": false
                 }
             })),
-            time_in_force: Some(CoinbaseTimeInForce::GoodUntilDate),
-            order_type: "LIMIT".to_string(),
+            time_in_force: Some(CoinbaseTimeInForce::GoodUntilDateTime),
+            order_type: CoinbaseOrderType::Limit,
             ..make_limit_gtc_order("0.001", "50000.00", "0", CoinbaseOrderStatus::Open)
         };
 

@@ -488,34 +488,34 @@ mod tests {
     #[case::spot("SPOT", None, true)]
     #[case::future_crypto(
         "FUTURE",
-        Some(json!({"venue":"cde","contract_code":"BIT","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"0.01","contract_root_unit":"BTC","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_CRYPTO"})),
+        Some(json!({"venue":"cde","contract_code":"BIT","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"0.01","contract_root_unit":"BTC","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"MANAGED_BY_FCM","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_CRYPTO"})),
         true
     )]
     #[case::future_no_details("FUTURE", None, false)]
     #[case::future_no_asset_type(
         "FUTURE",
-        Some(json!({"venue":"cde","contract_code":"BIT","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"0.01","contract_root_unit":"BTC","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false})),
+        Some(json!({"venue":"cde","contract_code":"BIT","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"0.01","contract_root_unit":"BTC","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"MANAGED_BY_FCM","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false})),
         true
     )]
-    #[case::unknown("UNKNOWN_TYPE", None, false)]
+    #[case::unknown("UNKNOWN_PRODUCT_TYPE", None, false)]
     #[case::future_non_crypto(
         "FUTURE",
-        Some(json!({"venue":"cde","contract_code":"BIT","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"0.01","contract_root_unit":"BTC","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":true,"futures_asset_type":"FUTURES_ASSET_TYPE_CRYPTO"})),
+        Some(json!({"venue":"cde","contract_code":"BIT","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"0.01","contract_root_unit":"BTC","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"MANAGED_BY_FCM","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":true,"futures_asset_type":"FUTURES_ASSET_TYPE_CRYPTO"})),
         false
     )]
     #[case::future_energy(
         "FUTURE",
-        Some(json!({"venue":"cde","contract_code":"OIL","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"1","contract_root_unit":"OIL","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_ENERGY"})),
+        Some(json!({"venue":"cde","contract_code":"OIL","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"1","contract_root_unit":"OIL","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"MANAGED_BY_FCM","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_ENERGY"})),
         false
     )]
     #[case::future_metals(
         "FUTURE",
-        Some(json!({"venue":"cde","contract_code":"GLD","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"1","contract_root_unit":"GLD","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_METALS"})),
+        Some(json!({"venue":"cde","contract_code":"GLD","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"1","contract_root_unit":"GLD","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"MANAGED_BY_FCM","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_METALS"})),
         false
     )]
     #[case::future_stocks(
         "FUTURE",
-        Some(json!({"venue":"cde","contract_code":"SPX","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"1","contract_root_unit":"SPX","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_STOCKS"})),
+        Some(json!({"venue":"cde","contract_code":"SPX","contract_expiry":"2026-04-24T15:00:00Z","contract_size":"1","contract_root_unit":"SPX","group_description":"","contract_expiry_timezone":"","group_short_description":"","risk_managed_by":"MANAGED_BY_FCM","contract_expiry_type":"EXPIRING","contract_display_name":"","non_crypto":false,"futures_asset_type":"FUTURES_ASSET_TYPE_STOCKS"})),
         false
     )]
     fn test_is_supported_product(
@@ -532,7 +532,7 @@ mod tests {
         let provider = provider();
         let json_str = load_test_fixture("http_product.json");
         let mut json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        json["product_type"] = serde_json::Value::String("UNKNOWN_TYPE".to_string());
+        json["product_type"] = serde_json::Value::String("OPTIONS".to_string());
 
         let result = provider.load_from_product_response(&json);
 
@@ -571,7 +571,7 @@ mod tests {
 
         let mut unknown_json = spot_json.clone();
         unknown_json["product_id"] = serde_json::Value::String("UNKNOWN-PAIR".to_string());
-        unknown_json["product_type"] = serde_json::Value::String("UNKNOWN_TYPE".to_string());
+        unknown_json["product_type"] = serde_json::Value::String("OPTIONS".to_string());
 
         let response = json!({
             "products": [spot_json, unknown_json],

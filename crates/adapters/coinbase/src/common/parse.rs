@@ -15,12 +15,57 @@
 
 //! Common parsing utilities for the Coinbase adapter.
 
+use std::str::FromStr;
+
+pub use nautilus_core::serialization::{
+    deserialize_decimal_from_str, deserialize_optional_decimal_from_str, deserialize_string_to_u64,
+    serialize_decimal_as_str, serialize_optional_decimal_as_str,
+};
 use nautilus_model::{
     data::BarType,
     enums::{AggregationSource, BarAggregation},
 };
+use serde::{
+    Deserialize,
+    de::{self, Unexpected},
+};
 
-use crate::common::enums::CoinbaseGranularity;
+use crate::common::enums::{CoinbaseGranularity, CoinbaseProductType};
+
+/// Deserializes an optional value where Coinbase uses an empty string for `None`.
+pub fn deserialize_empty_string_to_none<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum EmptyOrValue<T> {
+        Value(T),
+        Empty(String),
+    }
+
+    match Option::<EmptyOrValue<T>>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(EmptyOrValue::Value(value)) => Ok(Some(value)),
+        Some(EmptyOrValue::Empty(value)) if value.is_empty() => Ok(None),
+        Some(EmptyOrValue::Empty(value)) => Err(de::Error::invalid_value(
+            Unexpected::Str(&value),
+            &"an empty string or a valid value",
+        )),
+    }
+}
+
+/// Deserializes a Coinbase product type and falls back to `Unknown`.
+pub fn deserialize_product_type_or_unknown<'de, D>(
+    deserializer: D,
+) -> Result<CoinbaseProductType, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    Ok(CoinbaseProductType::from_str(&value).unwrap_or(CoinbaseProductType::Unknown))
+}
 
 /// Converts a Nautilus [`BarType`] to a [`CoinbaseGranularity`].
 ///

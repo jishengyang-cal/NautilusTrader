@@ -21,7 +21,12 @@
           "order_type": "Limit",
           "cancel_reason": "",
           "reject_reason": "",
-          "total_value_after_fees": "68.90050000"
+          "total_value_after_fees": "68.90050000",
+          "contract_expiry_type": "UNKNOWN_CONTRACT_EXPIRY_TYPE",
+          "product_type": "SPOT",
+          "risk_managed_by": "UNKNOWN_RISK_MANAGEMENT_TYPE",
+          "time_in_force": "GOOD_UNTIL_CANCELLED",
+          "trigger_status": "INVALID_ORDER_TYPE"
         }
       ]
     }

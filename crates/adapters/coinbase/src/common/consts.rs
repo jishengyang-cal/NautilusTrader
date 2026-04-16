@@ -36,6 +36,19 @@ pub const JWT_ISSUER: &str = "cdp";
 /// Coinbase requires JWT regeneration within 2 minutes
 pub const JWT_EXPIRY_SECS: u64 = 120;
 
+pub const ORDER_CONFIG_MARKET_IOC: &str = "market_market_ioc";
+pub const ORDER_CONFIG_LIMIT_GTC: &str = "limit_limit_gtc";
+pub const ORDER_CONFIG_LIMIT_GTD: &str = "limit_limit_gtd";
+pub const ORDER_CONFIG_LIMIT_FOK: &str = "limit_limit_fok";
+pub const ORDER_CONFIG_STOP_LIMIT_GTC: &str = "stop_limit_stop_limit_gtc";
+pub const ORDER_CONFIG_STOP_LIMIT_GTD: &str = "stop_limit_stop_limit_gtd";
+pub const ORDER_CONFIG_BASE_SIZE: &str = "base_size";
+pub const ORDER_CONFIG_QUOTE_SIZE: &str = "quote_size";
+pub const ORDER_CONFIG_LIMIT_PRICE: &str = "limit_price";
+pub const ORDER_CONFIG_STOP_PRICE: &str = "stop_price";
+pub const ORDER_CONFIG_POST_ONLY: &str = "post_only";
+pub const ORDER_CONFIG_END_TIME: &str = "end_time";
+
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 pub const RECONNECT_BASE_BACKOFF: Duration = Duration::from_millis(250);
@@ -67,5 +80,21 @@ mod tests {
         assert_eq!(HTTP_TIMEOUT, Duration::from_secs(10));
         assert_eq!(HEARTBEAT_INTERVAL, Duration::from_secs(30));
         assert_eq!(WS_SUBSCRIBE_DEADLINE, Duration::from_secs(5));
+    }
+
+    #[rstest]
+    fn test_order_configuration_constants() {
+        assert_eq!(ORDER_CONFIG_MARKET_IOC, "market_market_ioc");
+        assert_eq!(ORDER_CONFIG_LIMIT_GTC, "limit_limit_gtc");
+        assert_eq!(ORDER_CONFIG_LIMIT_GTD, "limit_limit_gtd");
+        assert_eq!(ORDER_CONFIG_LIMIT_FOK, "limit_limit_fok");
+        assert_eq!(ORDER_CONFIG_STOP_LIMIT_GTC, "stop_limit_stop_limit_gtc");
+        assert_eq!(ORDER_CONFIG_STOP_LIMIT_GTD, "stop_limit_stop_limit_gtd");
+        assert_eq!(ORDER_CONFIG_BASE_SIZE, "base_size");
+        assert_eq!(ORDER_CONFIG_QUOTE_SIZE, "quote_size");
+        assert_eq!(ORDER_CONFIG_LIMIT_PRICE, "limit_price");
+        assert_eq!(ORDER_CONFIG_STOP_PRICE, "stop_price");
+        assert_eq!(ORDER_CONFIG_POST_ONLY, "post_only");
+        assert_eq!(ORDER_CONFIG_END_TIME, "end_time");
     }
 }

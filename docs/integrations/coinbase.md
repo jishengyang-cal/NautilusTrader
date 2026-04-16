@@ -17,6 +17,10 @@ instrument provider, data client) is available. The execution client and Python
 integration are not yet implemented.
 :::
 
+The WebSocket layer can deserialize `user`, `status`, and
+`futures_balance_summary` payloads. The current data client ignores those
+channels until execution, account-state, and venue-status wiring lands.
+
 The following components are available:
 
 - `CoinbaseHttpClient`: Low-level HTTP API connectivity.

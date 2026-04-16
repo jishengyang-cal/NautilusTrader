@@ -13,7 +13,7 @@
       "created_at": "2021-05-31T09:59:59Z",
       "updated_at": "2024-01-15T10:30:00Z",
       "deleted_at": null,
-      "type": "ACCOUNT_TYPE_CRYPTO",
+      "type": "CRYPTO",
       "ready": true,
       "hold": {
         "value": "0.00500000",
@@ -34,7 +34,7 @@
       "created_at": "2021-05-31T09:59:59Z",
       "updated_at": "2024-01-15T10:30:00Z",
       "deleted_at": null,
-      "type": "ACCOUNT_TYPE_FIAT",
+      "type": "FIAT",
       "ready": true,
       "hold": {
         "value": "450.00",

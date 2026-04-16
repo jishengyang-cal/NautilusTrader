@@ -345,7 +345,7 @@ fn account_json(currency: &str, available: &str, hold: &str, uuid: &str) -> Valu
         "created_at": "2024-01-15T10:00:00Z",
         "updated_at": "2024-01-15T10:00:00Z",
         "deleted_at": null,
-        "type": "ACCOUNT_TYPE_FIAT",
+        "type": "FIAT",
         "ready": true,
         "hold": {"value": hold, "currency": currency},
         "retail_portfolio_id": "portfolio-1"
