@@ -26,7 +26,7 @@ use nautilus_model::{
         stubs::{audusd_sim, crypto_perpetual_ethusdt},
     },
     orders::{
-        Order, OrderTestBuilder,
+        Order, OrderAny, OrderTestBuilder,
         stubs::{TestOrderEventStubs, TestOrderStubs},
     },
     reports::{FillReport, OrderStatusReport, PositionStatusReport},
@@ -46,6 +46,35 @@ fn instrument() -> InstrumentAny {
 
 fn create_test_venue_order_id(value: &str) -> VenueOrderId {
     VenueOrderId::new(value)
+}
+
+fn submit_accept(order: &mut OrderAny, account_id: AccountId, venue_order_id: VenueOrderId) {
+    let submitted = TestOrderEventStubs::submitted(order, account_id);
+    order.apply(submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(order, account_id, venue_order_id);
+    order.apply(accepted).unwrap();
+}
+
+fn apply_fill(
+    order: &mut OrderAny,
+    instrument: &InstrumentAny,
+    trade_id: TradeId,
+    last_qty: Quantity,
+    last_px: Price,
+) {
+    let fill = TestOrderEventStubs::filled(
+        order,
+        instrument,
+        Some(trade_id),
+        None,
+        Some(last_px),
+        Some(last_qty),
+        Some(LiquiditySide::Taker),
+        None,
+        None,
+        None,
+    );
+    order.apply(fill).unwrap();
 }
 
 #[rstest]
@@ -3798,54 +3827,14 @@ fn test_incremental_fill_zero_cost_incremental_no_panic(instrument: InstrumentAn
         .quantity(Quantity::from("10"))
         .build();
 
-    let submitted = OrderSubmitted::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        account_id,
-        UUID4::new(),
-        UnixNanos::default(),
-        UnixNanos::default(),
-    );
-    order.apply(OrderEventAny::Submitted(submitted)).unwrap();
-
-    let accepted = OrderAccepted::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        venue_order_id,
-        account_id,
-        UUID4::new(),
-        UnixNanos::default(),
-        UnixNanos::default(),
-        false,
-    );
-    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
-
-    let prior_fill = OrderFilled::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        venue_order_id,
-        account_id,
+    submit_accept(&mut order, account_id, venue_order_id);
+    apply_fill(
+        &mut order,
+        &instrument,
         TradeId::from("T-001"),
-        OrderSide::Buy,
-        OrderType::Market,
         Quantity::from("3"),
         Price::from("0.00000"),
-        Currency::USD(),
-        LiquiditySide::Taker,
-        UUID4::new(),
-        UnixNanos::from(1_000_000),
-        UnixNanos::from(1_000_000),
-        false,
-        None,
-        None,
     );
-    order.apply(OrderEventAny::Filled(prior_fill)).unwrap();
 
     let mut report = create_test_order_status_report(
         client_order_id,
@@ -3919,54 +3908,14 @@ fn test_status_vs_qty_mismatch_emits_updated(instrument: InstrumentAny) {
         .price(Price::from("1.00000"))
         .build();
 
-    let submitted = OrderSubmitted::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        account_id,
-        UUID4::new(),
-        UnixNanos::default(),
-        UnixNanos::default(),
-    );
-    order.apply(OrderEventAny::Submitted(submitted)).unwrap();
-
-    let accepted = OrderAccepted::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        venue_order_id,
-        account_id,
-        UUID4::new(),
-        UnixNanos::default(),
-        UnixNanos::default(),
-        false,
-    );
-    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
-
-    let prior_fill = OrderFilled::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        venue_order_id,
-        account_id,
+    submit_accept(&mut order, account_id, venue_order_id);
+    apply_fill(
+        &mut order,
+        &instrument,
         TradeId::from("T-001"),
-        OrderSide::Buy,
-        OrderType::Limit,
         Quantity::from(10),
         Price::from("1.00000"),
-        Currency::USD(),
-        LiquiditySide::Taker,
-        UUID4::new(),
-        UnixNanos::from(1_000_000),
-        UnixNanos::from(1_000_000),
-        false,
-        None,
-        None,
     );
-    order.apply(OrderEventAny::Filled(prior_fill)).unwrap();
     assert_eq!(order.status(), OrderStatus::PartiallyFilled);
 
     let mut report = create_test_order_status_report(
@@ -3983,13 +3932,20 @@ fn test_status_vs_qty_mismatch_emits_updated(instrument: InstrumentAny) {
     let result = reconcile_order_report(&order, &report, Some(&instrument), UnixNanos::default());
 
     let event = result.expect("expected OrderUpdated for reduced-qty Filled report");
-    match event {
-        OrderEventAny::Updated(updated) => {
-            assert_eq!(updated.quantity, Quantity::from(10));
-            assert_eq!(updated.reconciliation, 1);
-        }
+    let updated = match event.clone() {
+        OrderEventAny::Updated(u) => u,
         other => panic!("expected OrderUpdated, was {other:?}"),
-    }
+    };
+    assert_eq!(updated.quantity, Quantity::from(10));
+    assert_eq!(updated.reconciliation, 1);
+
+    order.apply(event).unwrap();
+    assert_eq!(order.quantity(), Quantity::from(10));
+    assert_eq!(order.filled_qty(), Quantity::from(10));
+    // Documented limitation shared with Python reference: OrderUpdated alone
+    // does not transition PartiallyFilled -> Filled; status persists here
+    // even though filled_qty now equals quantity.
+    assert_eq!(order.status(), OrderStatus::PartiallyFilled);
 }
 
 #[rstest]
@@ -4010,54 +3966,14 @@ fn test_status_vs_qty_mismatch_no_qty_change_returns_none(instrument: Instrument
         .price(Price::from("1.00000"))
         .build();
 
-    let submitted = OrderSubmitted::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        account_id,
-        UUID4::new(),
-        UnixNanos::default(),
-        UnixNanos::default(),
-    );
-    order.apply(OrderEventAny::Submitted(submitted)).unwrap();
-
-    let accepted = OrderAccepted::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        venue_order_id,
-        account_id,
-        UUID4::new(),
-        UnixNanos::default(),
-        UnixNanos::default(),
-        false,
-    );
-    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
-
-    let prior_fill = OrderFilled::new(
-        order.trader_id(),
-        order.strategy_id(),
-        order.instrument_id(),
-        order.client_order_id(),
-        venue_order_id,
-        account_id,
+    submit_accept(&mut order, account_id, venue_order_id);
+    apply_fill(
+        &mut order,
+        &instrument,
         TradeId::from("T-001"),
-        OrderSide::Buy,
-        OrderType::Limit,
         Quantity::from(10),
         Price::from("1.00000"),
-        Currency::USD(),
-        LiquiditySide::Taker,
-        UUID4::new(),
-        UnixNanos::from(1_000_000),
-        UnixNanos::from(1_000_000),
-        false,
-        None,
-        None,
     );
-    order.apply(OrderEventAny::Filled(prior_fill)).unwrap();
 
     let mut report = create_test_order_status_report(
         client_order_id,
@@ -4072,4 +3988,177 @@ fn test_status_vs_qty_mismatch_no_qty_change_returns_none(instrument: Instrument
 
     let result = reconcile_order_report(&order, &report, Some(&instrument), UnixNanos::default());
     assert!(result.is_none());
+}
+
+#[rstest]
+fn test_reconcile_fill_report_overfill_after_partial_rejected(instrument: InstrumentAny) {
+    // Previously unfilled order absorbs a partial fill and must then reject
+    // a second fill that together with the partial would exceed its total
+    // quantity; guards against reconciliation stacking fills past the
+    // order's size when the venue redelivers stale events.
+    let client_order_id = ClientOrderId::from("O-001");
+    let venue_order_id = VenueOrderId::from("V-001");
+    let account_id = AccountId::from("SIM-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument.id())
+        .client_order_id(client_order_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("100"))
+        .build();
+
+    submit_accept(&mut order, account_id, venue_order_id);
+    apply_fill(
+        &mut order,
+        &instrument,
+        TradeId::from("T-001"),
+        Quantity::from("60"),
+        Price::from("1.00000"),
+    );
+
+    let fill_report = create_test_fill_report(
+        instrument.id(),
+        venue_order_id,
+        TradeId::from("T-002"),
+        Quantity::from("50"),
+        Price::from("1.00000"),
+    );
+
+    let result = reconcile_fill_report(
+        &order,
+        &fill_report,
+        &instrument,
+        UnixNanos::from(3_000_000),
+        false,
+    );
+    assert!(result.is_none(), "expected overfill rejection");
+}
+
+#[rstest]
+fn test_should_reconciliation_update_rejects_shrink_below_filled(instrument: InstrumentAny) {
+    // Venue must never downsize an order below what the engine has already
+    // filled; should_reconciliation_update returns false to prevent emitting
+    // an OrderUpdated that would violate filled_qty <= quantity.
+    let client_order_id = ClientOrderId::from("O-001");
+    let venue_order_id = VenueOrderId::from("V-001");
+    let account_id = AccountId::from("SIM-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument.id())
+        .client_order_id(client_order_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from(20))
+        .price(Price::from("1.00000"))
+        .build();
+
+    submit_accept(&mut order, account_id, venue_order_id);
+    apply_fill(
+        &mut order,
+        &instrument,
+        TradeId::from("T-001"),
+        Quantity::from(15),
+        Price::from("1.00000"),
+    );
+
+    let mut report = create_test_order_status_report(
+        client_order_id,
+        venue_order_id,
+        instrument.id(),
+        OrderType::Limit,
+        OrderStatus::PartiallyFilled,
+        Quantity::from(10),
+        Quantity::from(15),
+    );
+    report.price = Some(Price::from("1.00000"));
+
+    assert!(!should_reconciliation_update(&order, &report));
+}
+
+#[rstest]
+fn test_reconciliation_updated_strips_trigger_price_for_limit(instrument: InstrumentAny) {
+    // Guards against venues that report trigger_price on non-triggerable
+    // orders (e.g. Bybit sends "0.00" for Limit orders); a naive
+    // pass-through panics inside LimitOrder::update, so
+    // create_reconciliation_updated must force trigger_price to None and
+    // the resulting event must apply cleanly.
+    let client_order_id = ClientOrderId::from("O-001");
+    let venue_order_id = VenueOrderId::from("V-001");
+    let account_id = AccountId::from("SIM-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument.id())
+        .client_order_id(client_order_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from(100))
+        .price(Price::from("1.00000"))
+        .build();
+
+    submit_accept(&mut order, account_id, venue_order_id);
+
+    let mut report = create_test_order_status_report(
+        client_order_id,
+        venue_order_id,
+        instrument.id(),
+        OrderType::Limit,
+        OrderStatus::Accepted,
+        Quantity::from(100),
+        Quantity::from(0),
+    );
+    report.price = Some(Price::from("1.00100"));
+    report.trigger_price = Some(Price::from("0.00000"));
+
+    let event = create_reconciliation_updated(&order, &report, UnixNanos::default());
+    let updated = match event.clone() {
+        OrderEventAny::Updated(u) => u,
+        other => panic!("expected OrderUpdated, was {other:?}"),
+    };
+    assert_eq!(updated.trigger_price, None);
+    assert_eq!(updated.price, Some(Price::from("1.00100")));
+
+    order.apply(event).unwrap();
+}
+
+#[rstest]
+fn test_reconcile_closed_order_within_tolerance_is_noop(instrument: InstrumentAny) {
+    // Venue can redeliver a filled order with sub-precision jitter on
+    // filled_qty after it closed locally; the mismatch is within single-unit
+    // tolerance so reconciliation must not synthesize an inferred fill that
+    // would overfill the already closed order.
+    let client_order_id = ClientOrderId::from("O-001");
+    let venue_order_id = VenueOrderId::from("V-001");
+    let account_id = AccountId::from("SIM-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument.id())
+        .client_order_id(client_order_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("10"))
+        .build();
+
+    submit_accept(&mut order, account_id, venue_order_id);
+    apply_fill(
+        &mut order,
+        &instrument,
+        TradeId::from("T-001"),
+        Quantity::from("10"),
+        Price::from("1.00000"),
+    );
+    assert!(order.is_closed());
+
+    let mut report = create_test_order_status_report(
+        client_order_id,
+        venue_order_id,
+        instrument.id(),
+        OrderType::Market,
+        OrderStatus::Filled,
+        Quantity::from("10"),
+        Quantity::from("10.000001"),
+    );
+    report.avg_px = Some(dec!(1.0));
+
+    let result = reconcile_order_report(&order, &report, Some(&instrument), UnixNanos::default());
+    assert!(
+        result.is_none(),
+        "closed order with sub-tolerance jitter must not emit a new fill",
+    );
 }
