@@ -9842,6 +9842,30 @@ def adjust_fills_for_partial_window(
     instrument: Any,  # PyO3 InstrumentAny
     tolerance: str | None = None,
 ) -> tuple[dict[str, OrderStatusReport], dict[str, list[FillReport]]]: ...
+def create_inferred_reconciliation_trade_id(
+    account_id: AccountId,
+    instrument_id: InstrumentId,
+    client_order_id: ClientOrderId,
+    venue_order_id: VenueOrderId | None,
+    order_side: OrderSide,
+    order_type: OrderType,
+    filled_qty: Quantity,
+    last_qty: Quantity,
+    last_px: Price,
+    position_id: PositionId,
+    ts_last: int,
+) -> TradeId: ...
+def create_position_reconciliation_venue_order_id(
+    account_id: AccountId,
+    instrument_id: InstrumentId,
+    order_side: OrderSide,
+    order_type: OrderType,
+    quantity: Quantity,
+    price: Price | None = None,
+    venue_position_id: PositionId | None = None,
+    ts_last: int = 0,
+    tag: str | None = None,
+) -> VenueOrderId: ...
 
 ###################################################################################################
 # Test Kit

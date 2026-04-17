@@ -23,6 +23,8 @@ __all__ = [
     "VolumeSensitiveFillModel",
     "adjust_fills_for_partial_window",
     "calculate_reconciliation_price",
+    "create_inferred_reconciliation_trade_id",
+    "create_position_reconciliation_venue_order_id",
 ]
 
 @typing.final
@@ -128,3 +130,27 @@ def calculate_reconciliation_price(
     target_position_qty: decimal.Decimal,
     target_position_avg_px: decimal.Decimal | None = ...,
 ) -> decimal.Decimal | None: ...
+def create_inferred_reconciliation_trade_id(
+    account_id: model.AccountId,
+    instrument_id: model.InstrumentId,
+    client_order_id: model.ClientOrderId,
+    venue_order_id: model.VenueOrderId | None,
+    order_side: model.OrderSide,
+    order_type: model.OrderType,
+    filled_qty: model.Quantity,
+    last_qty: model.Quantity,
+    last_px: model.Price,
+    position_id: model.PositionId,
+    ts_last: int,
+) -> model.TradeId: ...
+def create_position_reconciliation_venue_order_id(
+    account_id: model.AccountId,
+    instrument_id: model.InstrumentId,
+    order_side: model.OrderSide,
+    order_type: model.OrderType,
+    quantity: model.Quantity,
+    price: model.Price | None = ...,
+    venue_position_id: model.PositionId | None = ...,
+    ts_last: int = ...,
+    tag: str | None = ...,
+) -> model.VenueOrderId: ...

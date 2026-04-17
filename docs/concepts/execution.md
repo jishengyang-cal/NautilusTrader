@@ -473,6 +473,11 @@ are filtered out before they can trigger model integrity errors. If a venue legi
 to correct fill data, it should use proper execution report semantics rather than resending
 with the same `trade_id`.
 
+Reconciliation-generated `trade_id` values are deterministic hashes of the logical fill
+(instrument, client order id, side, quantities, price, position id), so a restart that
+replays reconciliation produces the same `trade_id` and is deduped by this sanitizer rather
+than being treated as a new fill.
+
 ### Configuration
 
 For live trading, enable overfill tolerance in the `LiveExecEngineConfig`:

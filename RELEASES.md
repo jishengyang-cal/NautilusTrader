@@ -41,6 +41,7 @@ Released on TBD (UTC).
 - Fixed PyO3 `LiveNode` `request_bars()` historical callbacks dropped during startup warmup (#3825), thanks @BurnOutTrader
 - Fixed PyO3 `DataActor` missing `on_historical_funding_rates` and `on_historical_data` forwarding `None`
 - Fixed execution engine ignoring user-supplied `position_id` from `submit_order` (Rust)
+- Fixed reconciliation IDs non-deterministic across restarts (#3878), thanks for reporting @peanut-copilot
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Binance user data stream not recovering after keepalive failure (#3861), thanks for reporting @KaizynX
 - Fixed Binance Futures WebSocket trades by forcing `@aggTrade` (#3861), thanks for reporting @KaizynX
@@ -93,9 +94,11 @@ Released on TBD (UTC).
 - Upgraded `datafusion` crate to v53.1.0
 - Upgraded `msgspec` to v0.21.1
 - Upgraded `tokio` crate to v1.52.1
+- Refactored `reconciliation` module into `types`, `ids`, `positions`, and `orders` submodules (Rust)
 
 ### Documentation Updates
 - Added Polymarket Python and Rust adapter config tables and updated rate limits
+- Added ID determinism invariant to the reconciliation live and execution concept guides
 - Refined docs to follow style guide for symbols and filler words (#3830), thanks @JKDasondee
 - Refined Interactive Brokers documentation regarding UTC timestamps (#3826), thanks @faysou
 - Updated the configuration concept guide to define unknown-field rejection as the config standard in Python and Rust

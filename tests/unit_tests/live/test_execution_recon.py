@@ -46,6 +46,7 @@ from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import TrailingOffsetType
 from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.events import OrderFilled
+from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import PositionId
@@ -2629,6 +2630,44 @@ class TestReconciliationEdgeCases:
         assert generated_order.price == Price.from_str("1.0001")  # Ask price for BUY order
         assert generated_order.status == OrderStatus.FILLED
 
+    def test_position_reconciliation_report_uses_deterministic_venue_order_id(
+        self,
+        live_exec_engine,
+    ):
+        instrument = AUDUSD_SIM
+        self.cache.add_instrument(instrument)
+
+        external_report = PositionStatusReport(
+            account_id=TestIdStubs.account_id(),
+            instrument_id=instrument.id,
+            position_side=PositionSide.LONG,
+            quantity=Quantity.from_int(100),
+            avg_px_open=Decimal("1.0001"),
+            report_id=UUID4(),
+            ts_last=0,
+            ts_init=0,
+        )
+
+        first = live_exec_engine._create_position_reconciliation_report(
+            report=external_report,
+            instrument=instrument,
+            position_signed_decimal_qty=Decimal(0),
+            diff_quantity=Quantity.from_int(100),
+            current_avg_px=None,
+        )
+        second = live_exec_engine._create_position_reconciliation_report(
+            report=external_report,
+            instrument=instrument,
+            position_signed_decimal_qty=Decimal(0),
+            diff_quantity=Quantity.from_int(100),
+            current_avg_px=None,
+        )
+
+        assert first is not None
+        assert second is not None
+        assert first.venue_order_id == second.venue_order_id
+        assert first.id != second.id
+
     @pytest.mark.asyncio
     async def test_position_reconciliation_crosses_zero_splits_into_two_fills(
         self,
@@ -2701,6 +2740,86 @@ class TestReconciliationEdgeCases:
         assert open_report.filled_qty == Quantity.from_int(50)
         assert open_report.order_status == OrderStatus.FILLED
         assert open_report.avg_px == Decimal("1.05")
+
+        # Close and open legs must have distinct deterministic venue_order_ids even
+        # when they share the same side, otherwise the second reconciliation leg
+        # collides with the first and the engine cannot tell the fills apart.
+        assert close_report.venue_order_id != open_report.venue_order_id
+
+    @pytest.mark.asyncio
+    async def test_cross_zero_reconciliation_venue_order_ids_stable_on_equal_fills(
+        self,
+        live_exec_engine,
+    ):
+        """
+        Close and open legs at matching qty/price must still hash to distinct IDs via
+        the leg tag, and the same logical flip must replay to the same IDs.
+        """
+        instrument = AUDUSD_SIM
+        self.cache.add_instrument(instrument)
+        live_exec_engine.generate_missing_orders = True
+
+        account_id = TestIdStubs.account_id()
+        first_close = live_exec_engine._create_synthetic_reconciliation_venue_order_id(
+            account_id=account_id,
+            instrument_id=instrument.id,
+            order_side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity.from_int(100),
+            price=Price.from_str("1.00000"),
+            venue_position_id=None,
+            ts_last=1,
+            tag="CLOSE",
+        )
+        first_open = live_exec_engine._create_synthetic_reconciliation_venue_order_id(
+            account_id=account_id,
+            instrument_id=instrument.id,
+            order_side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity.from_int(100),
+            price=Price.from_str("1.00000"),
+            venue_position_id=None,
+            ts_last=1,
+            tag="OPEN",
+        )
+        second_close = live_exec_engine._create_synthetic_reconciliation_venue_order_id(
+            account_id=account_id,
+            instrument_id=instrument.id,
+            order_side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity.from_int(100),
+            price=Price.from_str("1.00000"),
+            venue_position_id=None,
+            ts_last=1,
+            tag="CLOSE",
+        )
+        distinct_incident_close = live_exec_engine._create_synthetic_reconciliation_venue_order_id(
+            account_id=account_id,
+            instrument_id=instrument.id,
+            order_side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity.from_int(100),
+            price=Price.from_str("1.00000"),
+            venue_position_id=None,
+            ts_last=2,
+            tag="CLOSE",
+        )
+        other_account_close = live_exec_engine._create_synthetic_reconciliation_venue_order_id(
+            account_id=AccountId("SIM-999"),
+            instrument_id=instrument.id,
+            order_side=OrderSide.SELL,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity.from_int(100),
+            price=Price.from_str("1.00000"),
+            venue_position_id=None,
+            ts_last=1,
+            tag="CLOSE",
+        )
+
+        assert first_close != first_open
+        assert first_close == second_close
+        assert first_close != distinct_incident_close
+        assert first_close != other_account_close
 
     @pytest.mark.asyncio
     async def test_duplicate_fill_detection_prevents_historical_fills_after_inferred_fill(
@@ -5740,3 +5859,27 @@ class TestInferredFillCommission:
         )
 
         assert filled.commission == Money(42.0, USD)
+
+    def test_repeated_calls_use_deterministic_trade_id(self):
+        from nautilus_trader.live.reconciliation import create_inferred_order_filled_event
+
+        instrument = AUDUSD_SIM
+        order, report = self._make_order_and_report(instrument)
+
+        first = create_inferred_order_filled_event(
+            order=order,
+            ts_now=0,
+            report=report,
+            instrument=instrument,
+            client=None,
+        )
+        second = create_inferred_order_filled_event(
+            order=order,
+            ts_now=1,
+            report=report,
+            instrument=instrument,
+            client=None,
+        )
+
+        assert first.trade_id == second.trade_id
+        assert first.id != second.id

@@ -502,6 +502,22 @@ def create_inferred_order_filled_event(
     if commission is None:
         commission = Money(0, instrument.quote_currency)
 
+    position_id = report.venue_position_id or PositionId(f"{instrument.id}-EXTERNAL")
+    pyo3_trade_id = nautilus_pyo3.create_inferred_reconciliation_trade_id(
+        nautilus_pyo3.AccountId(report.account_id.value),
+        nautilus_pyo3.InstrumentId.from_str(report.instrument_id.value),
+        nautilus_pyo3.ClientOrderId(order.client_order_id.value),
+        nautilus_pyo3.VenueOrderId(report.venue_order_id.value) if report.venue_order_id else None,
+        nautilus_pyo3.OrderSide(order.side.name),
+        nautilus_pyo3.OrderType(order.order_type.name),
+        nautilus_pyo3.Quantity.from_str(str(report.filled_qty)),
+        nautilus_pyo3.Quantity.from_str(str(last_qty)),
+        nautilus_pyo3.Price.from_str(str(last_px)),
+        nautilus_pyo3.PositionId(position_id.value),
+        report.ts_last,
+    )
+    trade_id = TradeId(pyo3_trade_id.value)
+
     return OrderFilled(
         trader_id=order.trader_id,
         strategy_id=order.strategy_id,
@@ -509,8 +525,8 @@ def create_inferred_order_filled_event(
         client_order_id=order.client_order_id,
         venue_order_id=report.venue_order_id,
         account_id=report.account_id,
-        position_id=report.venue_position_id or PositionId(f"{instrument.id}-EXTERNAL"),
-        trade_id=TradeId(UUID4().value),
+        position_id=position_id,
+        trade_id=trade_id,
         order_side=order.side,
         order_type=order.order_type,
         last_qty=last_qty,

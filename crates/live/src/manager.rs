@@ -46,8 +46,8 @@ use nautilus_execution::{
     engine::ExecutionEngine,
     reconciliation::{
         calculate_reconciliation_price, create_inferred_fill_for_qty,
-        create_reconciliation_rejected, create_reconciliation_triggered,
-        create_synthetic_venue_order_id, generate_external_order_status_events,
+        create_position_reconciliation_venue_order_id, create_reconciliation_rejected,
+        create_reconciliation_triggered, generate_external_order_status_events,
         process_mass_status_for_reconciliation, reconcile_order_report,
         should_reconciliation_update,
     },
@@ -63,7 +63,7 @@ use nautilus_model::{
     orders::{Order, OrderAny, TRIGGERABLE_ORDER_TYPES},
     position::Position,
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
-    types::Quantity,
+    types::{Price, Quantity},
 };
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use ustr::Ustr;
@@ -1491,6 +1491,7 @@ impl ExecutionManager {
 
         let result = if crosses_zero {
             // Split into two fills: close existing position, then open new position
+            let venue_ts_last = venue_report.map_or(ts_now, |r| r.ts_last);
             self.reconcile_cross_zero_position(
                 &instrument,
                 account_id,
@@ -1500,6 +1501,7 @@ impl ExecutionManager {
                 venue_signed_qty,
                 venue_avg_px,
                 ts_now,
+                venue_ts_last,
             )
         } else {
             let qty_diff = venue_signed_qty - cached_signed_qty;
@@ -1519,12 +1521,26 @@ impl ExecutionManager {
             match reconciliation_px.or(venue_avg_px).or(cached_avg_px) {
                 Some(fill_px) => {
                     let fill_qty = qty_diff.abs();
-                    let ts_event = ts_now.as_u64();
-                    let venue_order_id = create_synthetic_venue_order_id(ts_event);
+                    let venue_position_id = venue_report.and_then(|r| r.venue_position_id);
+                    let venue_ts_last = venue_report.map_or(ts_now, |r| r.ts_last);
 
                     Quantity::from_decimal_dp(fill_qty, instrument.size_precision())
                         .ok()
                         .and_then(|order_qty| {
+                            let fill_price =
+                                Price::from_decimal_dp(fill_px, instrument.price_precision()).ok();
+                            let venue_order_id = create_position_reconciliation_venue_order_id(
+                                account_id,
+                                instrument_id,
+                                order_side,
+                                OrderType::Market,
+                                order_qty,
+                                fill_price,
+                                venue_position_id,
+                                None,
+                                venue_ts_last,
+                            );
+
                             OrderStatusReport::new(
                                 account_id,
                                 instrument_id,
@@ -1600,6 +1616,7 @@ impl ExecutionManager {
         venue_signed_qty: Decimal,
         venue_avg_px: Option<Decimal>,
         ts_now: UnixNanos,
+        venue_ts_last: UnixNanos,
     ) -> Option<Vec<OrderEventAny>> {
         log::info!(
             color = LogColor::Blue as u8;
@@ -1617,9 +1634,21 @@ impl ExecutionManager {
         };
 
         if let Some(close_px) = cached_avg_px {
-            let close_venue_order_id = create_synthetic_venue_order_id(ts_now.as_u64());
             let close_order_qty =
                 Quantity::from_decimal_dp(close_qty, instrument.size_precision()).ok()?;
+            let close_fill_price =
+                Price::from_decimal_dp(close_px, instrument.price_precision()).ok();
+            let close_venue_order_id = create_position_reconciliation_venue_order_id(
+                account_id,
+                instrument_id,
+                close_side,
+                OrderType::Market,
+                close_order_qty,
+                close_fill_price,
+                None,
+                Some("CLOSE"),
+                venue_ts_last,
+            );
 
             let close_report = OrderStatusReport::new(
                 account_id,
@@ -1662,9 +1691,21 @@ impl ExecutionManager {
         };
 
         if let Some(open_px) = venue_avg_px {
-            let open_venue_order_id = create_synthetic_venue_order_id(ts_now.as_u64() + 1);
             let open_order_qty =
                 Quantity::from_decimal_dp(open_qty, instrument.size_precision()).ok()?;
+            let open_fill_price =
+                Price::from_decimal_dp(open_px, instrument.price_precision()).ok();
+            let open_venue_order_id = create_position_reconciliation_venue_order_id(
+                account_id,
+                instrument_id,
+                open_side,
+                OrderType::Market,
+                open_order_qty,
+                open_fill_price,
+                None,
+                Some("OPEN"),
+                venue_ts_last,
+            );
 
             let open_report = OrderStatusReport::new(
                 account_id,
@@ -1728,8 +1769,19 @@ impl ExecutionManager {
         let venue_avg_px = report.avg_px_open?;
 
         let ts_now = self.clock.borrow().timestamp_ns();
-        let venue_order_id = create_synthetic_venue_order_id(ts_now.as_u64());
         let order_qty = Quantity::from_decimal_dp(qty_abs, instrument.size_precision()).ok()?;
+        let fill_price = Price::from_decimal_dp(venue_avg_px, instrument.price_precision()).ok();
+        let venue_order_id = create_position_reconciliation_venue_order_id(
+            *account_id,
+            instrument_id,
+            order_side,
+            OrderType::Market,
+            order_qty,
+            fill_price,
+            report.venue_position_id,
+            None,
+            report.ts_last,
+        );
 
         let mut order_report = OrderStatusReport::new(
             *account_id,
@@ -2040,6 +2092,7 @@ impl ExecutionManager {
                 venue_signed_qty,
                 report.avg_px_open,
                 ts_now,
+                report.ts_last,
             );
         }
 
@@ -2087,7 +2140,18 @@ impl ExecutionManager {
             .or(current_avg_px)?;
 
         let ts_now = self.clock.borrow().timestamp_ns();
-        let venue_order_id = create_synthetic_venue_order_id(ts_now.as_u64());
+        let fill_price = Price::from_decimal_dp(fill_px, instrument.price_precision()).ok();
+        let venue_order_id = create_position_reconciliation_venue_order_id(
+            *account_id,
+            instrument_id,
+            order_side,
+            OrderType::Market,
+            diff_qty,
+            fill_price,
+            report.venue_position_id,
+            None,
+            report.ts_last,
+        );
 
         let mut order_report = OrderStatusReport::new(
             *account_id,
@@ -2312,7 +2376,30 @@ impl ExecutionManager {
         {
             let mut cache = self.cache.borrow_mut();
             if let Err(e) = cache.add_order(order.clone(), None, None, false) {
-                log::error!("Failed to add external order to cache: {e}");
+                // Deterministic synthetic reconciliation IDs hash the same logical event
+                // to the same client_order_id, so a restart replay can legitimately collide
+                // with a cached order. Differentiate expected dedup from stuck state.
+                match cache.order(&client_order_id) {
+                    Some(existing) if is_synthetic && existing.is_closed() => {
+                        log::debug!(
+                            "Skipping synthetic reconciliation order {client_order_id} for {}: \
+                             replay deduped (cached status={:?})",
+                            report.instrument_id,
+                            existing.status(),
+                        );
+                    }
+                    Some(existing) if is_synthetic => {
+                        log::warn!(
+                            "Synthetic reconciliation order {client_order_id} for {} exists in \
+                             cache in non-terminal state {:?}; fill not regenerated",
+                            report.instrument_id,
+                            existing.status(),
+                        );
+                    }
+                    _ => {
+                        log::error!("Failed to add external order to cache: {e}");
+                    }
+                }
                 return (Vec::new(), None);
             }
 

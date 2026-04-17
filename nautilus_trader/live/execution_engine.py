@@ -32,6 +32,7 @@ from nautilus_trader.common.component import MessageBus
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.enums import LogLevel
 from nautilus_trader.config import LiveExecEngineConfig
+from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.core.datetime import millis_to_nanos
@@ -2638,7 +2639,17 @@ class LiveExecutionEngine(ExecutionEngine):
                 close_report = OrderStatusReport(
                     instrument_id=report.instrument_id,
                     account_id=report.account_id,
-                    venue_order_id=VenueOrderId(str(UUID4())),
+                    venue_order_id=self._create_synthetic_reconciliation_venue_order_id(
+                        account_id=report.account_id,
+                        instrument_id=report.instrument_id,
+                        order_side=close_side,
+                        order_type=OrderType.LIMIT,
+                        quantity=close_quantity,
+                        price=close_price,
+                        venue_position_id=report.venue_position_id,
+                        ts_last=report.ts_last,
+                        tag="CLOSE",
+                    ),
                     venue_position_id=report.venue_position_id,
                     order_side=close_side,
                     order_type=OrderType.LIMIT,
@@ -2731,7 +2742,17 @@ class LiveExecutionEngine(ExecutionEngine):
                 open_report = OrderStatusReport(
                     instrument_id=report.instrument_id,
                     account_id=report.account_id,
-                    venue_order_id=VenueOrderId(str(UUID4())),
+                    venue_order_id=self._create_synthetic_reconciliation_venue_order_id(
+                        account_id=report.account_id,
+                        instrument_id=report.instrument_id,
+                        order_side=open_side,
+                        order_type=OrderType.LIMIT,
+                        quantity=open_quantity,
+                        price=open_price,
+                        venue_position_id=report.venue_position_id,
+                        ts_last=report.ts_last,
+                        tag="OPEN",
+                    ),
                     venue_position_id=report.venue_position_id,
                     order_side=open_side,
                     order_type=OrderType.LIMIT,
@@ -2846,7 +2867,16 @@ class LiveExecutionEngine(ExecutionEngine):
                 return OrderStatusReport(
                     instrument_id=report.instrument_id,
                     account_id=report.account_id,
-                    venue_order_id=VenueOrderId(str(UUID4())),
+                    venue_order_id=self._create_synthetic_reconciliation_venue_order_id(
+                        account_id=report.account_id,
+                        instrument_id=report.instrument_id,
+                        order_side=order_side,
+                        order_type=OrderType.LIMIT,
+                        quantity=diff_quantity,
+                        price=reconciliation_price,
+                        venue_position_id=report.venue_position_id,
+                        ts_last=report.ts_last,
+                    ),
                     venue_position_id=report.venue_position_id,
                     order_side=order_side,
                     order_type=OrderType.LIMIT,
@@ -2903,7 +2933,16 @@ class LiveExecutionEngine(ExecutionEngine):
                 return OrderStatusReport(
                     instrument_id=report.instrument_id,
                     account_id=report.account_id,
-                    venue_order_id=VenueOrderId(str(UUID4())),
+                    venue_order_id=self._create_synthetic_reconciliation_venue_order_id(
+                        account_id=report.account_id,
+                        instrument_id=report.instrument_id,
+                        order_side=order_side,
+                        order_type=OrderType.MARKET,
+                        quantity=diff_quantity,
+                        price=None,
+                        venue_position_id=report.venue_position_id,
+                        ts_last=report.ts_last,
+                    ),
                     venue_position_id=report.venue_position_id,
                     order_side=order_side,
                     order_type=OrderType.MARKET,
@@ -2917,6 +2956,31 @@ class LiveExecutionEngine(ExecutionEngine):
                     ts_last=now,
                     ts_init=now,
                 )
+
+    def _create_synthetic_reconciliation_venue_order_id(
+        self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        order_side: OrderSide,
+        order_type: OrderType,
+        quantity: Quantity,
+        price: Price | None,
+        venue_position_id: PositionId | None,
+        ts_last: int,
+        tag: str | None = None,
+    ) -> VenueOrderId:
+        pyo3_venue_order_id = nautilus_pyo3.create_position_reconciliation_venue_order_id(
+            nautilus_pyo3.AccountId(account_id.value),
+            nautilus_pyo3.InstrumentId.from_str(instrument_id.value),
+            nautilus_pyo3.OrderSide(order_side.name),
+            nautilus_pyo3.OrderType(order_type.name),
+            nautilus_pyo3.Quantity.from_str(str(quantity)),
+            nautilus_pyo3.Price.from_str(str(price)) if price else None,
+            nautilus_pyo3.PositionId(venue_position_id.value) if venue_position_id else None,
+            ts_last,
+            tag,
+        )
+        return VenueOrderId(pyo3_venue_order_id.value)
 
     def _reconcile_order_report(
         self,

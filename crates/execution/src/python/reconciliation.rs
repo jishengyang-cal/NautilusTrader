@@ -15,9 +15,13 @@
 
 //! Python bindings for reconciliation functions.
 
-use nautilus_core::python::to_pyvalue_err;
+use nautilus_core::{UnixNanos, python::to_pyvalue_err};
 use nautilus_model::{
-    python::instruments::pyobject_to_instrument_any, reports::ExecutionMassStatus,
+    enums::{OrderSide, OrderType},
+    identifiers::{AccountId, ClientOrderId, InstrumentId, PositionId, TradeId, VenueOrderId},
+    python::instruments::pyobject_to_instrument_any,
+    reports::ExecutionMassStatus,
+    types::{Price, Quantity},
 };
 use pyo3::{
     IntoPyObjectExt,
@@ -27,7 +31,8 @@ use pyo3::{
 use rust_decimal::Decimal;
 
 use crate::reconciliation::{
-    calculate_reconciliation_price, process_mass_status_for_reconciliation,
+    calculate_reconciliation_price, create_inferred_reconciliation_trade_id,
+    create_position_reconciliation_venue_order_id, process_mass_status_for_reconciliation,
 };
 
 /// Process mass status for position reconciliation.
@@ -110,5 +115,65 @@ pub fn py_calculate_reconciliation_price(
         current_position_avg_px,
         target_position_qty,
         target_position_avg_px,
+    )
+}
+
+#[pyfunction(name = "create_inferred_reconciliation_trade_id")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.execution")]
+#[pyo3(signature = (account_id, instrument_id, client_order_id, venue_order_id, order_side, order_type, filled_qty, last_qty, last_px, position_id, ts_last))]
+#[expect(clippy::too_many_arguments)]
+pub fn py_create_inferred_reconciliation_trade_id(
+    account_id: AccountId,
+    instrument_id: InstrumentId,
+    client_order_id: ClientOrderId,
+    venue_order_id: Option<VenueOrderId>,
+    order_side: OrderSide,
+    order_type: OrderType,
+    filled_qty: Quantity,
+    last_qty: Quantity,
+    last_px: Price,
+    position_id: PositionId,
+    ts_last: u64,
+) -> TradeId {
+    create_inferred_reconciliation_trade_id(
+        account_id,
+        instrument_id,
+        client_order_id,
+        venue_order_id,
+        order_side,
+        order_type,
+        filled_qty,
+        last_qty,
+        last_px,
+        position_id,
+        UnixNanos::from(ts_last),
+    )
+}
+
+#[pyfunction(name = "create_position_reconciliation_venue_order_id")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.execution")]
+#[pyo3(signature = (account_id, instrument_id, order_side, order_type, quantity, price=None, venue_position_id=None, ts_last=0, tag=None))]
+#[expect(clippy::needless_pass_by_value, clippy::too_many_arguments)]
+pub fn py_create_position_reconciliation_venue_order_id(
+    account_id: AccountId,
+    instrument_id: InstrumentId,
+    order_side: OrderSide,
+    order_type: OrderType,
+    quantity: Quantity,
+    price: Option<Price>,
+    venue_position_id: Option<PositionId>,
+    ts_last: u64,
+    tag: Option<String>,
+) -> VenueOrderId {
+    create_position_reconciliation_venue_order_id(
+        account_id,
+        instrument_id,
+        order_side,
+        order_type,
+        quantity,
+        price,
+        venue_position_id,
+        tag.as_deref(),
+        UnixNanos::from(ts_last),
     )
 }

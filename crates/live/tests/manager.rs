@@ -4589,6 +4589,10 @@ async fn test_netting_position_cross_zero_long_to_short() {
     // Second fill should be SELL 3.0 (open short)
     assert_eq!(fill_events[1].order_side, OrderSide::Sell);
     assert_eq!(fill_events[1].last_qty, Quantity::from("3.0"));
+
+    // Close and open legs must hash to distinct venue_order_ids so the engine
+    // can tell them apart across reconciliation replays.
+    assert_ne!(fill_events[0].venue_order_id, fill_events[1].venue_order_id);
 }
 
 #[tokio::test]
@@ -4664,6 +4668,10 @@ async fn test_netting_position_cross_zero_short_to_long() {
     // Second fill should be BUY 2.0 (open long)
     assert_eq!(fill_events[1].order_side, OrderSide::Buy);
     assert_eq!(fill_events[1].last_qty, Quantity::from("2.0"));
+
+    // Close and open legs must hash to distinct venue_order_ids so the engine
+    // can tell them apart across reconciliation replays.
+    assert_ne!(fill_events[0].venue_order_id, fill_events[1].venue_order_id);
 }
 
 #[tokio::test]
