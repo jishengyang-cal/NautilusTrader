@@ -40,6 +40,8 @@ mod positions;
 mod types;
 
 #[cfg(test)]
+mod proptests;
+#[cfg(test)]
 mod tests;
 
 pub use ids::{

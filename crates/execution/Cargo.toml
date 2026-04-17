@@ -64,3 +64,6 @@ uuid = { workspace = true }
 
 pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
