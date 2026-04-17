@@ -3739,3 +3739,337 @@ fn test_create_inferred_fill_for_qty_with_commission() {
 
     assert_eq!(filled.commission, Some(Money::new(1.23, Currency::USDT())));
 }
+
+// Phase 1 edge-case tests (reconciliation_testing_strategy.md)
+
+#[rstest]
+fn test_incremental_fill_zero_cost_first_fill_no_panic() {
+    // Airdrop-style execution where venue reports a first fill with avg_px = 0;
+    // ensures create_incremental_inferred_fill handles a zero price without
+    // panicking and produces a zero-price fill rather than rejecting it.
+    let instrument = crypto_perpetual_ethusdt();
+    let order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("10.0"))
+        .build();
+
+    let mut report = make_test_report(
+        instrument.id(),
+        OrderType::Market,
+        OrderStatus::Filled,
+        "10.0",
+        false,
+    );
+    report.avg_px = Some(dec!(0));
+    report.price = None;
+
+    let result = create_incremental_inferred_fill(
+        &order,
+        &report,
+        &AccountId::from("TEST-001"),
+        &InstrumentAny::CryptoPerpetual(instrument),
+        UnixNanos::from(2_000_000),
+        None,
+    );
+
+    let filled = match result.unwrap() {
+        OrderEventAny::Filled(f) => f,
+        _ => panic!("Expected Filled event"),
+    };
+    assert_eq!(filled.last_qty, Quantity::from("10.0"));
+    assert_eq!(filled.last_px.as_decimal(), dec!(0));
+}
+
+#[rstest]
+fn test_incremental_fill_zero_cost_incremental_no_panic(instrument: InstrumentAny) {
+    // Airdrop-style execution where the order already has a prior zero-price
+    // fill; exercises the weighted-average branch of
+    // calculate_incremental_fill_price with avg_px = 0 and confirms it does
+    // not panic or emit a negative price.
+    let client_order_id = ClientOrderId::from("O-001");
+    let venue_order_id = VenueOrderId::from("V-001");
+    let account_id = AccountId::from("TEST-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument.id())
+        .client_order_id(client_order_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("10"))
+        .build();
+
+    let submitted = OrderSubmitted::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        account_id,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    order.apply(OrderEventAny::Submitted(submitted)).unwrap();
+
+    let accepted = OrderAccepted::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        venue_order_id,
+        account_id,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        false,
+    );
+    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
+
+    let prior_fill = OrderFilled::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        venue_order_id,
+        account_id,
+        TradeId::from("T-001"),
+        OrderSide::Buy,
+        OrderType::Market,
+        Quantity::from("3"),
+        Price::from("0.00000"),
+        Currency::USD(),
+        LiquiditySide::Taker,
+        UUID4::new(),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        false,
+        None,
+        None,
+    );
+    order.apply(OrderEventAny::Filled(prior_fill)).unwrap();
+
+    let mut report = create_test_order_status_report(
+        client_order_id,
+        venue_order_id,
+        instrument.id(),
+        OrderType::Market,
+        OrderStatus::Filled,
+        Quantity::from("10"),
+        Quantity::from("10"),
+    );
+    report.avg_px = Some(dec!(0));
+
+    let result = create_incremental_inferred_fill(
+        &order,
+        &report,
+        &account_id,
+        &instrument,
+        UnixNanos::from(2_000_000),
+        None,
+    );
+
+    let filled = match result.unwrap() {
+        OrderEventAny::Filled(f) => f,
+        _ => panic!("Expected Filled event"),
+    };
+    assert_eq!(filled.last_qty, Quantity::from("7"));
+    assert!(
+        filled.last_px.as_decimal() >= dec!(0),
+        "incremental zero-cost fill must not emit a negative price, was {}",
+        filled.last_px,
+    );
+}
+
+#[rstest]
+#[case::one_ulp_above(dec!(1.000000001), dec!(1.0), 9, true)]
+#[case::one_ulp_below(dec!(0.999999999), dec!(1.0), 9, true)]
+#[case::float_bleed_within(dec!(1.0000000000000000001), dec!(1.0), 9, true)]
+#[case::just_outside(dec!(1.000000011), dec!(1.0), 9, false)]
+fn test_is_within_single_unit_tolerance_float_bleed(
+    #[case] value1: Decimal,
+    #[case] value2: Decimal,
+    #[case] precision: u8,
+    #[case] expected: bool,
+) {
+    // Guards against WebSocket-level float bleed generating a ghost fill:
+    // a venue-reported quantity with sub-ulp noise must still read as equal
+    // to the locally cached quantity at the instrument's precision.
+    assert_eq!(
+        is_within_single_unit_tolerance(value1, value2, precision),
+        expected,
+        "value1={value1}, value2={value2}, precision={precision}",
+    );
+}
+
+#[rstest]
+fn test_status_vs_qty_mismatch_emits_updated(instrument: InstrumentAny) {
+    // Venue has reduced the order quantity (partial cancel) so it reports
+    // Filled with qty=10 while the local cache holds PartiallyFilled with 10
+    // of 20 filled; reconciliation must emit OrderUpdated to shrink the local
+    // quantity to 10 and must not synthesize a duplicate fill since filled_qty
+    // already matches.
+    let client_order_id = ClientOrderId::from("O-001");
+    let venue_order_id = VenueOrderId::from("V-001");
+    let account_id = AccountId::from("SIM-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument.id())
+        .client_order_id(client_order_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from(20))
+        .price(Price::from("1.00000"))
+        .build();
+
+    let submitted = OrderSubmitted::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        account_id,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    order.apply(OrderEventAny::Submitted(submitted)).unwrap();
+
+    let accepted = OrderAccepted::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        venue_order_id,
+        account_id,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        false,
+    );
+    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
+
+    let prior_fill = OrderFilled::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        venue_order_id,
+        account_id,
+        TradeId::from("T-001"),
+        OrderSide::Buy,
+        OrderType::Limit,
+        Quantity::from(10),
+        Price::from("1.00000"),
+        Currency::USD(),
+        LiquiditySide::Taker,
+        UUID4::new(),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        false,
+        None,
+        None,
+    );
+    order.apply(OrderEventAny::Filled(prior_fill)).unwrap();
+    assert_eq!(order.status(), OrderStatus::PartiallyFilled);
+
+    let mut report = create_test_order_status_report(
+        client_order_id,
+        venue_order_id,
+        instrument.id(),
+        OrderType::Limit,
+        OrderStatus::Filled,
+        Quantity::from(10),
+        Quantity::from(10),
+    );
+    report.price = Some(Price::from("1.00000"));
+
+    let result = reconcile_order_report(&order, &report, Some(&instrument), UnixNanos::default());
+
+    let event = result.expect("expected OrderUpdated for reduced-qty Filled report");
+    match event {
+        OrderEventAny::Updated(updated) => {
+            assert_eq!(updated.quantity, Quantity::from(10));
+            assert_eq!(updated.reconciliation, 1);
+        }
+        other => panic!("expected OrderUpdated, was {other:?}"),
+    }
+}
+
+#[rstest]
+fn test_status_vs_qty_mismatch_no_qty_change_returns_none(instrument: InstrumentAny) {
+    // Status differs between local PartiallyFilled and venue Filled with
+    // matching filled_qty AND matching total quantity; without a quantity
+    // change there is nothing safe to emit, so reconciliation must return
+    // None (state is logged but no spurious events are produced).
+    let client_order_id = ClientOrderId::from("O-001");
+    let venue_order_id = VenueOrderId::from("V-001");
+    let account_id = AccountId::from("SIM-001");
+
+    let mut order = OrderTestBuilder::new(OrderType::Limit)
+        .instrument_id(instrument.id())
+        .client_order_id(client_order_id)
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from(20))
+        .price(Price::from("1.00000"))
+        .build();
+
+    let submitted = OrderSubmitted::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        account_id,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    order.apply(OrderEventAny::Submitted(submitted)).unwrap();
+
+    let accepted = OrderAccepted::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        venue_order_id,
+        account_id,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        false,
+    );
+    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
+
+    let prior_fill = OrderFilled::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        venue_order_id,
+        account_id,
+        TradeId::from("T-001"),
+        OrderSide::Buy,
+        OrderType::Limit,
+        Quantity::from(10),
+        Price::from("1.00000"),
+        Currency::USD(),
+        LiquiditySide::Taker,
+        UUID4::new(),
+        UnixNanos::from(1_000_000),
+        UnixNanos::from(1_000_000),
+        false,
+        None,
+        None,
+    );
+    order.apply(OrderEventAny::Filled(prior_fill)).unwrap();
+
+    let mut report = create_test_order_status_report(
+        client_order_id,
+        venue_order_id,
+        instrument.id(),
+        OrderType::Limit,
+        OrderStatus::Filled,
+        Quantity::from(20),
+        Quantity::from(10),
+    );
+    report.price = Some(Price::from("1.00000"));
+
+    let result = reconcile_order_report(&order, &report, Some(&instrument), UnixNanos::default());
+    assert!(result.is_none());
+}

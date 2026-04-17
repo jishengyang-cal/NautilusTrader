@@ -49,6 +49,11 @@ pub fn simulate_position(fills: &[FillSnapshot]) -> (Decimal, Decimal) {
     let mut value = Decimal::ZERO;
 
     for fill in fills {
+        debug_assert!(
+            fill.qty > Decimal::ZERO,
+            "fill snapshot qty must be positive, received {}",
+            fill.qty,
+        );
         let direction = Decimal::from(fill.direction());
         let new_qty = qty + (direction * fill.qty);
 
@@ -74,6 +79,15 @@ pub fn simulate_position(fills: &[FillSnapshot]) -> (Decimal, Decimal) {
             }
         }
     }
+
+    debug_assert!(
+        value >= Decimal::ZERO,
+        "simulated position value must be non-negative, was {value}",
+    );
+    debug_assert!(
+        !(qty != Decimal::ZERO && value.is_sign_negative()),
+        "simulated avg price invariant: qty={qty}, value={value}",
+    );
 
     (qty, value)
 }

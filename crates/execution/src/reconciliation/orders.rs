@@ -594,8 +594,25 @@ fn reconcile_fill_quantity_mismatch(
         );
     }
 
-    // Quantities match but status differs - potential state inconsistency
+    // Quantities match but status differs: if the venue reduced the order
+    // quantity (e.g. partial cancel leaving filled_qty==quantity), emit
+    // OrderUpdated so the local state machine can transition; do not
+    // synthesize a fill since filled_qty already matches.
     if order.status() != report.order_status {
+        if should_reconciliation_update(order, report) {
+            log::info!(
+                "Status mismatch with matching fill qty for {}: local={:?}, venue={:?}, \
+                 filled_qty={}, updating quantity {}->{}",
+                order.client_order_id(),
+                order.status(),
+                report.order_status,
+                report.filled_qty,
+                order.quantity(),
+                report.quantity,
+            );
+            return Some(create_reconciliation_updated(order, report, ts_now));
+        }
+
         log::warn!(
             "Status mismatch with matching fill qty for {}: local={:?}, venue={:?}, filled_qty={}",
             order.client_order_id(),
@@ -618,6 +635,13 @@ pub fn create_incremental_inferred_fill(
     commission: Option<Money>,
 ) -> Option<OrderEventAny> {
     let order_filled_qty = order.filled_qty();
+    debug_assert!(
+        report.filled_qty >= order_filled_qty,
+        "incremental inferred fill requires report.filled_qty ({}) >= order.filled_qty ({}) for {}",
+        report.filled_qty,
+        order_filled_qty,
+        order.client_order_id(),
+    );
     let last_qty = report.filled_qty - order_filled_qty;
 
     if last_qty <= Quantity::zero(instrument.size_precision()) {
@@ -777,6 +801,13 @@ fn calculate_incremental_fill_price(
     instrument: &InstrumentAny,
 ) -> Option<Price> {
     let order_filled_qty = order.filled_qty();
+    debug_assert!(
+        report.filled_qty >= order_filled_qty,
+        "incremental fill price requires report.filled_qty ({}) >= order.filled_qty ({}) for {}",
+        report.filled_qty,
+        order_filled_qty,
+        order.client_order_id(),
+    );
 
     // First fill - use avg_px from report or order price
     if order_filled_qty.is_zero() {
@@ -835,6 +866,12 @@ pub fn reconcile_fill_report(
     ts_now: UnixNanos,
     allow_overfills: bool,
 ) -> Option<OrderEventAny> {
+    debug_assert!(
+        !report.last_qty.is_zero(),
+        "fill report last_qty must be non-zero for {}",
+        order.client_order_id(),
+    );
+
     if order.trade_ids().iter().any(|id| **id == report.trade_id) {
         log::debug!(
             "Duplicate fill detected: trade_id {} already exists for order {}",
