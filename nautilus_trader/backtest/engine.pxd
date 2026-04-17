@@ -487,6 +487,7 @@ cdef class OrderMatchingEngine:
     cpdef void process_cancel(self, CancelOrder command, AccountId account_id)
     cpdef void process_cancel_all(self, CancelAllOrders command, AccountId account_id)
     cpdef void process_batch_cancel(self, BatchCancelOrders command, AccountId account_id)
+    cdef bint _convert_quote_to_base_quantity(self, Order order)
     cdef void _process_market_order(self, MarketOrder order)
     cdef void _process_market_to_limit_order(self, MarketToLimitOrder order)
     cdef void _process_limit_order(self, LimitOrder order)

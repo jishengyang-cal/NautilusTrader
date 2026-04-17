@@ -1987,6 +1987,29 @@ impl OrderMatchingEngine {
             return;
         }
 
+        // Convert quote-denominated quantity to base quantity for non-inverse instruments.
+        // Mirrors live venue semantics where the quote notional is settled into a base
+        // quantity before the order enters normal fill and state handling. Without this
+        // conversion the book simulation would treat the quote notional as base size.
+        // Only applies to order types with a reliable reference price at submission;
+        // trigger-style market orders and trailing orders are left untouched so they
+        // convert at fill time from the actual (possibly-trailed) price.
+        if order.is_quote_quantity()
+            && !self.instrument.is_inverse()
+            && !matches!(
+                order.order_type(),
+                OrderType::TrailingStopLimit | OrderType::TrailingStopMarket,
+            )
+            && (order.price().is_some()
+                || matches!(
+                    order.order_type(),
+                    OrderType::Market | OrderType::MarketToLimit,
+                ))
+            && !self.convert_quote_to_base_quantity(order)
+        {
+            return;
+        }
+
         match order.order_type() {
             OrderType::Market => self.process_market_order(order),
             OrderType::Limit => self.process_limit_order(order),
@@ -1998,6 +2021,69 @@ impl OrderMatchingEngine {
             OrderType::TrailingStopMarket => self.process_trailing_stop_order(order),
             OrderType::TrailingStopLimit => self.process_trailing_stop_order(order),
         }
+    }
+
+    fn convert_quote_to_base_quantity(&self, order: &mut OrderAny) -> bool {
+        // Pick a reference price to convert the quote notional into a base quantity.
+        // Priced orders use their own price (worst-case execution); marketable orders
+        // use the best opposing book level.
+        let reference_price = if let Some(price) = order.price() {
+            Some(price)
+        } else {
+            match order.order_side() {
+                OrderSide::Buy => self.core.ask,
+                OrderSide::Sell => self.core.bid,
+                OrderSide::NoOrderSide => None,
+            }
+        };
+
+        let Some(reference_price) = reference_price else {
+            self.generate_order_rejected(
+                order,
+                format!(
+                    "No market for {} to convert quote quantity to base",
+                    order.instrument_id(),
+                )
+                .into(),
+            );
+            return false;
+        };
+
+        let base_quantity = self
+            .instrument
+            .calculate_base_quantity(order.quantity(), reference_price);
+
+        let ts_now = self.clock.borrow().timestamp_ns();
+        let event = OrderEventAny::Updated(OrderUpdated::new(
+            order.trader_id(),
+            order.strategy_id(),
+            order.instrument_id(),
+            order.client_order_id(),
+            base_quantity,
+            UUID4::new(),
+            ts_now,
+            ts_now,
+            false,
+            order.venue_order_id(),
+            order.account_id(),
+            None,
+            None,
+            None,
+            false,
+        ));
+
+        // Apply the update to the local order so subsequent dispatch uses the base
+        // quantity immediately (the event is also dispatched to the execution engine
+        // for cache reconciliation).
+        if let Err(e) = order.apply(event.clone()) {
+            log::error!(
+                "Failed to apply quote-to-base update for {}: {e}",
+                order.client_order_id(),
+            );
+            return false;
+        }
+        self.dispatch_order_event(event);
+        true
     }
 
     /// Processes an order modify command to update quantity, price, or trigger price.
@@ -3153,6 +3239,16 @@ impl OrderMatchingEngine {
             }
         };
 
+        // Convert quote-denominated quantity at fill time for trigger-style market
+        // orders that skipped conversion at submission. Idempotent: orders already
+        // converted have `is_quote_quantity == false`.
+        if order.is_quote_quantity()
+            && !self.instrument.is_inverse()
+            && !self.convert_quote_to_base_quantity(&mut order)
+        {
+            return;
+        }
+
         if let Some(filled_qty) = self.cached_filled_qty.get(&order.client_order_id())
             && filled_qty >= &order.quantity()
         {
@@ -3261,13 +3357,23 @@ impl OrderMatchingEngine {
     ///
     /// Panics if the order has no price (design error).
     pub fn fill_limit_order(&mut self, client_order_id: ClientOrderId) {
-        let order = match self.cache.borrow().order(&client_order_id).cloned() {
+        let mut order = match self.cache.borrow().order(&client_order_id).cloned() {
             Some(order) => order,
             None => {
                 log::error!("Cannot fill limit order: order {client_order_id} not found in cache");
                 return;
             }
         };
+
+        // Convert quote-denominated quantity at fill time for orders that entered
+        // this path still carrying a quote notional (e.g. trailing-stop-limit with
+        // a late-assigned price). Idempotent for already-converted orders.
+        if order.is_quote_quantity()
+            && !self.instrument.is_inverse()
+            && !self.convert_quote_to_base_quantity(&mut order)
+        {
+            return;
+        }
 
         match order.price() {
             Some(order_price) => {

@@ -5048,6 +5048,27 @@ cdef class OrderMatchingEngine:
                 )
                 return  # Reduce only
 
+        # Convert quote-denominated quantity to base quantity for non-inverse instruments.
+        # Mirrors live venue semantics where the quote notional is settled into a base
+        # quantity before the order enters normal fill and state handling. Without this
+        # conversion the book simulation would treat the quote notional as base size.
+        # Only applies to order types with a reliable reference price at submission;
+        # trigger-style market orders and trailing orders are left untouched so they
+        # convert at fill time from the actual (possibly-trailed) price.
+        if (
+            order.is_quote_quantity
+            and not self.instrument.is_inverse
+            and order.order_type != OrderType.TRAILING_STOP_LIMIT
+            and order.order_type != OrderType.TRAILING_STOP_MARKET
+            and (
+                order.has_price_c()
+                or order.order_type == OrderType.MARKET
+                or order.order_type == OrderType.MARKET_TO_LIMIT
+            )
+        ):
+            if not self._convert_quote_to_base_quantity(order):
+                return  # Rejected (no market for conversion)
+
         if order.order_type == OrderType.MARKET:
             self._process_market_order(order)
         elif order.order_type == OrderType.MARKET_TO_LIMIT:
@@ -5122,6 +5143,50 @@ cdef class OrderMatchingEngine:
 
             if order.is_inflight_c() or order.is_open_c():
                 self.cancel_order(order)
+
+    cdef bint _convert_quote_to_base_quantity(self, Order order):
+        # Pick a reference price to convert the quote notional into a base quantity.
+        # Priced orders use their own price (worst-case execution); marketable orders
+        # use the best opposing book level.
+        cdef Price reference_price = None
+
+        if order.has_price_c():
+            reference_price = order.price
+        elif order.side == OrderSide.BUY and self._core.is_ask_initialized:
+            reference_price = self._core.ask
+        elif order.side == OrderSide.SELL and self._core.is_bid_initialized:
+            reference_price = self._core.bid
+
+        if reference_price is None:
+            self._generate_order_rejected(
+                order,
+                f"no market for {order.instrument_id} to convert quote quantity to base",
+            )
+            return False
+
+        cdef Quantity base_quantity = self.instrument.calculate_base_quantity(
+            order.quantity,
+            reference_price,
+        )
+
+        cdef uint64_t ts_now = self._clock.timestamp_ns()
+        cdef OrderUpdated event = OrderUpdated(
+            trader_id=order.trader_id,
+            strategy_id=order.strategy_id,
+            instrument_id=order.instrument_id,
+            client_order_id=order.client_order_id,
+            venue_order_id=order.venue_order_id,
+            account_id=order.account_id or self._account_ids[order.trader_id],
+            quantity=base_quantity,
+            price=None,
+            trigger_price=None,
+            event_id=UUID4(),
+            ts_event=ts_now,
+            ts_init=ts_now,
+            is_quote_quantity=False,
+        )
+        self.msgbus.send(endpoint="ExecEngine.process", msg=event)
+        return True
 
     cdef void _process_market_order(self, MarketOrder order):
         # Check AT_THE_OPEN/AT_THE_CLOSE time in force
@@ -5927,6 +5992,13 @@ cdef class OrderMatchingEngine:
             The order to fill.
 
         """
+        # Convert quote-denominated quantity at fill time for trigger-style market
+        # orders that skipped conversion at submission. Idempotent: orders already
+        # converted have `is_quote_quantity=False`.
+        if order.is_quote_quantity and not self.instrument.is_inverse:
+            if not self._convert_quote_to_base_quantity(order):
+                return
+
         cdef Quantity cached_filled_qty = self._cached_filled_qty.get(order.client_order_id)
         if cached_filled_qty is not None and cached_filled_qty._mem.raw >= order.quantity._mem.raw:
             self._log.debug(
@@ -6321,6 +6393,13 @@ cdef class OrderMatchingEngine:
 
         """
         Condition.is_true(order.has_price_c(), "order has no limit `price`")
+
+        # Convert quote-denominated quantity at fill time for orders that entered
+        # this path still carrying a quote notional (e.g. trailing-stop-limit with
+        # a late-assigned price). Idempotent for already-converted orders.
+        if order.is_quote_quantity and not self.instrument.is_inverse:
+            if not self._convert_quote_to_base_quantity(order):
+                return
 
         cdef Price price = order.price
         cdef Quantity cached_filled_qty = self._cached_filled_qty.get(order.client_order_id)

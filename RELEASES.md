@@ -29,6 +29,7 @@ Released on TBD (UTC).
 ### Fixes
 - Fixed `stop_timer` in `TimeBarAggregator` (#3822), thanks @faysou
 - Fixed `RiskEngine` applying base `min_quantity`/`max_quantity` bounds to quote-denominated orders
+- Fixed backtest `OrderMatchingEngine` treating `quote_quantity=True` orders as base quantity; the quote notional is now converted to a base quantity before fill simulation (#3873), thanks for reporting @fedoraiver
 - Fixed `DataBackendSession` GIL deadlock when streaming custom data types (#3847), thanks for reporting @GianC0
 - Fixed `BacktestNode` streaming with mixed built-in and custom data types (#3853), thanks for reporting @GianC0
 - Fixed PyO3 `InstrumentStatus` persistence and backtest streaming through `ParquetDataCatalog` (#3855)
