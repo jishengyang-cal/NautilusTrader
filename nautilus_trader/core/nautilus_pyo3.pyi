@@ -9067,6 +9067,11 @@ class HyperliquidHttpClient:
         self,
         instrument_id: str | None = None,
     ) -> list[OrderStatusReport]: ...
+    async def request_order_status_report(
+        self,
+        venue_order_id: str | None = None,
+        client_order_id: str | None = None,
+    ) -> OrderStatusReport | None: ...
     async def request_fill_reports(
         self,
         instrument_id: str | None = None,

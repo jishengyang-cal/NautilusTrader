@@ -1742,7 +1742,7 @@ impl HyperliquidHttpClient {
 
         // Order not in open set: query by oid (returns limited HyperliquidOrderInfo)
         let response = self.info_order_status(user, oid).await?;
-        let entry = match response.statuses.into_iter().next() {
+        let entry = match response.into_order() {
             Some(e) => e,
             None => return Ok(None),
         };
@@ -1764,7 +1764,7 @@ impl HyperliquidHttpClient {
             oid: entry.order.oid,
             timestamp: entry.order.timestamp,
             orig_sz: entry.order.orig_sz,
-            cloid: None,
+            cloid: entry.order.cloid,
             trigger_px: None,
             is_market: None,
             tpsl: None,

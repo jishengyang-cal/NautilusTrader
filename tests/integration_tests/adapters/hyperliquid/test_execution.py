@@ -26,6 +26,7 @@ from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.execution.messages import CancelOrder
 from nautilus_trader.execution.messages import GenerateFillReports
+from nautilus_trader.execution.messages import GenerateOrderStatusReport
 from nautilus_trader.execution.messages import GenerateOrderStatusReports
 from nautilus_trader.execution.messages import GeneratePositionStatusReports
 from nautilus_trader.execution.messages import ModifyOrder
@@ -238,6 +239,127 @@ async def test_generate_order_status_reports_handles_failure(
 
     # Assert
     assert reports == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("client_order_id", "venue_order_id"),
+    [
+        (ClientOrderId("O-1"), VenueOrderId("123")),
+        (ClientOrderId("O-2"), None),
+        (None, VenueOrderId("456")),
+    ],
+)
+async def test_generate_order_status_report_forwards_identifiers(
+    exec_client_builder,
+    monkeypatch,
+    client_order_id,
+    venue_order_id,
+):
+    # Arrange
+    client, _, http_client, _ = exec_client_builder(monkeypatch)
+
+    expected_report = MagicMock()
+    expected_report.client_order_id = client_order_id
+    expected_report.venue_order_id = venue_order_id
+    monkeypatch.setattr(
+        "nautilus_trader.adapters.hyperliquid.execution.OrderStatusReport.from_pyo3",
+        lambda obj: expected_report,
+    )
+
+    pyo3_report = MagicMock()
+    http_client.request_order_status_report.return_value = pyo3_report
+
+    command = GenerateOrderStatusReport(
+        instrument_id=InstrumentId(Symbol("BTC-USD-PERP"), HYPERLIQUID_VENUE),
+        client_order_id=client_order_id,
+        venue_order_id=venue_order_id,
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    http_client.request_order_status_report.assert_awaited_once_with(
+        venue_order_id=venue_order_id.value if venue_order_id else None,
+        client_order_id=client_order_id.value if client_order_id else None,
+    )
+    assert report is expected_report
+
+
+@pytest.mark.asyncio
+async def test_generate_order_status_report_returns_none_when_helper_returns_none(
+    exec_client_builder,
+    monkeypatch,
+):
+    # Arrange
+    client, _, http_client, _ = exec_client_builder(monkeypatch)
+    http_client.request_order_status_report.return_value = None
+
+    command = GenerateOrderStatusReport(
+        instrument_id=InstrumentId(Symbol("BTC-USD-PERP"), HYPERLIQUID_VENUE),
+        client_order_id=ClientOrderId("O-9"),
+        venue_order_id=VenueOrderId("999"),
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    http_client.request_order_status_report.assert_awaited_once()
+    assert report is None
+
+
+@pytest.mark.asyncio
+async def test_generate_order_status_report_requires_identifier(
+    exec_client_builder,
+    monkeypatch,
+):
+    # Arrange
+    client, _, http_client, _ = exec_client_builder(monkeypatch)
+
+    command = GenerateOrderStatusReport(
+        instrument_id=InstrumentId(Symbol("BTC-USD-PERP"), HYPERLIQUID_VENUE),
+        client_order_id=None,
+        venue_order_id=None,
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    http_client.request_order_status_report.assert_not_awaited()
+    assert report is None
+
+
+@pytest.mark.asyncio
+async def test_generate_order_status_report_handles_failure(
+    exec_client_builder,
+    monkeypatch,
+):
+    # Arrange
+    client, _, http_client, _ = exec_client_builder(monkeypatch)
+    http_client.request_order_status_report.side_effect = Exception("boom")
+
+    command = GenerateOrderStatusReport(
+        instrument_id=InstrumentId(Symbol("BTC-USD-PERP"), HYPERLIQUID_VENUE),
+        client_order_id=ClientOrderId("O-10"),
+        venue_order_id=VenueOrderId("1000"),
+        command_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+
+    # Act
+    report = await client.generate_order_status_report(command)
+
+    # Assert
+    assert report is None
 
 
 @pytest.mark.asyncio

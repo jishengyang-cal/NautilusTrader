@@ -299,41 +299,37 @@ class HyperliquidExecutionClient(LiveExecutionClient):
         command: GenerateOrderStatusReport,
     ) -> OrderStatusReport | None:
         try:
-            instrument_id = command.instrument_id.value if command.instrument_id else None
-            pyo3_reports = await self._client.request_order_status_reports(
-                instrument_id=instrument_id,
+            venue_order_id = command.venue_order_id.value if command.venue_order_id else None
+            client_order_id = command.client_order_id.value if command.client_order_id else None
+
+            if venue_order_id is None and client_order_id is None:
+                self._log.warning(
+                    "Cannot generate order status report without venue_order_id or client_order_id",
+                )
+                return None
+
+            pyo3_report = await self._client.request_order_status_report(
+                venue_order_id=venue_order_id,
+                client_order_id=client_order_id,
             )
 
-            for pyo3_report in pyo3_reports:
-                report = OrderStatusReport.from_pyo3(pyo3_report)
+            if pyo3_report is None:
+                self._log.warning(
+                    f"No order status report found for client_order_id={command.client_order_id}, "
+                    f"venue_order_id={command.venue_order_id}",
+                )
+                return None
 
-                report.client_order_id = self._resolve_cloid(report.client_order_id)
+            report = OrderStatusReport.from_pyo3(pyo3_report)
+            report.client_order_id = self._resolve_cloid(report.client_order_id)
 
-                if self._is_external_order(report.client_order_id) and report.venue_order_id:
-                    resolved_id = self._cache.client_order_id(report.venue_order_id)
-                    if resolved_id:
-                        report.client_order_id = resolved_id
+            if self._is_external_order(report.client_order_id) and report.venue_order_id:
+                resolved_id = self._cache.client_order_id(report.venue_order_id)
+                if resolved_id:
+                    report.client_order_id = resolved_id
 
-                if (
-                    command.client_order_id
-                    and report.client_order_id
-                    and report.client_order_id.value == command.client_order_id.value
-                ):
-                    self._log.debug(f"Found order status report: {report}")
-                    return report
-
-                if (
-                    command.venue_order_id
-                    and report.venue_order_id.value == command.venue_order_id.value
-                ):
-                    self._log.debug(f"Found order status report: {report}")
-                    return report
-
-            self._log.warning(
-                f"No order status report found for client_order_id={command.client_order_id}, "
-                f"venue_order_id={command.venue_order_id}",
-            )
-            return None
+            self._log.debug(f"Found order status report: {report}")
+            return report
         except (asyncio.CancelledError, Exception) as e:
             self._log_report_error(e, "OrderStatusReport")
             return None

@@ -702,7 +702,8 @@ async fn test_request_order_status_report_closed_order_fallback() {
     let state = TestServerState::default();
     // frontendOpenOrders returns empty (order no longer open)
     *state.order_status_response.lock().await = Some(json!({
-        "statuses": [{
+        "status": "order",
+        "order": {
             "order": {
                 "coin": "BTC",
                 "side": "B",
@@ -714,7 +715,7 @@ async fn test_request_order_status_report_closed_order_fallback() {
             },
             "status": "filled",
             "statusTimestamp": 1700001000000u64
-        }]
+        }
     }));
 
     let addr = start_mock_server(state).await;
@@ -737,10 +738,53 @@ async fn test_request_order_status_report_closed_order_fallback() {
 
 #[rstest]
 #[tokio::test]
+async fn test_request_order_status_report_closed_order_fallback_propagates_cloid() {
+    let coid = ClientOrderId::new("O-20240101-000042");
+    let cloid_hex = Cloid::from_client_order_id(coid).to_hex();
+
+    let state = TestServerState::default();
+    *state.order_status_response.lock().await = Some(json!({
+        "status": "order",
+        "order": {
+            "order": {
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "95000.0",
+                "sz": "0.0",
+                "oid": 55556,
+                "timestamp": 1700000000000u64,
+                "origSz": "0.1",
+                "cloid": cloid_hex,
+            },
+            "status": "canceled",
+            "statusTimestamp": 1700001000000u64
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let client = create_domain_client(&addr);
+    cache_btc_instrument(&client);
+
+    let report = client
+        .request_order_status_report("0xuser", 55556)
+        .await
+        .unwrap()
+        .expect("should find closed order via fallback");
+
+    assert_eq!(report.order_status, OrderStatus::Canceled);
+    assert_eq!(
+        report.client_order_id,
+        Some(ClientOrderId::new(cloid_hex.as_str())),
+        "closed order report should carry the cloid hex from the API response",
+    );
+}
+
+#[rstest]
+#[tokio::test]
 async fn test_request_order_status_report_not_found() {
     let state = TestServerState::default();
     // Both endpoints return empty
-    *state.order_status_response.lock().await = Some(json!({"statuses": []}));
+    *state.order_status_response.lock().await = Some(json!({"status": "unknownOid"}));
 
     let addr = start_mock_server(state).await;
     let client = create_domain_client(&addr);

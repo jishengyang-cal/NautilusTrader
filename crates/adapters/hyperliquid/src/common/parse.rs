@@ -624,6 +624,22 @@ pub fn extract_inner_errors(response: &HyperliquidExchangeResponse) -> Vec<Optio
                 _ => None,
             })
             .collect(),
+        HyperliquidExecResponseData::Cancel { data } => data
+            .statuses
+            .into_iter()
+            .map(|s| match s {
+                HyperliquidExecCancelStatus::Error { error } => Some(error),
+                HyperliquidExecCancelStatus::Success(_) => None,
+            })
+            .collect(),
+        HyperliquidExecResponseData::Modify { data } => data
+            .statuses
+            .into_iter()
+            .map(|s| match s {
+                HyperliquidExecModifyStatus::Error { error } => Some(error),
+                HyperliquidExecModifyStatus::Success(_) => None,
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -1487,13 +1503,49 @@ mod tests {
     }
 
     #[rstest]
-    fn test_extract_inner_errors_non_order_response() {
+    fn test_extract_inner_errors_cancel_success() {
         let response = ok_response(serde_json::json!({
             "type": "cancel",
             "data": {"statuses": ["success"]}
         }));
         let errors = extract_inner_errors(&response);
-        assert!(errors.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].is_none());
+    }
+
+    #[rstest]
+    fn test_extract_inner_errors_cancel_mixed() {
+        let response = ok_response(serde_json::json!({
+            "type": "cancel",
+            "data": {"statuses": [
+                "success",
+                {"error": "Order was never placed, already canceled, or filled."},
+                "success",
+            ]}
+        }));
+        let errors = extract_inner_errors(&response);
+        assert_eq!(errors.len(), 3);
+        assert_eq!(errors[0], None);
+        assert_eq!(
+            errors[1],
+            Some("Order was never placed, already canceled, or filled.".to_string())
+        );
+        assert_eq!(errors[2], None);
+    }
+
+    #[rstest]
+    fn test_extract_inner_errors_modify_mixed() {
+        let response = ok_response(serde_json::json!({
+            "type": "modify",
+            "data": {"statuses": [
+                "success",
+                {"error": "Order does not exist"},
+            ]}
+        }));
+        let errors = extract_inner_errors(&response);
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0], None);
+        assert_eq!(errors[1], Some("Order does not exist".to_string()));
     }
 
     #[rstest]

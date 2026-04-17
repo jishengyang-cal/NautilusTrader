@@ -401,11 +401,26 @@ pub struct HyperliquidFill {
     pub fee_token: Ustr,
 }
 
-/// Represents order status response from `POST /info`.
+/// Represents order status response from `POST /info` with `type: "orderStatus"`.
+///
+/// The API returns `{"status": "order", "order": {...}}` when the order is known,
+/// or `{"status": "unknownOid"}` when the oid is not found.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HyperliquidOrderStatus {
-    #[serde(default)]
-    pub statuses: Vec<HyperliquidOrderStatusEntry>,
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum HyperliquidOrderStatus {
+    Order { order: HyperliquidOrderStatusEntry },
+    UnknownOid,
+}
+
+impl HyperliquidOrderStatus {
+    /// Consumes the response and returns the inner entry if the order was found.
+    #[must_use]
+    pub fn into_order(self) -> Option<HyperliquidOrderStatusEntry> {
+        match self {
+            Self::Order { order } => Some(order),
+            Self::UnknownOid => None,
+        }
+    }
 }
 
 /// Represents an individual order status entry.
@@ -439,6 +454,9 @@ pub struct HyperliquidOrderInfo {
     /// Original order size.
     #[serde(rename = "origSz")]
     pub orig_sz: String,
+    /// Optional client order ID (hex representation of the keccak256 cloid).
+    #[serde(default)]
+    pub cloid: Option<String>,
 }
 
 /// ECC signature components for Hyperliquid exchange requests.

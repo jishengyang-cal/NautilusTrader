@@ -456,6 +456,68 @@ impl HyperliquidHttpClient {
         })
     }
 
+    /// Request a single order status report by venue order ID and/or client order ID.
+    ///
+    /// When `client_order_id` is supplied, open orders are searched by cloid first.
+    /// This catches modify/cancel-replace flows where the cloid is preserved but the
+    /// venue order ID changes, so a cached oid may point to the canceled leg; if a
+    /// live match exists, it is returned here. Otherwise, and if `venue_order_id`
+    /// is supplied, `info_order_status` is queried to cover closed
+    /// (canceled/filled/rejected) orders. The returned report's `client_order_id`
+    /// is left to downstream resolution (the Python client maps cloid hashes and
+    /// external/venue-order-id entries back to logical IDs).
+    /// At least one of `venue_order_id` or `client_order_id` must be provided.
+    #[pyo3(name = "request_order_status_report")]
+    #[pyo3(signature = (venue_order_id=None, client_order_id=None))]
+    fn py_request_order_status_report<'py>(
+        &self,
+        py: Python<'py>,
+        venue_order_id: Option<&str>,
+        client_order_id: Option<&str>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+        let venue_order_id = venue_order_id.map(VenueOrderId::from);
+        let client_order_id = client_order_id.map(ClientOrderId::from);
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            if venue_order_id.is_none() && client_order_id.is_none() {
+                return Err(to_pyvalue_err(
+                    "at least one of venue_order_id or client_order_id is required",
+                ));
+            }
+
+            let account_address = client.get_account_address().map_err(to_pyvalue_err)?;
+
+            if let Some(coid) = client_order_id.as_ref()
+                && let Some(report) = client
+                    .request_order_status_report_by_client_order_id(&account_address, coid)
+                    .await
+                    .map_err(to_pyvalue_err)?
+            {
+                return Python::attach(|py| Ok(report.into_py_any_unwrap(py)));
+            }
+
+            let report = if let Some(vid) = venue_order_id.as_ref() {
+                let oid: u64 = vid
+                    .as_str()
+                    .parse()
+                    .map_err(|e| to_pyvalue_err(format!("invalid venue_order_id: {e}")))?;
+
+                client
+                    .request_order_status_report(&account_address, oid)
+                    .await
+                    .map_err(to_pyvalue_err)?
+            } else {
+                None
+            };
+
+            Python::attach(|py| match report {
+                Some(r) => Ok(r.into_py_any_unwrap(py)),
+                None => Ok(py.None()),
+            })
+        })
+    }
+
     /// Request fill reports for a user.
     ///
     /// Fetches user fills via `info_user_fills` and parses them into FillReports.

@@ -47,19 +47,22 @@ use nautilus_common::{
     live::runner::set_exec_event_sender,
     messages::{
         ExecutionEvent,
-        execution::{ModifyOrder, QueryAccount, SubmitOrder},
+        execution::{
+            BatchCancelOrders, CancelOrder, GenerateOrderStatusReport, ModifyOrder, QueryAccount,
+            SubmitOrder,
+        },
     },
     testing::wait_until_async,
 };
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_hyperliquid::{
     common::enums::HyperliquidEnvironment, config::HyperliquidExecClientConfig,
-    execution::HyperliquidExecutionClient,
+    execution::HyperliquidExecutionClient, http::models::Cloid,
 };
 use nautilus_live::ExecutionClientCore;
 use nautilus_model::{
     accounts::{AccountAny, MarginAccount},
-    enums::{AccountType, OmsType, OrderSide, TimeInForce},
+    enums::{AccountType, OmsType, OrderSide, OrderStatus, TimeInForce},
     events::AccountState,
     identifiers::{
         AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, TraderId, Venue, VenueOrderId,
@@ -81,6 +84,15 @@ struct TestServerState {
     /// the `extract_inner_error` path in the execution client, which is
     /// distinct from the top-level `status="err"` handled by `reject_next_order`.
     inner_order_error_next: Arc<std::sync::atomic::AtomicBool>,
+    /// Optional override for the `cancel` response payload on the next
+    /// exchange call (e.g. to simulate per-item errors in batch cancel).
+    cancel_response_override: Arc<tokio::sync::Mutex<Option<Value>>>,
+    /// Fail the next exchange call with a transport error (503).
+    fail_next_exchange: Arc<std::sync::atomic::AtomicBool>,
+    /// Optional override for `frontendOpenOrders` info responses.
+    frontend_open_orders_response: Arc<tokio::sync::Mutex<Option<Value>>>,
+    /// Optional override for `orderStatus` info responses.
+    order_status_response: Arc<tokio::sync::Mutex<Option<Value>>>,
     rate_limit_after: Arc<AtomicUsize>,
 }
 
@@ -91,6 +103,10 @@ impl Default for TestServerState {
             last_exchange_action: Arc::new(tokio::sync::Mutex::new(None)),
             reject_next_order: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             inner_order_error_next: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cancel_response_override: Arc::new(tokio::sync::Mutex::new(None)),
+            fail_next_exchange: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            frontend_open_orders_response: Arc::new(tokio::sync::Mutex::new(None)),
+            order_status_response: Arc::new(tokio::sync::Mutex::new(None)),
             rate_limit_after: Arc::new(AtomicUsize::new(usize::MAX)),
         }
     }
@@ -121,7 +137,7 @@ async fn wait_for_server(addr: SocketAddr, path: &str) {
     .await;
 }
 
-async fn handle_info(body: axum::body::Bytes) -> Response {
+async fn handle_info(State(state): State<TestServerState>, body: axum::body::Bytes) -> Response {
     let Ok(request_body): Result<Value, _> = serde_json::from_slice(&body) else {
         return (
             axum::http::StatusCode::BAD_REQUEST,
@@ -151,11 +167,20 @@ async fn handle_info(body: axum::body::Bytes) -> Response {
         "spotMeta" => Json(json!({"universe": [], "tokens": []})).into_response(),
         "spotMetaAndAssetCtxs" => Json(json!([{"universe": [], "tokens": []}, []])).into_response(),
         "openOrders" => Json(json!([])).into_response(),
-        "orderStatus" => Json(json!({
-            "status": "order:filled",
-            "order": null
-        }))
-        .into_response(),
+        "frontendOpenOrders" => {
+            if let Some(body) = state.frontend_open_orders_response.lock().await.clone() {
+                Json(body).into_response()
+            } else {
+                Json(json!([])).into_response()
+            }
+        }
+        "orderStatus" => {
+            if let Some(body) = state.order_status_response.lock().await.clone() {
+                Json(body).into_response()
+            } else {
+                Json(json!({"status": "unknownOid"})).into_response()
+            }
+        }
         "userFills" => Json(json!([])).into_response(),
         "userFees" => Json(json!({
             "userCrossRate": "0.00045",
@@ -242,6 +267,14 @@ async fn handle_exchange(
             .into_response();
     }
 
+    if state.fail_next_exchange.swap(false, Ordering::Relaxed) {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "upstream unavailable"})),
+        )
+            .into_response();
+    }
+
     if state.reject_next_order.swap(false, Ordering::Relaxed) {
         return Json(json!({
             "status": "err",
@@ -286,16 +319,21 @@ async fn handle_exchange(
             }
         }))
         .into_response(),
-        Some("cancel" | "cancelByCloid") => Json(json!({
-            "status": "ok",
-            "response": {
-                "type": "cancel",
-                "data": {
-                    "statuses": ["success"]
-                }
+        Some("cancel" | "cancelByCloid") => {
+            if let Some(body) = state.cancel_response_override.lock().await.take() {
+                return Json(body).into_response();
             }
-        }))
-        .into_response(),
+            Json(json!({
+                "status": "ok",
+                "response": {
+                    "type": "cancel",
+                    "data": {
+                        "statuses": ["success"]
+                    }
+                }
+            }))
+            .into_response()
+        }
         Some("modify") => Json(json!({
             "status": "ok",
             "response": {
@@ -1040,6 +1078,488 @@ async fn test_modify_order_rejection_does_not_mark_pending_modify() {
             .pending_modify(&order.client_order_id())
             .is_none(),
         "failed modify must not leave a pending-modify marker",
+    );
+
+    client.disconnect().await.unwrap();
+}
+
+fn make_status_report_cmd(
+    client_order_id: Option<ClientOrderId>,
+    venue_order_id: Option<VenueOrderId>,
+) -> GenerateOrderStatusReport {
+    GenerateOrderStatusReport {
+        command_id: UUID4::new(),
+        ts_init: UnixNanos::default(),
+        instrument_id: Some(InstrumentId::from(HYPERLIQUID_TEST_INSTRUMENT)),
+        client_order_id,
+        venue_order_id,
+        params: None,
+        correlation_id: None,
+    }
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_generate_order_status_report_requires_identifier() {
+    let state = TestServerState::default();
+    let addr = start_mock_server(state).await;
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let cmd = make_status_report_cmd(None, None);
+    let report = client.generate_order_status_report(&cmd).await.unwrap();
+    assert!(report.is_none());
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_generate_order_status_report_returns_open_order_by_cloid() {
+    let coid = ClientOrderId::new("O-20240101-000001");
+    let cloid_hex = Cloid::from_client_order_id(coid).to_hex();
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([{
+        "coin": "BTC",
+        "side": "B",
+        "limitPx": "95000.0",
+        "sz": "0.1",
+        "oid": 111111,
+        "timestamp": 1700000000000u64,
+        "origSz": "0.1",
+        "cloid": cloid_hex,
+    }]));
+    let addr = start_mock_server(state).await;
+
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let cmd = make_status_report_cmd(Some(coid), Some(VenueOrderId::from("111111")));
+    let report = client
+        .generate_order_status_report(&cmd)
+        .await
+        .unwrap()
+        .expect("cloid-open lookup should resolve the live order");
+
+    assert_eq!(report.client_order_id, Some(coid));
+    assert_eq!(report.venue_order_id, VenueOrderId::from("111111"));
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_generate_order_status_report_terminal_oid_fallback_returns_report() {
+    // Live order no longer in frontendOpenOrders (cloid-open miss), oid fallback
+    // finds the terminal record. The returned report carries the API-reported
+    // cloid (as hex) on `client_order_id`; downstream Python resolver remaps
+    // it to the logical identifier.
+    let coid = ClientOrderId::new("O-20240101-000002");
+    let cloid_hex = Cloid::from_client_order_id(coid).to_hex();
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([]));
+    *state.order_status_response.lock().await = Some(json!({
+        "status": "order",
+        "order": {
+            "order": {
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "95000.0",
+                "sz": "0.0",
+                "oid": 222222,
+                "timestamp": 1700000000000u64,
+                "origSz": "0.1",
+                "cloid": cloid_hex,
+            },
+            "status": "canceled",
+            "statusTimestamp": 1700001000000u64,
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let cmd = make_status_report_cmd(Some(coid), Some(VenueOrderId::from("222222")));
+    let report = client
+        .generate_order_status_report(&cmd)
+        .await
+        .unwrap()
+        .expect("terminal oid match should be returned");
+
+    assert_eq!(report.order_status, OrderStatus::Canceled);
+    assert_eq!(report.venue_order_id, VenueOrderId::from("222222"));
+    assert_eq!(
+        report.client_order_id,
+        Some(ClientOrderId::new(cloid_hex.as_str())),
+        "helper leaves the API-reported cloid intact for downstream resolution",
+    );
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_generate_order_status_report_terminal_mismatched_cloid_still_returned() {
+    // A cloid mismatch no longer shortcircuits the helper. The downstream
+    // Python resolver uses venue_order_id to rebind the report to the
+    // correct logical client_order_id, so the helper forwards the API
+    // response as-is.
+    let coid = ClientOrderId::new("O-20240101-000003");
+    let other_coid_hex =
+        Cloid::from_client_order_id(ClientOrderId::new("O-SOMETHING-ELSE")).to_hex();
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([]));
+    *state.order_status_response.lock().await = Some(json!({
+        "status": "order",
+        "order": {
+            "order": {
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "95000.0",
+                "sz": "0.0",
+                "oid": 333333,
+                "timestamp": 1700000000000u64,
+                "origSz": "0.1",
+                "cloid": other_coid_hex,
+            },
+            "status": "canceled",
+            "statusTimestamp": 1700001000000u64,
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let cmd = make_status_report_cmd(Some(coid), Some(VenueOrderId::from("333333")));
+    let report = client
+        .generate_order_status_report(&cmd)
+        .await
+        .unwrap()
+        .expect("helper must forward valid oid matches regardless of cloid");
+    assert_eq!(report.order_status, OrderStatus::Canceled);
+    assert_eq!(report.venue_order_id, VenueOrderId::from("333333"));
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_generate_order_status_report_terminal_missing_cloid_trusts_oid() {
+    // Orders placed without a cloid (or external/synthetic orders the engine
+    // reconciled from the venue) have no cloid on the API response. The
+    // helper must still surface the oid match so downstream reconciliation
+    // can resolve the logical client_order_id by venue_order_id.
+    let coid = ClientOrderId::new("O-20240101-000004");
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([]));
+    *state.order_status_response.lock().await = Some(json!({
+        "status": "order",
+        "order": {
+            "order": {
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "95000.0",
+                "sz": "0.0",
+                "oid": 444444,
+                "timestamp": 1700000000000u64,
+                "origSz": "0.1",
+            },
+            "status": "filled",
+            "statusTimestamp": 1700001000000u64,
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let cmd = make_status_report_cmd(Some(coid), Some(VenueOrderId::from("444444")));
+    let report = client
+        .generate_order_status_report(&cmd)
+        .await
+        .unwrap()
+        .expect("oid match with no cloid on response should still resolve");
+    assert_eq!(report.order_status, OrderStatus::Filled);
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_generate_order_status_report_oid_only_returns_terminal() {
+    // When only venue_order_id is supplied, the helper must still surface a
+    // terminal report (no cloid validation applies without a coid to check).
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([]));
+    *state.order_status_response.lock().await = Some(json!({
+        "status": "order",
+        "order": {
+            "order": {
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "95000.0",
+                "sz": "0.0",
+                "oid": 555555,
+                "timestamp": 1700000000000u64,
+                "origSz": "0.1",
+            },
+            "status": "canceled",
+            "statusTimestamp": 1700001000000u64,
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, _rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.connect().await.unwrap();
+
+    let cmd = make_status_report_cmd(None, Some(VenueOrderId::from("555555")));
+    let report = client
+        .generate_order_status_report(&cmd)
+        .await
+        .unwrap()
+        .expect("terminal report without cloid guard should be returned");
+    assert_eq!(report.order_status, OrderStatus::Canceled);
+
+    client.disconnect().await.unwrap();
+}
+
+fn make_cancel_entry(coid: ClientOrderId, voi: VenueOrderId) -> CancelOrder {
+    CancelOrder::new(
+        TraderId::from("TESTER-001"),
+        Some(ClientId::from("HYPERLIQUID")),
+        StrategyId::from("S-001"),
+        InstrumentId::from(HYPERLIQUID_TEST_INSTRUMENT),
+        coid,
+        Some(voi),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    )
+}
+
+async fn drain_cancel_rejected_events(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,
+    timeout: Duration,
+) -> Vec<(ClientOrderId, String)> {
+    let mut out = Vec::new();
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        match tokio::time::timeout_at(deadline, rx.recv()).await {
+            Ok(Some(ExecutionEvent::Order(event))) => {
+                let msg = format!("{event:?}");
+
+                if msg.contains("OrderCancelRejected")
+                    && let Some(coid) = extract_coid(&msg)
+                {
+                    let reason = extract_reason(&msg).unwrap_or_default();
+                    out.push((coid, reason));
+                }
+            }
+            Ok(Some(_)) => {}
+            Ok(None) | Err(_) => break,
+        }
+    }
+    out
+}
+
+fn extract_coid(debug: &str) -> Option<ClientOrderId> {
+    // Pull "client_order_id=<value>" from the event Debug output.
+    let key = "client_order_id=";
+    let start = debug.find(key)? + key.len();
+    let tail = &debug[start..];
+    let end = tail.find([',', ' ', ')']).unwrap_or(tail.len());
+    Some(ClientOrderId::new(&tail[..end]))
+}
+
+fn extract_reason(debug: &str) -> Option<String> {
+    let key = "reason='";
+    let start = debug.find(key)? + key.len();
+    let tail = &debug[start..];
+    let end = tail.find('\'')?;
+    Some(tail[..end].to_string())
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_cancel_orders_per_item_error_emits_cancel_rejected() {
+    // Exchange returns top-level ok but the second cancel fails inline. The
+    // client must emit OrderCancelRejected for the failing entry only.
+    let state = TestServerState::default();
+    *state.cancel_response_override.lock().await = Some(json!({
+        "status": "ok",
+        "response": {
+            "type": "cancel",
+            "data": {
+                "statuses": [
+                    "success",
+                    {"error": "Order was never placed, already canceled, or filled."}
+                ]
+            }
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    let ok_coid = ClientOrderId::new("O-BATCH-OK");
+    let fail_coid = ClientOrderId::new("O-BATCH-FAIL");
+
+    let batch = BatchCancelOrders::new(
+        TraderId::from("TESTER-001"),
+        Some(ClientId::from("HYPERLIQUID")),
+        StrategyId::from("S-001"),
+        InstrumentId::from(HYPERLIQUID_TEST_INSTRUMENT),
+        vec![
+            make_cancel_entry(ok_coid, VenueOrderId::from("100")),
+            make_cancel_entry(fail_coid, VenueOrderId::from("101")),
+        ],
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    );
+
+    client.batch_cancel_orders(batch).unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let events = drain_cancel_rejected_events(&mut rx, Duration::from_millis(250)).await;
+    assert_eq!(
+        events.len(),
+        1,
+        "only the failing cancel should be rejected"
+    );
+    assert_eq!(events[0].0, fail_coid);
+    assert!(events[0].1.contains("already canceled"));
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_cancel_orders_http_error_rejects_all_sent() {
+    // Transport failure: every entry that was actually dispatched must have
+    // a cancel_rejected event so the engine does not wait on ghost acks.
+    let state = TestServerState::default();
+    state.fail_next_exchange.store(true, Ordering::Relaxed);
+
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    let coid_a = ClientOrderId::new("O-BATCH-A");
+    let coid_b = ClientOrderId::new("O-BATCH-B");
+    let batch = BatchCancelOrders::new(
+        TraderId::from("TESTER-001"),
+        Some(ClientId::from("HYPERLIQUID")),
+        StrategyId::from("S-001"),
+        InstrumentId::from(HYPERLIQUID_TEST_INSTRUMENT),
+        vec![
+            make_cancel_entry(coid_a, VenueOrderId::from("200")),
+            make_cancel_entry(coid_b, VenueOrderId::from("201")),
+        ],
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    );
+
+    client.batch_cancel_orders(batch).unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let events = drain_cancel_rejected_events(&mut rx, Duration::from_millis(250)).await;
+    assert_eq!(
+        events.len(),
+        2,
+        "every sent cancel must be rejected on transport failure"
+    );
+    let coids: std::collections::HashSet<_> = events.iter().map(|(c, _)| *c).collect();
+    assert!(coids.contains(&coid_a));
+    assert!(coids.contains(&coid_b));
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_cancel_orders_missing_asset_index_skips_and_rejects() {
+    // No HTTP round-trip should happen for an entry whose instrument symbol
+    // is unknown; the helper must emit a cancel_rejected for the skipped
+    // entry and still dispatch the remaining one.
+    let state = TestServerState::default();
+    let addr = start_mock_server(state.clone()).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    let known_coid = ClientOrderId::new("O-BATCH-KNOWN");
+    let unknown_coid = ClientOrderId::new("O-BATCH-UNKNOWN");
+    let unknown_entry = CancelOrder::new(
+        TraderId::from("TESTER-001"),
+        Some(ClientId::from("HYPERLIQUID")),
+        StrategyId::from("S-001"),
+        InstrumentId::from("NOPE-USD-PERP.HYPERLIQUID"),
+        unknown_coid,
+        Some(VenueOrderId::from("301")),
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    );
+
+    let batch = BatchCancelOrders::new(
+        TraderId::from("TESTER-001"),
+        Some(ClientId::from("HYPERLIQUID")),
+        StrategyId::from("S-001"),
+        InstrumentId::from(HYPERLIQUID_TEST_INSTRUMENT),
+        vec![
+            make_cancel_entry(known_coid, VenueOrderId::from("300")),
+            unknown_entry,
+        ],
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    );
+
+    client.batch_cancel_orders(batch).unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let events = drain_cancel_rejected_events(&mut rx, Duration::from_millis(250)).await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, unknown_coid);
+    assert!(
+        events[0].1.contains("Asset index not found"),
+        "reason should explain the skip: {}",
+        events[0].1,
     );
 
     client.disconnect().await.unwrap();
