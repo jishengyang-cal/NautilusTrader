@@ -50,7 +50,7 @@ use nautilus_model::{
         MarketStatusAction, OrderSide as ModelOrderSide, OrderType as ModelOrderType, TimeInForce,
     },
     identifiers::{ClientOrderId, InstrumentId, Symbol, VenueOrderId},
-    instruments::{CryptoPerpetual, CurrencyPair, InstrumentAny},
+    instruments::{CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny},
     types::{Currency, Price, Quantity},
 };
 use nautilus_network::http::HttpClient;
@@ -822,7 +822,7 @@ async fn test_spot_raw_get_ticker() {
     )
     .unwrap();
 
-    let result = client.get_ticker(vec!["XBTUSDT".to_string()]).await;
+    let result = client.get_ticker(vec!["XBTUSDT".to_string()], None).await;
     assert!(result.is_ok(), "Failed to get ticker: {result:?}");
 
     let ticker = result.unwrap();
@@ -856,7 +856,7 @@ async fn test_spot_raw_get_book_depth() {
     )
     .unwrap();
 
-    let result = client.get_book_depth("XBTUSDT", None).await;
+    let result = client.get_book_depth("XBTUSDT", None, None).await;
     assert!(result.is_ok(), "Failed to get book depth: {result:?}");
 
     let book = result.unwrap();
@@ -890,7 +890,7 @@ async fn test_spot_raw_get_trades() {
     )
     .unwrap();
 
-    let result = client.get_trades("XBTUSDT", None).await;
+    let result = client.get_trades("XBTUSDT", None, None).await;
     assert!(result.is_ok(), "Failed to get trades: {result:?}");
 
     let response = result.unwrap();
@@ -924,7 +924,7 @@ async fn test_spot_raw_get_ohlc() {
     )
     .unwrap();
 
-    let result = client.get_ohlc("XBTUSDT", Some(60), None).await;
+    let result = client.get_ohlc("XBTUSDT", Some(60), None, None).await;
     assert!(result.is_ok(), "Failed to get OHLC: {result:?}");
 
     let response = result.unwrap();
@@ -959,7 +959,9 @@ async fn test_spot_raw_get_trades_with_since() {
     .unwrap();
 
     let since = "1234567890".to_string();
-    let result = client.get_trades("XBTUSDT", Some(since.clone())).await;
+    let result = client
+        .get_trades("XBTUSDT", Some(since.clone()), None)
+        .await;
     assert!(
         result.is_ok(),
         "Failed to get trades with since: {result:?}"
@@ -998,7 +1000,7 @@ async fn test_spot_raw_get_ohlc_with_interval() {
     )
     .unwrap();
 
-    let result = client.get_ohlc("XBTUSDT", Some(60), None).await;
+    let result = client.get_ohlc("XBTUSDT", Some(60), None, None).await;
     assert!(
         result.is_ok(),
         "Failed to get OHLC with interval: {result:?}"
@@ -2066,6 +2068,51 @@ async fn test_futures_domain_request_trades() {
         result.is_ok(),
         "Failed to request futures trades: {result:?}"
     );
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_futures_domain_request_instruments_includes_tokenized_contract() {
+    let state = Arc::new(TestServerState::default());
+    let app = create_router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let base_url = format!("http://{addr}");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    wait_for_server(addr, "/0/public/Time").await;
+
+    let client = KrakenFuturesHttpClient::new(
+        KrakenEnvironment::Mainnet,
+        Some(base_url),
+        10,
+        None,
+        None,
+        None,
+        None,
+        5,
+    )
+    .unwrap();
+
+    let instruments = client.request_instruments().await.unwrap();
+
+    let tokenized_future = instruments
+        .iter()
+        .find(|instrument| instrument.raw_symbol().as_str() == "PF_AAPLxUSD")
+        .expect("Expected tokenized futures instrument");
+
+    match tokenized_future {
+        InstrumentAny::CryptoPerpetual(perp) => {
+            assert_eq!(perp.id.symbol.as_str(), "PF_AAPLxUSD");
+            assert_eq!(perp.base_currency.code.as_str(), "AAPLx");
+            assert_eq!(perp.quote_currency.code.as_str(), "USD");
+            assert_eq!(perp.size_increment.as_f64(), 0.01);
+        }
+        _ => panic!("Expected CryptoPerpetual"),
+    }
 }
 
 #[rstest]

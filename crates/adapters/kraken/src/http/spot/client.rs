@@ -63,7 +63,10 @@ use crate::{
             NAUTILUS_KRAKEN_BROKER_ID,
         },
         credential::KrakenCredential,
-        enums::{KrakenEnvironment, KrakenOrderSide, KrakenOrderType, KrakenProductType},
+        enums::{
+            KrakenAssetClass, KrakenEnvironment, KrakenOrderSide, KrakenOrderType,
+            KrakenProductType,
+        },
         parse::{
             bar_type_to_spot_interval, normalize_currency_code, normalize_spot_symbol, parse_bar,
             parse_fill_report, parse_order_status_report, parse_spot_instrument,
@@ -515,8 +518,13 @@ impl KrakenSpotRawHttpClient {
     pub async fn get_ticker(
         &self,
         pairs: Vec<String>,
+        asset_class: Option<KrakenAssetClass>,
     ) -> anyhow::Result<TickerResponse, KrakenHttpError> {
-        let endpoint = format!("/0/public/Ticker?pair={}", pairs.join(","));
+        let mut endpoint = format!("/0/public/Ticker?pair={}", pairs.join(","));
+
+        if let Some(aclass) = asset_class {
+            endpoint.push_str(&format!("&asset_class={aclass}"));
+        }
 
         let response: KrakenResponse<TickerResponse> = self
             .send_request(Method::GET, &endpoint, None, false)
@@ -533,8 +541,13 @@ impl KrakenSpotRawHttpClient {
         pair: &str,
         interval: Option<u32>,
         since: Option<i64>,
+        asset_class: Option<KrakenAssetClass>,
     ) -> anyhow::Result<OhlcResponse, KrakenHttpError> {
         let mut endpoint = format!("/0/public/OHLC?pair={pair}");
+
+        if let Some(aclass) = asset_class {
+            endpoint.push_str(&format!("&asset_class={aclass}"));
+        }
 
         if let Some(interval) = interval {
             endpoint.push_str(&format!("&interval={interval}"));
@@ -558,8 +571,13 @@ impl KrakenSpotRawHttpClient {
         &self,
         pair: &str,
         count: Option<u32>,
+        asset_class: Option<KrakenAssetClass>,
     ) -> anyhow::Result<OrderBookResponse, KrakenHttpError> {
         let mut endpoint = format!("/0/public/Depth?pair={pair}");
+
+        if let Some(aclass) = asset_class {
+            endpoint.push_str(&format!("&asset_class={aclass}"));
+        }
 
         if let Some(count) = count {
             endpoint.push_str(&format!("&count={count}"));
@@ -579,8 +597,13 @@ impl KrakenSpotRawHttpClient {
         &self,
         pair: &str,
         since: Option<String>,
+        asset_class: Option<KrakenAssetClass>,
     ) -> anyhow::Result<TradesResponse, KrakenHttpError> {
         let mut endpoint = format!("/0/public/Trades?pair={pair}");
+
+        if let Some(aclass) = asset_class {
+            endpoint.push_str(&format!("&asset_class={aclass}"));
+        }
 
         if let Some(since) = since {
             endpoint.push_str(&format!("&since={since}"));
@@ -804,11 +827,15 @@ impl KrakenSpotRawHttpClient {
         let endpoint = "/0/private/AddOrderBatch";
         let nonce = self.generate_nonce();
 
-        let json_body = serde_json::json!({
+        let mut json_body = serde_json::json!({
             "nonce": nonce.to_string(),
             "pair": params.pair,
             "orders": params.orders,
         });
+
+        if let Some(aclass) = &params.asset_class {
+            json_body["asset_class"] = serde_json::json!(aclass);
+        }
         let json_str = serde_json::to_string(&json_body)
             .map_err(|e| KrakenHttpError::ParseError(format!("Failed to serialize: {e}")))?;
 
@@ -1269,6 +1296,15 @@ impl KrakenSpotHttpClient {
         self.clock.get_time_ns()
     }
 
+    // Kraken requires `asset_class=tokenized_asset` on every request that references a tokenized pair.
+    fn asset_class_for(instrument: &InstrumentAny) -> Option<KrakenAssetClass> {
+        if matches!(instrument, InstrumentAny::TokenizedAsset(_)) {
+            Some(KrakenAssetClass::TokenizedAsset)
+        } else {
+            None
+        }
+    }
+
     /// Sets whether to generate position reports from wallet balances for SPOT instruments.
     pub fn set_use_spot_position_reports(&self, value: bool) {
         self.use_spot_position_reports
@@ -1387,11 +1423,15 @@ impl KrakenSpotHttpClient {
             })?;
 
         let raw_symbol = instrument.raw_symbol().to_string();
+        let asset_class = Self::asset_class_for(&instrument);
         let ts_init = self.generate_ts_init();
 
         // Kraken trades API expects nanoseconds since epoch as string
         let since = start.map(|dt| (dt.timestamp_nanos_opt().unwrap_or(0) as u64).to_string());
-        let response = self.inner.get_trades(&raw_symbol, since).await?;
+        let response = self
+            .inner
+            .get_trades(&raw_symbol, since, asset_class)
+            .await?;
 
         let end_ns = end.map(|dt| dt.timestamp_nanos_opt().unwrap_or(0) as u64);
         let mut trades = Vec::new();
@@ -1441,6 +1481,7 @@ impl KrakenSpotHttpClient {
             })?;
 
         let raw_symbol = instrument.raw_symbol().to_string();
+        let asset_class = Self::asset_class_for(&instrument);
         let ts_init = self.generate_ts_init();
 
         let interval = Some(
@@ -1451,7 +1492,10 @@ impl KrakenSpotHttpClient {
         // Kraken OHLC API expects Unix timestamp in seconds
         let since = start.map(|dt| dt.timestamp());
         let end_ns = end.map(|dt| dt.timestamp_nanos_opt().unwrap_or(0) as u64);
-        let response = self.inner.get_ohlc(&raw_symbol, interval, since).await?;
+        let response = self
+            .inner
+            .get_ohlc(&raw_symbol, interval, since, asset_class)
+            .await?;
 
         let mut bars = Vec::new();
 
@@ -1514,11 +1558,15 @@ impl KrakenSpotHttpClient {
             })?;
 
         let raw_symbol = instrument.raw_symbol().to_string();
+        let asset_class = Self::asset_class_for(&instrument);
         let price_precision = instrument.price_precision();
         let size_precision = instrument.size_precision();
         let ts_event = self.generate_ts_init();
 
-        let response = self.inner.get_book_depth(&raw_symbol, depth).await?;
+        let response = self
+            .inner
+            .get_book_depth(&raw_symbol, depth, asset_class)
+            .await?;
 
         let book_data = response.values().next().ok_or_else(|| {
             KrakenHttpError::ParseError(format!("No book data returned for {instrument_id}"))
@@ -2051,6 +2099,7 @@ impl KrakenSpotHttpClient {
                         .iter()
                         .map(|(_, params)| params.clone().into())
                         .collect(),
+                    asset_class: chunk[0].1.asset_class,
                 };
 
                 match self.inner.add_order_batch(&batch_params).await {
@@ -2244,6 +2293,7 @@ impl KrakenSpotHttpClient {
             .ok_or_else(|| anyhow::anyhow!("Instrument not found in cache: {instrument_id}"))?;
 
         let raw_symbol = instrument.raw_symbol().inner();
+        let asset_class = Self::asset_class_for(&instrument);
 
         let kraken_side = match order_side {
             OrderSide::Buy => KrakenOrderSide::Buy,
@@ -2369,6 +2419,10 @@ impl KrakenSpotHttpClient {
 
         if let Some(dq) = display_qty {
             builder.displayvol(dq.to_string());
+        }
+
+        if let Some(ac) = asset_class {
+            builder.asset_class(ac);
         }
 
         builder

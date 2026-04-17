@@ -1373,6 +1373,34 @@ mod tests {
     }
 
     #[rstest]
+    fn test_parse_futures_instrument_tokenized_underlying() {
+        let json = load_test_json("http_futures_instruments.json");
+        let response: crate::http::models::FuturesInstrumentsResponse =
+            serde_json::from_str(&json).unwrap();
+
+        let fut_instrument = &response.instruments[3];
+
+        let instrument = parse_futures_instrument(fut_instrument, TS, TS).unwrap();
+
+        match instrument {
+            InstrumentAny::CryptoPerpetual(perp) => {
+                assert_eq!(perp.id.symbol.as_str(), "PF_AAPLxUSD");
+                assert_eq!(perp.raw_symbol.as_str(), "PF_AAPLxUSD");
+                assert_eq!(perp.base_currency.code.as_str(), "AAPLx");
+                assert_eq!(perp.quote_currency.code.as_str(), "USD");
+                assert_eq!(perp.settlement_currency.code.as_str(), "USD");
+                assert!(!perp.is_inverse);
+                assert_eq!(perp.price_increment.as_f64(), 0.01);
+                assert_eq!(perp.size_increment.as_f64(), 0.01);
+                assert_eq!(perp.size_precision(), 2);
+                assert_eq!(perp.margin_init, dec!(0.2));
+                assert_eq!(perp.margin_maint, dec!(0.1));
+            }
+            _ => panic!("Expected CryptoPerpetual"),
+        }
+    }
+
+    #[rstest]
     fn test_parse_trade_tick_from_array() {
         let json = load_test_json("http_trades.json");
         let wrapper: serde_json::Value = serde_json::from_str(&json).unwrap();

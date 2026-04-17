@@ -6,6 +6,7 @@ Released on TBD (UTC).
 - Added `environment` enum config for BitMEX, Deribit, dYdX, Hyperliquid, and OKX adapters
 - Added `BybitEnvironment` to `BybitDataClientConfig` and `BybitExecClientConfig`
 - Added Betfair tiered tick scheme to `BettingInstrument` for ladder-snapped pricing
+- Added Kraken xStocks tokenized asset support for spot market data, order submission, and futures instruments
 - Added Polymarket game_id and fee_schedule to instrument info (#3811), thanks @Javdu10
 - Added missing config values to `LiveExecEngineConfig` (#3841), thanks @Javdu10
 - Added `calculate_commission` to `ExecutionClient` for venue-specific reconciliation fills
