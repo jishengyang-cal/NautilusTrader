@@ -854,127 +854,127 @@ version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog-listing]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-common]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-common-runtime]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-arrow]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-csv]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-json]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-parquet]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-doc]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-execution]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-expr]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-expr-common]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-aggregate]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-aggregate-common]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-nested]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-table]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-window]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-window-common]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-macros]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-optimizer]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr-adapter]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr-common]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-optimizer]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-plan]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-pruning]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-session]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-sql]]
-version = "53.0.0"
+version = "53.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn]]
@@ -2490,7 +2490,7 @@ version = "1.10.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
-version = "1.52.0"
+version = "1.52.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-macros]]
@@ -2630,7 +2630,7 @@ version = "1.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
-version = "1.23.0"
+version = "1.23.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.value-bag]]
@@ -2698,7 +2698,7 @@ version = "1.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.webpki-root-certs]]
-version = "1.0.6"
+version = "1.0.7"
 criteria = "safe-to-deploy"
 
 [[exemptions.webpki-roots]]
@@ -2706,7 +2706,7 @@ version = "0.26.11"
 criteria = "safe-to-deploy"
 
 [[exemptions.webpki-roots]]
-version = "1.0.6"
+version = "1.0.7"
 criteria = "safe-to-deploy"
 
 [[exemptions.whoami]]

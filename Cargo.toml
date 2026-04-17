@@ -144,7 +144,7 @@ chrono = { version = "0.4.44", default-features = false, features = [
 chrono-tz = "0.10.4"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 dashmap = "6.1.0"
-datafusion = { version = "53.0.0", default-features = false, features = [
+datafusion = { version = "53.1.0", default-features = false, features = [
   "parquet",
   "regex_expressions",
   "unicode_expressions",
@@ -266,7 +266,7 @@ tabled = { version = "0.20.0", default-features = false, features = [
   "derive",
 ] }
 thiserror = "2.0.18"
-tokio = { version = "1.52.0", default-features = false, features = [
+tokio = { version = "1.52.1", default-features = false, features = [
   "rt-multi-thread",
   "sync",
   "fs",
@@ -295,8 +295,8 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 unbounded-interval-tree = { version = "1.1.2", default-features = false }
 url = { version = "2.5.8", default-features = false }
 ustr = { version = "1.1.0", features = ["serde"] }
-uuid = { version = "1.23.0", features = ["v4", "serde"] }
-webpki-roots = "1.0.6"
+uuid = { version = "1.23.1", features = ["v4", "serde"] }
+webpki-roots = "1.0.7"
 
 # -----------------------------------------------------------------------------
 # Adapter dependencies

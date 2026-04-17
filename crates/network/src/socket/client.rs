@@ -1960,7 +1960,7 @@ mod rust_tests {
             }
             // Drop listener entirely so reconnection fails completely
             drop(listener);
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_mins(1)).await;
         });
 
         let config = SocketConfig {
@@ -2136,7 +2136,7 @@ mod rust_tests {
                 drop(sock.shutdown());
             }
             // Don't accept again so reconnect fails and enters backoff
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_mins(1)).await;
         });
 
         let config = SocketConfig {

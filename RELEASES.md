@@ -87,8 +87,9 @@ Released on TBD (UTC).
 - Upgraded Cap'n Proto to v1.4.0
 - Upgraded `capnp` crate to v0.25.4 (regenerated schemas with 4-space indents and version headers)
 - Upgraded `databento` crate to v0.47.0
+- Upgraded `datafusion` crate to v53.1.0
 - Upgraded `msgspec` to v0.21.1
-- Upgraded `tokio` crate to v1.52.0
+- Upgraded `tokio` crate to v1.52.1
 
 ### Documentation Updates
 - Refined docs to follow style guide for symbols and filler words (#3830), thanks @JKDasondee

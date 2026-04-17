@@ -2175,14 +2175,12 @@ impl OKXWebSocketClient {
                 Some(true) => {
                     builder.tgt_ccy(OKXTargetCurrency::QuoteCcy);
                 }
-                Some(false) => {
-                    if order_side == OrderSide::Buy {
-                        // For BUY orders, must explicitly set to base_ccy to override OKX default
-                        builder.tgt_ccy(OKXTargetCurrency::BaseCcy);
-                    }
-                    // For SELL orders with quote_quantity=false, omit tgtCcy (OKX defaults to base_ccy correctly)
+                // For BUY orders, must explicitly set to base_ccy to override OKX default
+                Some(false) if order_side == OrderSide::Buy => {
+                    builder.tgt_ccy(OKXTargetCurrency::BaseCcy);
                 }
-                None => {}
+                // For SELL orders with quote_quantity=false, omit tgtCcy (OKX defaults to base_ccy correctly)
+                Some(false) | None => {}
             }
         }
 

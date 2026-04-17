@@ -183,6 +183,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<TestServerState>) {
             Message::Text(text) if state.handle_message(&text, &mut sender).await.is_none() => {
                 break;
             }
+            // Inner if consumes `data`, cannot hoist into a match guard
+            #[expect(clippy::collapsible_match)]
             Message::Ping(data) => {
                 if sender.send(Message::Pong(data)).await.is_err() {
                     break;

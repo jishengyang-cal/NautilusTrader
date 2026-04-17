@@ -203,37 +203,33 @@ impl OrderBookDepth10 {
         // Create bids
         let mut price = 99.00;
         let mut quantity = 100.0;
-        let mut order_id = 1;
 
-        for order in bids.iter_mut().take(DEPTH10_LEN) {
+        for (i, order) in bids.iter_mut().take(DEPTH10_LEN).enumerate() {
             *order = BookOrder::new(
                 OrderSide::Buy,
                 Price::new(price, 2),
                 Quantity::new(quantity, 0),
-                order_id,
+                (i + 1) as u64,
             );
 
             price -= 1.0;
             quantity += 100.0;
-            order_id += 1;
         }
 
         // Create asks
         let mut price = 100.00;
         let mut quantity = 100.0;
-        let mut order_id = 11;
 
-        for order in asks.iter_mut().take(DEPTH10_LEN) {
+        for (i, order) in asks.iter_mut().take(DEPTH10_LEN).enumerate() {
             *order = BookOrder::new(
                 OrderSide::Sell,
                 Price::new(price, 2),
                 Quantity::new(quantity, 0),
-                order_id,
+                (i + 11) as u64,
             );
 
             price += 1.0;
             quantity += 100.0;
-            order_id += 1;
         }
 
         let bid_counts: [u32; 10] = [1; 10];

@@ -1707,6 +1707,8 @@ mod tests {
                         .unwrap();
 
                     task::spawn(async move {
+                        // Inner if consumes `msg`, cannot hoist into a match guard
+                        #[expect(clippy::collapsible_match)]
                         while let Some(Ok(msg)) = websocket.next().await {
                             match msg {
                                 WsMessage::Text(txt) if txt == "close-now" => {
@@ -2343,7 +2345,7 @@ mod rust_tests {
                 drop(ws);
             }
             // Don't accept second connection - client will be stuck in RECONNECT
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_mins(1)).await;
         });
 
         let (handler, _rx) = channel_message_handler();
@@ -2604,7 +2606,7 @@ mod rust_tests {
                 drop(ws);
             }
             // Don't accept second connection - let reconnect hang
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_mins(1)).await;
         });
 
         let (handler, _rx) = channel_message_handler();
@@ -2669,7 +2671,7 @@ mod rust_tests {
             {
                 drop(ws);
             }
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_mins(1)).await;
         });
 
         let (handler, _rx) = channel_message_handler();
@@ -2951,7 +2953,7 @@ mod rust_tests {
                 let _ = accept_async(stream).await;
             }
             // Don't accept again so reconnect fails and enters backoff
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_mins(1)).await;
         });
 
         let (handler, _rx) = channel_message_handler();
@@ -3040,7 +3042,7 @@ mod rust_tests {
         };
 
         // Very restrictive: 1 req per 60 seconds
-        let quota = Quota::with_period(Duration::from_secs(60))
+        let quota = Quota::with_period(Duration::from_mins(1))
             .unwrap()
             .allow_burst(NonZeroU32::new(1).unwrap());
 

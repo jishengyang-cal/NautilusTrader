@@ -86,7 +86,7 @@ impl TardisHttpClient {
             // .available_since(start.map(|x| DateTime::from_timestamp_nanos(x as i64)))
             // .available_to(end.map(|x| DateTime::from_timestamp_nanos(x as i64)))
             .build()
-            .unwrap(); // SAFETY: Safe since all fields are Option
+            .unwrap(); // All fields are Option, so build cannot fail
 
         let self_clone = self.clone();
 
