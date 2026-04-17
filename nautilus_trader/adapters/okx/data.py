@@ -66,6 +66,7 @@ from nautilus_trader.live.data_client import LiveMarketDataClient
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import DataType
 from nautilus_trader.model.data import FundingRateUpdate
+from nautilus_trader.model.data import InstrumentStatus
 from nautilus_trader.model.data import OptionGreeks
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import TradeTick
@@ -710,6 +711,8 @@ class OKXDataClient(LiveMarketDataClient):
                 self._handle_instrument_update(msg)
             elif isinstance(msg, nautilus_pyo3.FundingRateUpdate):
                 self._handle_data(FundingRateUpdate.from_pyo3(msg))
+            elif isinstance(msg, nautilus_pyo3.InstrumentStatus):
+                self._handle_data(InstrumentStatus.from_pyo3(msg))
             elif isinstance(msg, nautilus_pyo3.OptionGreeks):
                 greeks = OptionGreeks.from_pyo3(msg)
                 if greeks.instrument_id in self._option_greeks_instrument_ids:

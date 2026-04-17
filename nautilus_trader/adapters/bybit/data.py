@@ -889,11 +889,6 @@ class BybitDataClient(LiveMarketDataClient):
                 self._handle_data(data)
                 return
 
-            if isinstance(msg, nautilus_pyo3.FundingRateUpdate):
-                data = FundingRateUpdate.from_pyo3(msg)
-                self._handle_data(data)
-                return
-
             if isinstance(msg, nautilus_pyo3.MarkPriceUpdate):
                 data = MarkPriceUpdate.from_pyo3(msg)
                 self._handle_data(data)
@@ -901,6 +896,16 @@ class BybitDataClient(LiveMarketDataClient):
 
             if isinstance(msg, nautilus_pyo3.IndexPriceUpdate):
                 data = IndexPriceUpdate.from_pyo3(msg)
+                self._handle_data(data)
+                return
+
+            if isinstance(msg, nautilus_pyo3.FundingRateUpdate):
+                data = FundingRateUpdate.from_pyo3(msg)
+                self._handle_data(data)
+                return
+
+            if isinstance(msg, nautilus_pyo3.InstrumentStatus):
+                data = InstrumentStatus.from_pyo3(msg)
                 self._handle_data(data)
                 return
 

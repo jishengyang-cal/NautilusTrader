@@ -48,6 +48,7 @@ Released on TBD (UTC).
 - Fixed Bybit position deserialization for closed positions (#3836), thanks for reporting @pusteckiy
 - Fixed Bybit perpetual instrument status to emit `PreClose` when scheduled for delisting (#3829), thanks @dxwil
 - Fixed Bybit `load_all_async` dropping `base_coin` filter for options (#3865), thanks for reporting @Baerenstein
+- Fixed Bybit `InstrumentStatus` messages silently dropped instead of forwarded to the data engine
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed Hyperliquid modify cancel-replace emitting stale `OrderCanceled` (#3827), thanks for reporting @P1YU5H-50N1
@@ -66,6 +67,7 @@ Released on TBD (UTC).
 - Fixed OKX option summary subscription refcount not rolling back on subscribe failure
 - Fixed OKX duplicate fills from empty `trade_id` using deterministic synthesized id instead of random UUID
 - Fixed OKX panics on unmapped `OrderStatus` and empty `OptionType` values via `TryFrom` conversion (Rust)
+- Fixed OKX `InstrumentStatus` messages logged as unhandled instead of forwarded to the data engine
 - Fixed Polymarket commission formula and fee source for fills (#3838), thanks for reporting @santivazq
 - Fixed Polymarket reconciliation fills using incorrect commission (#3860), thanks for reporting @fedoraiver
 - Fixed Polymarket instrument `min_quantity` denying market orders via limit-order shares rule (#3874), thanks for reporting @fedoraiver

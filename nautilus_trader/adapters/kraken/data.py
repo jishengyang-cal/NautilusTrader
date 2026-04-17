@@ -870,6 +870,8 @@ class KrakenDataClient(LiveMarketDataClient):
                 self._handle_instrument_update(msg)
             elif isinstance(msg, nautilus_pyo3.FundingRateUpdate):
                 self._handle_data(FundingRateUpdate.from_pyo3(msg))
+            elif isinstance(msg, nautilus_pyo3.InstrumentStatus):
+                self._handle_data(InstrumentStatus.from_pyo3(msg))
             else:
                 self._log.warning(f"Cannot handle message {msg}, not implemented")
         except Exception as e:
