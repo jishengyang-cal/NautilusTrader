@@ -34,7 +34,7 @@ use nautilus_common::{
             RequestBars, RequestBookSnapshot, RequestInstrument, RequestInstruments, RequestTrades,
             SubscribeBars, SubscribeBookDeltas, SubscribeInstrument, SubscribeQuotes,
             SubscribeTrades, TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas,
-            UnsubscribeQuotes, UnsubscribeTrades,
+            UnsubscribeInstrument, UnsubscribeQuotes, UnsubscribeTrades,
         },
     },
 };
@@ -377,6 +377,14 @@ impl DataClient for CoinbaseDataClient {
             log::warn!("Instrument {} not found in cache", cmd.instrument_id);
         }
 
+        Ok(())
+    }
+
+    fn unsubscribe_instrument(
+        &mut self,
+        _unsubscription: &UnsubscribeInstrument,
+    ) -> anyhow::Result<()> {
+        // `subscribe_instrument` only replays cached state; no venue subscription to tear down.
         Ok(())
     }
 

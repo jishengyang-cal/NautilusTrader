@@ -241,7 +241,9 @@ impl FeedHandler {
         };
 
         match msg {
-            CoinbaseWsMessage::L2Data { events, .. } => self.handle_l2_events(&events, ts_init),
+            CoinbaseWsMessage::L2Data {
+                timestamp, events, ..
+            } => self.handle_l2_events(&events, &timestamp, ts_init),
             CoinbaseWsMessage::MarketTrades { events, .. } => {
                 self.handle_market_trades(&events, ts_init)
             }
@@ -284,8 +286,17 @@ impl FeedHandler {
     fn handle_l2_events(
         &mut self,
         events: &[crate::websocket::messages::WsL2DataEvent],
+        timestamp: &str,
         ts_init: UnixNanos,
     ) -> Option<NautilusWsMessage> {
+        let ts_event = match crate::http::parse::parse_rfc3339_timestamp(timestamp) {
+            Ok(ts) => ts,
+            Err(e) => {
+                log::warn!("Failed to parse L2 message timestamp {timestamp}: {e}");
+                ts_init
+            }
+        };
+
         let mut first: Option<NautilusWsMessage> = None;
 
         for event in events {
@@ -300,8 +311,8 @@ impl FeedHandler {
             };
 
             let result = match event.event_type {
-                WsEventType::Snapshot => parse_ws_l2_snapshot(event, instrument, ts_init),
-                WsEventType::Update => parse_ws_l2_update(event, instrument, ts_init),
+                WsEventType::Snapshot => parse_ws_l2_snapshot(event, instrument, ts_event, ts_init),
+                WsEventType::Update => parse_ws_l2_update(event, instrument, ts_event, ts_init),
             };
 
             match result {
@@ -484,7 +495,13 @@ impl FeedHandler {
 mod tests {
     use std::sync::{Arc, atomic::AtomicBool};
 
+    use nautilus_model::{
+        identifiers::{Symbol, Venue},
+        instruments::CurrencyPair,
+        types::{Currency, Price, Quantity},
+    };
     use rstest::rstest;
+    use ustr::Ustr;
 
     use super::*;
     use crate::common::testing::load_test_fixture;
@@ -493,6 +510,36 @@ mod tests {
         let (_cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
         let (_raw_tx, raw_rx) = tokio::sync::mpsc::unbounded_channel();
         FeedHandler::new(Arc::new(AtomicBool::new(false)), cmd_rx, raw_rx)
+    }
+
+    fn btc_usd_instrument() -> InstrumentAny {
+        let instrument_id =
+            InstrumentId::new(Symbol::new("BTC-USD"), Venue::new(Ustr::from("COINBASE")));
+        InstrumentAny::CurrencyPair(CurrencyPair::new(
+            instrument_id,
+            Symbol::new("BTC-USD"),
+            Currency::get_or_create_crypto("BTC"),
+            Currency::get_or_create_crypto("USD"),
+            2,
+            8,
+            Price::from("0.01"),
+            Quantity::from("0.00000001"),
+            None,
+            None,
+            None,
+            Some(Quantity::from("0.00000001")),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            UnixNanos::default(),
+            UnixNanos::default(),
+        ))
     }
 
     #[rstest]
@@ -535,6 +582,60 @@ mod tests {
 
         assert!(handler.handle_text(json).is_none());
         assert!(handler.buffer.is_empty());
+    }
+
+    #[rstest]
+    fn test_handle_l2_update_uses_batch_timestamp_for_all_deltas() {
+        let json = load_test_fixture("ws_l2_data_update.json");
+        let mut handler = test_handler();
+        handler
+            .instruments
+            .insert(btc_usd_instrument().id(), btc_usd_instrument());
+
+        let msg = handler
+            .handle_text(&json)
+            .expect("handler should emit deltas for a valid L2 update");
+
+        let deltas = match msg {
+            NautilusWsMessage::Deltas(d) => d,
+            other => panic!("expected Deltas, was {other:?}"),
+        };
+
+        assert!(!deltas.deltas.is_empty());
+        let expected_ts = deltas.deltas[0].ts_event;
+        for delta in &deltas.deltas {
+            assert_eq!(
+                delta.ts_event, expected_ts,
+                "all deltas in a batch must share ts_event"
+            );
+        }
+    }
+
+    #[rstest]
+    fn test_handle_l2_update_malformed_timestamp_falls_back_to_ts_init() {
+        let json = load_test_fixture("ws_l2_data_update.json")
+            .replace("2026-04-07T14:30:01.456789Z", "not-a-valid-timestamp");
+        let mut handler = test_handler();
+        handler
+            .instruments
+            .insert(btc_usd_instrument().id(), btc_usd_instrument());
+
+        let msg = handler
+            .handle_text(&json)
+            .expect("handler should still emit deltas when timestamp is malformed");
+
+        let deltas = match msg {
+            NautilusWsMessage::Deltas(d) => d,
+            other => panic!("expected Deltas, was {other:?}"),
+        };
+
+        assert!(!deltas.deltas.is_empty());
+        for delta in &deltas.deltas {
+            assert_eq!(
+                delta.ts_event, delta.ts_init,
+                "malformed timestamp must fall back to ts_init"
+            );
+        }
     }
 
     #[rstest]

@@ -36,6 +36,7 @@ use nautilus_common::{
         data::{
             RequestBars, RequestBookSnapshot, RequestInstrument, RequestInstruments, RequestTrades,
             SubscribeBars, SubscribeBookDeltas, SubscribeQuotes, SubscribeTrades,
+            UnsubscribeInstrument,
         },
     },
     testing::wait_until_async,
@@ -749,6 +750,42 @@ async fn test_data_client_request_trades() {
         }
         other => panic!("Expected Trades response, was: {other:?}"),
     }
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_data_client_unsubscribe_instrument_is_noop() {
+    let state = TestServerState::default();
+    let addr = start_mock_server(state).await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+    set_data_event_sender(tx);
+
+    let config = create_data_client_config(addr);
+    let mut client = CoinbaseDataClient::new(ClientId::new("COINBASE"), config).unwrap();
+    client.connect().await.unwrap();
+
+    while rx.try_recv().is_ok() {}
+
+    let cmd = UnsubscribeInstrument::new(
+        InstrumentId::from("BTC-USD.COINBASE"),
+        Some(ClientId::new("COINBASE")),
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+
+    client
+        .unsubscribe_instrument(&cmd)
+        .expect("unsubscribe_instrument should be a no-op Ok");
+
+    assert!(
+        rx.try_recv().is_err(),
+        "unsubscribe_instrument should not emit any data events"
+    );
 
     client.disconnect().await.unwrap();
 }

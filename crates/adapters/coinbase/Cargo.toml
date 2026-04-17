@@ -108,3 +108,8 @@ name = "coinbase-http-private"
 path = "bin/http_private.rs"
 doc = false
 test = false
+
+[[example]]
+name = "coinbase-data-tester"
+path = "examples/node_data_tester.rs"
+doc = false

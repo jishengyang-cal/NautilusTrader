@@ -96,18 +96,17 @@ pub fn parse_ws_candle(
 }
 
 /// Parses a WebSocket L2 snapshot event into [`OrderBookDeltas`].
+///
+/// All deltas in the batch share `ts_event`, which the caller derives from the
+/// message-level `timestamp`. Per-level `event_time` values are not monotonic
+/// across batches and would trigger out-of-order warnings in the managed book.
 pub fn parse_ws_l2_snapshot(
     event: &WsL2DataEvent,
     instrument: &InstrumentAny,
+    ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<OrderBookDeltas> {
     let instrument_id = instrument.id();
-    let ts_event = event
-        .updates
-        .first()
-        .map(|u| parse_rfc3339_timestamp(&u.event_time))
-        .transpose()?
-        .unwrap_or(ts_init);
 
     let total = event.updates.len();
     let mut deltas = Vec::with_capacity(total + 1);
@@ -137,9 +136,14 @@ pub fn parse_ws_l2_snapshot(
 }
 
 /// Parses a WebSocket L2 update event into [`OrderBookDeltas`].
+///
+/// All deltas in the batch share `ts_event`, which the caller derives from the
+/// message-level `timestamp`. Per-level `event_time` values are not monotonic
+/// across batches and would trigger out-of-order warnings in the managed book.
 pub fn parse_ws_l2_update(
     event: &WsL2DataEvent,
     instrument: &InstrumentAny,
+    ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<OrderBookDeltas> {
     let instrument_id = instrument.id();
@@ -148,7 +152,6 @@ pub fn parse_ws_l2_update(
 
     for (i, update) in event.updates.iter().enumerate() {
         let is_last = i == total - 1;
-        let ts_event = parse_rfc3339_timestamp(&update.event_time)?;
         let price = parse_price(&update.price_level, instrument.price_precision())?;
         let size = parse_quantity(&update.new_quantity, instrument.size_precision())?;
         let side = ws_book_side_to_order_side(update.side);
@@ -369,12 +372,18 @@ mod tests {
         let ts_init = UnixNanos::default();
 
         match msg {
-            CoinbaseWsMessage::L2Data { events, .. } => {
+            CoinbaseWsMessage::L2Data {
+                timestamp, events, ..
+            } => {
                 let event = &events[0];
                 assert_eq!(event.event_type, WsEventType::Snapshot);
+                let ts_event = parse_rfc3339_timestamp(&timestamp).unwrap();
 
-                let deltas = parse_ws_l2_snapshot(event, &instrument, ts_init).unwrap();
+                let deltas = parse_ws_l2_snapshot(event, &instrument, ts_event, ts_init).unwrap();
                 assert_eq!(deltas.instrument_id, instrument.id());
+                for delta in &deltas.deltas {
+                    assert_eq!(delta.ts_event, ts_event);
+                }
 
                 // 6 levels + 1 clear = 7 deltas
                 assert_eq!(deltas.deltas.len(), 7);
@@ -407,12 +416,18 @@ mod tests {
         let ts_init = UnixNanos::default();
 
         match msg {
-            CoinbaseWsMessage::L2Data { events, .. } => {
+            CoinbaseWsMessage::L2Data {
+                timestamp, events, ..
+            } => {
                 let event = &events[0];
                 assert_eq!(event.event_type, WsEventType::Update);
+                let ts_event = parse_rfc3339_timestamp(&timestamp).unwrap();
 
-                let deltas = parse_ws_l2_update(event, &instrument, ts_init).unwrap();
+                let deltas = parse_ws_l2_update(event, &instrument, ts_event, ts_init).unwrap();
                 assert_eq!(deltas.deltas.len(), 2);
+                for delta in &deltas.deltas {
+                    assert_eq!(delta.ts_event, ts_event);
+                }
 
                 // First update: bid at 68900.00, qty 2.0 -> Update action
                 assert_eq!(deltas.deltas[0].order.side, OrderSide::Buy);
@@ -440,9 +455,12 @@ mod tests {
         let ts_init = UnixNanos::default();
 
         match msg {
-            CoinbaseWsMessage::L2Data { events, .. } => {
+            CoinbaseWsMessage::L2Data {
+                timestamp, events, ..
+            } => {
                 let event = &events[0];
-                let deltas = parse_ws_l2_update(event, &instrument, ts_init).unwrap();
+                let ts_event = parse_rfc3339_timestamp(&timestamp).unwrap();
+                let deltas = parse_ws_l2_update(event, &instrument, ts_event, ts_init).unwrap();
 
                 // The offer with new_quantity "0.00000000" should be a Delete
                 let delete_delta = deltas
@@ -451,6 +469,7 @@ mod tests {
                     .find(|d| d.action == BookAction::Delete)
                     .expect("should have a delete action for zero quantity");
                 assert_eq!(delete_delta.order.side, OrderSide::Sell);
+                assert_eq!(delete_delta.ts_event, ts_event);
             }
             _ => panic!("Expected L2Data"),
         }
