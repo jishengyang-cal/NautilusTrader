@@ -1703,12 +1703,22 @@ impl HyperliquidHttpClient {
 
         let ts_init = self.clock.get_time_ns();
 
-        // Try open orders first (returns full WsBasicOrderData with trigger fields)
-        let response = self.info_frontend_open_orders(user).await?;
-        let orders: Vec<WsBasicOrderData> = match serde_json::from_value(response) {
-            Ok(v) => v,
+        // Try open orders first (returns full WsBasicOrderData with trigger fields).
+        // A transport error here must not abort the call: the oid fallback to
+        // info_order_status below still covers closed orders, so a transient
+        // frontendOpenOrders outage is downgraded to a warning.
+        let orders: Vec<WsBasicOrderData> = match self.info_frontend_open_orders(user).await {
+            Ok(response) => match serde_json::from_value(response) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("Failed to parse frontend open orders response: {e}");
+                    Vec::new()
+                }
+            },
             Err(e) => {
-                log::warn!("Failed to parse frontend open orders response: {e}");
+                log::warn!(
+                    "Failed to fetch frontendOpenOrders for oid {oid}: {e}; falling back to orderStatus"
+                );
                 Vec::new()
             }
         };

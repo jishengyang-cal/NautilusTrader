@@ -16,7 +16,6 @@
 //! Live execution client implementation for the Hyperliquid adapter.
 
 use std::{
-    str::FromStr,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -1249,45 +1248,68 @@ impl ExecutionClient for HyperliquidExecutionClient {
     fn query_order(&self, cmd: QueryOrder) -> anyhow::Result<()> {
         log::debug!("Querying order: {cmd:?}");
 
-        let cache = self.core.cache();
-        let venue_order_id = cache.venue_order_id(&cmd.client_order_id);
-
-        let venue_order_id = match venue_order_id {
-            Some(oid) => *oid,
-            None => {
-                log::warn!(
-                    "No venue order ID found for client order {}",
-                    cmd.client_order_id
-                );
-                return Ok(());
-            }
-        };
-        drop(cache);
-
-        let oid = match u64::from_str(venue_order_id.as_ref()) {
-            Ok(id) => id,
-            Err(e) => {
-                log::warn!("Failed to parse venue order ID {venue_order_id}: {e}");
-                return Ok(());
-            }
+        let client_order_id = cmd.client_order_id;
+        let venue_order_id = match cmd.venue_order_id {
+            Some(voi) => Some(voi),
+            None => self.core.cache().venue_order_id(&client_order_id).copied(),
         };
 
         let account_address = self.get_account_address()?;
-
-        // Query order status via HTTP API
-        // Note: The WebSocket connection is the authoritative source for order updates,
-        // this is primarily for reconciliation or when WebSocket is unavailable
         let http_client = self.http_client.clone();
-        let runtime = get_runtime();
-        runtime.spawn(async move {
-            match http_client.info_order_status(&account_address, oid).await {
-                Ok(status) => {
-                    log::debug!("Order status for oid {oid}: {status:?}");
+        let emitter = self.emitter.clone();
+
+        self.spawn_task("query_order", async move {
+            // Search open orders by cloid first so modify/cancel-replace
+            // resolves to the live replacement rather than a stale cached oid.
+            // Request errors here are logged and the oid fallback is still tried;
+            // a transient frontendOpenOrders failure must not abort the whole query.
+            match http_client
+                .request_order_status_report_by_client_order_id(&account_address, &client_order_id)
+                .await
+            {
+                Ok(Some(report)) => {
+                    log::info!("Queried order status for {client_order_id}");
+                    emitter.send_order_status_report(report);
+                    return Ok(());
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    log::warn!(
+                        "Failed to query order status for {client_order_id}: {e}; falling back to oid lookup"
+                    );
+                }
+            }
+
+            let Some(venue_order_id) = venue_order_id else {
+                log::info!("No order status report found for {client_order_id}");
+                return Ok(());
+            };
+
+            let oid: u64 = match venue_order_id.as_str().parse() {
+                Ok(oid) => oid,
+                Err(e) => {
+                    log::warn!("Failed to parse venue order ID {venue_order_id}: {e}");
+                    return Ok(());
+                }
+            };
+
+            match http_client
+                .request_order_status_report(&account_address, oid)
+                .await
+            {
+                Ok(Some(report)) => {
+                    log::info!("Queried order status for oid {oid}");
+                    emitter.send_order_status_report(report);
+                }
+                Ok(None) => {
+                    log::info!("No order status report found for oid {oid}");
                 }
                 Err(e) => {
                     log::warn!("Failed to query order status for oid {oid}: {e}");
                 }
             }
+
+            Ok(())
         });
 
         Ok(())

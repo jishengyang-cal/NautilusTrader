@@ -46,10 +46,10 @@ use nautilus_common::{
     clients::ExecutionClient,
     live::runner::set_exec_event_sender,
     messages::{
-        ExecutionEvent,
+        ExecutionEvent, ExecutionReport,
         execution::{
             BatchCancelOrders, CancelOrder, GenerateOrderStatusReport, ModifyOrder, QueryAccount,
-            SubmitOrder,
+            QueryOrder, SubmitOrder,
         },
     },
     testing::wait_until_async,
@@ -68,6 +68,7 @@ use nautilus_model::{
         AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, TraderId, Venue, VenueOrderId,
     },
     orders::{LimitOrder, Order, OrderAny},
+    reports::OrderStatusReport,
     types::{AccountBalance, Money, Price, Quantity},
 };
 use nautilus_network::http::{HttpClient, Method};
@@ -89,6 +90,10 @@ struct TestServerState {
     cancel_response_override: Arc<tokio::sync::Mutex<Option<Value>>>,
     /// Fail the next exchange call with a transport error (503).
     fail_next_exchange: Arc<std::sync::atomic::AtomicBool>,
+    /// Fail `frontendOpenOrders` info calls with a transport error (503) while
+    /// positive, decrementing once per call. Use a large value to simulate a
+    /// sustained outage.
+    fail_frontend_open_orders_count: Arc<AtomicUsize>,
     /// Optional override for `frontendOpenOrders` info responses.
     frontend_open_orders_response: Arc<tokio::sync::Mutex<Option<Value>>>,
     /// Optional override for `orderStatus` info responses.
@@ -105,6 +110,7 @@ impl Default for TestServerState {
             inner_order_error_next: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             cancel_response_override: Arc::new(tokio::sync::Mutex::new(None)),
             fail_next_exchange: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            fail_frontend_open_orders_count: Arc::new(AtomicUsize::new(0)),
             frontend_open_orders_response: Arc::new(tokio::sync::Mutex::new(None)),
             order_status_response: Arc::new(tokio::sync::Mutex::new(None)),
             rate_limit_after: Arc::new(AtomicUsize::new(usize::MAX)),
@@ -168,6 +174,20 @@ async fn handle_info(State(state): State<TestServerState>, body: axum::body::Byt
         "spotMetaAndAssetCtxs" => Json(json!([{"universe": [], "tokens": []}, []])).into_response(),
         "openOrders" => Json(json!([])).into_response(),
         "frontendOpenOrders" => {
+            if state
+                .fail_frontend_open_orders_count
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    if n > 0 { Some(n - 1) } else { None }
+                })
+                .is_ok()
+            {
+                return (
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({"error": "upstream unavailable"})),
+                )
+                    .into_response();
+            }
+
             if let Some(body) = state.frontend_open_orders_response.lock().await.clone() {
                 Json(body).into_response()
             } else {
@@ -1560,6 +1580,295 @@ async fn test_batch_cancel_orders_missing_asset_index_skips_and_rejects() {
         events[0].1.contains("Asset index not found"),
         "reason should explain the skip: {}",
         events[0].1,
+    );
+
+    client.disconnect().await.unwrap();
+}
+
+async fn drain_order_status_reports(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,
+    timeout: Duration,
+) -> Vec<OrderStatusReport> {
+    let mut out = Vec::new();
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        match tokio::time::timeout_at(deadline, rx.recv()).await {
+            Ok(Some(ExecutionEvent::Report(ExecutionReport::Order(report)))) => out.push(*report),
+            Ok(Some(_)) => {}
+            Ok(None) | Err(_) => break,
+        }
+    }
+    out
+}
+
+fn make_query_order_cmd(
+    client_order_id: ClientOrderId,
+    venue_order_id: Option<VenueOrderId>,
+) -> QueryOrder {
+    QueryOrder::new(
+        TraderId::from("TESTER-001"),
+        Some(ClientId::from("HYPERLIQUID")),
+        StrategyId::from("S-001"),
+        InstrumentId::from(HYPERLIQUID_TEST_INSTRUMENT),
+        client_order_id,
+        venue_order_id,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+    )
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_query_order_emits_report_from_cloid_open_match() {
+    // cloid-open-query hits: the cached oid is authoritative and the handler
+    // must forward the live report to the engine via send_order_status_report.
+    let coid = ClientOrderId::new("O-QUERY-001");
+    let cloid_hex = Cloid::from_client_order_id(coid).to_hex();
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([{
+        "coin": "BTC",
+        "side": "B",
+        "limitPx": "95000.0",
+        "sz": "0.001",
+        "oid": 900001,
+        "timestamp": 1700000000000u64,
+        "origSz": "0.001",
+        "cloid": cloid_hex,
+    }]));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    client
+        .query_order(make_query_order_cmd(
+            coid,
+            Some(VenueOrderId::from("900001")),
+        ))
+        .unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let reports = drain_order_status_reports(&mut rx, Duration::from_millis(250)).await;
+    assert_eq!(
+        reports.len(),
+        1,
+        "cloid-open match should emit exactly one report"
+    );
+    assert_eq!(reports[0].venue_order_id, VenueOrderId::from("900001"));
+    assert_eq!(reports[0].order_status, OrderStatus::Accepted);
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_query_order_falls_back_to_oid_when_cloid_misses() {
+    // cloid-open miss: handler must fall through to info_order_status and
+    // forward any terminal report it finds to the engine.
+    let coid = ClientOrderId::new("O-QUERY-002");
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([]));
+    *state.order_status_response.lock().await = Some(json!({
+        "status": "order",
+        "order": {
+            "order": {
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "95000.0",
+                "sz": "0.0",
+                "oid": 900002,
+                "timestamp": 1700000000000u64,
+                "origSz": "0.001",
+            },
+            "status": "canceled",
+            "statusTimestamp": 1700001000000u64,
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    client
+        .query_order(make_query_order_cmd(
+            coid,
+            Some(VenueOrderId::from("900002")),
+        ))
+        .unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let reports = drain_order_status_reports(&mut rx, Duration::from_millis(250)).await;
+    assert_eq!(
+        reports.len(),
+        1,
+        "oid fallback should emit exactly one report"
+    );
+    assert_eq!(reports[0].venue_order_id, VenueOrderId::from("900002"));
+    assert_eq!(reports[0].order_status, OrderStatus::Canceled);
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_query_order_oid_fallback_runs_when_cloid_request_errors() {
+    // Sustained frontendOpenOrders outage: both the cloid-open probe and the
+    // frontendOpenOrders call inside request_order_status_report must fail,
+    // so the handler + HTTP helper must both tolerate the outage and still
+    // resolve the order via info_order_status.
+    let coid = ClientOrderId::new("O-QUERY-003");
+
+    let state = TestServerState::default();
+    // Fail enough times to cover both frontendOpenOrders requests made during
+    // this query (cloid lookup + oid fallback's own prefetch).
+    state
+        .fail_frontend_open_orders_count
+        .store(4, Ordering::Relaxed);
+    *state.order_status_response.lock().await = Some(json!({
+        "status": "order",
+        "order": {
+            "order": {
+                "coin": "BTC",
+                "side": "B",
+                "limitPx": "95000.0",
+                "sz": "0.0",
+                "oid": 900003,
+                "timestamp": 1700000000000u64,
+                "origSz": "0.001",
+            },
+            "status": "filled",
+            "statusTimestamp": 1700001000000u64,
+        }
+    }));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    client
+        .query_order(make_query_order_cmd(
+            coid,
+            Some(VenueOrderId::from("900003")),
+        ))
+        .unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let reports = drain_order_status_reports(&mut rx, Duration::from_millis(250)).await;
+    assert_eq!(
+        reports.len(),
+        1,
+        "cloid transport error must not abort the oid fallback",
+    );
+    assert_eq!(reports[0].order_status, OrderStatus::Filled);
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_query_order_cloid_only_without_cached_voi() {
+    // Command carries no venue_order_id and the cache has no mapping either.
+    // The handler must still run the cloid-open probe and forward any hit.
+    let coid = ClientOrderId::new("O-QUERY-004");
+    let cloid_hex = Cloid::from_client_order_id(coid).to_hex();
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([{
+        "coin": "BTC",
+        "side": "B",
+        "limitPx": "95000.0",
+        "sz": "0.001",
+        "oid": 900004,
+        "timestamp": 1700000000000u64,
+        "origSz": "0.001",
+        "cloid": cloid_hex,
+    }]));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    client
+        .query_order(make_query_order_cmd(coid, None))
+        .unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let reports = drain_order_status_reports(&mut rx, Duration::from_millis(250)).await;
+    assert_eq!(
+        reports.len(),
+        1,
+        "cloid-only query must still resolve via frontendOpenOrders",
+    );
+    assert_eq!(reports[0].venue_order_id, VenueOrderId::from("900004"));
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_query_order_unknown_returns_silently() {
+    // Order is gone from both open set and orderStatus; the handler must
+    // log and emit nothing.
+    let coid = ClientOrderId::new("O-QUERY-005");
+
+    let state = TestServerState::default();
+    *state.frontend_open_orders_response.lock().await = Some(json!([]));
+    *state.order_status_response.lock().await = Some(json!({"status": "unknownOid"}));
+
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    add_test_account_to_cache(&cache, AccountId::from("HYPERLIQUID-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    client
+        .query_order(make_query_order_cmd(
+            coid,
+            Some(VenueOrderId::from("900005")),
+        ))
+        .unwrap();
+
+    wait_until_async(
+        || async { client.pending_tasks_all_finished() },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let reports = drain_order_status_reports(&mut rx, Duration::from_millis(250)).await;
+    assert!(
+        reports.is_empty(),
+        "unknownOid must not emit an order status report",
     );
 
     client.disconnect().await.unwrap();
