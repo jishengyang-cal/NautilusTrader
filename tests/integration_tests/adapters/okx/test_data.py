@@ -26,6 +26,7 @@ from nautilus_trader.adapters.okx.data import OKXDataClient
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import MessageBus
 from nautilus_trader.core import nautilus_pyo3
+from nautilus_trader.core.nautilus_pyo3 import OKXGreeksType
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.data.engine import DataEngine
 from nautilus_trader.data.messages import RequestInstrument
@@ -422,9 +423,70 @@ async def test_request_instrument_receives_single_instrument(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command_params", "expected_conventions"),
+    [
+        (None, [OKXGreeksType.BS, OKXGreeksType.PA]),
+        ({"greeks_convention": "BLACK_SCHOLES"}, [OKXGreeksType.BS]),
+        ({"greeks_convention": "PRICE_ADJUSTED"}, [OKXGreeksType.PA]),
+        (
+            {"greeks_convention": ["BLACK_SCHOLES", "PRICE_ADJUSTED"]},
+            [OKXGreeksType.BS, OKXGreeksType.PA],
+        ),
+        ({"greeks_convention": ["PRICE_ADJUSTED"]}, [OKXGreeksType.PA]),
+        ({"greeks_convention": "BOGUS"}, [OKXGreeksType.BS, OKXGreeksType.PA]),
+    ],
+)
+async def test_subscribe_option_greeks_propagates_requested_conventions(
+    data_client_builder,
+    monkeypatch,
+    command_params,
+    expected_conventions,
+):
+    # Arrange
+    client, public_ws, business_ws, http_client, instrument_provider = data_client_builder(
+        monkeypatch,
+    )
+
+    await client._connect()
+    try:
+        instrument_id = InstrumentId(Symbol("BTC-USD-260410-70000-C"), OKX_VENUE)
+
+        command = SubscribeOptionGreeks(
+            instrument_id=instrument_id,
+            client_id=None,
+            venue=OKX_VENUE,
+            command_id=UUID4(),
+            ts_init=0,
+            params=command_params,
+        )
+
+        # Act
+        await client._subscribe_option_greeks(command)
+
+        # Assert
+        public_ws.add_option_greeks_sub_with_conventions.assert_called_once()
+        call_args = public_ws.add_option_greeks_sub_with_conventions.call_args
+        actual_names = sorted(str(c) for c in call_args.args[1])
+        expected_names = sorted(str(c) for c in expected_conventions)
+        assert actual_names == expected_names
+        public_ws.subscribe_option_summary.assert_awaited_once_with("BTC-USD")
+    finally:
+        await client._disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "convention",
+    [
+        nautilus_pyo3.GreeksConvention.BLACK_SCHOLES,
+        nautilus_pyo3.GreeksConvention.PRICE_ADJUSTED,
+    ],
+)
 async def test_handle_msg_option_greeks_forwarded_when_subscribed(
     data_client_builder,
     monkeypatch,
+    convention,
 ):
     # Arrange
     client, public_ws, business_ws, http_client, instrument_provider = data_client_builder(
@@ -463,6 +525,7 @@ async def test_handle_msg_option_greeks_forwarded_when_subscribed(
         pyo3_greeks.open_interest = 100.0
         pyo3_greeks.ts_event = 1_000_000_000
         pyo3_greeks.ts_init = 1_000_000_000
+        pyo3_greeks.convention = convention
 
         # Act
         client._handle_msg(pyo3_greeks)
@@ -471,8 +534,57 @@ async def test_handle_msg_option_greeks_forwarded_when_subscribed(
         assert len(handled_data) == 1
         assert isinstance(handled_data[0], OptionGreeks)
         assert handled_data[0].instrument_id == instrument_id
+        assert handled_data[0].convention == convention
     finally:
         await client._disconnect()
+
+
+BOTH_CONVENTIONS = [OKXGreeksType.BS, OKXGreeksType.PA]
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        (None, BOTH_CONVENTIONS),
+        ({}, BOTH_CONVENTIONS),
+        ({"other_key": "value"}, BOTH_CONVENTIONS),
+        ({"greeks_convention": "BLACK_SCHOLES"}, [OKXGreeksType.BS]),
+        ({"greeks_convention": "PRICE_ADJUSTED"}, [OKXGreeksType.PA]),
+        ({"greeks_convention": "black_scholes"}, [OKXGreeksType.BS]),
+        ({"greeks_convention": "price_adjusted"}, [OKXGreeksType.PA]),
+        (
+            {"greeks_convention": ["BLACK_SCHOLES", "PRICE_ADJUSTED"]},
+            BOTH_CONVENTIONS,
+        ),
+        ({"greeks_convention": ["PRICE_ADJUSTED"]}, [OKXGreeksType.PA]),
+        (
+            {"greeks_convention": ["BLACK_SCHOLES", "black_scholes"]},
+            [OKXGreeksType.BS],
+        ),
+        (
+            {"greeks_convention": ["BOGUS", "PRICE_ADJUSTED"]},
+            [OKXGreeksType.PA],
+        ),
+        ({"greeks_convention": ["BOGUS"]}, BOTH_CONVENTIONS),
+        ({"greeks_convention": "BOGUS"}, BOTH_CONVENTIONS),
+        ({"greeks_convention": 42}, BOTH_CONVENTIONS),
+        ({"greeks_convention": [42, None]}, BOTH_CONVENTIONS),
+    ],
+)
+def test_resolve_greeks_conventions(
+    data_client_builder,
+    monkeypatch,
+    params,
+    expected,
+):
+    # Arrange
+    client, _, _, _, _ = data_client_builder(monkeypatch)
+
+    # Act
+    actual = client._resolve_greeks_conventions(params)
+
+    # Assert
+    assert sorted(str(c) for c in actual) == sorted(str(c) for c in expected)
 
 
 @pytest.mark.asyncio

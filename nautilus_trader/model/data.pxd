@@ -581,6 +581,8 @@ cdef class OptionGreeks(Data):
     """Underlying price.\n\n:returns: `float` or ``None``"""
     cdef readonly object open_interest
     """Open interest.\n\n:returns: `float` or ``None``"""
+    cdef readonly object convention
+    """Greeks convention (Black-Scholes or price-adjusted).\n\n:returns: `GreeksConvention`"""
     cdef readonly uint64_t ts_event
     """UNIX timestamp (nanoseconds) when the data event occurred.\n\n:returns: `uint64_t`"""
     cdef readonly uint64_t ts_init

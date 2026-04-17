@@ -38,7 +38,7 @@ use dashmap::DashMap;
 use futures_util::Stream;
 use nautilus_common::live::get_runtime;
 use nautilus_core::{
-    AtomicMap, AtomicSet,
+    AtomicMap,
     consts::NAUTILUS_USER_AGENT,
     env::{get_env_var, get_or_env_var},
     string::REDACTED,
@@ -82,8 +82,9 @@ use crate::common::{
     },
     credential::Credential,
     enums::{
-        OKXInstrumentType, OKXOrderType, OKXPositionSide, OKXTargetCurrency, OKXTradeMode,
-        OKXTriggerType, OKXVipLevel, conditional_order_to_algo_type, is_conditional_order,
+        OKXGreeksType, OKXInstrumentType, OKXOrderType, OKXPositionSide, OKXTargetCurrency,
+        OKXTradeMode, OKXTriggerType, OKXVipLevel, conditional_order_to_algo_type,
+        is_conditional_order,
     },
     parse::{
         bar_spec_as_okx_channel, okx_instrument_type, okx_instrument_type_from_symbol,
@@ -185,7 +186,7 @@ pub struct OKXWebSocketClient {
     pub(crate) pending_orders: Arc<DashMap<String, PendingOrderInfo>>,
     pub(crate) pending_cancels: Arc<DashMap<String, PendingOrderInfo>>,
     pub(crate) pending_amends: Arc<DashMap<String, PendingOrderInfo>>,
-    option_greeks_subs: Arc<AtomicSet<InstrumentId>>,
+    option_greeks_subs: Arc<AtomicMap<InstrumentId, AHashSet<OKXGreeksType>>>,
     /// Per-base-pair refcount for the `index-tickers` channel. Multiple
     /// instruments commonly share one base pair (e.g. `BTC-USDT-SWAP` and
     /// `BTC-USDT-240628` both depend on `BTC-USDT`), so the venue
@@ -282,7 +283,7 @@ impl OKXWebSocketClient {
             pending_orders: Arc::new(DashMap::new()),
             pending_cancels: Arc::new(DashMap::new()),
             pending_amends: Arc::new(DashMap::new()),
-            option_greeks_subs: Arc::new(AtomicSet::new()),
+            option_greeks_subs: Arc::new(AtomicMap::new()),
             index_pair_subscribers: Arc::new(DashMap::new()),
             index_pair_transition: Arc::new(tokio::sync::Mutex::new(())),
             cancellation_token: CancellationToken::new(),
@@ -1451,14 +1452,34 @@ impl OKXWebSocketClient {
         self.subscribe(vec![arg]).await
     }
 
-    /// Returns a reference to the option greeks subscription set.
-    pub fn option_greeks_subs(&self) -> &Arc<AtomicSet<InstrumentId>> {
+    /// Returns a reference to the option greeks subscription map.
+    ///
+    /// The map stores the set of greeks conventions to emit for each subscribed instrument.
+    pub fn option_greeks_subs(&self) -> &Arc<AtomicMap<InstrumentId, AHashSet<OKXGreeksType>>> {
         &self.option_greeks_subs
     }
 
-    /// Adds an instrument to the option greeks subscription filter.
+    /// Adds an instrument to the option greeks subscription filter, emitting both
+    /// Black-Scholes and price-adjusted greeks.
     pub fn add_option_greeks_sub(&self, instrument_id: InstrumentId) {
-        self.option_greeks_subs.insert(instrument_id);
+        let both: AHashSet<OKXGreeksType> =
+            [OKXGreeksType::Bs, OKXGreeksType::Pa].into_iter().collect();
+        self.option_greeks_subs.insert(instrument_id, both);
+    }
+
+    /// Adds an instrument to the option greeks subscription filter with an explicit
+    /// set of greeks conventions to emit. An empty set is treated as "emit both".
+    pub fn add_option_greeks_sub_with_conventions(
+        &self,
+        instrument_id: InstrumentId,
+        conventions: AHashSet<OKXGreeksType>,
+    ) {
+        let set = if conventions.is_empty() {
+            [OKXGreeksType::Bs, OKXGreeksType::Pa].into_iter().collect()
+        } else {
+            conventions
+        };
+        self.option_greeks_subs.insert(instrument_id, set);
     }
 
     /// Removes an instrument from the option greeks subscription filter.
@@ -2985,6 +3006,62 @@ mod tests {
         let client = OKXWebSocketClient::default();
         assert!(client.credential.is_none());
         assert_eq!(client.api_key(), None);
+    }
+
+    #[rstest]
+    fn test_add_option_greeks_sub_defaults_to_both_conventions() {
+        let client = OKXWebSocketClient::default();
+        let instrument_id = InstrumentId::from("BTC-USD-250328-92000-C.OKX");
+
+        client.add_option_greeks_sub(instrument_id);
+
+        let subs = client.option_greeks_subs().load();
+        let stored = subs.get(&instrument_id).expect("instrument not registered");
+        assert_eq!(stored.len(), 2);
+        assert!(stored.contains(&OKXGreeksType::Bs));
+        assert!(stored.contains(&OKXGreeksType::Pa));
+    }
+
+    #[rstest]
+    #[case::bs_only(vec![OKXGreeksType::Bs])]
+    #[case::pa_only(vec![OKXGreeksType::Pa])]
+    #[case::both(vec![OKXGreeksType::Bs, OKXGreeksType::Pa])]
+    fn test_add_option_greeks_sub_with_conventions_stores_requested_set(
+        #[case] conventions: Vec<OKXGreeksType>,
+    ) {
+        let client = OKXWebSocketClient::default();
+        let instrument_id = InstrumentId::from("BTC-USD-250328-92000-C.OKX");
+        let set: AHashSet<OKXGreeksType> = conventions.iter().copied().collect();
+
+        client.add_option_greeks_sub_with_conventions(instrument_id, set.clone());
+
+        let subs = client.option_greeks_subs().load();
+        let stored = subs.get(&instrument_id).expect("instrument not registered");
+        assert_eq!(stored, &set);
+    }
+
+    #[rstest]
+    fn test_add_option_greeks_sub_with_empty_conventions_falls_back_to_both() {
+        let client = OKXWebSocketClient::default();
+        let instrument_id = InstrumentId::from("BTC-USD-250328-92000-C.OKX");
+
+        client.add_option_greeks_sub_with_conventions(instrument_id, AHashSet::new());
+
+        let subs = client.option_greeks_subs().load();
+        let stored = subs.get(&instrument_id).expect("instrument not registered");
+        assert_eq!(stored.len(), 2);
+    }
+
+    #[rstest]
+    fn test_remove_option_greeks_sub_clears_entry() {
+        let client = OKXWebSocketClient::default();
+        let instrument_id = InstrumentId::from("BTC-USD-250328-92000-C.OKX");
+
+        client.add_option_greeks_sub(instrument_id);
+        client.remove_option_greeks_sub(&instrument_id);
+
+        let subs = client.option_greeks_subs().load();
+        assert!(!subs.contains_key(&instrument_id));
     }
 
     #[rstest]

@@ -30,7 +30,9 @@ from nautilus_trader.common.secure import mask_api_key
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.datetime import ensure_pydatetime_utc
+from nautilus_trader.core.nautilus_pyo3 import GreeksConvention
 from nautilus_trader.core.nautilus_pyo3 import OKXEnvironment
+from nautilus_trader.core.nautilus_pyo3 import OKXGreeksType
 from nautilus_trader.data.messages import RequestBars
 from nautilus_trader.data.messages import RequestForwardPrices
 from nautilus_trader.data.messages import RequestFundingRates
@@ -77,6 +79,12 @@ from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.instruments import CryptoPerpetual
 from nautilus_trader.model.instruments import Instrument
+
+
+_GREEKS_CONVENTION_TO_TYPE: dict[GreeksConvention, OKXGreeksType] = {
+    GreeksConvention.BLACK_SCHOLES: OKXGreeksType.BS,
+    GreeksConvention.PRICE_ADJUSTED: OKXGreeksType.PA,
+}
 
 
 class OKXDataClient(LiveMarketDataClient):
@@ -363,7 +371,11 @@ class OKXDataClient(LiveMarketDataClient):
             return
         inst_family = f"{parts[0]}-{parts[1]}"
 
-        self._ws_client.add_option_greeks_sub(pyo3_instrument_id)  # type: ignore[attr-defined]
+        conventions = self._resolve_greeks_conventions(command.params)
+        self._ws_client.add_option_greeks_sub_with_conventions(  # type: ignore[attr-defined]
+            pyo3_instrument_id,
+            conventions,
+        )
         self._option_greeks_instrument_ids.add(command.instrument_id)
 
         count = self._option_summary_family_subs.get(inst_family, 0)
@@ -379,6 +391,43 @@ class OKXDataClient(LiveMarketDataClient):
                 if self._option_summary_family_subs[inst_family] <= 0:
                     del self._option_summary_family_subs[inst_family]
                 raise
+
+    def _resolve_greeks_conventions(
+        self,
+        params: dict[str, Any] | None,
+    ) -> list[OKXGreeksType]:
+        default = [OKXGreeksType.BS, OKXGreeksType.PA]
+        if params is None:
+            return default
+        raw = params.get("greeks_convention")
+        if raw is None:
+            return default
+
+        entries: list[Any]
+        if isinstance(raw, list | tuple):
+            entries = list(raw)
+        else:
+            entries = [raw]
+
+        resolved: list[OKXGreeksType] = []
+
+        for entry in entries:
+            if not isinstance(entry, str):
+                self._log.warning(
+                    f"Ignoring non-string greeks_convention entry {entry!r}",
+                )
+                continue
+            convention = getattr(GreeksConvention, entry.upper(), None)
+            if convention is None:
+                self._log.warning(
+                    f"Unrecognized greeks_convention {entry!r}, skipping",
+                )
+                continue
+            greeks_type = _GREEKS_CONVENTION_TO_TYPE[convention]
+            if greeks_type not in resolved:
+                resolved.append(greeks_type)
+
+        return resolved if resolved else default
 
     async def _unsubscribe_order_book_deltas(self, command: UnsubscribeOrderBook) -> None:
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(command.instrument_id.value)

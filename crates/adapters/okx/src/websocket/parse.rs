@@ -28,8 +28,8 @@ use nautilus_model::{
         option_chain::OptionGreeks,
     },
     enums::{
-        AggregationSource, AggressorSide, BookAction, GreeksConvention, LiquiditySide, OrderSide,
-        OrderStatus, OrderType, RecordFlag, TimeInForce, TrailingOffsetType, TriggerType,
+        AggregationSource, AggressorSide, BookAction, LiquiditySide, OrderSide, OrderStatus,
+        OrderType, RecordFlag, TimeInForce, TrailingOffsetType, TriggerType,
     },
     events::{OrderAccepted, OrderCanceled, OrderExpired, OrderTriggered, OrderUpdated},
     identifiers::{
@@ -1899,7 +1899,7 @@ pub fn parse_option_summary_greeks(
 
     Ok(OptionGreeks {
         instrument_id: *instrument_id,
-        convention: GreeksConvention::BlackScholes,
+        convention: greeks_type.into(),
         greeks: OptionGreekValues {
             delta,
             gamma,
@@ -2071,6 +2071,7 @@ mod tests {
     use nautilus_core::nanos::UnixNanos;
     use nautilus_model::{
         data::bar::BAR_SPEC_1_DAY_LAST,
+        enums::GreeksConvention,
         identifiers::{ClientOrderId, Symbol},
         instruments::CryptoPerpetual,
         types::Currency,
@@ -6435,6 +6436,7 @@ mod tests {
         assert!((greeks.ask_iv.unwrap() - 0.55).abs() < 1e-10);
         assert!((greeks.underlying_price.unwrap() - 92150.50).abs() < 1e-10);
         assert!(greeks.open_interest.is_none());
+        assert_eq!(greeks.convention, GreeksConvention::BlackScholes);
         assert_eq!(
             greeks.ts_event,
             UnixNanos::from(1_711_612_800_000_000_000u64)
@@ -6508,6 +6510,7 @@ mod tests {
         assert!((greeks.bid_iv.unwrap() - 0.52).abs() < 1e-10);
         assert!((greeks.ask_iv.unwrap() - 0.55).abs() < 1e-10);
         assert!((greeks.underlying_price.unwrap() - 92150.50).abs() < 1e-10);
+        assert_eq!(greeks.convention, GreeksConvention::PriceAdjusted);
     }
 
     #[rstest]

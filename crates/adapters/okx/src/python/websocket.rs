@@ -872,6 +872,18 @@ impl OKXWebSocketClient {
         self.add_option_greeks_sub(instrument_id);
     }
 
+    #[pyo3(name = "add_option_greeks_sub_with_conventions")]
+    fn py_add_option_greeks_sub_with_conventions(
+        &self,
+        instrument_id: InstrumentId,
+        conventions: Vec<OKXGreeksType>,
+    ) {
+        self.add_option_greeks_sub_with_conventions(
+            instrument_id,
+            conventions.into_iter().collect(),
+        );
+    }
+
     #[pyo3(name = "remove_option_greeks_sub")]
     fn py_remove_option_greeks_sub(&self, instrument_id: InstrumentId) {
         self.remove_option_greeks_sub(&instrument_id);
@@ -1468,7 +1480,7 @@ fn handle_channel_data(
     instruments_by_symbol: &mut AHashMap<Ustr, InstrumentAny>,
     quote_cache: &mut QuoteCache,
     funding_cache: &mut AHashMap<Ustr, (Ustr, u64)>,
-    option_greeks_subs: &AHashSet<InstrumentId>,
+    option_greeks_subs: &AHashMap<InstrumentId, AHashSet<OKXGreeksType>>,
     clock: &AtomicTime,
     call_soon: &Py<PyAny>,
     callback: &Py<PyAny>,
@@ -1483,28 +1495,35 @@ fn handle_channel_data(
                         continue;
                     };
                     let instrument_id = instrument.id();
-                    if !option_greeks_subs.contains(&instrument_id) {
+                    let Some(conventions) = option_greeks_subs.get(&instrument_id) else {
                         continue;
-                    }
+                    };
 
-                    match parse_option_summary_greeks(
-                        msg,
-                        &instrument_id,
-                        OKXGreeksType::Bs,
-                        ts_init,
-                    ) {
-                        Ok(greeks) => {
-                            Python::attach(|py| match greeks.into_py_any(py) {
-                                Ok(py_obj) => {
-                                    call_python_threadsafe(py, call_soon, callback, py_obj);
-                                }
-                                Err(e) => {
-                                    log::error!("Failed to convert OptionGreeks to Python: {e}");
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            log::error!("Failed to parse option summary for {}: {e}", msg.inst_id);
+                    for greeks_type in conventions {
+                        match parse_option_summary_greeks(
+                            msg,
+                            &instrument_id,
+                            *greeks_type,
+                            ts_init,
+                        ) {
+                            Ok(greeks) => {
+                                Python::attach(|py| match greeks.into_py_any(py) {
+                                    Ok(py_obj) => {
+                                        call_python_threadsafe(py, call_soon, callback, py_obj);
+                                    }
+                                    Err(e) => {
+                                        log::error!(
+                                            "Failed to convert OptionGreeks to Python: {e}"
+                                        );
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Failed to parse option summary for {} ({greeks_type:?}): {e}",
+                                    msg.inst_id
+                                );
+                            }
                         }
                     }
                 }

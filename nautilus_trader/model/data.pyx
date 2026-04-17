@@ -6309,6 +6309,9 @@ cdef class OptionGreeks(Data):
         UNIX timestamp (nanoseconds) when the data event occurred.
     ts_init : uint64_t
         UNIX timestamp (nanoseconds) when the object was initialized.
+    convention : GreeksConvention, optional
+        The greeks convention (Black-Scholes or price-adjusted). Defaults to
+        ``GreeksConvention.BLACK_SCHOLES`` when not provided.
 
     """
 
@@ -6327,6 +6330,7 @@ cdef class OptionGreeks(Data):
         object open_interest,
         uint64_t ts_event,
         uint64_t ts_init,
+        object convention = None,
     ) -> None:
         self.instrument_id = instrument_id
         self.delta = delta
@@ -6339,6 +6343,7 @@ cdef class OptionGreeks(Data):
         self.ask_iv = ask_iv
         self.underlying_price = underlying_price
         self.open_interest = open_interest
+        self.convention = convention if convention is not None else nautilus_pyo3.GreeksConvention.BLACK_SCHOLES
         self.ts_event = ts_event
         self.ts_init = ts_init
 
@@ -6385,6 +6390,7 @@ cdef class OptionGreeks(Data):
             open_interest=pyo3_greeks.open_interest,
             ts_event=pyo3_greeks.ts_event,
             ts_init=pyo3_greeks.ts_init,
+            convention=pyo3_greeks.convention,
         )
 
     def to_pyo3(self) -> nautilus_pyo3.OptionGreeks:
@@ -6410,4 +6416,5 @@ cdef class OptionGreeks(Data):
             self.open_interest,
             self.ts_event,
             self.ts_init,
+            self.convention,
         )

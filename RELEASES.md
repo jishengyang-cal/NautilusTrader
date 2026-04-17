@@ -7,6 +7,8 @@ Released on TBD (UTC).
 - Added `BybitEnvironment` to `BybitDataClientConfig` and `BybitExecClientConfig`
 - Added Betfair tiered tick scheme to `BettingInstrument` for ladder-snapped pricing
 - Added Kraken xStocks tokenized asset support for spot market data, order submission, and futures instruments
+- Added OKX option greeks support for both Black-Scholes and price-adjusted conventions on every tick
+- Added `params["greeks_convention"]` (string or list) to narrow OKX option greeks subscriptions
 - Added Polymarket game_id and fee_schedule to instrument info (#3811), thanks @Javdu10
 - Added Polymarket batch `SubmitOrderList` via `POST /orders` for limit-order batches (Rust)
 - Added missing config values to `LiveExecEngineConfig` (#3841), thanks @Javdu10
@@ -64,6 +66,7 @@ Released on TBD (UTC).
 - Fixed Kraken trade dedup clearing the entire set at capacity instead of evicting the oldest entry
 - Fixed Kraken Futures `AccountBalance` invariant panic on margin parse, thanks @Stamppot82
 - Fixed OKX option greeks not forwarded due to inaccessible Cython `cdef` subscription attribute
+- Fixed OKX option greeks emitting `BlackScholes` convention regardless of subscribed greeks type
 - Fixed OKX order identity registration race during concurrent order submission (Rust)
 - Fixed OKX algo orders missing from order status reconciliation reports
 - Fixed OKX spot margin position reconciliation preferring `CurrencyPair` with USDT/USDC/USD quote over alternatives

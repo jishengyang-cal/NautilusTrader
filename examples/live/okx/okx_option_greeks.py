@@ -17,7 +17,12 @@
 Example: Subscribe to option greeks for BTC CALL options on OKX.
 
 Discovers BTC CALL options from the instrument cache, filters for a subset,
-and subscribes to exchange-provided greeks (delta, gamma, vega, theta, IV) for each.
+and subscribes to exchange-provided greeks (delta, gamma, vega, theta, IV).
+
+Subscriptions are split three ways to exercise every param shape:
+- no params (adapter emits both Black-Scholes and price-adjusted)
+- single convention via ``params["greeks_convention"] = "BLACK_SCHOLES"``
+- list of conventions via ``params["greeks_convention"] = [...]``
 """
 
 from nautilus_trader.adapters.okx import OKX
@@ -43,7 +48,8 @@ class OptionGreeksTesterConfig(ActorConfig, frozen=True):
 
 class OptionGreeksTester(Actor):
     """
-    Subscribe to option greeks for BTC CALL options on OKX.
+    Subscribe to option greeks for BTC CALL options on OKX, exercising the three
+    supported shapes for ``params["greeks_convention"]``.
     """
 
     def __init__(self, config: OptionGreeksTesterConfig) -> None:
@@ -75,10 +81,32 @@ class OptionGreeksTester(Actor):
         to_subscribe = call_options[: self._max_subscriptions]
 
         client_id = ClientId(OKX)
+        third = len(to_subscribe) // 3
+        default_slice = to_subscribe[:third]
+        single_slice = to_subscribe[third : 2 * third]
+        list_slice = to_subscribe[2 * third :]
 
-        for inst in to_subscribe:
-            self.log.info(f"Subscribing to greeks: {inst.id}")
+        for inst in default_slice:
+            self.log.info(f"Subscribing to greeks (no params, both conventions): {inst.id}")
             self.subscribe_option_greeks(inst.id, client_id=client_id)
+            self._subscribed_ids.append(inst.id)
+
+        for inst in single_slice:
+            self.log.info(f"Subscribing to greeks (single BS): {inst.id}")
+            self.subscribe_option_greeks(
+                inst.id,
+                client_id=client_id,
+                params={"greeks_convention": "BLACK_SCHOLES"},
+            )
+            self._subscribed_ids.append(inst.id)
+
+        for inst in list_slice:
+            self.log.info(f"Subscribing to greeks (list form): {inst.id}")
+            self.subscribe_option_greeks(
+                inst.id,
+                client_id=client_id,
+                params={"greeks_convention": ["BLACK_SCHOLES", "PRICE_ADJUSTED"]},
+            )
             self._subscribed_ids.append(inst.id)
 
         self.log.info(f"Subscribed to {len(self._subscribed_ids)} option greeks streams")
@@ -86,6 +114,7 @@ class OptionGreeksTester(Actor):
     def on_option_greeks(self, greeks) -> None:
         self.log.info(
             f"GREEKS {greeks.instrument_id}: "
+            f"convention={greeks.convention} "
             f"delta={greeks.delta:.4f} gamma={greeks.gamma:.6f} "
             f"vega={greeks.vega:.4f} theta={greeks.theta:.4f} "
             f"mark_iv={greeks.mark_iv} bid_iv={greeks.bid_iv} ask_iv={greeks.ask_iv} "

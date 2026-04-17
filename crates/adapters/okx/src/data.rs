@@ -43,13 +43,13 @@ use nautilus_common::{
     },
 };
 use nautilus_core::{
-    AtomicMap, AtomicSet, UnixNanos,
+    AtomicMap, Params, UnixNanos,
     datetime::datetime_to_unix_nanos,
     time::{AtomicTime, get_atomic_clock_realtime},
 };
 use nautilus_model::{
     data::{Data, FundingRateUpdate, InstrumentStatus, OrderBookDeltas_API},
-    enums::{BookType, MarketStatusAction},
+    enums::{BookType, GreeksConvention, MarketStatusAction},
     identifiers::{ClientId, InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
 };
@@ -85,6 +85,54 @@ use crate::{
     },
 };
 
+/// Resolves the set of [`OKXGreeksType`] conventions for an option greeks subscription.
+///
+/// Reads the `greeks_convention` key from `params`, accepting either a single
+/// [`GreeksConvention`] string (e.g. `"BLACK_SCHOLES"` or `"PRICE_ADJUSTED"`) or a
+/// JSON array of such strings. Unrecognized entries log a warning and are skipped.
+/// Returns the default set `{Bs, Pa}` when the key is absent, unparsable, or
+/// yields no valid entries so every subscription defaults to both conventions.
+pub(crate) fn parse_greeks_conventions_from_params(
+    params: &Option<Params>,
+) -> AHashSet<OKXGreeksType> {
+    let default_set: AHashSet<OKXGreeksType> =
+        [OKXGreeksType::Bs, OKXGreeksType::Pa].into_iter().collect();
+
+    let Some(value) = params.as_ref().and_then(|p| p.get("greeks_convention")) else {
+        return default_set;
+    };
+
+    let mut out = AHashSet::new();
+    match value {
+        serde_json::Value::String(s) => push_convention_str(&mut out, s),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                if let Some(s) = item.as_str() {
+                    push_convention_str(&mut out, s);
+                } else {
+                    log::warn!("Ignoring non-string greeks_convention entry {item:?}");
+                }
+            }
+        }
+        other => {
+            log::warn!(
+                "Unsupported greeks_convention value {other:?}, defaulting to both conventions"
+            );
+        }
+    }
+
+    if out.is_empty() { default_set } else { out }
+}
+
+fn push_convention_str(out: &mut AHashSet<OKXGreeksType>, raw: &str) {
+    match raw.parse::<GreeksConvention>() {
+        Ok(convention) => {
+            out.insert(convention.into());
+        }
+        Err(_) => log::warn!("Unrecognized greeks_convention {raw:?}, skipping"),
+    }
+}
+
 #[derive(Debug)]
 pub struct OKXDataClient {
     client_id: ClientId,
@@ -99,7 +147,7 @@ pub struct OKXDataClient {
     instruments: Arc<AtomicMap<InstrumentId, InstrumentAny>>,
     book_channels: Arc<AtomicMap<InstrumentId, OKXBookChannel>>,
     index_ticker_map: Arc<AtomicMap<Ustr, AHashSet<Ustr>>>,
-    option_greeks_subs: Arc<AtomicSet<InstrumentId>>,
+    option_greeks_subs: Arc<AtomicMap<InstrumentId, AHashSet<OKXGreeksType>>>,
     // `Mutex<AHashMap>` so the spawned subscribe task can roll back the
     // refcount on failure. A bare `AHashMap` would leave the count
     // permanently incremented and wedge future Greeks subscribes.
@@ -191,7 +239,7 @@ impl OKXDataClient {
             instruments: Arc::new(AtomicMap::new()),
             book_channels: Arc::new(AtomicMap::new()),
             index_ticker_map: Arc::new(AtomicMap::new()),
-            option_greeks_subs: Arc::new(AtomicSet::new()),
+            option_greeks_subs: Arc::new(AtomicMap::new()),
             option_summary_family_subs: Arc::new(std::sync::Mutex::new(AHashMap::new())),
             clock,
         })
@@ -243,8 +291,7 @@ impl OKXDataClient {
         quote_cache: &mut QuoteCache,
         funding_cache: &mut AHashMap<Ustr, (Ustr, u64)>,
         index_ticker_map: &Arc<AtomicMap<Ustr, AHashSet<Ustr>>>,
-        option_greeks_subs: &Arc<AtomicSet<InstrumentId>>,
-        greeks_type: OKXGreeksType,
+        option_greeks_subs: &Arc<AtomicMap<InstrumentId, AHashSet<OKXGreeksType>>>,
         clock: &AtomicTime,
     ) {
         match message {
@@ -296,28 +343,32 @@ impl OKXDataClient {
                                     continue;
                                 };
                                 let instrument_id = instrument.id();
-                                if !subs.contains(&instrument_id) {
+                                let Some(conventions) = subs.get(&instrument_id) else {
                                     continue;
-                                }
+                                };
 
-                                match parse_option_summary_greeks(
-                                    msg,
-                                    &instrument_id,
-                                    greeks_type,
-                                    ts_init,
-                                ) {
-                                    Ok(greeks) => {
-                                        if let Err(e) =
-                                            data_sender.send(DataEvent::OptionGreeks(greeks))
-                                        {
-                                            log::error!("Failed to emit option greeks event: {e}");
+                                for greeks_type in conventions {
+                                    match parse_option_summary_greeks(
+                                        msg,
+                                        &instrument_id,
+                                        *greeks_type,
+                                        ts_init,
+                                    ) {
+                                        Ok(greeks) => {
+                                            if let Err(e) =
+                                                data_sender.send(DataEvent::OptionGreeks(greeks))
+                                            {
+                                                log::error!(
+                                                    "Failed to emit option greeks event: {e}"
+                                                );
+                                            }
                                         }
-                                    }
-                                    Err(e) => {
-                                        log::error!(
-                                            "Failed to parse option summary for {}: {e}",
-                                            msg.inst_id
-                                        );
+                                        Err(e) => {
+                                            log::error!(
+                                                "Failed to parse option summary for {} ({greeks_type:?}): {e}",
+                                                msg.inst_id
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -658,7 +709,8 @@ impl DataClient for OKXDataClient {
         self.cancellation_token = CancellationToken::new();
         self.tasks.clear();
         self.book_channels.store(AHashMap::new());
-        self.option_greeks_subs.store(AHashSet::new());
+        self.option_greeks_subs
+            .store(AHashMap::<InstrumentId, AHashSet<OKXGreeksType>>::new());
         self.option_summary_family_subs
             .lock()
             .expect("option_summary_family_subs mutex poisoned")
@@ -789,7 +841,6 @@ impl DataClient for OKXDataClient {
                                 &mut funding_cache,
                                 &idx_map,
                                 &greeks_subs,
-                                OKXGreeksType::Bs,
                                 clock,
                             );
                         }
@@ -853,7 +904,6 @@ impl DataClient for OKXDataClient {
                                 &mut funding_cache,
                                 &idx_map,
                                 &greeks_subs,
-                                OKXGreeksType::Bs,
                                 clock,
                             );
                         }
@@ -911,7 +961,8 @@ impl DataClient for OKXDataClient {
         }
 
         self.book_channels.store(AHashMap::new());
-        self.option_greeks_subs.store(AHashSet::new());
+        self.option_greeks_subs
+            .store(AHashMap::<InstrumentId, AHashSet<OKXGreeksType>>::new());
         self.option_summary_family_subs
             .lock()
             .expect("option_summary_family_subs mutex poisoned")
@@ -1126,7 +1177,8 @@ impl DataClient for OKXDataClient {
 
     fn subscribe_option_greeks(&mut self, cmd: SubscribeOptionGreeks) -> anyhow::Result<()> {
         let instrument_id = cmd.instrument_id;
-        self.option_greeks_subs.insert(instrument_id);
+        let conventions = parse_greeks_conventions_from_params(&cmd.params);
+        self.option_greeks_subs.insert(instrument_id, conventions);
 
         let family = extract_inst_family(instrument_id.symbol.inner().as_str())?;
         let is_first = {
@@ -1775,5 +1827,116 @@ impl DataClient for OKXDataClient {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::json;
+
+    use super::*;
+
+    fn both() -> AHashSet<OKXGreeksType> {
+        [OKXGreeksType::Bs, OKXGreeksType::Pa].into_iter().collect()
+    }
+
+    fn only(greeks_type: OKXGreeksType) -> AHashSet<OKXGreeksType> {
+        [greeks_type].into_iter().collect()
+    }
+
+    #[rstest]
+    fn parse_conventions_returns_both_when_params_missing() {
+        let result = parse_greeks_conventions_from_params(&None);
+        assert_eq!(result, both());
+    }
+
+    #[rstest]
+    fn parse_conventions_returns_both_when_key_absent() {
+        let mut params = Params::new();
+        params.insert("other_key".to_string(), json!("value"));
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, both());
+    }
+
+    #[rstest]
+    #[case("BLACK_SCHOLES", OKXGreeksType::Bs)]
+    #[case("PRICE_ADJUSTED", OKXGreeksType::Pa)]
+    #[case("black_scholes", OKXGreeksType::Bs)]
+    #[case("price_adjusted", OKXGreeksType::Pa)]
+    fn parse_conventions_accepts_single_string(#[case] raw: &str, #[case] expected: OKXGreeksType) {
+        let mut params = Params::new();
+        params.insert("greeks_convention".to_string(), json!(raw));
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, only(expected));
+    }
+
+    #[rstest]
+    fn parse_conventions_accepts_list_of_strings() {
+        let mut params = Params::new();
+        params.insert(
+            "greeks_convention".to_string(),
+            json!(["BLACK_SCHOLES", "PRICE_ADJUSTED"]),
+        );
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, both());
+    }
+
+    #[rstest]
+    fn parse_conventions_accepts_single_entry_list() {
+        let mut params = Params::new();
+        params.insert("greeks_convention".to_string(), json!(["PRICE_ADJUSTED"]));
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, only(OKXGreeksType::Pa));
+    }
+
+    #[rstest]
+    fn parse_conventions_deduplicates_list_entries() {
+        let mut params = Params::new();
+        params.insert(
+            "greeks_convention".to_string(),
+            json!(["BLACK_SCHOLES", "black_scholes"]),
+        );
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, only(OKXGreeksType::Bs));
+    }
+
+    #[rstest]
+    fn parse_conventions_skips_unknown_list_entries() {
+        let mut params = Params::new();
+        params.insert(
+            "greeks_convention".to_string(),
+            json!(["BOGUS", "PRICE_ADJUSTED"]),
+        );
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, only(OKXGreeksType::Pa));
+    }
+
+    #[rstest]
+    fn parse_conventions_falls_back_to_both_on_all_unknown() {
+        let mut params = Params::new();
+        params.insert("greeks_convention".to_string(), json!(["BOGUS"]));
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, both());
+    }
+
+    #[rstest]
+    #[case(json!(1))]
+    #[case(json!(null))]
+    #[case(json!(true))]
+    #[case(json!({"nested": "object"}))]
+    fn parse_conventions_falls_back_on_non_string_value(#[case] value: serde_json::Value) {
+        let mut params = Params::new();
+        params.insert("greeks_convention".to_string(), value);
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, both());
+    }
+
+    #[rstest]
+    fn parse_conventions_falls_back_on_unknown_single_string() {
+        let mut params = Params::new();
+        params.insert("greeks_convention".to_string(), json!("BOGUS"));
+        let result = parse_greeks_conventions_from_params(&Some(params));
+        assert_eq!(result, both());
     }
 }

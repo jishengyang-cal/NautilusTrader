@@ -16,8 +16,8 @@
 //! Enumerations mapping OKX concepts onto idiomatic Nautilus variants.
 
 use nautilus_model::enums::{
-    AggressorSide, LiquiditySide, OptionKind, OrderSide, OrderSideSpecified, OrderStatus,
-    OrderType, PositionSide, TriggerType,
+    AggressorSide, GreeksConvention, LiquiditySide, OptionKind, OrderSide, OrderSideSpecified,
+    OrderStatus, OrderType, PositionSide, TriggerType,
 };
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumIter, EnumString};
@@ -445,6 +445,24 @@ impl From<u8> for OKXGreeksType {
     }
 }
 
+impl From<GreeksConvention> for OKXGreeksType {
+    fn from(convention: GreeksConvention) -> Self {
+        match convention {
+            GreeksConvention::BlackScholes => Self::Bs,
+            GreeksConvention::PriceAdjusted => Self::Pa,
+        }
+    }
+}
+
+impl From<OKXGreeksType> for GreeksConvention {
+    fn from(greeks_type: OKXGreeksType) -> Self {
+        match greeks_type {
+            OKXGreeksType::Bs => Self::BlackScholes,
+            OKXGreeksType::Pa => Self::PriceAdjusted,
+        }
+    }
+}
+
 /// Represents the trading mode for OKX orders.
 #[derive(
     Copy,
@@ -714,7 +732,7 @@ impl From<TriggerType> for OKXTriggerType {
 mod tests {
     use std::str::FromStr;
 
-    use nautilus_model::enums::{OptionKind, OrderStatus};
+    use nautilus_model::enums::{GreeksConvention, OptionKind, OrderStatus};
     use rstest::rstest;
 
     use super::{OKXGreeksType, OKXOptionType, OKXOrderStatus, OKXOrderType, OKXTriggerType};
@@ -755,6 +773,19 @@ mod tests {
         assert_eq!(OKXGreeksType::from(0_u8), OKXGreeksType::Bs);
         assert_eq!(OKXGreeksType::from(1_u8), OKXGreeksType::Pa);
         assert_eq!(OKXGreeksType::from(99_u8), OKXGreeksType::Bs);
+    }
+
+    #[rstest]
+    #[case(GreeksConvention::BlackScholes, OKXGreeksType::Bs)]
+    #[case(GreeksConvention::PriceAdjusted, OKXGreeksType::Pa)]
+    fn test_greeks_type_convention_roundtrip(
+        #[case] convention: GreeksConvention,
+        #[case] expected: OKXGreeksType,
+    ) {
+        let mapped: OKXGreeksType = convention.into();
+        assert_eq!(mapped, expected);
+        let back: GreeksConvention = mapped.into();
+        assert_eq!(back, convention);
     }
 
     #[rstest]
