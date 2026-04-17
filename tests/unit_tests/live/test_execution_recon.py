@@ -14,6 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 import asyncio
+import itertools
 from decimal import Decimal
 
 import pandas as pd
@@ -2820,6 +2821,173 @@ class TestReconciliationEdgeCases:
         assert first_close == second_close
         assert first_close != distinct_incident_close
         assert first_close != other_account_close
+
+    def test_reconciliation_market_fallback_venue_order_id_deterministic(
+        self,
+        live_exec_engine,
+    ):
+        """
+        MARKET-fallback reconciliation (no price available) must still produce a stable
+        venue_order_id across reconciliation cycles.
+
+        This covers the
+        `order_type=OrderType.MARKET, price=None` branch of
+        `_create_synthetic_reconciliation_venue_order_id`.
+
+        """
+        instrument = AUDUSD_SIM
+        self.cache.add_instrument(instrument)
+
+        assert self.cache.quote_tick(instrument.id) is None
+
+        external_report = PositionStatusReport(
+            account_id=TestIdStubs.account_id(),
+            instrument_id=instrument.id,
+            position_side=PositionSide.LONG,
+            quantity=Quantity.from_int(100),
+            report_id=UUID4(),
+            ts_last=1,
+            ts_init=1,
+        )
+
+        first = live_exec_engine._create_position_reconciliation_report(
+            report=external_report,
+            instrument=instrument,
+            position_signed_decimal_qty=Decimal(0),
+            diff_quantity=Quantity.from_int(100),
+            current_avg_px=None,
+        )
+        second = live_exec_engine._create_position_reconciliation_report(
+            report=external_report,
+            instrument=instrument,
+            position_signed_decimal_qty=Decimal(0),
+            diff_quantity=Quantity.from_int(100),
+            current_avg_px=None,
+        )
+
+        assert first is not None
+        assert second is not None
+        assert first.order_type == OrderType.MARKET
+        assert first.price is None
+        assert first.venue_order_id == second.venue_order_id
+        assert first.id != second.id
+
+    def test_reconciliation_venue_order_id_with_hedging_position_id(
+        self,
+        live_exec_engine,
+    ):
+        """
+        Hedging-mode reconciliation (`venue_position_id` is not None) must produce
+        deterministic IDs, and different hedge positions with otherwise identical shape
+        must not collide.
+        """
+        instrument = AUDUSD_SIM
+        self.cache.add_instrument(instrument)
+
+        hedge_long = PositionStatusReport(
+            account_id=TestIdStubs.account_id(),
+            instrument_id=instrument.id,
+            position_side=PositionSide.LONG,
+            quantity=Quantity.from_int(100),
+            avg_px_open=Decimal("1.0001"),
+            venue_position_id=PositionId("HEDGE-LONG"),
+            report_id=UUID4(),
+            ts_last=1,
+            ts_init=1,
+        )
+
+        first = live_exec_engine._create_position_reconciliation_report(
+            report=hedge_long,
+            instrument=instrument,
+            position_signed_decimal_qty=Decimal(0),
+            diff_quantity=Quantity.from_int(100),
+            current_avg_px=None,
+        )
+        second = live_exec_engine._create_position_reconciliation_report(
+            report=hedge_long,
+            instrument=instrument,
+            position_signed_decimal_qty=Decimal(0),
+            diff_quantity=Quantity.from_int(100),
+            current_avg_px=None,
+        )
+
+        assert first is not None
+        assert second is not None
+        assert first.venue_position_id == PositionId("HEDGE-LONG")
+        assert first.venue_order_id == second.venue_order_id
+
+        other_hedge = PositionStatusReport(
+            account_id=TestIdStubs.account_id(),
+            instrument_id=instrument.id,
+            position_side=PositionSide.LONG,
+            quantity=Quantity.from_int(100),
+            avg_px_open=Decimal("1.0001"),
+            venue_position_id=PositionId("HEDGE-OTHER"),
+            report_id=UUID4(),
+            ts_last=1,
+            ts_init=1,
+        )
+
+        third = live_exec_engine._create_position_reconciliation_report(
+            report=other_hedge,
+            instrument=instrument,
+            position_signed_decimal_qty=Decimal(0),
+            diff_quantity=Quantity.from_int(100),
+            current_avg_px=None,
+        )
+
+        assert third is not None
+        assert third.venue_order_id != first.venue_order_id
+
+    def test_synthetic_reconciliation_venue_order_id_enum_roundtrip(
+        self,
+        live_exec_engine,
+    ):
+        """
+        Confirm each `OrderSide` and `OrderType` variant used in reconciliation round-
+        trips through `nautilus_pyo3.OrderSide(name)` / `nautilus_pyo3.OrderType(name)`
+        without raising, is deterministic across repeat calls, and each distinct `(side,
+        type)` pair hashes to a distinct venue_order_id.
+
+        A regression that collapsed variants (e.g. `STOP_LIMIT`
+        to `LIMIT`) would be caught by the pairwise-distinct assertion.
+
+        """
+        instrument = AUDUSD_SIM
+        self.cache.add_instrument(instrument)
+
+        sides = (OrderSide.BUY, OrderSide.SELL)
+        order_types = (
+            OrderType.LIMIT,
+            OrderType.MARKET,
+            OrderType.STOP_MARKET,
+            OrderType.STOP_LIMIT,
+        )
+        variants = list(itertools.product(sides, order_types))
+        ids: dict[tuple, VenueOrderId] = {}
+
+        for side, order_type in variants:
+            kwargs = {
+                "account_id": TestIdStubs.account_id(),
+                "instrument_id": instrument.id,
+                "order_side": side,
+                "order_type": order_type,
+                "quantity": Quantity.from_int(100),
+                "price": Price.from_str("1.00000"),
+                "venue_position_id": None,
+                "ts_last": 1,
+                "tag": None,
+            }
+
+            first = live_exec_engine._create_synthetic_reconciliation_venue_order_id(**kwargs)
+            second = live_exec_engine._create_synthetic_reconciliation_venue_order_id(**kwargs)
+
+            assert first == second, f"non-deterministic id for {side.name}/{order_type.name}"
+            ids[(side, order_type)] = first
+
+        # Pairwise-distinct: different (side, type) combinations must produce
+        # different IDs. Catches enum collapse (e.g. SELL mapped to BUY).
+        assert len(set(ids.values())) == len(variants)
 
     @pytest.mark.asyncio
     async def test_duplicate_fill_detection_prevents_historical_fills_after_inferred_fill(
