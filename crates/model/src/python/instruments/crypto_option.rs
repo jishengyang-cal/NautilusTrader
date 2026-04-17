@@ -29,6 +29,7 @@ use crate::{
     enums::OptionKind,
     identifiers::{InstrumentId, Symbol},
     instruments::CryptoOption,
+    python::instruments::register_crypto_currencies_from_dict,
     types::{Currency, Money, Price, Quantity},
 };
 
@@ -321,6 +322,7 @@ impl CryptoOption {
     #[staticmethod]
     #[pyo3(name = "from_dict")]
     fn py_from_dict(py: Python<'_>, values: Py<PyDict>) -> PyResult<Self> {
+        register_crypto_currencies_from_dict(py, &values, &["underlying"]);
         from_dict_pyo3(py, values)
     }
 
@@ -406,7 +408,11 @@ mod tests {
     use pyo3::{prelude::*, types::PyDict};
     use rstest::rstest;
 
-    use crate::instruments::{CryptoOption, stubs::*};
+    use crate::{
+        enums::CurrencyType,
+        instruments::{CryptoOption, stubs::*},
+        types::Currency,
+    };
 
     #[rstest]
     fn test_dict_round_trip(crypto_option_btc_deribit: CryptoOption) {
@@ -417,6 +423,26 @@ mod tests {
             let values: Py<PyDict> = values.extract(py).unwrap();
             let new_crypto_future = CryptoOption::py_from_dict(py, values).unwrap();
             assert_eq!(crypto_option, new_crypto_future);
+        });
+    }
+
+    #[rstest]
+    fn test_from_dict_unknown_underlying_registers_as_crypto(
+        crypto_option_btc_deribit: CryptoOption,
+    ) {
+        // Regression: newly listed underlyings must round-trip through `from_dict`
+        // without requiring prior registration of the currency in the Rust map.
+        Python::initialize();
+        Python::attach(|py| {
+            let values = crypto_option_btc_deribit.py_to_dict(py).unwrap();
+            let values: Py<PyDict> = values.extract(py).unwrap();
+            values.bind(py).set_item("underlying", "NEWOPT").unwrap();
+
+            let new_option = CryptoOption::py_from_dict(py, values).unwrap();
+            assert_eq!(new_option.underlying.code.as_str(), "NEWOPT");
+            assert_eq!(new_option.underlying.precision, 8);
+            assert_eq!(new_option.underlying.currency_type, CurrencyType::Crypto);
+            assert!(Currency::try_from_str("NEWOPT").is_some());
         });
     }
 }
