@@ -26,6 +26,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ahash::AHashSet;
 use dashmap::DashMap;
 use nautilus_core::UnixNanos;
 use nautilus_model::{
@@ -35,13 +36,17 @@ use nautilus_model::{
 use nautilus_network::retry::{RetryConfig, RetryManager};
 use rust_decimal::Decimal;
 
-use super::{order_builder::PolymarketOrderBuilder, parse::calculate_market_price};
+use super::{
+    order_builder::PolymarketOrderBuilder,
+    parse::calculate_market_price,
+    types::{LimitOrderSubmitRequest, SignedLimitOrderSubmission},
+};
 use crate::{
     common::enums::{PolymarketOrderSide, PolymarketOrderType},
     http::{
         clob::PolymarketClobHttpClient,
         error::Error,
-        models::PolymarketOpenOrder,
+        models::{PolymarketOpenOrder, PolymarketOrder},
         query::{CancelResponse, OrderResponse},
     },
 };
@@ -130,54 +135,19 @@ impl OrderSubmitter {
         expire_time: Option<UnixNanos>,
         tick_decimals: u32,
     ) -> anyhow::Result<OrderResponse> {
-        let poly_order_type = PolymarketOrderType::try_from(time_in_force)
-            .map_err(|e| anyhow::anyhow!("Unsupported time in force: {e}"))?;
-        let poly_side = PolymarketOrderSide::try_from(side)
-            .map_err(|e| anyhow::anyhow!("Invalid order side: {e}"))?;
-
-        let expiration = match expire_time {
-            Some(ns) if ns.as_u64() > 0 => {
-                let secs = ns.as_u64() / 1_000_000_000;
-                secs.to_string()
-            }
-            _ => "0".to_string(),
+        let request = LimitOrderSubmitRequest {
+            token_id: token_id.to_string(),
+            side,
+            price,
+            quantity,
+            time_in_force,
+            post_only,
+            neg_risk,
+            expire_time,
+            tick_decimals,
         };
-
-        let fee_rate_bps = self.get_fee_rate_bps(token_id).await?;
-
-        let poly_order = self
-            .order_builder
-            .build_limit_order(
-                token_id,
-                poly_side,
-                price.as_decimal(),
-                quantity.as_decimal(),
-                &expiration,
-                neg_risk,
-                tick_decimals,
-                fee_rate_bps,
-            )
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-        let http_client = self.http_client.clone();
-
-        self.retry_manager
-            .execute_with_retry(
-                "submit_limit_order",
-                || {
-                    let http_client = http_client.clone();
-                    let poly_order = poly_order.clone();
-                    async move {
-                        http_client
-                            .post_order(&poly_order, poly_order_type, post_only)
-                            .await
-                    }
-                },
-                |e| e.is_retryable(),
-                Error::transport,
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let submission = self.prepare_limit_order_submission(&request).await?;
+        self.post_limit_order_submission(submission).await
     }
 
     /// Fetches order book, calculates crossing price, builds and posts a market order.
@@ -313,5 +283,146 @@ impl OrderSubmitter {
             )
             .await
             .map_err(|e| anyhow::anyhow!("Failed to fetch order status: {e}"))
+    }
+
+    /// Prepares multiple limit order submissions. Fetches the fee rate once per unique
+    /// token and shares the outcome across every request for that token, so even on a
+    /// cold cache or a failing fee-rate endpoint the batch issues exactly one
+    /// `/fee-rate` call per token.
+    pub(crate) async fn prepare_limit_order_submissions(
+        &self,
+        requests: &[LimitOrderSubmitRequest],
+    ) -> Vec<anyhow::Result<SignedLimitOrderSubmission>> {
+        let mut unique_tokens: AHashSet<&str> = AHashSet::with_capacity(requests.len());
+        for request in requests {
+            unique_tokens.insert(request.token_id.as_str());
+        }
+
+        let mut fee_rates: ahash::AHashMap<String, Result<Decimal, String>> =
+            ahash::AHashMap::with_capacity(unique_tokens.len());
+        for token in unique_tokens {
+            let result = self
+                .get_fee_rate_bps(token)
+                .await
+                .map_err(|e| format!("{e}"));
+            fee_rates.insert(token.to_string(), result);
+        }
+
+        let futures = requests.iter().map(|request| {
+            let fee_rate = fee_rates
+                .get(&request.token_id)
+                .cloned()
+                .expect("fee rate resolved for every unique token");
+            self.prepare_limit_order_submission_with_fee(request, fee_rate)
+        });
+        futures_util::future::join_all(futures).await
+    }
+
+    pub(crate) async fn prepare_limit_order_submission(
+        &self,
+        request: &LimitOrderSubmitRequest,
+    ) -> anyhow::Result<SignedLimitOrderSubmission> {
+        let fee_rate = self
+            .get_fee_rate_bps(&request.token_id)
+            .await
+            .map_err(|e| format!("{e}"));
+        self.prepare_limit_order_submission_with_fee(request, fee_rate)
+            .await
+    }
+
+    async fn prepare_limit_order_submission_with_fee(
+        &self,
+        request: &LimitOrderSubmitRequest,
+        fee_rate: Result<Decimal, String>,
+    ) -> anyhow::Result<SignedLimitOrderSubmission> {
+        let order_type = PolymarketOrderType::try_from(request.time_in_force)
+            .map_err(|e| anyhow::anyhow!("Unsupported time in force: {e}"))?;
+        let side = PolymarketOrderSide::try_from(request.side)
+            .map_err(|e| anyhow::anyhow!("Invalid order side: {e}"))?;
+        let expiration = limit_order_expiration(request.expire_time);
+        let fee_rate_bps = fee_rate.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let order = self
+            .order_builder
+            .build_limit_order(
+                &request.token_id,
+                side,
+                request.price.as_decimal(),
+                request.quantity.as_decimal(),
+                &expiration,
+                request.neg_risk,
+                request.tick_decimals,
+                fee_rate_bps,
+            )
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        Ok(SignedLimitOrderSubmission {
+            order,
+            order_type,
+            post_only: request.post_only,
+        })
+    }
+
+    pub(crate) async fn post_limit_order_submission(
+        &self,
+        submission: SignedLimitOrderSubmission,
+    ) -> anyhow::Result<OrderResponse> {
+        let http_client = self.http_client.clone();
+
+        self.retry_manager
+            .execute_with_retry(
+                "submit_limit_order",
+                || {
+                    let http_client = http_client.clone();
+                    let submission = submission.clone();
+                    async move {
+                        http_client
+                            .post_order(
+                                &submission.order,
+                                submission.order_type,
+                                submission.post_only,
+                            )
+                            .await
+                    }
+                },
+                |e| e.is_retryable(),
+                Error::transport,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn post_limit_order_submissions(
+        &self,
+        submissions: Vec<SignedLimitOrderSubmission>,
+    ) -> anyhow::Result<Vec<OrderResponse>> {
+        let order_refs: Vec<(&PolymarketOrder, PolymarketOrderType, bool)> = submissions
+            .iter()
+            .map(|submission| {
+                (
+                    &submission.order,
+                    submission.order_type,
+                    submission.post_only,
+                )
+            })
+            .collect();
+
+        // Do not retry batch submits automatically.
+        // A transport timeout can race with server-side acceptance and resubmit
+        // the whole batch without an idempotency key we can verify here.
+        self.http_client
+            .post_orders(&order_refs)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
+fn limit_order_expiration(expire_time: Option<UnixNanos>) -> String {
+    match expire_time {
+        Some(ns) if ns.as_u64() > 0 => {
+            let secs = ns.as_u64() / 1_000_000_000;
+            secs.to_string()
+        }
+        _ => "0".to_string(),
     }
 }

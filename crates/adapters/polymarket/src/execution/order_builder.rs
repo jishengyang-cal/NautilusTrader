@@ -152,6 +152,10 @@ impl PolymarketOrderBuilder {
             ));
         }
 
+        if PolymarketOrderSide::try_from(order.order_side()).is_err() {
+            return Err(format!("Invalid order side: {:?}", order.order_side()));
+        }
+
         if order.is_post_only()
             && !matches!(order.time_in_force(), TimeInForce::Gtc | TimeInForce::Gtd)
         {
@@ -429,6 +433,39 @@ mod tests {
     fn test_validate_limit_order_post_only_gtc_allowed() {
         let order = make_limit(false, false, true, TimeInForce::Gtc);
         assert!(PolymarketOrderBuilder::validate_limit_order(&order).is_ok());
+    }
+
+    #[rstest]
+    fn test_validate_limit_order_no_order_side_denied() {
+        let order = OrderAny::Limit(LimitOrder::new(
+            TraderId::from("TESTER-001"),
+            StrategyId::from("S-001"),
+            InstrumentId::from("TEST.POLYMARKET"),
+            ClientOrderId::from("O-NO-SIDE"),
+            OrderSide::NoOrderSide,
+            Quantity::from("10"),
+            Price::from("0.50"),
+            TimeInForce::Gtc,
+            None,
+            false,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            UUID4::new(),
+            UnixNanos::default(),
+        ));
+        let err = PolymarketOrderBuilder::validate_limit_order(&order).unwrap_err();
+        assert!(err.contains("Invalid order side"));
     }
 
     #[rstest]

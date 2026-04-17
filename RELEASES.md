@@ -8,6 +8,7 @@ Released on TBD (UTC).
 - Added Betfair tiered tick scheme to `BettingInstrument` for ladder-snapped pricing
 - Added Kraken xStocks tokenized asset support for spot market data, order submission, and futures instruments
 - Added Polymarket game_id and fee_schedule to instrument info (#3811), thanks @Javdu10
+- Added Polymarket batch `SubmitOrderList` via `POST /orders` for limit-order batches (Rust)
 - Added missing config values to `LiveExecEngineConfig` (#3841), thanks @Javdu10
 - Added `calculate_commission` to `ExecutionClient` for venue-specific reconciliation fills
 
@@ -94,6 +95,7 @@ Released on TBD (UTC).
 - Upgraded `tokio` crate to v1.52.1
 
 ### Documentation Updates
+- Added Polymarket Python and Rust adapter config tables and updated rate limits
 - Refined docs to follow style guide for symbols and filler words (#3830), thanks @JKDasondee
 - Refined Interactive Brokers documentation regarding UTC timestamps (#3826), thanks @faysou
 - Updated the configuration concept guide to define unknown-field rejection as the config standard in Python and Rust

@@ -23,7 +23,10 @@ pub(crate) mod submitter;
 pub(crate) mod types;
 
 use std::{
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -76,11 +79,11 @@ use self::{
         FillContext, apply_fill_filters, build_fill_reports_from_trades, build_position_reports,
     },
     submitter::OrderSubmitter,
-    types::CancelOutcome,
+    types::{BatchLimitOrderContext, CancelOutcome, LimitOrderSubmitRequest},
 };
 use crate::{
     common::{
-        consts::{POLYMARKET_VENUE, USDC},
+        consts::{BATCH_ORDER_LIMIT, POLYMARKET_VENUE, USDC},
         credential::Secrets,
         enums::SignatureType,
     },
@@ -110,7 +113,8 @@ pub struct PolymarketExecutionClient {
     submitter: OrderSubmitter,
     ws_client: PolymarketWebSocketClient,
     secrets: Secrets,
-    pending_tasks: Mutex<Vec<JoinHandle<()>>>,
+    pending_tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    stopping: Arc<AtomicBool>,
     ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
     shared_token_instruments: Arc<AtomicMap<Ustr, InstrumentAny>>,
     neg_risk_index: Arc<AtomicMap<InstrumentId, bool>>,
@@ -205,7 +209,8 @@ impl PolymarketExecutionClient {
             submitter,
             ws_client,
             secrets,
-            pending_tasks: Mutex::new(Vec::new()),
+            pending_tasks: Arc::new(Mutex::new(Vec::new())),
+            stopping: Arc::new(AtomicBool::new(false)),
             ws_stream_handle: Mutex::new(None),
             shared_token_instruments: Arc::new(AtomicMap::new()),
             neg_risk_index: Arc::new(AtomicMap::new()),
@@ -700,6 +705,7 @@ impl ExecutionClient for PolymarketExecutionClient {
             return Ok(());
         }
 
+        self.stopping.store(false, Ordering::Release);
         let sender = get_exec_event_sender();
         self.emitter.set_sender(sender);
         self.core.set_started();
@@ -719,6 +725,9 @@ impl ExecutionClient for PolymarketExecutionClient {
         }
 
         log::info!("Stopping Polymarket execution client");
+
+        // Block new background work from being spawned before we drain.
+        self.stopping.store(true, Ordering::Release);
 
         if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take() {
             handle.abort();
@@ -766,28 +775,200 @@ impl ExecutionClient for PolymarketExecutionClient {
     }
 
     fn submit_order_list(&self, cmd: SubmitOrderList) -> anyhow::Result<()> {
-        for (i, order_init) in cmd.order_inits.iter().enumerate() {
-            let submit = SubmitOrder::new(
-                cmd.trader_id,
-                cmd.client_id,
-                cmd.strategy_id,
-                cmd.instrument_id,
-                order_init.client_order_id,
-                cmd.order_inits[i].clone(),
-                cmd.exec_algorithm_id,
-                cmd.position_id,
-                cmd.params.clone(),
-                UUID4::new(),
-                self.clock.get_time_ns(),
-            );
+        let mut batch_orders = Vec::with_capacity(cmd.order_inits.len());
 
-            if let Err(e) = self.submit_order(submit) {
+        for order_init in &cmd.order_inits {
+            let Some(order) = self
+                .core
+                .cache()
+                .order(&order_init.client_order_id)
+                .cloned()
+            else {
                 log::warn!(
-                    "Failed to submit order {} from list: {e}",
+                    "Order not found in cache for {}",
                     order_init.client_order_id
                 );
+                continue;
+            };
+
+            if order.is_closed() {
+                log::warn!("Cannot submit closed order {}", order.client_order_id());
+                continue;
             }
+
+            // Market orders cannot go through the /orders batch endpoint; route them
+            // through the single-order path which synthesizes a crossing limit order.
+            match order.order_type() {
+                OrderType::Limit => {}
+                OrderType::Market => {
+                    self.submit_market_order(order);
+                    continue;
+                }
+                other => {
+                    self.emitter.emit_order_denied(
+                        &order,
+                        &format!("Unsupported order type for Polymarket: {other:?}"),
+                    );
+                    continue;
+                }
+            }
+
+            if let Err(reason) = PolymarketOrderBuilder::validate_limit_order(&order) {
+                self.emitter.emit_order_denied(&order, &reason);
+                continue;
+            }
+
+            let instrument = match self.resolve_instrument(&order) {
+                Some(i) => i,
+                None => continue,
+            };
+
+            let price = order
+                .price()
+                .expect("validated limit order must have a price");
+            batch_orders.push(BatchLimitOrderContext {
+                request: LimitOrderSubmitRequest {
+                    token_id: instrument.raw_symbol().to_string(),
+                    side: order.order_side(),
+                    price,
+                    quantity: order.quantity(),
+                    time_in_force: order.time_in_force(),
+                    post_only: order.is_post_only(),
+                    neg_risk: self.get_neg_risk(&order.instrument_id()),
+                    expire_time: order.expire_time(),
+                    tick_decimals: instrument.price_precision() as u32,
+                },
+                size_precision: instrument.size_precision(),
+                price_precision: instrument.price_precision(),
+                order,
+            });
         }
+
+        if batch_orders.is_empty() {
+            return Ok(());
+        }
+
+        if batch_orders.len() == 1 {
+            // Route through the single-order path to preserve retry semantics;
+            // the batch endpoint deliberately disables retry due to missing idempotency keys.
+            let batch_order = batch_orders.pop().expect("len checked");
+            self.submit_limit_order(batch_order.order);
+            return Ok(());
+        }
+
+        let submitter = self.submitter.clone();
+        let emitter = self.emitter.clone();
+        let clock = self.clock;
+        let fill_tracker = self.fill_tracker.clone();
+        let pending_fills = self.pending_fills.clone();
+        let pending_order_reports = self.pending_order_reports.clone();
+        let pending_cancels = self.pending_cancels.clone();
+        let pending_tasks = self.pending_tasks.clone();
+        let stopping = self.stopping.clone();
+        let account_id = self.core.account_id;
+
+        self.spawn_task("submit_order_list", async move {
+            for batch_order in &batch_orders {
+                emitter.emit_order_submitted(&batch_order.order);
+            }
+
+            let requests: Vec<LimitOrderSubmitRequest> =
+                batch_orders.iter().map(|bo| bo.request.clone()).collect();
+            let prepare_results = submitter.prepare_limit_order_submissions(&requests).await;
+
+            let mut prepared_orders = Vec::with_capacity(batch_orders.len());
+            let mut submissions = Vec::with_capacity(batch_orders.len());
+
+            for (batch_order, result) in batch_orders.into_iter().zip(prepare_results) {
+                match result {
+                    Ok(submission) => {
+                        prepared_orders.push(batch_order);
+                        submissions.push(submission);
+                    }
+                    Err(e) => {
+                        reject_submit_order(
+                            &batch_order.order,
+                            &format!("{e}"),
+                            &emitter,
+                            clock,
+                            &pending_cancels,
+                        );
+                    }
+                }
+            }
+
+            if submissions.is_empty() {
+                return Ok(());
+            }
+
+            // Chunk into venue-sized batches; POST /orders caps at BATCH_ORDER_LIMIT orders.
+            // A remainder chunk of size 1 goes through the single-order path so it keeps
+            // the same retry semantics as a list of length 1.
+            let total = submissions.len();
+            let mut offset = 0;
+            while offset < total {
+                let end = (offset + BATCH_ORDER_LIMIT).min(total);
+                let mut submissions_chunk = submissions[offset..end].to_vec();
+                let mut orders_chunk = prepared_orders[offset..end].to_vec();
+
+                if submissions_chunk.len() == 1 {
+                    let submission = submissions_chunk.pop().expect("len 1");
+                    let batch_order = orders_chunk.pop().expect("len 1");
+                    handle_single_order_response(
+                        submitter.post_limit_order_submission(submission).await,
+                        batch_order,
+                        &submitter,
+                        &emitter,
+                        clock,
+                        &fill_tracker,
+                        &pending_fills,
+                        &pending_order_reports,
+                        &pending_cancels,
+                        account_id,
+                    )
+                    .await;
+                } else {
+                    match submitter
+                        .post_limit_order_submissions(submissions_chunk)
+                        .await
+                    {
+                        Ok(responses) => {
+                            handle_batch_order_responses(
+                                responses,
+                                orders_chunk,
+                                &submitter,
+                                &emitter,
+                                clock,
+                                &fill_tracker,
+                                &pending_fills,
+                                &pending_order_reports,
+                                &pending_cancels,
+                                &pending_tasks,
+                                &stopping,
+                                account_id,
+                            )
+                            .await;
+                        }
+                        Err(e) => {
+                            for batch_order in orders_chunk {
+                                reject_submit_order(
+                                    &batch_order.order,
+                                    &format!("{e}"),
+                                    &emitter,
+                                    clock,
+                                    &pending_cancels,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                offset = end;
+            }
+
+            Ok(())
+        });
+
         Ok(())
     }
 
@@ -1101,6 +1282,8 @@ impl ExecutionClient for PolymarketExecutionClient {
 
         log::info!("Connecting Polymarket execution client");
 
+        self.stopping.store(false, Ordering::Release);
+
         // Read instruments from global cache (populated by data client)
         self.load_instruments_from_cache();
         self.core.set_instruments_initialized();
@@ -1115,6 +1298,7 @@ impl ExecutionClient for PolymarketExecutionClient {
 
         if let Err(e) = post_ws.await {
             log::warn!("Connect failed after WS started, tearing down: {e}");
+            self.stopping.store(true, Ordering::Release);
             let _ = self.ws_client.disconnect().await;
             self.abort_pending_tasks();
             return Err(e);
@@ -1132,6 +1316,9 @@ impl ExecutionClient for PolymarketExecutionClient {
         }
 
         log::info!("Disconnecting Polymarket execution client");
+
+        // Block new background work from being spawned before we drain.
+        self.stopping.store(true, Ordering::Release);
 
         self.ws_client.disconnect().await?;
 
@@ -1316,6 +1503,166 @@ fn process_cancel_result(
                 let ts_now = clock.get_time_ns();
                 emitter.emit_order_cancel_rejected(order, Some(venue_order_id), &msg, ts_now);
             }
+        }
+    }
+}
+
+#[expect(clippy::too_many_arguments)]
+async fn handle_batch_order_responses(
+    responses: Vec<OrderResponse>,
+    batch_orders: Vec<BatchLimitOrderContext>,
+    submitter: &OrderSubmitter,
+    emitter: &ExecutionEventEmitter,
+    clock: &'static AtomicTime,
+    fill_tracker: &Arc<OrderFillTrackerMap>,
+    pending_fills: &Arc<Mutex<FifoCacheMap<VenueOrderId, Vec<FillReport>, 1_000>>>,
+    pending_order_reports: &Arc<Mutex<FifoCacheMap<VenueOrderId, Vec<OrderStatusReport>, 1_000>>>,
+    pending_cancels: &Arc<Mutex<AHashSet<ClientOrderId>>>,
+    pending_tasks: &Arc<Mutex<Vec<JoinHandle<()>>>>,
+    stopping: &Arc<AtomicBool>,
+    account_id: AccountId,
+) {
+    let response_len = responses.len();
+    let order_len = batch_orders.len();
+
+    if response_len != order_len {
+        log::warn!(
+            "Batch submit response length ({response_len}) does not match order count ({order_len})"
+        );
+    }
+
+    // Polymarket batch responses do not include a client-side correlation key.
+    // We map entries by submission order and rely on the API preserving array order.
+    // Reference: https://docs.polymarket.com/#create-and-place-multiple-orders
+    let mut deferred = Vec::new();
+
+    for (batch_order, response) in batch_orders.iter().zip(responses) {
+        if let Some((order_id_str, venue_order_id)) = handle_order_response(
+            Ok(response),
+            &batch_order.order,
+            emitter,
+            clock,
+            fill_tracker,
+            pending_fills,
+            pending_order_reports,
+            pending_cancels,
+            account_id,
+            batch_order.size_precision,
+            batch_order.price_precision,
+        ) {
+            deferred.push((batch_order.order.clone(), order_id_str, venue_order_id));
+        }
+    }
+
+    if order_len > response_len {
+        for batch_order in batch_orders.iter().skip(response_len) {
+            reject_submit_order(
+                &batch_order.order,
+                "Order not included in API response",
+                emitter,
+                clock,
+                pending_cancels,
+            );
+        }
+    }
+
+    // Spawn deferred cancels as independent tasks so retrying cancels cannot stall
+    // terminal-event emission or delay posting subsequent chunks. Handles are tracked
+    // in pending_tasks so client shutdown aborts them like any other background work.
+    // Holding the pending_tasks lock across the spawn loop (and the stopping check)
+    // closes the race with stop(): abort_pending_tasks() blocks on the same lock,
+    // so either all new handles are enqueued before the drain runs, or stopping has
+    // already been observed and no new handles are spawned.
+    if !deferred.is_empty() {
+        let mut tasks = pending_tasks.lock().expect(MUTEX_POISONED);
+
+        if stopping.load(Ordering::Acquire) {
+            return;
+        }
+        tasks.retain(|handle| !handle.is_finished());
+
+        for (order, order_id_str, venue_order_id) in deferred {
+            let submitter = submitter.clone();
+            let emitter = emitter.clone();
+
+            let handle = get_runtime().spawn(async move {
+                execute_deferred_cancel(
+                    &submitter,
+                    &order,
+                    &order_id_str,
+                    venue_order_id,
+                    &emitter,
+                    clock,
+                )
+                .await;
+            });
+            tasks.push(handle);
+        }
+    }
+}
+
+fn reject_submit_order(
+    order: &OrderAny,
+    reason: &str,
+    emitter: &ExecutionEventEmitter,
+    clock: &'static AtomicTime,
+    pending_cancels: &Arc<Mutex<AHashSet<ClientOrderId>>>,
+) {
+    let ts_now = clock.get_time_ns();
+    emitter.emit_order_rejected(order, reason, ts_now, false);
+    pending_cancels
+        .lock()
+        .expect(MUTEX_POISONED)
+        .remove(&order.client_order_id());
+}
+
+#[expect(clippy::too_many_arguments)]
+async fn handle_single_order_response(
+    result: anyhow::Result<OrderResponse>,
+    batch_order: BatchLimitOrderContext,
+    submitter: &OrderSubmitter,
+    emitter: &ExecutionEventEmitter,
+    clock: &'static AtomicTime,
+    fill_tracker: &Arc<OrderFillTrackerMap>,
+    pending_fills: &Arc<Mutex<FifoCacheMap<VenueOrderId, Vec<FillReport>, 1_000>>>,
+    pending_order_reports: &Arc<Mutex<FifoCacheMap<VenueOrderId, Vec<OrderStatusReport>, 1_000>>>,
+    pending_cancels: &Arc<Mutex<AHashSet<ClientOrderId>>>,
+    account_id: AccountId,
+) {
+    match result {
+        Ok(response) => {
+            if let Some((order_id_str, venue_order_id)) = handle_order_response(
+                Ok(response),
+                &batch_order.order,
+                emitter,
+                clock,
+                fill_tracker,
+                pending_fills,
+                pending_order_reports,
+                pending_cancels,
+                account_id,
+                batch_order.size_precision,
+                batch_order.price_precision,
+            ) {
+                execute_deferred_cancel(
+                    submitter,
+                    &batch_order.order,
+                    &order_id_str,
+                    venue_order_id,
+                    emitter,
+                    clock,
+                )
+                .await;
+            }
+        }
+        Err(e) => {
+            reject_submit_order(
+                &batch_order.order,
+                &format!("{e}"),
+                emitter,
+                clock,
+                pending_cancels,
+            );
         }
     }
 }

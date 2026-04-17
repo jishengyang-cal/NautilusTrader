@@ -1,15 +1,25 @@
 # Polymarket
 
 Founded in 2020, Polymarket is the world’s largest decentralized prediction market platform,
-enabling traders to speculate on the outcomes of world events by buying and selling binary option contracts using cryptocurrency.
+enabling traders to speculate on the outcomes of world events by buying and selling binary option
+contracts using cryptocurrency.
 
-NautilusTrader provides a venue integration for data and execution via Polymarket's Central Limit Order Book (CLOB) API.
-The integration uses the [official Python CLOB client library](https://github.com/Polymarket/py-clob-client)
-to interact with the Polymarket platform.
+NautilusTrader provides a venue integration for data and execution via Polymarket's Central Limit
+Order Book (CLOB) API.
 
-NautilusTrader supports multiple Polymarket signature types for order signing, providing flexibility for different wallet configurations.
-This integration ensures that traders can execute orders securely and efficiently across various wallet types,
-while NautilusTrader abstracts the complexity of signing and preparing orders for execution.
+Today the repository exposes two Polymarket implementations:
+
+- The Python adapter in `nautilus_trader.adapters.polymarket`, which uses the
+  [official Python CLOB client library](https://github.com/Polymarket/py-clob-client).
+- The Rust-native adapter surface in `nautilus_trader.polymarket`, which NautilusTrader is
+  consolidating toward.
+
+The two implementations overlap heavily, but they do not yet behave identically in every area.
+This guide calls out the current differences where they matter.
+
+NautilusTrader supports multiple Polymarket signature types for order signing, which gives
+flexibility for different wallet configurations while NautilusTrader handles signing and order
+preparation.
 
 ## Installation
 
@@ -60,6 +70,22 @@ separately depending on the use case.
 Most users will define a configuration for a live trading node (as below),
 and won't need to work with these lower-level components directly.
 :::
+
+### Python and Rust implementations
+
+The current docs cover both the Python adapter and the Rust-native adapter surface.
+The table below shows the main differences that affect behavior today.
+
+| Area                | Python adapter                                                                | Rust adapter                                                  | Notes |
+|---------------------|-------------------------------------------------------------------------------|---------------------------------------------------------------|-------|
+| Public package path | `nautilus_trader.adapters.polymarket`                                         | `nautilus_trader.polymarket`                                  | Rust is the consolidation target. |
+| Order signing       | Uses `py-clob-client`                                                         | Native Rust signing                                           | Python signing is slower. |
+| Post‑only orders    | Supported for `GTC` and `GTD` only                                            | Supported for `GTC` and `GTD` only                            | Both reject post‑only with `IOC` or `FOK`. |
+| Batch submit        | Uses `POST /orders` for batchable `SubmitOrderList` requests                  | Uses `POST /orders` for batchable `SubmitOrderList` requests  | Both batch only independent limit orders. |
+| Batch cancel        | Uses `DELETE /orders`                                                         | Uses `DELETE /orders`                                         | Both align with official Polymarket docs. |
+| Market unsubscribe  | Sends dynamic WebSocket `unsubscribe` messages                                | Sends dynamic WebSocket `unsubscribe` messages                | Both support subscribe and unsubscribe. |
+| Data client config  | Credentials, subscription buffering, quote handling, provider config          | Base URLs, timeouts, filters, new‑market discovery            | Config surfaces differ materially. |
+| Exec client config  | Credentials, retries, raw WS logging, experimental trade‑based order recovery | Credentials, retries, account IDs, native timeouts            | Rust does not expose every Python‑only option. |
 
 ## USDC.e (PoS)
 
@@ -202,15 +228,15 @@ Polymarket operates as a prediction market with a more limited set of order type
 
 ### Order types
 
-| Order Type             | Binary Options | Notes                               |
-|------------------------|----------------|-------------------------------------|
+| Order Type             | Binary Options | Notes                                                                     |
+|------------------------|----------------|---------------------------------------------------------------------------|
 | `MARKET`               | ✓              | **BUY orders require quote quantity**, SELL orders require base quantity. |
-| `LIMIT`                | ✓              |                                     |
-| `STOP_MARKET`          | -              | *Not supported by Polymarket*.      |
-| `STOP_LIMIT`           | -              | *Not supported by Polymarket*.      |
-| `MARKET_IF_TOUCHED`    | -              | *Not supported by Polymarket*.      |
-| `LIMIT_IF_TOUCHED`     | -              | *Not supported by Polymarket*.      |
-| `TRAILING_STOP_MARKET` | -              | *Not supported by Polymarket*.      |
+| `LIMIT`                | ✓              |                                                                           |
+| `STOP_MARKET`          | -              | *Not supported by Polymarket*.                                            |
+| `STOP_LIMIT`           | -              | *Not supported by Polymarket*.                                            |
+| `MARKET_IF_TOUCHED`    | -              | *Not supported by Polymarket*.                                            |
+| `LIMIT_IF_TOUCHED`     | -              | *Not supported by Polymarket*.                                            |
+| `TRAILING_STOP_MARKET` | -              | *Not supported by Polymarket*.                                            |
 
 ### Quantity semantics
 
@@ -240,10 +266,10 @@ strategy.submit_order(order)
 
 ### Execution instructions
 
-| Instruction   | Binary Options | Notes                                    |
-|---------------|----------------|------------------------------------------|
-| `post_only`   | -              | *Not supported by Polymarket*.           |
-| `reduce_only` | -              | *Not supported by Polymarket*.           |
+| Instruction   | Binary Options | Notes                                                |
+|---------------|----------------|------------------------------------------------------|
+| `post_only`   | ✓              | Supported for limit orders with `GTC` or `GTD` only. |
+| `reduce_only` | -              | *Not supported by Polymarket*.                       |
 
 ### Time-in-force options
 
@@ -270,15 +296,15 @@ FAK (Fill and Kill) is Polymarket's terminology for Immediate or Cancel (IOC) se
 
 | Operation          | Binary Options | Notes                               |
 |--------------------|----------------|-------------------------------------|
-| Batch Submit       | -              | *Not supported by Polymarket*.      |
+| Batch Submit       | ✓              | Both adapters use `POST /orders` for independent limit‑order batches. |
 | Batch Modify       | -              | *Not supported by Polymarket*.      |
-| Batch Cancel       | -              | *Not supported by Polymarket*.      |
+| Batch Cancel       | ✓              | Both adapters use `DELETE /orders`. |
 
 ### Position management
 
 | Feature          | Binary Options | Notes                             |
 |------------------|----------------|-----------------------------------|
-| Query positions  | ✓              | Contract balance‑based positions. |
+| Query positions  | ✓              | Current user positions from the Polymarket Data API. |
 | Position mode    | -              | Binary outcome positions only.    |
 | Leverage control | -              | No leverage available.            |
 | Margin mode      | -              | No margin trading.                |
@@ -296,7 +322,7 @@ FAK (Fill and Kill) is Polymarket's terminology for Immediate or Cancel (IOC) se
 
 | Feature            | Binary Options | Notes                               |
 |--------------------|----------------|-------------------------------------|
-| Order lists        | -              | *Not supported by Polymarket*.      |
+| Order lists        | -              | Independent order batches exist, but linked contingency semantics do not. |
 | OCO orders         | -              | *Not supported by Polymarket*.      |
 | Bracket orders     | -              | *Not supported by Polymarket*.      |
 | Conditional orders | -              | *Not supported by Polymarket*.      |
@@ -369,11 +395,13 @@ The Polymarket API returns either all **active** (open) orders or specific order
 Polymarket order ID (`venue_order_id`). The execution reconciliation procedure for Polymarket is as follows:
 
 - Generate order reports for all instruments with active (open) orders, as reported by Polymarket.
-- Generate position reports from contract balances reported by Polymarket, for instruments available in the cache.
+- Generate position reports from current user positions reported by Polymarket's Data API.
 - Compare these reports with Nautilus execution state.
 - Generate missing orders to bring Nautilus execution state in line with positions reported by Polymarket.
 
 **Note**: Polymarket does not directly provide data for orders which are no longer active.
+The Python adapter exposes an experimental `generate_order_history_from_trades` option to fill some
+of this gap from trade history. The Rust adapter does not expose the same option today.
 
 :::warning
 An optional execution client configuration, `generate_order_history_from_trades`, is currently under development.
@@ -386,19 +414,17 @@ The `PolymarketWebSocketClient` is built on top of the high-performance Nautilus
 
 ### Data
 
-The main data WebSocket handles all `market` channel subscriptions received during the initial
-connection sequence, up to `ws_connection_delay_secs`. For any additional subscriptions, a new `PolymarketWebSocketClient` is
-created for each new instrument (asset).
+The data adapter buffers the initial `market` subscriptions during the connection window and then
+subscribes dynamically as new instruments are requested.
+The client manages multiple WebSocket connections internally when the subscription count grows past
+the configured per-connection cap.
 
 ### Execution
 
-The main execution WebSocket manages all `user` channel subscriptions based on the Polymarket instruments
-available in the cache during the initial connection sequence. When trading commands are issued for additional instruments,
-a separate `PolymarketWebSocketClient` is created for each new instrument (asset).
+The execution adapter keeps a `user` channel connection for order and trade events and manages market
+subscriptions as needed for instruments seen during trading.
 
-:::note
-Polymarket does not support unsubscribing from channel streams once subscribed.
-:::
+Both the Python and Rust adapters support dynamic WebSocket subscribe and unsubscribe operations.
 
 ### Subscription limits
 
@@ -416,116 +442,189 @@ NautilusTrader automatically manages WebSocket connections to handle this limita
 - This ensures you receive complete order book data (including initial snapshots) for all subscribed instruments.
 
 :::tip
-If you need to subscribe to a large number of instruments (e.g., 5000+), the adapter will automatically distribute these subscriptions across multiple WebSocket connections. You can tune the per-connection limit up to 500 via `ws_max_subscriptions_per_connection`.
+If you need to subscribe to a large number of instruments (e.g., 5000+), the adapter will automatically distribute these subscriptions across multiple WebSocket connections.
+You can tune the per-connection limit up to 500 via `ws_max_subscriptions_per_connection`.
 :::
 
 ## Rate limiting
 
-Polymarket enforces rate limits via Cloudflare throttling. When limits are exceeded, the API returns
-HTTP 429 responses and requests are throttled rather than immediately rejected.
+Polymarket enforces rate limits via Cloudflare throttling.
+When limits are exceeded, the API returns HTTP 429 responses.
 
 ### REST limits
 
-| Endpoint Type        | Limit              | Notes                                       |
-|----------------------|--------------------|---------------------------------------------|
-| Public endpoints     | 100 req/min per IP | Unauthenticated market data requests.       |
-| Authenticated reads  | 300 req/min per key| Authenticated data queries.                 |
-| Trading endpoints    | 60 orders/min      | Order placement and cancellation.           |
-| Order endpoint       | 3,000 req/10 min   | Rolling or fixed window (unconfirmed).      |
+Polymarket changes these quotas over time. As of 2026-04-17, the official limits are:
+
+| Endpoint                  | Burst (10s) | Sustained (10 min) | Notes |
+|---------------------------|-------------|--------------------|-------|
+| CLOB general              | 9,000       | -                  | Aggregate across CLOB endpoints. |
+| CLOB `POST /order`        | 3,500       | 36,000             | Single‑order submit. |
+| CLOB `POST /orders`       | 1,000       | 15,000             | Batch submit (up to 15 orders per request). |
+| CLOB `DELETE /order`      | 3,000       | 30,000             | Single‑order cancel. |
+| CLOB `DELETE /orders`     | 1,000       | 15,000             | Batch cancel. |
+| CLOB `GET /balance-allowance` | 200     | -                  | Balance and allowance queries. |
+| CLOB API key endpoints    | 100         | -                  | Key management. |
+| Gamma `/markets`          | 300         | -                  | Market metadata. |
+| Gamma `/events`           | 500         | -                  | Event metadata. |
+| Data `/trades`            | 200         | -                  | Trade history. |
+| Data `/positions`         | 150         | -                  | Current positions. |
 
 ### WebSocket limits
 
-- **Subscriptions per connection**: 500 instruments maximum (adapter defaults to 200, configurable via `ws_max_subscriptions_per_connection`).
-- **Connections**: 20 subscriptions per connection for some endpoints.
+The WebSocket quotas are not part of the published REST rate-limits table.
+The adapter ships a configurable per-connection subscription cap
+(`ws_max_subscriptions_per_connection`) defaulting to 200; Polymarket previously
+documented an upper bound of 500 per connection.
 
 :::warning
-Exceeding Polymarket rate limits returns HTTP 429 and may result in temporary blocking.
+Exceeding Polymarket rate limits triggers Cloudflare throttling. Requests are queued
+using sliding windows rather than rejected immediately, but sustained overshoot can
+result in HTTP 429 responses or temporary blocking.
 :::
 
 ### Data loader rate limiting
 
 The `PolymarketDataLoader` includes built-in rate limiting when using the default HTTP client.
-Requests are automatically throttled to 100 requests per minute, matching Polymarket's
-public endpoint limit.
+Requests are automatically throttled to 100 requests per minute by default.
+That is a NautilusTrader default, not Polymarket's current published limit.
+The current Rust HTTP clients also ship with conservative 100 requests per minute quotas.
 
 When fetching large date ranges across multiple markets:
 
 - Multiple loaders sharing the same `http_client` instance will coordinate rate limiting automatically.
-- For higher throughput with authenticated requests, pass a custom `http_client` with adjusted quotas.
+- For higher throughput, pass a custom `http_client` with adjusted quotas.
 - The loader does not implement automatic retry on 429 errors, so implement backoff if needed.
 
 :::info
 For the latest rate limit details, see the official Polymarket documentation:
-<https://docs.polymarket.com/quickstart/introduction/rate-limits>
+<https://docs.polymarket.com/api-reference/rate-limits>
 :::
 
 ## Limitations and considerations
 
 The following limitations are currently known:
 
-- Order signing via the Polymarket Python client is slow, taking around one second.
-- Post-only orders are not supported.
+- Python order signing via `py-clob-client` is slow and can take around one second per order.
 - Reduce-only orders are not supported.
+- Batch submit (`POST /orders`) accepts at most 15 orders per request; the adapter splits larger `SubmitOrderList` commands into sequential 15-order chunks.
 
 ## Configuration
 
-### Data client configuration options
+The Python adapter (`nautilus_trader.adapters.polymarket`) and the Rust-native adapter
+(`nautilus_trader.polymarket`) expose different config surfaces. The tables below document
+both adapters in full.
 
-| Option                             | Default      | Description |
-|------------------------------------|--------------|-------------|
-| `venue`                            | `POLYMARKET` | Venue identifier registered for the data client. |
-| `private_key`                      | `None`       | Wallet private key; sourced from `POLYMARKET_PK` when omitted. |
-| `signature_type`                   | `0`          | Signature scheme (0 = EOA, 1 = email proxy, 2 = browser wallet proxy). |
-| `funder`                           | `None`       | USDC.e funding wallet; sourced from `POLYMARKET_FUNDER` when omitted. |
-| `api_key`                          | `None`       | API key; sourced from `POLYMARKET_API_KEY` when omitted. |
-| `api_secret`                       | `None`       | API secret; sourced from `POLYMARKET_API_SECRET` when omitted. |
-| `passphrase`                       | `None`       | API passphrase; sourced from `POLYMARKET_PASSPHRASE` when omitted. |
-| `base_url_http`                    | `None`       | Override for the REST base URL. |
-| `base_url_ws`                      | `None`       | Override for the WebSocket base URL. |
-| `ws_connection_initial_delay_secs` | `5`          | Delay (seconds) before the first WebSocket connection to buffer subscriptions. |
-| `ws_connection_delay_secs`         | `0.1`        | Delay (seconds) between subsequent WebSocket connection attempts. |
-| `update_instruments_interval_mins` | `60`         | Interval (minutes) between instrument catalogue refreshes. |
-| `compute_effective_deltas`         | `False`      | Compute effective order book deltas for bandwidth savings. |
-| `drop_quotes_missing_side`         | `True`       | Drop quotes with missing bid/ask prices instead of substituting boundary values. |
-| `instrument_config`                | `None`       | Optional `PolymarketInstrumentProviderConfig` for instrument loading. |
-| `ws_max_subscriptions_per_connection` | `200`     | Maximum instrument subscriptions per WebSocket connection (Polymarket limit is 500). |
+### Data client options (Python v1)
 
-### Execution client configuration options
+Class: `PolymarketDataClientConfig` in `nautilus_trader.adapters.polymarket.config`.
 
-| Option                               | Default      | Description |
-|--------------------------------------|--------------|-------------|
-| `venue`                              | `POLYMARKET` | Venue identifier registered for the execution client. |
-| `private_key`                        | `None`       | Wallet private key; sourced from `POLYMARKET_PK` when omitted. |
-| `signature_type`                     | `0`          | Signature scheme (0 = EOA, 1 = email proxy, 2 = browser wallet proxy). |
-| `funder`                             | `None`       | USDC.e funding wallet; sourced from `POLYMARKET_FUNDER` when omitted. |
-| `api_key`                            | `None`       | API key; sourced from `POLYMARKET_API_KEY` when omitted. |
-| `api_secret`                         | `None`       | API secret; sourced from `POLYMARKET_API_SECRET` when omitted. |
-| `passphrase`                         | `None`       | API passphrase; sourced from `POLYMARKET_PASSPHRASE` when omitted. |
-| `base_url_http`                      | `None`       | Override for the REST base URL. |
-| `base_url_ws`                        | `None`       | Override for the WebSocket base URL. |
-| `base_url_data_api`                  | `None`       | Override for the Data API base URL (default `https://data-api.polymarket.com`). |
-| `max_retries`                        | `None`       | Maximum retry attempts for submit/cancel requests. |
-| `retry_delay_initial_ms`             | `None`       | Initial delay (milliseconds) between retries. |
-| `retry_delay_max_ms`                 | `None`       | Maximum delay (milliseconds) between retries. |
-| `ack_timeout_secs`                   | `5.0`        | Timeout (seconds) to wait for order/trade acknowledgment from cache. |
-| `generate_order_history_from_trades` | `False`      | Generate synthetic order history from trade reports when `True` (experimental). |
-| `log_raw_ws_messages`                | `False`      | Log raw WebSocket payloads at INFO level when `True`. |
-| `instrument_config`                  | `None`       | Optional `PolymarketInstrumentProviderConfig` for instrument loading. |
-| `ws_max_subscriptions_per_connection` | `200`       | Maximum instrument subscriptions per WebSocket connection (Polymarket limit is 500). |
+| Option                                | Default      | Description |
+|---------------------------------------|--------------|-------------|
+| `venue`                               | `POLYMARKET` | Venue identifier registered for the data client. |
+| `private_key`                         | `None`       | Wallet private key; sourced from `POLYMARKET_PK` when omitted. |
+| `signature_type`                      | `0`          | Signature scheme (0 = EOA, 1 = email proxy, 2 = browser wallet proxy). |
+| `funder`                              | `None`       | USDC.e funding wallet; sourced from `POLYMARKET_FUNDER` when omitted. |
+| `api_key`                             | `None`       | API key; sourced from `POLYMARKET_API_KEY` when omitted. |
+| `api_secret`                          | `None`       | API secret; sourced from `POLYMARKET_API_SECRET` when omitted. |
+| `passphrase`                          | `None`       | API passphrase; sourced from `POLYMARKET_PASSPHRASE` when omitted. |
+| `base_url_http`                       | `None`       | Override for the REST base URL. |
+| `base_url_ws`                         | `None`       | Override for the WebSocket base URL. |
+| `ws_connection_initial_delay_secs`    | `5`          | Delay (seconds) before the first WebSocket connection to buffer subscriptions. |
+| `ws_connection_delay_secs`            | `0.1`        | Delay (seconds) between subsequent WebSocket connection attempts. |
+| `ws_max_subscriptions_per_connection` | `200`        | Maximum instrument subscriptions per WebSocket connection (Polymarket limit is 500). |
+| `update_instruments_interval_mins`    | `60`         | Interval (minutes) between instrument catalogue refreshes. |
+| `compute_effective_deltas`            | `False`      | Compute effective order book deltas for bandwidth savings. |
+| `drop_quotes_missing_side`            | `True`       | Drop quotes with missing bid/ask prices instead of substituting boundary values. |
+| `instrument_config`                   | `None`       | Optional `PolymarketInstrumentProviderConfig` for instrument loading. |
+
+### Execution client options (Python v1)
+
+Class: `PolymarketExecClientConfig` in `nautilus_trader.adapters.polymarket.config`.
+
+| Option                                | Default      | Description |
+|---------------------------------------|--------------|-------------|
+| `venue`                               | `POLYMARKET` | Venue identifier registered for the execution client. |
+| `private_key`                         | `None`       | Wallet private key; sourced from `POLYMARKET_PK` when omitted. |
+| `signature_type`                      | `0`          | Signature scheme (0 = EOA, 1 = email proxy, 2 = browser wallet proxy). |
+| `funder`                              | `None`       | USDC.e funding wallet; sourced from `POLYMARKET_FUNDER` when omitted. |
+| `api_key`                             | `None`       | API key; sourced from `POLYMARKET_API_KEY` when omitted. |
+| `api_secret`                          | `None`       | API secret; sourced from `POLYMARKET_API_SECRET` when omitted. |
+| `passphrase`                          | `None`       | API passphrase; sourced from `POLYMARKET_PASSPHRASE` when omitted. |
+| `base_url_http`                       | `None`       | Override for the REST base URL. |
+| `base_url_ws`                         | `None`       | Override for the WebSocket base URL. |
+| `base_url_data_api`                   | `None`       | Override for the Data API base URL (default `https://data-api.polymarket.com`). |
+| `ws_max_subscriptions_per_connection` | `200`        | Maximum instrument subscriptions per WebSocket connection (Polymarket limit is 500). |
+| `max_retries`                         | `None`       | Maximum retry attempts for submit/cancel requests. |
+| `retry_delay_initial_ms`              | `None`       | Initial delay (milliseconds) between retries. |
+| `retry_delay_max_ms`                  | `None`       | Maximum delay (milliseconds) between retries. |
+| `ack_timeout_secs`                    | `5.0`        | Timeout (seconds) to wait for order/trade acknowledgment from cache. |
+| `generate_order_history_from_trades`  | `False`      | Generate synthetic order history from trade reports when `True` (experimental). |
+| `log_raw_ws_messages`                 | `False`      | Log raw WebSocket payloads at INFO level when `True`. |
+| `instrument_config`                   | `None`       | Optional `PolymarketInstrumentProviderConfig` for instrument loading. |
+
+### Data client options (Rust v2)
+
+Struct: `PolymarketDataClientConfig` in `crates/adapters/polymarket/src/config.rs`.
+
+| Option                             | Default                                    | Description |
+|------------------------------------|--------------------------------------------|-------------|
+| `base_url_http`                    | `None` (official CLOB endpoint)            | Override for the CLOB REST base URL. |
+| `base_url_ws`                      | `None` (official CLOB endpoint)            | Override for the CLOB WebSocket base URL. |
+| `base_url_gamma`                   | `None` (official Gamma endpoint)           | Override for the Gamma API base URL. |
+| `base_url_data_api`                | `None` (`https://data-api.polymarket.com`) | Override for the Data API base URL. |
+| `http_timeout_secs`                | `60`                                       | HTTP request timeout (seconds). |
+| `ws_timeout_secs`                  | `30`                                       | WebSocket connect/idle timeout (seconds). |
+| `ws_max_subscriptions`             | `200`                                      | Maximum instrument subscriptions per WebSocket connection. |
+| `update_instruments_interval_mins` | `60`                                       | Interval (minutes) between instrument catalogue refreshes. |
+| `subscribe_new_markets`            | `false`                                    | Subscribe to new‑market discovery events via WebSocket when `true`. |
+| `filters`                          | `[]`                                       | Instrument filters applied during loading and discovery. |
+| `new_market_filter`                | `None`                                     | Optional filter applied to newly discovered markets before emission. |
+
+The Rust data client config does not accept account credentials; authentication is handled by
+the execution client. Subscription buffering (`ws_connection_initial_delay_secs`) and quote
+handling (`compute_effective_deltas`, `drop_quotes_missing_side`) are Python-only today.
+
+### Execution client options (Rust v2)
+
+Struct: `PolymarketExecClientConfig` in `crates/adapters/polymarket/src/config.rs`.
+
+| Option                   | Default                                    | Description |
+|--------------------------|--------------------------------------------|-------------|
+| `trader_id`              | default `TraderId`                         | Trader identifier the client registers under. |
+| `account_id`             | `POLYMARKET-001`                           | Account identifier for this execution client. |
+| `private_key`            | `None` (`POLYMARKET_PK` env)               | Wallet private key for EIP-712 signing. |
+| `api_key`                | `None` (`POLYMARKET_API_KEY` env)          | CLOB API key (L2 auth). |
+| `api_secret`             | `None` (`POLYMARKET_API_SECRET` env)       | CLOB API secret (L2 auth). |
+| `passphrase`             | `None` (`POLYMARKET_PASSPHRASE` env)       | CLOB API passphrase (L2 auth). |
+| `funder`                 | `None` (`POLYMARKET_FUNDER` env)           | USDC funding wallet. |
+| `signature_type`         | `Eoa`                                      | Signature scheme (`Eoa`, `PolyProxy`, `PolyGnosisSafe`). |
+| `base_url_http`          | `None` (official CLOB endpoint)            | Override for the CLOB REST base URL. |
+| `base_url_ws`            | `None` (official CLOB endpoint)            | Override for the CLOB WebSocket base URL. |
+| `base_url_data_api`      | `None` (`https://data-api.polymarket.com`) | Override for the Data API base URL. |
+| `http_timeout_secs`      | `60`                                       | HTTP request timeout (seconds). |
+| `max_retries`            | `3`                                        | Maximum retry attempts for single‑order submit/cancel requests. |
+| `retry_delay_initial_ms` | `1000`                                     | Initial delay (milliseconds) between retries. |
+| `retry_delay_max_ms`     | `10000`                                    | Maximum delay (milliseconds) between retries. |
+| `ack_timeout_secs`       | `5`                                        | Timeout (seconds) waiting for WebSocket order/trade acknowledgment. |
+
+The Rust execution client does not expose `generate_order_history_from_trades`,
+`log_raw_ws_messages`, `ws_max_subscriptions_per_connection`, or `instrument_config`. Batch
+submissions via `POST /orders` deliberately skip retry regardless of `max_retries`; the
+single-order path still retries on transient failures.
 
 ### Instrument provider configuration options
 
 The instrument provider config is passed via the `instrument_config` parameter on the data client config.
 
-| Option               | Default | Description                                                                                       |
-|----------------------|---------|---------------------------------------------------------------------------------------------------|
-| `load_all`           | `False` | Load all venue instruments on start. Auto‑set to `True` when `event_slug_builder` is provided.    |
-| `event_slug_builder` | `None`  | Fully qualified path to a callable returning event slugs (e.g., `"mymodule:build_slugs"`).        |
+| Option               | Default | Description                                                                                    |
+|----------------------|---------|------------------------------------------------------------------------------------------------|
+| `load_all`           | `False` | Load all venue instruments on start. Auto‑set to `True` when `event_slug_builder` is provided. |
+| `event_slug_builder` | `None`  | Fully qualified path to a callable returning event slugs (e.g., `"mymodule:build_slugs"`).     |
 
 #### Event slug builder
 
 The `event_slug_builder` feature enables efficient loading of niche markets without downloading
-all 151k+ instruments. Instead of loading everything, you provide a function that returns
+the full venue catalogue. Instead of loading everything, you provide a function that returns
 event slugs for the specific markets you need.
 
 ```python
@@ -569,10 +668,14 @@ All data fetching methods are **asynchronous** and must be called with `await`. 
 
 ### Data sources
 
-The loader fetches data from two primary sources:
+The loader fetches data from three primary sources:
 
 1. **Polymarket Gamma API** - Market metadata, instrument details, and active market listings.
-2. **Polymarket CLOB API** - Price/trade history timeseries and order book history snapshots.
+2. **Polymarket CLOB API** - Market details for instrument construction.
+3. **Polymarket Data API** - Historical trades and current user positions.
+
+The current loader does **not** expose helpers for CLOB price history timeseries or order book
+history snapshots.
 
 ### Method naming conventions
 

@@ -35,6 +35,9 @@ pub const DUST_SNAP_THRESHOLD: f64 = 0.01;
 pub const WS_MAX_SUBSCRIPTIONS: usize = 200;
 pub const WS_DEFAULT_SUBSCRIPTIONS: usize = 200;
 
+/// Maximum orders per `POST /orders` batch request; Polymarket caps batch submits at 15.
+pub const BATCH_ORDER_LIMIT: usize = 15;
+
 /// Requests per minute.
 pub const HTTP_RATE_LIMIT: u32 = 100;
 
