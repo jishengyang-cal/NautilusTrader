@@ -29,14 +29,28 @@ inputs:
     description: Whether to save the Rust cache (set to false for read-only cache on PR builds)
     required: false
     default: "true"
+  rust-cache-enabled:
+    description: >-
+      Whether to invoke Swatinem/rust-cache at all (set to false on self-hosted
+      runners using a persistent on-disk CARGO_TARGET_DIR).
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
   steps:
     # > --------------------------------------------------
     # > OS
+    # Auto-skip on the nautilus-ci-runner-* self-hosted pool: those machines
+    # have ample disk and the action's tool-cache/docker-images cleanup
+    # actively erases the pre-installed Python toolcache and cached Docker
+    # layers we want to keep across runs. Depot runners and GitHub-hosted
+    # runners still need the cleanup, so they remain unaffected.
     - name: Free disk space (Ubuntu)
-      if: inputs.free-disk-space == 'true' && runner.os == 'Linux'
+      if: >-
+        inputs.free-disk-space == 'true'
+        && runner.os == 'Linux'
+        && !startsWith(runner.name, 'nautilus-ci-runner-')
       # https://github.com/jlumbroso/free-disk-space
       uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
       with:
@@ -132,6 +146,7 @@ runs:
 
     # https://github.com/Swatinem/rust-cache
     - name: Rust cache
+      if: inputs.rust-cache-enabled == 'true'
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       with:
         workspaces: ${{ inputs.rust-cache-workspaces || '. -> target' }}

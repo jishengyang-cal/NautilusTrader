@@ -51,7 +51,11 @@ jobs:
         run: bash scripts/ci/plan.sh
 
   pre-commit:
-    runs-on: depot-ubuntu-22.04-8
+    runs-on: [self-hosted, Linux, X64, nautilus-v2]
+    env:
+      # prek runs cargo clippy/doc hooks; persist target dir outside the
+      # workspace so it survives actions/checkout's git clean -ffdx.
+      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/pre-commit
     steps:
       - uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
         with:
@@ -73,8 +77,10 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
+          # free-disk-space auto-skips on the nautilus-ci-runner-* pool.
           free-disk-space: "true"
           build-type: "pre-commit"
+          rust-cache-enabled: "false"
 
       - name: Run pre-commit
         run: prek run --all-files
@@ -91,8 +97,7 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
-    # Push events (develop/nightly) use 8-core runners for faster builds
-    runs-on: depot-ubuntu-22.04-8
+    runs-on: [self-hosted, Linux, X64, nautilus-v2]
     defaults:
       run:
         shell: bash
@@ -100,7 +105,9 @@ jobs:
     env:
       BUILD_MODE: release
       RUST_BACKTRACE: 1
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target-v2/py${{ matrix.python-version }}
+      # Outside the workspace so it survives actions/checkout's git clean -ffdx,
+      # giving us persistent on-disk Rust artifact reuse between runs.
+      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/py${{ matrix.python-version }}
     # yamllint disable rule:line-length
     services:
       redis:
@@ -148,10 +155,10 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: ${{ matrix.python-version }}
+          # free-disk-space auto-skips on the nautilus-ci-runner-* pool.
           free-disk-space: "true"
-          rust-cache-key: build-v2-${{ matrix.python-version }}
-          rust-cache-workspaces: . -> target-v2/py${{ matrix.python-version }}
-          rust-cache-on-failure: "false"
+          # Persistent CARGO_TARGET_DIR replaces Swatinem/rust-cache here.
+          rust-cache-enabled: "false"
 
       - name: Install Nautilus CLI
         env:
@@ -193,16 +200,16 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
-    # Push events (develop/nightly) use 8-core runners for faster builds
-    runs-on: depot-ubuntu-22.04-8
+    runs-on: [self-hosted, Linux, X64, nautilus-v2]
     defaults:
       run:
         shell: bash
     env:
       BUILD_MODE: release
       RUST_BACKTRACE: 1
-      # Keep v2 Cargo artifacts separate from the legacy build and per-Python ABI.
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target-v2/py${{ matrix.python-version }}
+      # Outside the workspace so it survives actions/checkout's git clean -ffdx,
+      # giving us persistent on-disk Rust artifact reuse between runs.
+      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/py${{ matrix.python-version }}
     steps:
       - uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
         with:
@@ -224,10 +231,10 @@ jobs:
         uses: ./.github/actions/common-setup
         with:
           python-version: ${{ matrix.python-version }}
+          # free-disk-space auto-skips on the nautilus-ci-runner-* pool.
           free-disk-space: "true"
-          rust-cache-key: build-v2-${{ matrix.python-version }}
-          rust-cache-workspaces: . -> target-v2/py${{ matrix.python-version }}
-          rust-cache-on-failure: "false"
+          # Persistent CARGO_TARGET_DIR replaces Swatinem/rust-cache here.
+          rust-cache-enabled: "false"
 
       # Update version for dev/nightly branches
       - name: Update version in pyproject.toml
