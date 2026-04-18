@@ -22,14 +22,9 @@ adapter configuration classes.
 
 from __future__ import annotations
 
-from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import (
-    ib_contract_specs_to_dicts,
-)
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
+from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import ib_contract_specs_to_dicts
 from nautilus_trader.config import RoutingConfig
-from nautilus_trader.core.nautilus_pyo3.interactive_brokers import (
-    MarketDataType,
-)
 from nautilus_trader.core.nautilus_pyo3 import InstrumentId as PyO3InstrumentId
 from nautilus_trader.core.nautilus_pyo3.interactive_brokers import (
     DockerizedIBGatewayConfig as RustDockerizedIBGatewayConfig,
@@ -43,6 +38,7 @@ from nautilus_trader.core.nautilus_pyo3.interactive_brokers import (
 from nautilus_trader.core.nautilus_pyo3.interactive_brokers import (
     InteractiveBrokersInstrumentProviderConfig as RustInteractiveBrokersInstrumentProviderConfig,
 )
+from nautilus_trader.core.nautilus_pyo3.interactive_brokers import MarketDataType
 from nautilus_trader.core.nautilus_pyo3.interactive_brokers import TradingMode
 from nautilus_trader.model.identifiers import InstrumentId
 

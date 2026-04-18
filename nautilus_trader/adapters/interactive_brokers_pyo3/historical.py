@@ -26,9 +26,7 @@ from datetime import UTC
 from datetime import datetime
 
 from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import IBContractSpec
-from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import (
-    ib_contract_specs_to_dicts,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import ib_contract_specs_to_dicts
 from nautilus_trader.cache.transformers import transform_instrument_from_pyo3
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.nautilus_pyo3 import InstrumentId as PyO3InstrumentId

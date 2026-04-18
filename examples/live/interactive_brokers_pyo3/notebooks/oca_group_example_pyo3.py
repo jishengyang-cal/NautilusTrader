@@ -13,12 +13,8 @@ import pandas as pd
 from nautilus_trader.adapters.interactive_brokers.common import IB
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
 from nautilus_trader.adapters.interactive_brokers.common import IBOrderTags
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersDataClientConfig,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersExecClientConfig,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersExecClientConfig
 from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersInstrumentProviderConfig,
 )

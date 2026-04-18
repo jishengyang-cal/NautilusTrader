@@ -36,9 +36,9 @@ from nautilus_trader.config import LiveExecClientConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import RoutingConfig
 from nautilus_trader.config import TradingNodeConfig
+from nautilus_trader.examples.interactive_brokers import resolve_ib_endpoint
 from nautilus_trader.examples.strategies.subscribe import SubscribeStrategy
 from nautilus_trader.examples.strategies.subscribe import SubscribeStrategyConfig
-from nautilus_trader.examples.interactive_brokers import resolve_ib_endpoint
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.identifiers import InstrumentId
 

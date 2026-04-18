@@ -20,6 +20,7 @@ use ibapi::contracts::{OptionComputation, tick_types::TickType};
 use nautilus_core::UnixNanos;
 use nautilus_model::{
     data::{QuoteTick, greeks::OptionGreekValues, option_chain::OptionGreeks},
+    enums::GreeksConvention,
     identifiers::InstrumentId,
     types::{Price, Quantity},
 };
@@ -421,6 +422,7 @@ impl OptionGreeksCache {
         Some(OptionGreeks {
             instrument_id,
             greeks,
+            convention: GreeksConvention::BlackScholes,
             mark_iv: cached.mark_iv,
             bid_iv: cached.bid_iv,
             ask_iv: cached.ask_iv,

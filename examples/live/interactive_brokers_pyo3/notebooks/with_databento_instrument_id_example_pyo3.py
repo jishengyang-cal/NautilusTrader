@@ -26,12 +26,8 @@ import pandas as pd
 
 from nautilus_trader.adapters.interactive_brokers.common import IB
 from nautilus_trader.adapters.interactive_brokers.common import IB_VENUE
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersDataClientConfig,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersExecClientConfig,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersExecClientConfig
 from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersInstrumentProviderConfig,
 )
@@ -48,10 +44,10 @@ from nautilus_trader.config import LiveExecClientConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import RoutingConfig
 from nautilus_trader.config import TradingNodeConfig
-from nautilus_trader.examples.interactive_brokers import resolve_ib_endpoint
-from nautilus_trader.live.node import TradingNode
-from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.examples.interactive_brokers import resolve_ib_endpoint
+from nautilus_trader.execution.messages import CancelAllOrders
+from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import OrderSide

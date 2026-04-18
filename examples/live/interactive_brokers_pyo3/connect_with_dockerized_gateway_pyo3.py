@@ -22,15 +22,9 @@ import time
 
 from nautilus_trader.adapters.interactive_brokers.common import IB
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    DockerizedIBGatewayConfig,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersDataClientConfig,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersExecClientConfig,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3 import DockerizedIBGatewayConfig
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersExecClientConfig
 from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersInstrumentProviderConfig,
 )
@@ -41,8 +35,8 @@ from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersV1LiveExecClientFactory,
 )
 from nautilus_trader.adapters.interactive_brokers_pyo3.config import MarketDataType
-from nautilus_trader.config import LiveDataEngineConfig
 from nautilus_trader.config import LiveDataClientConfig
+from nautilus_trader.config import LiveDataEngineConfig
 from nautilus_trader.config import LiveExecClientConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import RoutingConfig

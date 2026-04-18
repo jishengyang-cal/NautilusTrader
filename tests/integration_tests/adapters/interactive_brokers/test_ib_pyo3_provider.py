@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Mapping
 from datetime import timedelta
 from datetime import timezone
-from typing import Any
-from collections.abc import Mapping
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -668,12 +668,8 @@ async def test_pyo3_data_request_instruments_uses_dict_contract_specs(monkeypatc
 
 
 def test_historic_client_alias_matches_legacy_name():
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        HistoricInteractiveBrokersClient,
-    )
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        HistoricalInteractiveBrokersClient,
-    )
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import HistoricalInteractiveBrokersClient
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import HistoricInteractiveBrokersClient
 
     assert HistoricInteractiveBrokersClient is HistoricalInteractiveBrokersClient
 
@@ -697,16 +693,12 @@ def test_v1_factory_aliases_are_explicit():
 
 
 def test_v1_data_factory_honors_dockerized_gateway(monkeypatch):
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import factories as factories_module
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        DockerizedIBGatewayConfig,
-    )
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        InteractiveBrokersDataClientConfig,
-    )
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import DockerizedIBGatewayConfig
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
     from nautilus_trader.adapters.interactive_brokers_pyo3 import (
         InteractiveBrokersInstrumentProviderConfig,
     )
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import factories as factories_module
 
     started: list[tuple[str, int | None]] = []
     created: dict[str, Any] = {}
@@ -756,16 +748,12 @@ def test_v1_data_factory_honors_dockerized_gateway(monkeypatch):
 
 
 def test_v1_data_factory_prefers_blocking_gateway_start(monkeypatch):
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import factories as factories_module
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        DockerizedIBGatewayConfig,
-    )
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        InteractiveBrokersDataClientConfig,
-    )
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import DockerizedIBGatewayConfig
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
     from nautilus_trader.adapters.interactive_brokers_pyo3 import (
         InteractiveBrokersInstrumentProviderConfig,
     )
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import factories as factories_module
 
     started: list[tuple[Any, int | None]] = []
     created: dict[str, Any] = {}
@@ -819,16 +807,12 @@ def test_v1_data_factory_prefers_blocking_gateway_start(monkeypatch):
 
 
 def test_v1_factories_reuse_cached_provider(monkeypatch):
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import factories as factories_module
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        InteractiveBrokersDataClientConfig,
-    )
-    from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-        InteractiveBrokersExecClientConfig,
-    )
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersExecClientConfig
     from nautilus_trader.adapters.interactive_brokers_pyo3 import (
         InteractiveBrokersInstrumentProviderConfig,
     )
+    from nautilus_trader.adapters.interactive_brokers_pyo3 import factories as factories_module
 
     created_providers: list[Any] = []
     attached_providers: list[Any] = []

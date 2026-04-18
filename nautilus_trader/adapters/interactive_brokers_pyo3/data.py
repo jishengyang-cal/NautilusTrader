@@ -54,12 +54,13 @@ from nautilus_trader.data.messages import UnsubscribeTradeTicks
 from nautilus_trader.live.data_client import LiveMarketDataClient
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import IndexPriceUpdate
-from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OptionGreeks
+from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.instruments.currency_pair import CurrencyPair
+
 
 if TYPE_CHECKING:
     from nautilus_trader.adapters.interactive_brokers_pyo3.providers import (

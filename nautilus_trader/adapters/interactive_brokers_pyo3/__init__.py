@@ -25,9 +25,7 @@ without depending on Python adapter logic from this package.
 
 """
 
-from nautilus_trader.adapters.interactive_brokers_pyo3.config import (
-    DockerizedIBGatewayConfig,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3.config import DockerizedIBGatewayConfig
 from nautilus_trader.adapters.interactive_brokers_pyo3.config import (
     InteractiveBrokersDataClientConfig,
 )
@@ -54,10 +52,10 @@ from nautilus_trader.adapters.interactive_brokers_pyo3.factories import (
     InteractiveBrokersV1LiveExecClientFactory,
 )
 from nautilus_trader.adapters.interactive_brokers_pyo3.historical import (
-    HistoricInteractiveBrokersClient,
+    HistoricalInteractiveBrokersClient,
 )
 from nautilus_trader.adapters.interactive_brokers_pyo3.historical import (
-    HistoricalInteractiveBrokersClient,
+    HistoricInteractiveBrokersClient,
 )
 from nautilus_trader.adapters.interactive_brokers_pyo3.providers import (
     InteractiveBrokersInstrumentProvider,

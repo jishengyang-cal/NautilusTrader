@@ -20,21 +20,16 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from typing import Literal, cast
+from typing import Literal
+from typing import cast
 
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
-from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import (
-    ib_contract_spec_to_dict,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersDataClientConfig,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersInstrumentProvider,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersInstrumentProvider
 from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersInstrumentProviderConfig,
 )
+from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import ib_contract_spec_to_dict
 from nautilus_trader.adapters.interactive_brokers_pyo3.config import MarketDataType
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
@@ -78,7 +73,8 @@ def _metadata_expiry_in_range(expiry: str) -> bool:
     if EXACT_EXPIRY is not None:
         return expiry == EXACT_EXPIRY
 
-    from pandas import Timestamp, Timedelta
+    from pandas import Timedelta
+    from pandas import Timestamp
 
     now = Timestamp.now(tz="UTC").normalize()
     expiry_ts = Timestamp(expiry, tz="UTC")

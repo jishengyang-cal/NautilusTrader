@@ -24,12 +24,8 @@ import tempfile
 from nautilus_trader.adapters.interactive_brokers.config import DockerizedIBGatewayConfig
 from nautilus_trader.adapters.interactive_brokers.gateway import DockerizedIBGateway
 from nautilus_trader.adapters.interactive_brokers_pyo3 import HistoricalInteractiveBrokersClient
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersDataClientConfig,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersInstrumentProvider,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersInstrumentProvider
 from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersInstrumentProviderConfig,
 )

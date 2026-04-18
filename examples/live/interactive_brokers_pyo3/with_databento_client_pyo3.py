@@ -16,9 +16,7 @@ from nautilus_trader.adapters.databento import DATABENTO
 from nautilus_trader.adapters.databento import DatabentoDataClientConfig
 from nautilus_trader.adapters.databento import DatabentoLiveDataClientFactory
 from nautilus_trader.adapters.interactive_brokers.common import IB
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersExecClientConfig,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersExecClientConfig
 from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersInstrumentProviderConfig,
 )

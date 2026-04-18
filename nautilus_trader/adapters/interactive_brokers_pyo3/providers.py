@@ -32,12 +32,8 @@ import pandas as pd
 
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
 from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import IBContractSpec
-from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import (
-    ib_contract_spec_to_dict,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import (
-    ib_contract_specs_to_dicts,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import ib_contract_spec_to_dict
+from nautilus_trader.adapters.interactive_brokers_pyo3._contracts import ib_contract_specs_to_dicts
 from nautilus_trader.adapters.interactive_brokers_pyo3.config import (
     InteractiveBrokersInstrumentProviderConfig,
 )

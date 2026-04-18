@@ -9,16 +9,11 @@ import os
 import threading
 import time
 
-from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.adapters.interactive_brokers.common import IB
 from nautilus_trader.adapters.interactive_brokers.common import IBContract
 from nautilus_trader.adapters.interactive_brokers.common import IBOrderTags
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersDataClientConfig,
-)
-from nautilus_trader.adapters.interactive_brokers_pyo3 import (
-    InteractiveBrokersExecClientConfig,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersDataClientConfig
+from nautilus_trader.adapters.interactive_brokers_pyo3 import InteractiveBrokersExecClientConfig
 from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersInstrumentProviderConfig,
 )
@@ -29,12 +24,13 @@ from nautilus_trader.adapters.interactive_brokers_pyo3 import (
     InteractiveBrokersV1LiveExecClientFactory,
 )
 from nautilus_trader.adapters.interactive_brokers_pyo3.config import MarketDataType
-from nautilus_trader.examples.interactive_brokers import resolve_ib_endpoint
 from nautilus_trader.config import LiveDataEngineConfig
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import RoutingConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.examples.interactive_brokers import resolve_ib_endpoint
+from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model import TraderId
 from nautilus_trader.model.enums import OrderSide

@@ -22,7 +22,7 @@ use nautilus_model::{
         Bar, BarType, IndexPriceUpdate, QuoteTick, TradeTick, greeks::OptionGreekValues,
         option_chain::OptionGreeks,
     },
-    enums::{AggressorSide, BookAction},
+    enums::{AggressorSide, BookAction, GreeksConvention},
     identifiers::{InstrumentId, TradeId},
     types::{Price, Quantity},
 };
@@ -164,6 +164,7 @@ pub fn parse_option_computation_to_option_greeks(
                 theta: computation.theta.unwrap_or_default(),
                 rho: 0.0, // IB does not publish rho in tickOptionComputation
             },
+            convention: GreeksConvention::BlackScholes,
             mark_iv: computation.implied_volatility,
             bid_iv: None,
             ask_iv: None,

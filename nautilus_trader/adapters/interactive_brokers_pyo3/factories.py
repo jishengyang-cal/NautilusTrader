@@ -21,18 +21,14 @@ from collections.abc import Coroutine
 from typing import Any
 from typing import cast
 
-from nautilus_trader.adapters.interactive_brokers_pyo3.config import (
-    DockerizedIBGatewayConfig,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3.config import DockerizedIBGatewayConfig
 from nautilus_trader.adapters.interactive_brokers_pyo3.config import (
     InteractiveBrokersDataClientConfig,
 )
 from nautilus_trader.adapters.interactive_brokers_pyo3.config import (
     InteractiveBrokersExecClientConfig,
 )
-from nautilus_trader.adapters.interactive_brokers_pyo3.data import (
-    InteractiveBrokersDataClient,
-)
+from nautilus_trader.adapters.interactive_brokers_pyo3.data import InteractiveBrokersDataClient
 from nautilus_trader.adapters.interactive_brokers_pyo3.execution import (
     InteractiveBrokersExecutionClient,
 )
