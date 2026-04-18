@@ -13,14 +13,19 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Example trading strategies for backtesting and demonstration.
+//! Hurst/VPIN directional strategy.
+//!
+//! Subscribes to dollar bars, trades, and quotes for a single instrument.
+//! Estimates the Hurst exponent by rescaled range over dollar-bar log returns,
+//! computes VPIN from trade aggressor flow per completed bar, and opens a
+//! position on the next quote tick when both signals align. Exits on regime
+//! decay or holding-time cap.
 
-pub mod delta_neutral_vol;
-pub mod ema_cross;
-pub mod grid_mm;
-pub mod hurst_vpin_directional;
+pub mod config;
+pub mod strategy;
 
-pub use delta_neutral_vol::{DeltaNeutralVol, DeltaNeutralVolConfig};
-pub use ema_cross::{EmaCross, EmaCrossConfig};
-pub use grid_mm::{GridMarketMaker, GridMarketMakerConfig};
-pub use hurst_vpin_directional::{HurstVpinDirectional, HurstVpinDirectionalConfig};
+#[cfg(test)]
+mod tests;
+
+pub use config::HurstVpinDirectionalConfig;
+pub use strategy::HurstVpinDirectional;

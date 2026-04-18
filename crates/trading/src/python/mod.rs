@@ -50,6 +50,8 @@ pub fn trading(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "examples")]
     m.add_class::<crate::examples::strategies::DeltaNeutralVolConfig>()?;
     #[cfg(feature = "examples")]
+    m.add_class::<crate::examples::strategies::HurstVpinDirectionalConfig>()?;
+    #[cfg(feature = "examples")]
     m.add_class::<crate::examples::actors::BookImbalanceActorConfig>()?;
     Ok(())
 }

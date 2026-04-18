@@ -35,11 +35,11 @@ New to NautilusTrader? Work through these in sequence:
 
 ## Backtesting
 
-| Tutorial                                                                            | Description                                       | Data              |
-|:------------------------------------------------------------------------------------|:--------------------------------------------------|:------------------|
-| [Backtest with FX Bar Data](backtest_fx_bars)                                       | EMA cross on FX bars with rollover simulation.    | Bundled           |
-| [Backtest with Order Book Depth Data (Binance)](backtest_orderbook_binance)         | Order book imbalance strategy on depth data.      | User‑provided     |
-| [Backtest with Order Book Depth Data (Bybit)](backtest_orderbook_bybit)             | Order book imbalance strategy on depth data.      | User‑provided     |
+| Tutorial                                                                            | Description                                    | Data          |
+|:------------------------------------------------------------------------------------|:-----------------------------------------------|:--------------|
+| [Backtest with FX Bar Data](backtest_fx_bars)                                       | EMA cross on FX bars with rollover simulation. | Bundled       |
+| [Backtest with Order Book Depth Data (Binance)](backtest_orderbook_binance)         | Order book imbalance strategy on depth data.   | User‑provided |
+| [Backtest with Order Book Depth Data (Bybit)](backtest_orderbook_bybit)             | Order book imbalance strategy on depth data.   | User‑provided |
 
 ## Data workflows
 
@@ -52,12 +52,12 @@ For task-oriented data recipes, see the [how-to guides](../how_to/):
 
 ## Strategy patterns
 
-| Tutorial                                                                            | Description                                       | Data                 |
-|:------------------------------------------------------------------------------------|:--------------------------------------------------|:---------------------|
-| [Mean Reversion with Proxy FX Data (AX Exchange)](fx_mean_reversion_ax)             | Bollinger Band mean reversion on EURUSD‑PERP.     | TrueFX proxy         |
-| [Gold Perpetual Book Imbalance (AX Exchange)](gold_book_imbalance_ax)               | Order book imbalance on XAU‑PERP.                 | Databento API key    |
-| [Grid Market Making with a Deadman's Switch (BitMEX)](grid_market_maker_bitmex)     | Grid MM with server‑side safety on XBTUSD.        | Tardis.dev           |
-| [On‑Chain Grid Market Making with Short‑Term Orders (dYdX)](grid_market_maker_dydx) | Grid MM on dYdX v4 perpetuals.                    | User‑provided        |
+| Tutorial                                                                            | Description                                       | Data              |
+|:------------------------------------------------------------------------------------|:--------------------------------------------------|:------------------|
+| [Mean Reversion with Proxy FX Data (AX Exchange)](fx_mean_reversion_ax)             | Bollinger Band mean reversion on EURUSD‑PERP.     | TrueFX proxy      |
+| [Gold Perpetual Book Imbalance (AX Exchange)](gold_book_imbalance_ax)               | Order book imbalance on XAU‑PERP.                 | Databento API key |
+| [Grid Market Making with a Deadman's Switch (BitMEX)](grid_market_maker_bitmex)     | Grid MM with server‑side safety on XBTUSD.        | Tardis.dev        |
+| [On‑Chain Grid Market Making with Short‑Term Orders (dYdX)](grid_market_maker_dydx) | Grid MM on dYdX v4 perpetuals.                    | User‑provided     |
 
 ## Options
 
@@ -68,6 +68,7 @@ For task-oriented data recipes, see the [how-to guides](../how_to/):
 
 ## Rust
 
-| Tutorial                                                                            | Description                                       | Data              |
-|:------------------------------------------------------------------------------------|:--------------------------------------------------|:------------------|
-| [Book Imbalance Backtest (Betfair)](backtest_book_imbalance_betfair)                | Book imbalance actor on Betfair L2 data.          | User‑provided     |
+| Tutorial                                                                            | Description                                          | Data           |
+|:------------------------------------------------------------------------------------|:-----------------------------------------------------|:---------------|
+| [Book Imbalance Backtest (Betfair)](backtest_book_imbalance_betfair)                | Book imbalance actor on Betfair L2 data.             | User‑provided  |
+| [Hurst/VPIN Directional Strategy (Kraken Futures)](hurst_vpin_kraken)               | Regime‑filtered informed‑flow strategy on PF_XBTUSD. | Tardis.dev     |

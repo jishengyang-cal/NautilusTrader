@@ -570,7 +570,7 @@ impl PyBacktestEngine {
     fn py_add_native_strategy(&mut self, config: &Bound<'_, PyAny>) -> PyResult<()> {
         use nautilus_trading::examples::strategies::{
             DeltaNeutralVol, DeltaNeutralVolConfig, EmaCross, EmaCrossConfig, GridMarketMaker,
-            GridMarketMakerConfig,
+            GridMarketMakerConfig, HurstVpinDirectional, HurstVpinDirectionalConfig,
         };
 
         if let Ok(config) = config.extract::<EmaCrossConfig>() {
@@ -584,6 +584,10 @@ impl PyBacktestEngine {
         } else if let Ok(config) = config.extract::<DeltaNeutralVolConfig>() {
             self.0
                 .add_strategy(DeltaNeutralVol::new(config))
+                .map_err(to_pyruntime_err)
+        } else if let Ok(config) = config.extract::<HurstVpinDirectionalConfig>() {
+            self.0
+                .add_strategy(HurstVpinDirectional::new(config))
                 .map_err(to_pyruntime_err)
         } else {
             let type_name = config.get_type().name()?;

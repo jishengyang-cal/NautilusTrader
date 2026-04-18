@@ -22,6 +22,12 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = ["high-precision"]
+examples = [
+  "dep:nautilus-backtest",
+  "dep:nautilus-execution",
+  "dep:nautilus-tardis",
+  "nautilus-trading/examples",
+]
 python = [
   "nautilus-common/python",
   "nautilus-core/python",
@@ -78,6 +84,10 @@ tokio-util = { workspace = true }
 ustr = { workspace = true }
 zeroize = { workspace = true }
 
+nautilus-backtest = { workspace = true, optional = true }
+nautilus-execution = { workspace = true, optional = true }
+nautilus-tardis = { workspace = true, optional = true }
+
 pyo3 = { workspace = true, optional = true }
 pyo3-async-runtimes = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
@@ -123,4 +133,18 @@ doc = false
 [[example]]
 name = "kraken-exec-tester"
 path = "examples/node_exec_tester.rs"
+doc = false
+
+# Run with `cargo run -p nautilus-kraken --features examples --example kraken-hurst-vpin-backtest --release`
+[[example]]
+name = "kraken-hurst-vpin-backtest"
+path = "examples/engine_hurst_vpin_backtest.rs"
+required-features = ["examples"]
+doc = false
+
+# Run with `cargo run -p nautilus-kraken --features examples --example kraken-hurst-vpin-live`
+[[example]]
+name = "kraken-hurst-vpin-live"
+path = "examples/node_hurst_vpin_live.rs"
+required-features = ["examples"]
 doc = false
