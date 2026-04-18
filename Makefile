@@ -503,7 +503,7 @@ check-edit-installed:  #-- Verify cargo-edit is installed
 
 .PHONY: check-features
 check-features: check-hack-installed  #-- Verify crate feature combinations compile correctly
-	cargo hack --workspace check --each-feature
+	cargo hack --workspace check --each-feature --all-targets
 
 .PHONY: check-capnp-schemas  #-- Verify Cap'n Proto schemas are up-to-date
 check-capnp-schemas:

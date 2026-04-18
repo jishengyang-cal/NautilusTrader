@@ -54,6 +54,7 @@ Released on TBD (UTC).
 - Fixed Bybit perpetual instrument status to emit `PreClose` when scheduled for delisting (#3829), thanks @dxwil
 - Fixed Bybit `load_all_async` dropping `base_coin` filter for options (#3865), thanks for reporting @Baerenstein
 - Fixed Bybit `InstrumentStatus` messages silently dropped instead of forwarded to the data engine
+- Fixed Bybit and Deribit option chain example `subscribe_option_chain` call (#3887), thanks @sunlei
 - Fixed Deribit mark/index price subscriptions silently dropping data in Python (#3821), thanks for reporting @linimin
 - Fixed Hyperliquid bracket order submission grouping (#3810), thanks for reporting @jindrichsirucek
 - Fixed Hyperliquid modify cancel-replace emitting stale `OrderCanceled` (#3827), thanks for reporting @P1YU5H-50N1
