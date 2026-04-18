@@ -37,7 +37,8 @@ use nautilus_common::{
         execution::{
             BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
             GenerateFillReportsBuilder, GenerateOrderStatusReports,
-            GenerateOrderStatusReportsBuilder, ModifyOrder, SubmitOrder, SubmitOrderList,
+            GenerateOrderStatusReportsBuilder, ModifyOrder, QueryOrder, SubmitOrder,
+            SubmitOrderList,
         },
     },
 };
@@ -69,9 +70,10 @@ use crate::{
         },
         credential::BetfairCredential,
         enums::{
-            BetfairOrderType, BetfairSide, BetfairTimeInForce, ExecutionReportErrorCode,
-            ExecutionReportStatus, InstructionReportErrorCode, InstructionReportStatus,
-            OrderProjection, PersistenceType, StreamingOrderStatus, StreamingSide,
+            BetfairOrderStatus, BetfairOrderType, BetfairSide, BetfairTimeInForce,
+            ExecutionReportErrorCode, ExecutionReportStatus, InstructionReportErrorCode,
+            InstructionReportStatus, OrderProjection, PersistenceType, StreamingOrderStatus,
+            StreamingSide,
         },
         parse::{
             extract_market_id, extract_selection_id, make_customer_order_ref,
@@ -87,10 +89,10 @@ use crate::{
         client::BetfairHttpClient,
         models::{
             AccountFundsResponse, CancelExecutionReport, CancelInstruction, CancelOrdersParams,
-            CurrentOrderSummaryReport, LimitOnCloseOrder, LimitOrder, ListCurrentOrdersParams,
-            MarketOnCloseOrder, MarketVersion, PlaceExecutionReport, PlaceInstruction,
-            PlaceInstructionReport, PlaceOrdersParams, ReplaceExecutionReport, ReplaceInstruction,
-            ReplaceInstructionReport, ReplaceOrdersParams, TimeRange,
+            CurrentOrderSummary, CurrentOrderSummaryReport, LimitOnCloseOrder, LimitOrder,
+            ListCurrentOrdersParams, MarketOnCloseOrder, MarketVersion, PlaceExecutionReport,
+            PlaceInstruction, PlaceInstructionReport, PlaceOrdersParams, ReplaceExecutionReport,
+            ReplaceInstruction, ReplaceInstructionReport, ReplaceOrdersParams, TimeRange,
         },
         parse::{parse_current_order_fill_report, parse_current_order_report},
     },
@@ -908,6 +910,98 @@ impl ExecutionClient for BetfairExecutionClient {
         self.core.set_disconnected();
 
         log::info!("Disconnected: client_id={}", self.core.client_id);
+        Ok(())
+    }
+
+    fn query_order(&self, cmd: QueryOrder) -> anyhow::Result<()> {
+        let http_client = Arc::clone(&self.http_client);
+        let emitter = self.emitter.clone();
+        let account_id = self.core.account_id;
+        let ocm_state = Arc::clone(&self.ocm_state);
+        let clock = self.clock;
+        let client_order_id = cmd.client_order_id;
+        let venue_order_id = cmd.venue_order_id;
+        let instrument_id = cmd.instrument_id;
+
+        self.spawn_task("query_order", async move {
+            let mut candidates: Vec<CurrentOrderSummary> = Vec::new();
+            let mut seen_bet_ids: AHashSet<String> = AHashSet::new();
+
+            // Customer_order_ref lookup: Betfair reuses the ref across a
+            // replace (old bet cancelled + new bet live), so this returns the
+            // live replacement even when the cached bet_id is stale.
+            let rfo = make_customer_order_ref(client_order_id.as_str());
+            let rfo_params = list_current_orders_filter_ref(rfo.clone());
+            match list_current_orders_with_retry(&http_client, &rfo_params).await {
+                Ok(r) => extend_unique(&mut candidates, &mut seen_bet_ids, r.current_orders),
+                Err(e) => log::warn!("Betfair query_order ref lookup failed: {e}"),
+            }
+
+            if candidates.is_empty() {
+                let rfo_legacy = make_customer_order_ref_legacy(client_order_id.as_str());
+                if rfo_legacy != rfo {
+                    let legacy_params = list_current_orders_filter_ref(rfo_legacy);
+                    match list_current_orders_with_retry(&http_client, &legacy_params).await {
+                        Ok(r) => {
+                            extend_unique(&mut candidates, &mut seen_bet_ids, r.current_orders);
+                        }
+                        Err(e) => log::warn!("Betfair query_order legacy lookup failed: {e}"),
+                    }
+                }
+            }
+
+            // Always also query by bet_id when known. This rescues
+            // pre-existing orders without a recognizable ref and orders whose
+            // ref-based results came back as foreign-market collisions only.
+            if let Some(ref bet_id) = venue_order_id {
+                let params = list_current_orders_filter_bet_id(bet_id.to_string());
+                match list_current_orders_with_retry(&http_client, &params).await {
+                    Ok(r) => extend_unique(&mut candidates, &mut seen_bet_ids, r.current_orders),
+                    Err(e) => log::warn!("Betfair query_order bet_id lookup failed: {e}"),
+                }
+            }
+
+            if candidates.is_empty() {
+                log::warn!(
+                    "Betfair query_order found no order for client_order_id={client_order_id}, venue_order_id={venue_order_id:?}",
+                );
+                return Ok(());
+            }
+
+            let Some(order) = select_order_for_query(
+                &candidates,
+                instrument_id,
+                client_order_id,
+                venue_order_id,
+            ) else {
+                return Ok(());
+            };
+
+            let ts_init = clock.get_time_ns();
+            let mut report = match parse_current_order_report(order, account_id, ts_init) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Failed to parse order report for {}: {e}", order.bet_id);
+                    return Ok(());
+                }
+            };
+
+            if report.client_order_id.is_none()
+                && let Some(rfo) = order.customer_order_ref.as_deref()
+                && let Ok(state) = ocm_state.lock()
+                && let Some(full_id) = state.resolve_client_order_id(Some(rfo))
+            {
+                report.client_order_id = Some(full_id);
+            }
+
+            if report.client_order_id.is_none() {
+                report.client_order_id = Some(client_order_id);
+            }
+
+            emitter.send_order_status_report(report);
+            Ok(())
+        });
+
         Ok(())
     }
 
@@ -2176,6 +2270,132 @@ impl ExecutionClient for BetfairExecutionClient {
     }
 }
 
+fn list_current_orders_filter_bet_id(bet_id: String) -> ListCurrentOrdersParams {
+    ListCurrentOrdersParams {
+        bet_ids: Some(vec![bet_id]),
+        market_ids: None,
+        order_projection: None,
+        customer_order_refs: None,
+        customer_strategy_refs: None,
+        date_range: None,
+        order_by: None,
+        sort_dir: None,
+        from_record: None,
+        record_count: None,
+    }
+}
+
+fn list_current_orders_filter_ref(customer_order_ref: String) -> ListCurrentOrdersParams {
+    ListCurrentOrdersParams {
+        bet_ids: None,
+        market_ids: None,
+        order_projection: None,
+        customer_order_refs: Some(vec![customer_order_ref]),
+        customer_strategy_refs: None,
+        date_range: None,
+        order_by: None,
+        sort_dir: None,
+        from_record: None,
+        record_count: None,
+    }
+}
+
+fn extend_unique(
+    candidates: &mut Vec<CurrentOrderSummary>,
+    seen: &mut AHashSet<String>,
+    orders: Vec<CurrentOrderSummary>,
+) {
+    for order in orders {
+        if seen.insert(order.bet_id.clone()) {
+            candidates.push(order);
+        }
+    }
+}
+
+fn select_order_for_query(
+    orders: &[CurrentOrderSummary],
+    expected_instrument_id: InstrumentId,
+    expected_client_order_id: ClientOrderId,
+    expected_venue_order_id: Option<VenueOrderId>,
+) -> Option<&CurrentOrderSummary> {
+    let matching: Vec<&CurrentOrderSummary> = orders
+        .iter()
+        .filter(|o| {
+            make_instrument_id(&o.market_id, o.selection_id, o.handicap) == expected_instrument_id
+        })
+        .collect();
+
+    let candidates: Vec<&CurrentOrderSummary> = if matching.is_empty() {
+        // No instrument match: accept only an exact venue_order_id hit
+        // (pre-existing orders without a recognizable customer_order_ref).
+        // A lone foreign-instrument candidate is not enough, since a 32-char
+        // customer_order_ref collision can surface a single unrelated bet.
+        if let Some(vid) = expected_venue_order_id
+            && let Some(order) = orders.iter().find(|o| o.bet_id == vid.as_str())
+        {
+            return Some(order);
+        }
+        log::warn!(
+            "Betfair query_order returned {} orders for client_order_id={expected_client_order_id}, none matching instrument {expected_instrument_id}; skipping to avoid cross-instrument reconciliation",
+            orders.len(),
+        );
+        return None;
+    } else {
+        matching
+    };
+
+    // Prefer EXECUTABLE so a live replacement wins over a cancelled
+    // predecessor sharing the same customer_order_ref.
+    let executable: Vec<&CurrentOrderSummary> = candidates
+        .iter()
+        .copied()
+        .filter(|o| o.status == BetfairOrderStatus::Executable)
+        .collect();
+
+    let pool = if executable.is_empty() {
+        candidates
+    } else {
+        executable
+    };
+
+    // Tiebreaker: most recently placed bet. Picks the replacement over the
+    // predecessor even when both are already terminal by poll time.
+    pool.into_iter()
+        .max_by(|a, b| a.placed_date.cmp(&b.placed_date))
+}
+
+async fn list_current_orders_with_retry(
+    http_client: &Arc<BetfairHttpClient>,
+    params: &ListCurrentOrdersParams,
+) -> anyhow::Result<CurrentOrderSummaryReport> {
+    match http_client
+        .send_betting(METHOD_LIST_CURRENT_ORDERS, params)
+        .await
+    {
+        Ok(r) => Ok(r),
+        Err(e) if e.is_session_error() || e.is_rate_limit_error() => {
+            if e.is_rate_limit_error() {
+                log::warn!("Rate limited, retrying in {RATE_LIMIT_RETRY_DELAY_SECS}s");
+                tokio::time::sleep(tokio::time::Duration::from_secs(
+                    RATE_LIMIT_RETRY_DELAY_SECS,
+                ))
+                .await;
+            } else {
+                log::warn!("Session error, refreshing session");
+
+                if http_client.keep_alive().await.is_err() {
+                    let _ = http_client.reconnect().await;
+                }
+            }
+            http_client
+                .send_betting(METHOD_LIST_CURRENT_ORDERS, params)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))
+        }
+        Err(e) => Err(anyhow::anyhow!("{e}")),
+    }
+}
+
 fn should_emit_http_accept(
     ocm_state: &Arc<Mutex<OcmState>>,
     client_order_id: &ClientOrderId,
@@ -2833,5 +3053,355 @@ mod tests {
                 .resolve_client_order_id(Some(&make_customer_order_ref("O-B")))
                 .is_none()
         );
+    }
+
+    fn make_summary(
+        bet_id: &str,
+        market_id: &str,
+        selection_id: u64,
+        handicap: Decimal,
+        status: BetfairOrderStatus,
+        placed_date: &str,
+    ) -> CurrentOrderSummary {
+        CurrentOrderSummary {
+            bet_id: bet_id.to_string(),
+            market_id: market_id.to_string(),
+            selection_id,
+            handicap,
+            price_size: crate::http::models::PriceSize {
+                price: Decimal::new(20, 1),
+                size: Decimal::new(10, 0),
+            },
+            bsp_liability: Decimal::ZERO,
+            side: BetfairSide::Back,
+            status,
+            persistence_type: PersistenceType::Lapse,
+            order_type: BetfairOrderType::Limit,
+            placed_date: placed_date.to_string(),
+            matched_date: None,
+            average_price_matched: None,
+            size_matched: None,
+            size_remaining: Some(Decimal::new(10, 0)),
+            size_lapsed: None,
+            size_cancelled: None,
+            size_voided: None,
+            regulator_auth_code: None,
+            regulator_code: None,
+            customer_order_ref: None,
+            customer_strategy_ref: None,
+        }
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_single_executable() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![make_summary(
+            "bet_1",
+            "1.100",
+            12345,
+            Decimal::ZERO,
+            BetfairOrderStatus::Executable,
+            "2026-04-18T10:00:00Z",
+        )];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+
+        let selected = select_order_for_query(&orders, expected, cid, None);
+        assert_eq!(selected.map(|o| o.bet_id.as_str()), Some("bet_1"));
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_single_terminal() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![make_summary(
+            "bet_1",
+            "1.100",
+            12345,
+            Decimal::ZERO,
+            BetfairOrderStatus::ExecutionComplete,
+            "2026-04-18T10:00:00Z",
+        )];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+
+        let selected = select_order_for_query(&orders, expected, cid, None);
+        assert_eq!(selected.map(|o| o.bet_id.as_str()), Some("bet_1"));
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_replace_prefers_executable() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![
+            make_summary(
+                "bet_old",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::ExecutionComplete,
+                "2026-04-18T10:00:00Z",
+            ),
+            make_summary(
+                "bet_new",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:05:00Z",
+            ),
+        ];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+
+        let selected = select_order_for_query(&orders, expected, cid, None);
+        assert_eq!(selected.map(|o| o.bet_id.as_str()), Some("bet_new"));
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_multiple_executable_prefers_most_recent() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![
+            make_summary(
+                "bet_old",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:00:00Z",
+            ),
+            make_summary(
+                "bet_new",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:05:00Z",
+            ),
+        ];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+
+        let selected = select_order_for_query(&orders, expected, cid, None);
+        assert_eq!(selected.map(|o| o.bet_id.as_str()), Some("bet_new"));
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_multiple_terminal_prefers_most_recent() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![
+            make_summary(
+                "bet_old",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::ExecutionComplete,
+                "2026-04-18T10:00:00Z",
+            ),
+            make_summary(
+                "bet_new",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::ExecutionComplete,
+                "2026-04-18T10:05:00Z",
+            ),
+        ];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+
+        let selected = select_order_for_query(&orders, expected, cid, None);
+        assert_eq!(selected.map(|o| o.bet_id.as_str()), Some("bet_new"));
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_foreign_only_without_vid_returns_none() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![make_summary(
+            "bet_foreign",
+            "1.999",
+            99999,
+            Decimal::ZERO,
+            BetfairOrderStatus::Executable,
+            "2026-04-18T10:00:00Z",
+        )];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+
+        let selected = select_order_for_query(&orders, expected, cid, None);
+        assert!(selected.is_none());
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_foreign_only_with_vid_match_returns_match() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![make_summary(
+            "bet_foreign",
+            "1.999",
+            99999,
+            Decimal::ZERO,
+            BetfairOrderStatus::Executable,
+            "2026-04-18T10:00:00Z",
+        )];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+        let vid = VenueOrderId::from("bet_foreign");
+
+        let selected = select_order_for_query(&orders, expected, cid, Some(vid));
+        assert_eq!(selected.map(|o| o.bet_id.as_str()), Some("bet_foreign"));
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_foreign_only_vid_mismatch_returns_none() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![
+            make_summary(
+                "bet_foreign_1",
+                "1.999",
+                99999,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:00:00Z",
+            ),
+            make_summary(
+                "bet_foreign_2",
+                "1.888",
+                88888,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:05:00Z",
+            ),
+        ];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+        let vid = VenueOrderId::from("bet_unknown");
+
+        let selected = select_order_for_query(&orders, expected, cid, Some(vid));
+        assert!(selected.is_none());
+    }
+
+    #[rstest]
+    fn test_select_order_for_query_mixed_returns_matching_instrument() {
+        let cid = ClientOrderId::from("O-001");
+        let orders = vec![
+            make_summary(
+                "bet_foreign",
+                "1.999",
+                99999,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:05:00Z",
+            ),
+            make_summary(
+                "bet_match",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::ExecutionComplete,
+                "2026-04-18T10:00:00Z",
+            ),
+        ];
+        let expected = make_instrument_id("1.100", 12345, Decimal::ZERO);
+
+        let selected = select_order_for_query(&orders, expected, cid, None);
+        assert_eq!(selected.map(|o| o.bet_id.as_str()), Some("bet_match"));
+    }
+
+    #[rstest]
+    fn test_extend_unique_filters_duplicates() {
+        let mut candidates: Vec<CurrentOrderSummary> = Vec::new();
+        let mut seen: AHashSet<String> = AHashSet::new();
+
+        let orders = vec![
+            make_summary(
+                "bet_1",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:00:00Z",
+            ),
+            make_summary(
+                "bet_1",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:01:00Z",
+            ),
+            make_summary(
+                "bet_2",
+                "1.100",
+                12345,
+                Decimal::ZERO,
+                BetfairOrderStatus::Executable,
+                "2026-04-18T10:02:00Z",
+            ),
+        ];
+
+        extend_unique(&mut candidates, &mut seen, orders);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].bet_id, "bet_1");
+        assert_eq!(candidates[0].placed_date, "2026-04-18T10:00:00Z");
+        assert_eq!(candidates[1].bet_id, "bet_2");
+        assert!(seen.contains("bet_1"));
+        assert!(seen.contains("bet_2"));
+    }
+
+    #[rstest]
+    fn test_extend_unique_skips_already_seen() {
+        let mut candidates: Vec<CurrentOrderSummary> = vec![make_summary(
+            "bet_1",
+            "1.100",
+            12345,
+            Decimal::ZERO,
+            BetfairOrderStatus::Executable,
+            "2026-04-18T10:00:00Z",
+        )];
+        let mut seen: AHashSet<String> = AHashSet::new();
+        seen.insert("bet_1".to_string());
+
+        let orders = vec![make_summary(
+            "bet_1",
+            "1.100",
+            12345,
+            Decimal::ZERO,
+            BetfairOrderStatus::Executable,
+            "2026-04-18T10:05:00Z",
+        )];
+
+        extend_unique(&mut candidates, &mut seen, orders);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].placed_date, "2026-04-18T10:00:00Z");
+    }
+
+    #[rstest]
+    fn test_list_current_orders_filter_bet_id_sets_only_bet_ids() {
+        let params = list_current_orders_filter_bet_id("bet_abc".to_string());
+
+        assert_eq!(
+            params.bet_ids.as_deref(),
+            Some(&["bet_abc".to_string()][..])
+        );
+        assert!(params.customer_order_refs.is_none());
+        assert!(params.market_ids.is_none());
+        assert!(params.order_projection.is_none());
+        assert!(params.customer_strategy_refs.is_none());
+        assert!(params.date_range.is_none());
+        assert!(params.order_by.is_none());
+        assert!(params.sort_dir.is_none());
+        assert!(params.from_record.is_none());
+        assert!(params.record_count.is_none());
+    }
+
+    #[rstest]
+    fn test_list_current_orders_filter_ref_sets_only_customer_order_refs() {
+        let params = list_current_orders_filter_ref("rfo_abc".to_string());
+
+        assert_eq!(
+            params.customer_order_refs.as_deref(),
+            Some(&["rfo_abc".to_string()][..])
+        );
+        assert!(params.bet_ids.is_none());
+        assert!(params.market_ids.is_none());
+        assert!(params.order_projection.is_none());
+        assert!(params.customer_strategy_refs.is_none());
+        assert!(params.date_range.is_none());
+        assert!(params.order_by.is_none());
+        assert!(params.sort_dir.is_none());
+        assert!(params.from_record.is_none());
+        assert!(params.record_count.is_none());
     }
 }

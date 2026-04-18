@@ -53,6 +53,7 @@ Released on TBD (UTC).
 - Fixed Betfair non-snapshot book deltas emitting inline; now tailed after trades/tickers to match Python semantics
 - Fixed Betfair BSP deltas emitting before book deltas; now tailed after book deltas within each MCM
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
+- Fixed Betfair `query_order` to emit status reports via `customer_order_ref` and `bet_id` lookups (Rust)
 - Fixed Binance user data stream not recovering after keepalive failure (#3861), thanks for reporting @KaizynX
 - Fixed Binance Futures WebSocket trades by forcing `@aggTrade` (#3861), thanks for reporting @KaizynX
 - Fixed Bybit position deserialization for closed positions (#3836), thanks for reporting @pusteckiy
