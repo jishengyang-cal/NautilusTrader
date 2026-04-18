@@ -1013,10 +1013,64 @@ impl ExecutionClient for OKXExecutionClient {
     }
 
     fn query_order(&self, cmd: QueryOrder) -> anyhow::Result<()> {
-        log::debug!(
-            "query_order not implemented for OKX execution client (client_order_id={})",
-            cmd.client_order_id
-        );
+        let http_client = self.http_client.clone();
+        let account_id = self.core.account_id;
+        let emitter = self.emitter.clone();
+        let instrument_id = cmd.instrument_id;
+        let client_order_id = cmd.client_order_id;
+        let venue_order_id = cmd.venue_order_id;
+
+        self.spawn_task("query_order", async move {
+            let mut reports = match http_client
+                .request_order_status_reports(
+                    account_id,
+                    None,
+                    Some(instrument_id),
+                    None,
+                    None,
+                    false,
+                    None,
+                )
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("OKX query_order failed to fetch regular orders: {e}");
+                    Vec::new()
+                }
+            };
+
+            // Merge algo orders (stop, OCO, TP/SL, trailing) so query_order can
+            // resolve conditional orders as well.
+            match http_client
+                .request_algo_order_status_reports(
+                    account_id,
+                    None,
+                    Some(instrument_id),
+                    None,
+                    Some(client_order_id),
+                    None,
+                    None,
+                )
+                .await
+            {
+                Ok(mut algo) => reports.append(&mut algo),
+                Err(e) => {
+                    log::warn!("OKX query_order algo lookup failed for {instrument_id}: {e}");
+                }
+            }
+
+            let Some(report) = select_query_order_report(reports, client_order_id, venue_order_id)
+            else {
+                log::warn!(
+                    "OKX query_order found no order for client_order_id={client_order_id}, venue_order_id={venue_order_id:?}",
+                );
+                return Ok(());
+            };
+
+            emitter.send_order_status_report(report);
+            Ok(())
+        });
         Ok(())
     }
 
@@ -1879,8 +1933,44 @@ impl ExecutionClient for OKXExecutionClient {
     }
 }
 
+// Picks the report that best answers the query. Tiered so a strong signal
+// wins over a weak one regardless of ordering in the merged result set:
+//   1. Exact `client_order_id` match.
+//   2. Exact `venue_order_id` match (rare: only when the cached vid is
+//      still valid; OKX rotates venue_order_id once an algo order triggers).
+//
+// Triggered-algo recovery is handled by the algo endpoint in the caller,
+// which queries by algo_cl_ord_id and returns the parent's algo record
+// directly. `linked_order_ids` is deliberately not consulted here because
+// it is also populated with attached TP/SL child ids on the parent order,
+// which would otherwise let a query for a child match the parent's report.
+fn select_query_order_report(
+    reports: Vec<OrderStatusReport>,
+    client_order_id: ClientOrderId,
+    venue_order_id: Option<VenueOrderId>,
+) -> Option<OrderStatusReport> {
+    let mut by_vid: Option<OrderStatusReport> = None;
+
+    for report in reports {
+        if report.client_order_id == Some(client_order_id) {
+            return Some(report);
+        }
+
+        if by_vid.is_none()
+            && venue_order_id
+                .as_ref()
+                .is_some_and(|vid| report.venue_order_id.as_str() == vid.as_str())
+        {
+            by_vid = Some(report);
+        }
+    }
+
+    by_vid
+}
+
 #[cfg(test)]
 mod tests {
+    use nautilus_model::enums::OrderStatus;
     use rstest::rstest;
     use serde_json::Value;
 
@@ -2073,5 +2163,120 @@ mod tests {
 
         assert_eq!(close_fraction, None);
         assert_eq!(reduce_only, Some(true));
+    }
+
+    fn make_query_order_report(cid: Option<&str>, vid: &str) -> OrderStatusReport {
+        OrderStatusReport::new(
+            AccountId::from("OKX-001"),
+            InstrumentId::from("BTC-USDT.OKX"),
+            cid.map(ClientOrderId::from),
+            VenueOrderId::from(vid),
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Accepted,
+            Quantity::new(1.0, 0),
+            Quantity::zero(0),
+            UnixNanos::default(),
+            UnixNanos::default(),
+            UnixNanos::default(),
+            None,
+        )
+    }
+
+    fn with_linked(mut report: OrderStatusReport, linked: &[&str]) -> OrderStatusReport {
+        report.linked_order_ids = Some(linked.iter().map(|s| ClientOrderId::from(*s)).collect());
+        report
+    }
+
+    #[rstest]
+    fn test_select_query_order_report_matches_client_order_id() {
+        let reports = vec![make_query_order_report(Some("O-001"), "V-1")];
+        let selected = select_query_order_report(reports, ClientOrderId::from("O-001"), None);
+        assert_eq!(
+            selected.and_then(|r| r.client_order_id),
+            Some(ClientOrderId::from("O-001"))
+        );
+    }
+
+    #[rstest]
+    fn test_select_query_order_report_client_wins_over_venue_mismatch() {
+        let reports = vec![make_query_order_report(Some("O-001"), "V-1")];
+        let selected = select_query_order_report(
+            reports,
+            ClientOrderId::from("O-001"),
+            Some(VenueOrderId::from("V-OTHER")),
+        );
+        assert_eq!(
+            selected.and_then(|r| r.client_order_id),
+            Some(ClientOrderId::from("O-001"))
+        );
+    }
+
+    #[rstest]
+    fn test_select_query_order_report_falls_back_to_venue_order_id() {
+        // Algo child trigger: report's client_order_id is the child, the
+        // command still carries the pre-trigger venue_order_id.
+        let reports = vec![make_query_order_report(Some("O-CHILD"), "V-1")];
+        let selected = select_query_order_report(
+            reports,
+            ClientOrderId::from("O-PARENT"),
+            Some(VenueOrderId::from("V-1")),
+        );
+        assert_eq!(
+            selected.map(|r| r.venue_order_id.as_str().to_string()),
+            Some("V-1".to_string()),
+        );
+    }
+
+    #[rstest]
+    fn test_select_query_order_report_rejects_when_nothing_matches() {
+        let reports = vec![make_query_order_report(Some("O-OTHER"), "V-OTHER")];
+        let selected = select_query_order_report(
+            reports,
+            ClientOrderId::from("O-001"),
+            Some(VenueOrderId::from("V-1")),
+        );
+        assert!(selected.is_none());
+    }
+
+    #[rstest]
+    fn test_select_query_order_report_rejects_when_client_differs_and_no_vid_provided() {
+        let reports = vec![make_query_order_report(Some("O-OTHER"), "V-1")];
+        let selected = select_query_order_report(reports, ClientOrderId::from("O-001"), None);
+        assert!(selected.is_none());
+    }
+
+    #[rstest]
+    fn test_select_query_order_report_ignores_linked_order_ids_for_parent_with_attached_tp() {
+        // Parent order has attached TP/SL children listed in its
+        // linked_order_ids. A query for one of those children must NOT
+        // resolve to the parent's report via the linked_order_ids.
+        let child_cid = "O-CHILD-TP";
+        let reports = vec![with_linked(
+            make_query_order_report(Some("O-PARENT"), "V-PARENT"),
+            &[child_cid, "O-CHILD-SL"],
+        )];
+        let selected = select_query_order_report(reports, ClientOrderId::from(child_cid), None);
+        assert!(selected.is_none());
+    }
+
+    #[rstest]
+    fn test_select_query_order_report_client_match_wins_over_vid_match_elsewhere() {
+        // Ordering invariant: the client_order_id match beats a vid match on
+        // a different report regardless of which appears first in the list.
+        let reports = vec![
+            make_query_order_report(Some("O-OTHER"), "V-1"),
+            make_query_order_report(Some("O-001"), "V-2"),
+        ];
+        let selected = select_query_order_report(
+            reports,
+            ClientOrderId::from("O-001"),
+            Some(VenueOrderId::from("V-1")),
+        );
+        assert_eq!(
+            selected.and_then(|r| r.client_order_id),
+            Some(ClientOrderId::from("O-001")),
+        );
     }
 }
