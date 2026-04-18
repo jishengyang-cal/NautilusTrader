@@ -49,6 +49,7 @@ from nautilus_trader.core.datetime import unix_nanos_to_iso8601
 from nautilus_trader.core.inspect import is_nautilus_class
 from nautilus_trader.core.nautilus_pyo3 import DataBackendSession
 from nautilus_trader.core.nautilus_pyo3 import NautilusDataType
+from nautilus_trader.core.nautilus_pyo3 import drop_cvec_pycapsule
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import CustomData
 from nautilus_trader.model.data import DataType
@@ -1708,6 +1709,8 @@ class ParquetDataCatalog(BaseDataCatalog):
                     data.append(data_cls.from_dict(inner.to_dict()))  # type: ignore[attr-defined]
             else:
                 data.extend(capsule_to_list(chunk))
+                # Reclaim the leaked Vec<DataFFI>; capsule has a no-op destructor
+                drop_cvec_pycapsule(chunk)
 
         if data_cls == OrderBookDeltas:
             # Batch process deltas into `OrderBookDeltas`, will warn

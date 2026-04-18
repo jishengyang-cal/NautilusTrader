@@ -50,6 +50,7 @@ from nautilus_trader.core.datetime import max_date
 from nautilus_trader.core.datetime import min_date
 from nautilus_trader.core.inspect import is_nautilus_class
 from nautilus_trader.core.nautilus_pyo3 import DataBackendSession
+from nautilus_trader.core.nautilus_pyo3 import drop_cvec_pycapsule
 from nautilus_trader.live.factories import LiveDataClientFactory
 from nautilus_trader.model import BOOK_DATA_TYPES
 from nautilus_trader.model.data import Bar
@@ -602,6 +603,8 @@ class BacktestNode:
                 data = pyo3_list_to_data_list(chunk)
             else:
                 data = capsule_to_list(chunk)
+                # Reclaim the leaked Vec<DataFFI>; capsule has a no-op destructor
+                drop_cvec_pycapsule(chunk)
 
             engine.add_data(
                 data=data,

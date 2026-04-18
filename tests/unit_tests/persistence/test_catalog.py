@@ -2785,3 +2785,38 @@ def test_backend_session_files_with_optimize_reads_entire_directory(
     assert len(data) == 6, f"Expected 6 trades from entire directory, was {len(data)}"
     prices = {str(trade.price) for trade in data}
     assert len(prices) == 2, f"Expected trades from both batches, was prices: {prices}"
+
+
+def test_query_rust_drops_capsule_chunks(catalog: ParquetDataCatalog) -> None:
+    """
+    `_query_rust` must drop every PyCapsule chunk it consumes via capsule_to_list,
+    otherwise the underlying Vec<DataFFI> leaks.
+
+    Regression guard for
+    https://github.com/nautechsystems/nautilus_trader/issues/3889
+
+    """
+    from nautilus_trader.persistence.catalog import parquet as parquet_module
+
+    # Arrange - write enough quotes to produce capsule chunks
+    instrument = TestInstrumentProvider.default_fx_ccy("AUD/USD", venue=Venue("SIM"))
+    quotes = [TestDataStubs.quote_tick(instrument=instrument, ts_init=i * 1000) for i in range(50)]
+    catalog.write_data(quotes)
+
+    drop_call_count = 0
+    original_drop = parquet_module.drop_cvec_pycapsule
+
+    def counting_drop(capsule):
+        nonlocal drop_call_count
+        drop_call_count += 1
+        return original_drop(capsule)
+
+    # Act - query through the Rust path
+    with patch.object(parquet_module, "drop_cvec_pycapsule", counting_drop):
+        result = catalog.query(QuoteTick)
+
+    # Assert - data was returned and at least one capsule was dropped
+    assert len(result) == 50
+    assert drop_call_count >= 1, (
+        f"Expected drop_cvec_pycapsule to be called at least once, was {drop_call_count}"
+    )

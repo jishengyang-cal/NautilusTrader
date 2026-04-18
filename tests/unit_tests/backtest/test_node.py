@@ -804,3 +804,176 @@ class TestBacktestNodeStreaming:
         results = node.run()
 
         assert len(results) == 1
+
+    def test_streaming_drops_capsule_chunks(self):
+        """
+        Each PyCapsule chunk yielded during streaming must be passed to
+        drop_cvec_pycapsule, otherwise the underlying Vec<DataFFI> leaks.
+
+        Regression guard for
+        https://github.com/nautechsystems/nautilus_trader/issues/3889
+
+        """
+        from nautilus_trader.core.nautilus_pyo3 import DataBackendSession
+
+        # Arrange - 10K ticks with chunk_size=1000 produces multiple capsule chunks
+        start_ns, end_ns = load_catalog_with_quote_ticks(self.catalog, count=10_000)
+
+        data_config = BacktestDataConfig(
+            catalog_path=self.catalog.path,
+            catalog_fs_protocol=self.catalog.fs_protocol,
+            data_cls=QuoteTick,
+            instrument_id=InstrumentId.from_str("AUD/USD.SIM"),
+            start_time=start_ns,
+            end_time=end_ns,
+        )
+        config = BacktestRunConfig(
+            engine=BacktestEngineConfig(
+                strategies=self.strategies,
+                logging=LoggingConfig(bypass_logging=True),
+            ),
+            venues=[self.venue_config],
+            data=[data_config],
+            chunk_size=1_000,
+        )
+
+        capsule_chunk_count = 0
+        list_chunk_count = 0
+        drop_call_count = 0
+
+        original_drop = node.drop_cvec_pycapsule
+        original_to_query_result = DataBackendSession.to_query_result
+
+        def counting_drop(capsule):
+            nonlocal drop_call_count
+            drop_call_count += 1
+            return original_drop(capsule)
+
+        def counting_to_query_result(self_session):
+            nonlocal capsule_chunk_count, list_chunk_count
+
+            for chunk in original_to_query_result(self_session):
+                if isinstance(chunk, list):
+                    list_chunk_count += 1
+                else:
+                    capsule_chunk_count += 1
+                yield chunk
+
+        # Act
+        with patch.object(node, "drop_cvec_pycapsule", counting_drop):
+            DataBackendSession.to_query_result = counting_to_query_result
+            try:
+                BacktestNode(configs=[config]).run()
+            finally:
+                DataBackendSession.to_query_result = original_to_query_result
+
+        # Assert - every capsule chunk was dropped exactly once
+        assert capsule_chunk_count > 1, (
+            f"Expected multiple capsule chunks, was {capsule_chunk_count}"
+        )
+        assert list_chunk_count == 0, (
+            f"Built-in only stream should not yield list chunks, was {list_chunk_count}"
+        )
+        assert drop_call_count == capsule_chunk_count, (
+            f"Expected {capsule_chunk_count} drops, was {drop_call_count}"
+        )
+
+    def test_streaming_does_not_drop_list_chunks(self, tmp_path):
+        """
+        Mixed streams yield list chunks for any chunk containing custom data; those must
+        not be passed to drop_cvec_pycapsule (which would error or double-free).
+
+        Regression guard for
+        https://github.com/nautechsystems/nautilus_trader/issues/3889
+
+        """
+        from nautilus_trader.core.data import Data
+        from nautilus_trader.core.nautilus_pyo3 import DataBackendSession
+        from nautilus_trader.core.nautilus_pyo3.model import register_custom_data_class
+        from nautilus_trader.model.custom import customdataclass_pyo3
+
+        @customdataclass_pyo3()
+        class DropTestSignal(Data):
+            value: float = 0.0
+
+        register_custom_data_class(DropTestSignal)
+
+        catalog = setup_catalog(protocol="file", path=tmp_path / "drop_catalog")
+        start_ns, end_ns = load_catalog_with_quote_ticks(catalog, count=200)
+
+        signals = [
+            DropTestSignal(
+                ts_event=start_ns + i * 100_000_000,
+                ts_init=start_ns + i * 100_000_000,
+                value=float(i),
+            )
+            for i in range(1, 30)
+        ]
+        catalog.write_data(signals)
+
+        instrument_id = InstrumentId.from_str("AUD/USD.SIM")
+        quote_config = BacktestDataConfig(
+            catalog_path=catalog.path,
+            catalog_fs_protocol=catalog.fs_protocol,
+            data_cls=QuoteTick,
+            instrument_id=instrument_id,
+            start_time=start_ns,
+            end_time=end_ns,
+        )
+        signal_config = BacktestDataConfig(
+            catalog_path=catalog.path,
+            catalog_fs_protocol=catalog.fs_protocol,
+            data_cls=DropTestSignal,
+            start_time=start_ns,
+            end_time=end_ns,
+        )
+        config = BacktestRunConfig(
+            engine=BacktestEngineConfig(
+                strategies=self.strategies,
+                logging=LoggingConfig(bypass_logging=True),
+            ),
+            venues=[self.venue_config],
+            data=[quote_config, signal_config],
+            chunk_size=50,
+            raise_exception=True,
+        )
+
+        capsule_chunk_count = 0
+        list_chunk_count = 0
+        drop_call_count = 0
+
+        original_drop = node.drop_cvec_pycapsule
+        original_to_query_result = DataBackendSession.to_query_result
+
+        def counting_drop(capsule):
+            nonlocal drop_call_count
+            drop_call_count += 1
+            return original_drop(capsule)
+
+        def counting_to_query_result(self_session):
+            nonlocal capsule_chunk_count, list_chunk_count
+
+            for chunk in original_to_query_result(self_session):
+                if isinstance(chunk, list):
+                    list_chunk_count += 1
+                else:
+                    capsule_chunk_count += 1
+                yield chunk
+
+        # Act
+        with patch.object(node, "drop_cvec_pycapsule", counting_drop):
+            DataBackendSession.to_query_result = counting_to_query_result
+            try:
+                BacktestNode(configs=[config]).run()
+            finally:
+                DataBackendSession.to_query_result = original_to_query_result
+
+        # Assert - the mixed stream produced both kinds; drops match capsule chunks only
+        assert list_chunk_count > 0, (
+            "Mixed stream should yield at least one list chunk for custom data"
+        )
+        assert drop_call_count == capsule_chunk_count, (
+            f"drop_cvec_pycapsule called {drop_call_count} times for "
+            f"{capsule_chunk_count} capsule chunks (and {list_chunk_count} list chunks); "
+            "list chunks must not be dropped"
+        )
