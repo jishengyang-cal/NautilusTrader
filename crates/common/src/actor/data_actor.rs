@@ -1046,9 +1046,8 @@ pub trait DataActor:
         Self: 'static + Debug + Sized,
     {
         let actor_id = self.actor_id().inner();
-        // Signals ride on the shared custom-data bus as `CustomData` wrapping a
-        // `Signal`. Downcast the inner `Arc<dyn CustomDataTrait>` back to `Signal`
-        // so subscribers observe the typed value in `on_signal`.
+        // Signals are published as `CustomData` wrapping a `Signal`; downcast
+        // the inner value so subscribers receive the typed `Signal` in `on_signal`.
         let handler = ShareableMessageHandler::from_typed(move |data: &CustomData| {
             if let Some(signal) = data.data.as_any().downcast_ref::<Signal>() {
                 if let Some(mut actor) = try_get_actor_unchecked::<Self>(&actor_id) {

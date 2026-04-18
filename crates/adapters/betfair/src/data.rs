@@ -36,7 +36,10 @@ use nautilus_common::{
 };
 use nautilus_core::{AtomicMap, Params};
 use nautilus_model::{
-    data::{CustomData, CustomDataTrait, Data, DataType, OrderBookDeltas_API, TradeTick},
+    data::{
+        CustomData, CustomDataTrait, Data, DataType, OrderBookDeltas, OrderBookDeltas_API,
+        TradeTick,
+    },
     identifiers::{ClientId, InstrumentId, TradeId, Venue},
     instruments::{Instrument, InstrumentAny},
     types::{Currency, Money, Price, Quantity},
@@ -67,7 +70,7 @@ use crate::{
         messages::{MarketDataFilter, StreamMarketFilter, StreamMessage, stream_decode},
         parse::{
             make_trade_tick, parse_betfair_starting_prices, parse_betfair_ticker,
-            parse_bsp_book_deltas, parse_instrument_closes, parse_instrument_status,
+            parse_bsp_book_deltas, parse_instrument_closes, parse_instrument_statuses,
             parse_race_progress, parse_race_runner_data, parse_runner_book_deltas,
         },
     },
@@ -199,54 +202,9 @@ impl BetfairDataClient {
                         let mut market_closed = false;
 
                         if let Some(def) = &mc.market_definition {
-                            if let Some(status) = &def.status {
-                                market_closed = *status == MarketStatus::Closed;
-                                let in_play = def.in_play.unwrap_or(false);
-                                let guard = instruments.load();
-                                for inst in guard.values() {
-                                    let prefix = format!("{}-", mc.id);
-                                    if inst.id().symbol.as_str().starts_with(&prefix) {
-                                        let event = parse_instrument_status(
-                                            inst.id(),
-                                            *status,
-                                            in_play,
-                                            ts_event,
-                                            ts_init,
-                                        );
-
-                                        if let Err(e) =
-                                            data_sender.send(DataEvent::InstrumentStatus(event))
-                                        {
-                                            log::warn!("Failed to send instrument status: {e}");
-                                        }
-                                    }
-                                }
-                            }
-
-                            for sp in parse_betfair_starting_prices(&mc.id, def, ts_event, ts_init)
-                            {
-                                let instrument_id = sp.instrument_id;
-                                let custom =
-                                    custom_data_with_instrument(Arc::new(sp), instrument_id);
-
-                                if let Err(e) =
-                                    data_sender.send(DataEvent::Data(Data::Custom(custom)))
-                                {
-                                    log::warn!("Failed to send starting price: {e}");
-                                }
-                            }
-
-                            if market_closed {
-                                for close in parse_instrument_closes(&mc.id, def, ts_event, ts_init)
-                                {
-                                    if let Err(e) = data_sender
-                                        .send(DataEvent::Data(Data::InstrumentClose(close)))
-                                    {
-                                        log::warn!("Failed to send instrument close: {e}");
-                                    }
-                                }
-                            }
-
+                            // Emit instruments first so downstream consumers (DataEngine,
+                            // BacktestExchange) have the instrument cached before any status
+                            // or close event references it.
                             match parse_market_definition(
                                 &mc.id,
                                 def,
@@ -276,7 +234,48 @@ impl BetfairDataClient {
                                     );
                                 }
                             }
+
+                            if let Some(status) = &def.status {
+                                market_closed = *status == MarketStatus::Closed;
+
+                                for event in
+                                    parse_instrument_statuses(&mc.id, def, ts_event, ts_init)
+                                {
+                                    if let Err(e) =
+                                        data_sender.send(DataEvent::InstrumentStatus(event))
+                                    {
+                                        log::warn!("Failed to send instrument status: {e}");
+                                    }
+                                }
+                            }
+
+                            for sp in parse_betfair_starting_prices(&mc.id, def, ts_event, ts_init)
+                            {
+                                let instrument_id = sp.instrument_id;
+                                let custom =
+                                    custom_data_with_instrument(Arc::new(sp), instrument_id);
+
+                                if let Err(e) =
+                                    data_sender.send(DataEvent::Data(Data::Custom(custom)))
+                                {
+                                    log::warn!("Failed to send starting price: {e}");
+                                }
+                            }
+
+                            for close in parse_instrument_closes(&mc.id, def, ts_event, ts_init) {
+                                if let Err(e) =
+                                    data_sender.send(DataEvent::Data(Data::InstrumentClose(close)))
+                                {
+                                    log::warn!("Failed to send instrument close: {e}");
+                                }
+                            }
                         }
+
+                        // Non-snapshot deltas and BSP deltas are buffered and flushed after
+                        // trades/tickers to mirror the Python `market_change_to_updates`
+                        // ordering (book deltas first, then BSP). Snapshots go inline.
+                        let mut buffered_deltas: Vec<OrderBookDeltas> = Vec::new();
+                        let mut buffered_bsp_customs: Vec<CustomData> = Vec::new();
 
                         if let Some(runner_changes) = &mc.rc {
                             for rc in runner_changes {
@@ -292,10 +291,14 @@ impl BetfairDataClient {
                                     ts_init,
                                 ) {
                                     Ok(Some(deltas)) => {
-                                        if let Err(e) = data_sender.send(DataEvent::Data(
-                                            Data::Deltas(OrderBookDeltas_API::new(deltas)),
-                                        )) {
-                                            log::warn!("Failed to send book deltas: {e}");
+                                        if is_snapshot {
+                                            if let Err(e) = data_sender.send(DataEvent::Data(
+                                                Data::Deltas(OrderBookDeltas_API::new(deltas)),
+                                            )) {
+                                                log::warn!("Failed to send book deltas: {e}");
+                                            }
+                                        } else {
+                                            buffered_deltas.push(deltas);
                                         }
                                     }
                                     Ok(None) => {}
@@ -384,17 +387,26 @@ impl BetfairDataClient {
                                 for bsp_delta in
                                     parse_bsp_book_deltas(instrument_id, rc, ts_event, ts_init)
                                 {
-                                    let custom = custom_data_with_instrument(
+                                    buffered_bsp_customs.push(custom_data_with_instrument(
                                         Arc::new(bsp_delta),
                                         instrument_id,
-                                    );
-
-                                    if let Err(e) =
-                                        data_sender.send(DataEvent::Data(Data::Custom(custom)))
-                                    {
-                                        log::warn!("Failed to send BSP book delta: {e}");
-                                    }
+                                    ));
                                 }
+                            }
+                        }
+
+                        for deltas in buffered_deltas {
+                            if let Err(e) = data_sender.send(DataEvent::Data(Data::Deltas(
+                                OrderBookDeltas_API::new(deltas),
+                            ))) {
+                                log::warn!("Failed to send book deltas: {e}");
+                            }
+                        }
+
+                        for custom in buffered_bsp_customs {
+                            if let Err(e) = data_sender.send(DataEvent::Data(Data::Custom(custom)))
+                            {
+                                log::warn!("Failed to send BSP book delta: {e}");
                             }
                         }
 

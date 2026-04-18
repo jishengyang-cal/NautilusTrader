@@ -48,6 +48,10 @@ Released on TBD (UTC).
 - Fixed PyO3 crypto instrument `from_dict` for unregistered base/underlying codes (#3882), thanks for reporting @volemont
 - Fixed execution engine ignoring user-supplied `position_id` from `submit_order` (Rust)
 - Fixed reconciliation IDs non-deterministic across restarts (#3878), thanks for reporting @peanut-copilot
+- Fixed Betfair event order: `Instrument` now emits before `InstrumentStatus`/`InstrumentClose` within each MCM
+- Fixed Betfair scratched runners (`Removed`/`RemovedVacant`) emitting close only at market close; now fire immediately
+- Fixed Betfair non-snapshot book deltas emitting inline; now tailed after trades/tickers to match Python semantics
+- Fixed Betfair BSP deltas emitting before book deltas; now tailed after book deltas within each MCM
 - Fixed Betfair order rejection reason dropping instruction-level `errorMessage` detail
 - Fixed Binance user data stream not recovering after keepalive failure (#3861), thanks for reporting @KaizynX
 - Fixed Binance Futures WebSocket trades by forcing `@aggTrade` (#3861), thanks for reporting @KaizynX
