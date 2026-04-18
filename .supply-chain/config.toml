@@ -153,10 +153,6 @@ criteria = "safe-to-deploy"
 version = "0.2.2"
 criteria = "safe-to-deploy"
 
-[[exemptions.alloca]]
-version = "0.4.0"
-criteria = "safe-to-deploy"
-
 [[exemptions.alloy]]
 version = "1.8.3"
 criteria = "safe-to-deploy"
@@ -569,6 +565,14 @@ criteria = "safe-to-deploy"
 version = "0.3.16"
 criteria = "safe-to-deploy"
 
+[[exemptions.bollard]]
+version = "0.18.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.bollard-stubs]]
+version = "1.47.1-rc.27.3.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.bon]]
 version = "3.9.1"
 criteria = "safe-to-deploy"
@@ -637,10 +641,6 @@ criteria = "safe-to-deploy"
 version = "0.25.3"
 criteria = "safe-to-deploy"
 
-[[exemptions.cast]]
-version = "0.3.0"
-criteria = "safe-to-deploy"
-
 [[exemptions.cbindgen]]
 version = "0.29.2"
 criteria = "safe-to-deploy"
@@ -659,10 +659,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.chrono-tz]]
 version = "0.10.4"
-criteria = "safe-to-deploy"
-
-[[exemptions.ciborium]]
-version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap]]
@@ -759,11 +755,7 @@ criteria = "safe-to-deploy"
 
 [[exemptions.criterion]]
 version = "0.8.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.criterion-plot]]
-version = "0.8.2"
-criteria = "safe-to-deploy"
+criteria = "safe-to-run"
 
 [[exemptions.crossbeam-deque]]
 version = "0.8.6"
@@ -1277,6 +1269,10 @@ criteria = "safe-to-deploy"
 version = "1.8.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.hyper-named-pipe]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.hyper-rustls]]
 version = "0.27.9"
 criteria = "safe-to-deploy"
@@ -1287,6 +1283,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.hyper-util]]
 version = "0.1.20"
+criteria = "safe-to-deploy"
+
+[[exemptions.hyperlocal]]
+version = "0.9.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hypersync-client]]
@@ -1311,6 +1311,10 @@ criteria = "safe-to-run"
 
 [[exemptions.iana-time-zone]]
 version = "0.1.65"
+criteria = "safe-to-deploy"
+
+[[exemptions.ibapi]]
+version = "2.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.icu_collections]]
@@ -1725,6 +1729,10 @@ criteria = "safe-to-deploy"
 version = "0.7.5"
 criteria = "safe-to-deploy"
 
+[[exemptions.num_threads]]
+version = "0.1.7"
+criteria = "safe-to-deploy"
+
 [[exemptions.nybbles]]
 version = "0.4.8"
 criteria = "safe-to-deploy"
@@ -1741,20 +1749,12 @@ criteria = "safe-to-deploy"
 version = "1.21.3"
 criteria = "safe-to-deploy"
 
-[[exemptions.oorandom]]
-version = "11.1.5"
-criteria = "safe-to-deploy"
-
 [[exemptions.openssl-probe]]
 version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.ordered-float]]
 version = "2.10.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.page_size]]
-version = "0.6.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.panic-message]]
@@ -1787,6 +1787,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.parquet]]
 version = "58.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.parse-zoneinfo]]
+version = "0.3.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.paste]]
@@ -2253,6 +2257,10 @@ criteria = "safe-to-deploy"
 version = "0.3.6"
 criteria = "safe-to-deploy"
 
+[[exemptions.serde-xml-rs]]
+version = "0.5.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.serde_bytes]]
 version = "0.11.19"
 criteria = "safe-to-deploy"
@@ -2473,16 +2481,16 @@ criteria = "safe-to-deploy"
 version = "0.3.47"
 criteria = "safe-to-deploy"
 
+[[exemptions.time-tz]]
+version = "2.0.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.tiny-keccak]]
 version = "2.0.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.tinystr]]
 version = "0.8.3"
-criteria = "safe-to-deploy"
-
-[[exemptions.tinytemplate]]
-version = "1.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.tinyvec]]
@@ -2556,6 +2564,14 @@ criteria = "safe-to-deploy"
 [[exemptions.tracing-subscriber]]
 version = "0.3.23"
 criteria = "safe-to-deploy"
+
+[[exemptions.tracing-test]]
+version = "0.2.6"
+criteria = "safe-to-run"
+
+[[exemptions.tracing-test-macro]]
+version = "0.2.6"
+criteria = "safe-to-run"
 
 [[exemptions.tungstenite]]
 version = "0.28.0"
@@ -2931,6 +2947,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.wyz]]
 version = "0.5.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.xml-rs]]
+version = "0.8.28"
 criteria = "safe-to-deploy"
 
 [[exemptions.xxhash-rust]]

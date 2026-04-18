@@ -6,6 +6,7 @@ Released on TBD (UTC).
 - Added `environment` enum config for BitMEX, Deribit, dYdX, Hyperliquid, and OKX adapters
 - Added `BybitEnvironment` to `BybitDataClientConfig` and `BybitExecClientConfig`
 - Added Betfair tiered tick scheme to `BettingInstrument` for ladder-snapped pricing
+- Added Interactive Brokers Rust adapter with PyO3 compatibility layer (#3864), thanks @faysou
 - Added Kraken xStocks tokenized asset support for spot market data, order submission, and futures instruments
 - Added OKX option greeks support for both Black-Scholes and price-adjusted conventions on every tick
 - Added `params["greeks_convention"]` (string or list) to narrow OKX option greeks subscriptions
@@ -62,6 +63,8 @@ Released on TBD (UTC).
 - Fixed Hyperliquid batch cancel silently dropping per-item errors (#3879), thanks for reporting @pusteckiy
 - Fixed Hyperliquid Rust `query_order` handler to emit status reports (#3879), thanks for reporting @pusteckiy
 - Fixed IB Gateway Docker image failing on ARM64 hosts (#3813), thanks for reporting @Baki-0501
+- Fixed Interactive Brokers rejecting negative average fill price on combo/spread net-credit fills (#3884), thanks @faysou
+- Fixed Interactive Brokers position reconciliation `TypeError` when `priceMagnifier` is `None` (#3885), thanks @davidsblom
 - Fixed Kraken Futures limit order `OrderUpdated` panic from wire `stop_price: 0.0` treated as trigger price
 - Fixed Kraken Futures fast-fill market orders resolving as rejected during order status reconciliation (#3870), thanks for reporting @Stamppot82
 - Fixed Kraken Futures margin-account balance parse violating the `AccountBalance` invariant (`total == locked + free`) when Kraken's `af` field and the derived `amount - af` round independently at the currency precision
