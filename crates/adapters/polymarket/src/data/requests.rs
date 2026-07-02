@@ -91,6 +91,7 @@ pub(super) fn request_data(client: &PolymarketDataClient, request: RequestCustom
         new_market_inflight_keys: client.new_market_inflight_keys.clone(),
         new_market_fetch_semaphore: client.new_market_fetch_semaphore.clone(),
         subscribe_new_markets: client.config.subscribe_new_markets,
+        drop_quotes_missing_side: client.config.drop_quotes_missing_side,
         new_market_filter: client.config.new_market_filter.clone(),
         cancellation_token: client.cancellation_token.clone(),
     };

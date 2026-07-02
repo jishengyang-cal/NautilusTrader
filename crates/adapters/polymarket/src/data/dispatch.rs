@@ -95,6 +95,7 @@ pub(super) struct WsMessageContext {
     pub(super) new_market_inflight_keys: Arc<DashMap<String, ()>>,
     pub(super) new_market_fetch_semaphore: Arc<tokio::sync::Semaphore>,
     pub(super) subscribe_new_markets: bool,
+    pub(super) drop_quotes_missing_side: bool,
     pub(super) new_market_filter: Option<Arc<dyn InstrumentFilter>>,
     pub(super) cancellation_token: CancellationToken,
 }
@@ -203,6 +204,7 @@ fn handle_market_message(message: MarketWsMessage, ctx: &WsMessageContext) {
                     instrument_id,
                     meta.price_precision,
                     meta.size_precision,
+                    ctx.drop_quotes_missing_side,
                     ts_init,
                 ) {
                     Ok(Some(quote)) => emit_quote_if_changed(ctx, instrument_id, quote),
@@ -291,6 +293,7 @@ fn handle_market_message(message: MarketWsMessage, ctx: &WsMessageContext) {
                         instrument_id,
                         meta.price_precision,
                         meta.size_precision,
+                        ctx.drop_quotes_missing_side,
                         last_quote.as_ref(),
                         ts_event,
                         ts_init,
@@ -823,6 +826,7 @@ mod tests {
         let clob_public_client =
             PolymarketClobPublicClient::new(Some("http://localhost".to_string()), 5)
                 .expect("clob client");
+        let default_config = PolymarketDataClientConfig::default();
 
         let ctx = WsMessageContext {
             clock: get_atomic_clock_realtime(),
@@ -842,9 +846,10 @@ mod tests {
             pending_snapshot_after_tick_change: Arc::new(AtomicSet::new()),
             new_market_inflight_keys: Arc::new(DashMap::new()),
             new_market_fetch_semaphore: Arc::new(tokio::sync::Semaphore::new(
-                PolymarketDataClientConfig::default().new_market_fetch_max_concurrency,
+                default_config.new_market_fetch_max_concurrency,
             )),
             subscribe_new_markets: false,
+            drop_quotes_missing_side: default_config.drop_quotes_missing_side,
             new_market_filter: None,
             cancellation_token: CancellationToken::new(),
         };
@@ -973,6 +978,7 @@ mod tests {
             new_market_inflight_keys: client.new_market_inflight_keys.clone(),
             new_market_fetch_semaphore: client.new_market_fetch_semaphore.clone(),
             subscribe_new_markets: client.config.subscribe_new_markets,
+            drop_quotes_missing_side: client.config.drop_quotes_missing_side,
             new_market_filter: client.config.new_market_filter.clone(),
             cancellation_token: client.cancellation_token.clone(),
         }
@@ -3240,6 +3246,90 @@ mod tests {
             .unwrap_or_else(|| panic!("expected quote event, found: {events:?}"));
         assert_eq!(emitted_quote.bid_size, Quantity::from("20.00"));
         assert_eq!(emitted_quote.ask_size, Quantity::from("75.00"));
+    }
+
+    #[rstest]
+    fn price_change_missing_side_quote_drops_by_default() {
+        let asset_id_str = "0xTOKEN11";
+        let market = "0xMARKET";
+
+        let (ctx, mut data_rx) = make_ws_ctx();
+        let inst = seed_instrument(
+            &ctx,
+            asset_id_str,
+            Price::from("0.001"),
+            Quantity::from("0.01"),
+        );
+        let instrument_id = inst.id();
+        ctx.active_quote_subs.insert(instrument_id);
+
+        let pc = MarketWsMessage::PriceChange(PolymarketQuotes {
+            market: Ustr::from(market),
+            price_changes: vec![PolymarketQuote {
+                asset_id: Ustr::from(asset_id_str),
+                price: "0.50".to_string(),
+                side: PolymarketOrderSide::Buy,
+                size: "20".to_string(),
+                hash: String::new(),
+                best_bid: Some("0.50".to_string()),
+                best_ask: Some("1".to_string()),
+            }],
+            timestamp: "1700000003000".to_string(),
+        });
+        handle_market_message(pc, &ctx);
+
+        let events: Vec<DataEvent> = std::iter::from_fn(|| data_rx.try_recv().ok()).collect();
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, DataEvent::Data(NautilusData::Quote(_)))),
+            "missing ask quote must be dropped by default: {events:?}",
+        );
+    }
+
+    #[rstest]
+    fn price_change_missing_side_quote_uses_boundary_when_drop_disabled() {
+        let asset_id_str = "0xTOKEN12";
+        let market = "0xMARKET";
+
+        let (mut ctx, mut data_rx) = make_ws_ctx();
+        ctx.drop_quotes_missing_side = false;
+        let inst = seed_instrument(
+            &ctx,
+            asset_id_str,
+            Price::from("0.001"),
+            Quantity::from("0.01"),
+        );
+        let instrument_id = inst.id();
+        ctx.active_quote_subs.insert(instrument_id);
+
+        let pc = MarketWsMessage::PriceChange(PolymarketQuotes {
+            market: Ustr::from(market),
+            price_changes: vec![PolymarketQuote {
+                asset_id: Ustr::from(asset_id_str),
+                price: "0.50".to_string(),
+                side: PolymarketOrderSide::Buy,
+                size: "20".to_string(),
+                hash: String::new(),
+                best_bid: Some("0.50".to_string()),
+                best_ask: Some("1".to_string()),
+            }],
+            timestamp: "1700000003000".to_string(),
+        });
+        handle_market_message(pc, &ctx);
+
+        let events: Vec<DataEvent> = std::iter::from_fn(|| data_rx.try_recv().ok()).collect();
+        let emitted_quote = events
+            .iter()
+            .find_map(|e| match e {
+                DataEvent::Data(NautilusData::Quote(q)) => Some(q),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("expected quote event, found: {events:?}"));
+        assert_eq!(emitted_quote.bid_price, Price::from("0.50"));
+        assert_eq!(emitted_quote.bid_size, Quantity::from("20.00"));
+        assert_eq!(emitted_quote.ask_price, Price::from("0.999"));
+        assert_eq!(emitted_quote.ask_size, Quantity::from("0.00"));
     }
 
     #[rstest]
