@@ -377,9 +377,9 @@ impl PolymarketDataClient {
         self.spawn_instrument_refresh_task();
         self.spawn_resolve_poll_task();
 
-        if self.rtds_feed.has_subscriptions() {
-            self.rtds_feed.connect().await?;
-        }
+        // Connect unconditionally: this clears the feed's closing latch from a prior
+        // disconnect; without retained subscriptions no RTDS socket is opened.
+        self.rtds_feed.connect().await?;
 
         self.is_connected
             .store(true, std::sync::atomic::Ordering::Relaxed);

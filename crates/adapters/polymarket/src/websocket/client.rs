@@ -503,8 +503,7 @@ mod tests {
         response::Response,
         routing::get,
     };
-    use nautilus_network::RECONNECTED;
-    use nautilus_network::websocket::TransportBackend;
+    use nautilus_network::{RECONNECTED, websocket::TransportBackend};
     use rstest::rstest;
 
     use super::{PolymarketWebSocketClient, WsChannel, idle_timeout_ms_for};

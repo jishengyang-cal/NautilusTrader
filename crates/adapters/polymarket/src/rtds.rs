@@ -32,9 +32,9 @@ use nautilus_model::{
     data::{CustomData, Data as NautilusData, DataType, custom::CustomDataTrait},
     types::Price,
 };
-use nautilus_network::RECONNECTED;
-use nautilus_network::websocket::{
-    TransportBackend, WebSocketClient, WebSocketConfig, channel_message_handler,
+use nautilus_network::{
+    RECONNECTED,
+    websocket::{TransportBackend, WebSocketClient, WebSocketConfig, channel_message_handler},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Number;
@@ -758,7 +758,7 @@ impl PolymarketRtdsFeed {
         let payload: CryptoPayloadRaw = match serde_json::from_value(envelope.payload) {
             Ok(payload) => payload,
             Err(e) => {
-                log::error!("Failed to parse RTDS crypto price payload: {e}");
+                log::warn!("Failed to parse RTDS crypto price payload: {e}");
                 return;
             }
         };
@@ -804,7 +804,7 @@ impl PolymarketRtdsFeed {
         let payload: CryptoSubscribePayloadRaw = match serde_json::from_value(envelope.payload) {
             Ok(payload) => payload,
             Err(e) => {
-                log::error!("Failed to parse RTDS crypto subscribe payload: {e}");
+                log::warn!("Failed to parse RTDS crypto subscribe payload: {e}");
                 return;
             }
         };
@@ -852,7 +852,7 @@ impl PolymarketRtdsFeed {
         let payload: EquityPayloadRaw = match serde_json::from_value(envelope.payload) {
             Ok(payload) => payload,
             Err(e) => {
-                log::error!("Failed to parse RTDS equity price payload: {e}");
+                log::warn!("Failed to parse RTDS equity price payload: {e}");
                 return;
             }
         };
@@ -910,7 +910,7 @@ impl PolymarketRtdsFeed {
         let payload: EquitySubscribePayloadRaw = match serde_json::from_value(envelope.payload) {
             Ok(payload) => payload,
             Err(e) => {
-                log::error!("Failed to parse RTDS equity subscribe payload: {e}");
+                log::warn!("Failed to parse RTDS equity subscribe payload: {e}");
                 return;
             }
         };
@@ -2319,6 +2319,46 @@ mod tests {
             state.received_payloads.lock().await.is_empty(),
             "closing feed should not replay subscriptions",
         );
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_connect_without_subscriptions_clears_closing_for_later_subscribe() {
+        let state = TestServerState::default();
+        let addr = start_rtds_server(state.clone()).await;
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let feed = PolymarketRtdsFeed::new(
+            format!("ws://{addr}/rtds"),
+            TransportBackend::default(),
+            get_atomic_clock_realtime(),
+            tx,
+        );
+
+        feed.disconnect().await;
+        feed.connect().await.expect("connect feed");
+
+        assert!(
+            feed.current_ws().is_none(),
+            "connect without retained subscriptions should not open a socket",
+        );
+
+        feed.track_subscribe(crypto_data_type("BTCUSDT"))
+            .expect("track BTC");
+        feed.request_reconcile(ReconcileReason::DesiredChanged);
+
+        wait_until_async(
+            || {
+                let state = state.clone();
+                async move { !state.received_payloads.lock().await.is_empty() }
+            },
+            Duration::from_secs(2),
+        )
+        .await;
+
+        let payloads = state.received_payloads.lock().await.clone();
+        let subscribe = payloads.last().expect("subscribe payload");
+        assert_eq!(subscribe["action"].as_str(), Some("subscribe"));
+        feed.disconnect().await;
     }
 
     #[rstest]
