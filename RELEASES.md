@@ -51,6 +51,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 
 ### Internal Improvements
 - Upgraded Rust (MSRV) to 1.96.1
+- Upgraded Cython to v3.2.8
 - Upgraded `redis` crate to v1.3.0
 
 ### Documentation Updates
