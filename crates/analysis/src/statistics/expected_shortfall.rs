@@ -36,6 +36,13 @@ use crate::{Returns, statistic::PortfolioStatistic, statistics::value_at_risk::p
 /// `confidence` defaults to `0.95`. The result is expressed as a return (e.g.
 /// `-0.05` is a 5% expected tail loss); it is always less than or equal to the
 /// corresponding `VaR`. Returns `NaN` for an empty series.
+///
+/// # References
+///
+/// - Acerbi, C., & Tasche, D. (2002). "Expected Shortfall: A Natural Coherent Alternative
+///   to Value at Risk". *Economic Notes*, 31(2), 379-388.
+/// - Rockafellar, R. T., & Uryasev, S. (2000). "Optimization of Conditional Value-at-Risk".
+///   *Journal of Risk*, 2(3), 21-41.
 #[repr(C)]
 #[derive(Debug, Clone)]
 #[cfg_attr(

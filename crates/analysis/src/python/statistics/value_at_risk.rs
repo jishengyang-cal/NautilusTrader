@@ -36,6 +36,16 @@ impl ValueAtRisk {
     /// `numpy.percentile`). `confidence` defaults to `0.95`. The result is expressed
     /// as a return (e.g. `-0.03` is a 3% loss threshold); more negative means greater
     /// risk. Returns `NaN` for an empty series.
+    ///
+    /// # References
+    ///
+    /// - Jorion, P. (2007). *Value at Risk: The New Benchmark for Managing Financial Risk*
+    ///   (3rd ed.). McGraw-Hill.
+    /// - J.P. Morgan/Reuters (1996). *RiskMetrics Technical Document* (4th ed.).
+    #[expect(
+        clippy::doc_markdown,
+        reason = "citation contains proper nouns with intra-word capitals"
+    )]
     #[new]
     #[pyo3(signature = (confidence=None))]
     fn py_new(confidence: Option<f64>) -> PyResult<Self> {

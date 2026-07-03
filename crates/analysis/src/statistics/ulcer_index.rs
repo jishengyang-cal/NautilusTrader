@@ -36,7 +36,17 @@ use crate::statistic::PortfolioStatistic;
 /// `UI = sqrt( mean( D_i^2 ) )`, where `D_i = (peak_i - equity_i) / peak_i`
 ///
 /// Drawdowns are expressed as fractions (`0.05` = 5%), so the result is on the
-/// same scale as `MaxDrawdown`. Returns `0.0` for an empty series.
+/// same scale as `MaxDrawdown` (the original definition uses percentage points).
+/// Returns `0.0` for an empty series.
+///
+/// # References
+///
+/// - Martin, P. G., & McCann, B. B. (1989). *The Investor's Guide to Fidelity Funds*. Wiley.
+/// - Peter Martin's Ulcer Index page (<https://www.tangotools.com/ui/ui.htm>).
+#[expect(
+    clippy::doc_markdown,
+    reason = "citation contains proper nouns with intra-word capitals"
+)]
 #[repr(C)]
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(
@@ -138,7 +148,7 @@ mod tests {
 
     #[rstest]
     fn test_ulcer_index_calculation() {
-        // Reference value cross-checked against numpy (see PR description):
+        // Reference value cross-checked against numpy:
         //   equity = cumprod(1 + r), dd = (peak - equity) / peak,
         //   UI = sqrt(mean(dd^2)) with the 1.0 starting-capital baseline.
         let stat = UlcerIndex::new();
@@ -148,6 +158,22 @@ mod tests {
             f64,
             result,
             0.11349008767288883,
+            epsilon = 1e-12
+        ));
+    }
+
+    #[rstest]
+    fn test_persistent_drawdown_hand_example() {
+        // Hand-checkable: equity = [1.0, 0.9, 0.9], drawdowns = [0, 0.1, 0.1],
+        // UI = sqrt((0 + 0.01 + 0.01) / 3) = sqrt(0.02 / 3). Unlike max drawdown,
+        // the Ulcer Index keeps penalizing a drawdown for as long as it persists.
+        let stat = UlcerIndex::new();
+        let returns = create_returns(&[0.0, -0.1, 0.0]);
+        let result = stat.calculate_from_returns(&returns).unwrap();
+        assert!(approx_eq!(
+            f64,
+            result,
+            (0.02_f64 / 3.0).sqrt(),
             epsilon = 1e-12
         ));
     }

@@ -69,7 +69,7 @@ impl PortfolioAnalyzer {
         self.currencies().into_iter().copied().collect()
     }
 
-    /// Calculates total PnL including unrealized PnL if provided.
+    /// Gets all return-based performance statistics.
     #[pyo3(name = "get_performance_stats_returns")]
     fn py_get_performance_stats_returns(&self) -> HashMap<String, f64> {
         self.get_performance_stats_returns().into_iter().collect()
@@ -111,6 +111,7 @@ impl PortfolioAnalyzer {
             .collect()
     }
 
+    /// Gets all PnL-related performance statistics.
     #[pyo3(name = "get_performance_stats_pnls")]
     fn py_get_performance_stats_pnls(
         &self,
@@ -545,6 +546,7 @@ impl PortfolioAnalyzer {
         }
     }
 
+    /// Calculates total PnL including unrealized PnL if provided.
     #[pyo3(name = "total_pnl")]
     fn py_total_pnl(
         &self,
@@ -555,6 +557,7 @@ impl PortfolioAnalyzer {
             .map_err(to_pyvalue_err)
     }
 
+    /// Calculates total PnL as a percentage of starting balance.
     #[pyo3(name = "total_pnl_percentage")]
     fn py_total_pnl_percentage(
         &self,

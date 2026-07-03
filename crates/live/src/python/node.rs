@@ -108,24 +108,28 @@ impl LiveNode {
         }
     }
 
+    /// Gets the node's environment.
     #[getter]
     #[pyo3(name = "environment")]
     fn py_environment(&self) -> Environment {
         self.environment()
     }
 
+    /// Gets the node's trader ID.
     #[getter]
     #[pyo3(name = "trader_id")]
     fn py_trader_id(&self) -> TraderId {
         self.trader_id()
     }
 
+    /// Gets the node's instance ID.
     #[getter]
     #[pyo3(name = "instance_id")]
     const fn py_instance_id(&self) -> UUID4 {
         self.instance_id()
     }
 
+    /// Checks if the live node is currently running.
     #[getter]
     #[pyo3(name = "is_running")]
     fn py_is_running(&self) -> bool {
@@ -153,6 +157,27 @@ impl LiveNode {
         get_runtime().block_on(async { self.start().await.map_err(to_pyruntime_err) })
     }
 
+    /// Run the live node with automatic shutdown handling.
+    ///
+    /// This method starts the node, runs indefinitely, and handles graceful shutdown
+    /// on interrupt signals.
+    ///
+    /// # Thread Safety
+    ///
+    /// The event loop runs directly on the current thread (not spawned) because the
+    /// msgbus uses thread-local storage. Endpoints registered by the kernel are only
+    /// accessible from the same thread.
+    ///
+    /// # Shutdown Sequence
+    ///
+    /// 1. Signal received (SIGINT, SIGTERM, or handle stop).
+    /// 2. Trader components stopped (triggers order cancellations, etc.).
+    /// 3. Event loop continues processing residual events for the configured grace period.
+    /// 4. Kernel finalized, clients disconnected, remaining events drained.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node fails to start or encounters a runtime error.
     #[pyo3(name = "run")]
     fn py_run(&mut self, py: Python) -> PyResult<()> {
         if self.is_running() {

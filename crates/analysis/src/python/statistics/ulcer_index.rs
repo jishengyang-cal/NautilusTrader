@@ -37,7 +37,17 @@ impl UlcerIndex {
     /// `UI = sqrt( mean( D_i^2 ) )`, where `D_i = (peak_i - equity_i) / peak_i`
     ///
     /// Drawdowns are expressed as fractions (`0.05` = 5%), so the result is on the
-    /// same scale as `MaxDrawdown`. Returns `0.0` for an empty series.
+    /// same scale as `MaxDrawdown` (the original definition uses percentage points).
+    /// Returns `0.0` for an empty series.
+    ///
+    /// # References
+    ///
+    /// - Martin, P. G., & McCann, B. B. (1989). *The Investor's Guide to Fidelity Funds*. Wiley.
+    /// - Peter Martin's Ulcer Index page (<https://www.tangotools.com/ui/ui.htm>).
+    #[expect(
+        clippy::doc_markdown,
+        reason = "citation contains proper nouns with intra-word capitals"
+    )]
     #[new]
     fn py_new() -> Self {
         Self::new()

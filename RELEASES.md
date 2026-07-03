@@ -50,13 +50,16 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 
 ### Internal Improvements
+- Improved portfolio statistics test coverage with canonical worked examples
 - Upgraded Rust (MSRV) to 1.96.1
 - Upgraded Cython to v3.2.8
 - Upgraded `redis` crate to v1.3.0
 
 ### Documentation Updates
 - Added SinoPac Securities community adapter listing (#4324), thanks @Martingale42
+- Added canonical references and doc comments for portfolio statistics
 - Fixed Lighter get-started Python v2 development wheel link
+- Fixed PyO3 docstring generation for attributes with trailing comments
 
 ---
 
