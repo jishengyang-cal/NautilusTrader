@@ -44,6 +44,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed `HEDGING` reduce-only orders without cached position IDs (#4312), thanks for reporting @luckykefu
 - Fixed indicator rolling-window bounds and averages past capacity (#4351), thanks @Martingale42
 - Fixed v2 matching engine queue position for per-order deltas in L3 books (#4370), thanks for reporting @warmi024
+- Fixed v2 own order book sizes to track remaining quantity after partial fills
+- Fixed v2 interval book snapshots blocking order submission from `on_book` handlers
 - Fixed Redis message bus startup with Python v2 configs (#4356), thanks for reporting @davidgreyme
 - Fixed Binance Futures order reports omitting external limit order prices (#4346), thanks for reporting @linimin
 - Fixed Binance Futures external algo order materialization (#4348), thanks for reporting @linimin
