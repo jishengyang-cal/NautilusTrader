@@ -35,12 +35,13 @@ use nautilus_core::{UUID4, UnixNanos, correctness::CorrectnessResult};
 use nautilus_model::{
     data::{
         Bar, BarType, InstrumentClose, OrderBookDelta, OrderBookDeltas, OrderBookDepth10,
-        QuoteTick, TradeTick, order::BookOrder,
+        QuoteTick, TradeTick,
+        order::{BookOrder, OrderId},
     },
     enums::{
         AccountType, AggregationSource, AggressorSide, BookAction, BookType, ContingencyType,
         InstrumentCloseType, LiquiditySide, MarketStatus, MarketStatusAction, OmsType, OptionKind,
-        OrderSide, OrderSideSpecified, OrderStatus, OrderType, PositionSide, PriceType,
+        OrderSide, OrderSideSpecified, OrderStatus, OrderType, PositionSide, PriceType, RecordFlag,
         TimeInForce, TriggerType,
     },
     events::{
@@ -113,20 +114,21 @@ pub struct OrderMatchingEngine {
     post_match_order_ids: IndexSet<ClientOrderId>,
     ids_generator: IdsGenerator,
     last_trade_size: Option<Quantity>,
+    trade_consumption: QuantityRaw,
     bid_consumption: IndexMap<PriceRaw, (QuantityRaw, QuantityRaw)>,
     ask_consumption: IndexMap<PriceRaw, (QuantityRaw, QuantityRaw)>,
-    trade_consumption: QuantityRaw,
-    queue_ahead: IndexMap<ClientOrderId, (PriceRaw, QuantityRaw)>,
-    queue_excess: IndexMap<ClientOrderId, QuantityRaw>,
     queue_pending: IndexMap<ClientOrderId, PriceRaw>,
+    queue_ahead_orders: IndexMap<ClientOrderId, IndexMap<OrderId, QuantityRaw>>,
+    queue_ahead_total: IndexMap<ClientOrderId, (PriceRaw, QuantityRaw)>,
+    queue_excess: IndexMap<ClientOrderId, QuantityRaw>,
     prev_bid_price_raw: PriceRaw,
     prev_bid_size_raw: QuantityRaw,
     prev_ask_price_raw: PriceRaw,
     prev_ask_size_raw: QuantityRaw,
+    tob_initialized: bool,
     last_quote_bid: Option<Price>,
     last_quote_ask: Option<Price>,
     precision_mismatch_streak: u32,
-    tob_initialized: bool,
     instrument_close: Option<InstrumentClose>,
     pending_resolution: bool,
     settlement_price: Option<Price>,
@@ -198,20 +200,21 @@ impl OrderMatchingEngine {
             post_match_order_ids: IndexSet::new(),
             ids_generator,
             last_trade_size: None,
+            trade_consumption: 0,
             bid_consumption: IndexMap::new(),
             ask_consumption: IndexMap::new(),
-            trade_consumption: 0,
-            queue_ahead: IndexMap::new(),
-            queue_excess: IndexMap::new(),
             queue_pending: IndexMap::new(),
+            queue_ahead_orders: IndexMap::new(),
+            queue_ahead_total: IndexMap::new(),
+            queue_excess: IndexMap::new(),
             prev_bid_price_raw: 0,
             prev_bid_size_raw: 0,
             prev_ask_price_raw: 0,
             prev_ask_size_raw: 0,
+            tob_initialized: false,
             last_quote_bid: None,
             last_quote_ask: None,
             precision_mismatch_streak: 0,
-            tob_initialized: false,
             instrument_close: None,
             pending_resolution: false,
             settlement_price: None,
@@ -255,20 +258,21 @@ impl OrderMatchingEngine {
         self.target_ask = None;
         self.target_last = None;
         self.last_trade_size = None;
+        self.trade_consumption = 0;
         self.bid_consumption.clear();
         self.ask_consumption.clear();
-        self.trade_consumption = 0;
-        self.queue_ahead.clear();
-        self.queue_excess.clear();
         self.queue_pending.clear();
+        self.queue_ahead_orders.clear();
+        self.queue_ahead_total.clear();
+        self.queue_excess.clear();
         self.prev_bid_price_raw = 0;
         self.prev_bid_size_raw = 0;
         self.prev_ask_price_raw = 0;
         self.prev_ask_size_raw = 0;
+        self.tob_initialized = false;
         self.last_quote_bid = None;
         self.last_quote_ask = None;
         self.precision_mismatch_streak = 0;
-        self.tob_initialized = false;
         self.instrument_close = None;
         self.pending_resolution = false;
         self.settlement_price = None;
@@ -432,9 +436,10 @@ impl OrderMatchingEngine {
 
         let client_order_id = order.client_order_id();
 
-        // Clear stale entries from both maps (e.g. order modified to new price)
+        // Clear stale entries from all maps (e.g. order modified to new price)
         self.queue_pending.shift_remove(&client_order_id);
-        self.queue_ahead.shift_remove(&client_order_id);
+        self.queue_ahead_total.shift_remove(&client_order_id);
+        self.queue_ahead_orders.shift_remove(&client_order_id);
 
         // For L1 books, levels behind the BBO have no visible depth. Track
         // these orders separately so fills are blocked until the BBO reaches
@@ -453,8 +458,20 @@ impl OrderMatchingEngine {
             }
         }
 
-        self.queue_ahead
+        self.queue_ahead_total
             .insert(client_order_id, (price.raw, qty_ahead.raw));
+
+        // L3 books identify orders, so track which specific orders are ahead
+        if self.book_type == BookType::L3_MBO {
+            let orders_ahead: IndexMap<OrderId, QuantityRaw> = self
+                .book
+                .get_orders_at_level(price, OrderCore::opposite_side(order.order_side()))
+                .iter()
+                .map(|book_order| (book_order.order_id, book_order.size.raw))
+                .collect();
+            self.queue_ahead_orders
+                .insert(client_order_id, orders_ahead);
+        }
     }
 
     fn decrement_queue_on_trade(
@@ -469,16 +486,16 @@ impl OrderMatchingEngine {
 
         self.queue_excess.clear();
 
-        let keys: Vec<ClientOrderId> = self.queue_ahead.keys().copied().collect();
+        let keys: Vec<ClientOrderId> = self.queue_ahead_total.keys().copied().collect();
         let mut entries: Vec<(ClientOrderId, QuantityRaw, QuantityRaw)> = Vec::new();
         let mut stale: Vec<ClientOrderId> = Vec::new();
 
         for client_order_id in keys {
-            let (order_price_raw, ahead_raw) = match self.queue_ahead.get(&client_order_id).copied()
-            {
-                Some(v) => v,
-                None => continue,
-            };
+            let (order_price_raw, ahead_raw) =
+                match self.queue_ahead_total.get(&client_order_id).copied() {
+                    Some(v) => v,
+                    None => continue,
+                };
 
             let cache = self.cache.borrow();
             let order_info = cache.order(&client_order_id).and_then(|order| {
@@ -509,7 +526,8 @@ impl OrderMatchingEngine {
         }
 
         for id in stale {
-            self.queue_ahead.shift_remove(&id);
+            self.queue_ahead_total.shift_remove(&id);
+            self.queue_ahead_orders.shift_remove(&id);
         }
 
         // Sort by queue position (earliest first) for shared budget allocation
@@ -521,8 +539,7 @@ impl OrderMatchingEngine {
         for (client_order_id, ahead_raw, leaves_raw) in &entries {
             if remaining == 0 {
                 let new_ahead = ahead_raw.saturating_sub(trade_size_raw);
-                self.queue_ahead
-                    .insert(*client_order_id, (price_raw, new_ahead));
+                self.reduce_queue_ahead(*client_order_id, price_raw, *ahead_raw, new_ahead);
                 if new_ahead == 0 {
                     // Queue cleared but no trade volume left for this order
                     self.queue_excess.insert(*client_order_id, 0);
@@ -537,16 +554,55 @@ impl OrderMatchingEngine {
 
             if remaining == 0 && queue_consumed < gap {
                 let new_ahead = ahead_raw.saturating_sub(trade_size_raw);
-                self.queue_ahead
-                    .insert(*client_order_id, (price_raw, new_ahead));
+                self.reduce_queue_ahead(*client_order_id, price_raw, *ahead_raw, new_ahead);
                 continue;
             }
 
-            self.queue_ahead.insert(*client_order_id, (price_raw, 0));
+            self.reduce_queue_ahead(*client_order_id, price_raw, *ahead_raw, 0);
             let excess = remaining.min(*leaves_raw);
             self.queue_excess.insert(*client_order_id, excess);
             remaining -= excess;
             prev_position = ahead_raw + excess;
+        }
+    }
+
+    /// Reduces an order's quantity ahead, front-consuming its tracked orders by
+    /// the same amount so the pair stays in sync and later granular deltas for
+    /// consumed orders cannot advance the queue again.
+    fn reduce_queue_ahead(
+        &mut self,
+        client_order_id: ClientOrderId,
+        price_raw: PriceRaw,
+        ahead_raw: QuantityRaw,
+        new_ahead_raw: QuantityRaw,
+    ) {
+        self.queue_ahead_total
+            .insert(client_order_id, (price_raw, new_ahead_raw));
+        self.consume_queue_ahead_orders(client_order_id, ahead_raw.saturating_sub(new_ahead_raw));
+    }
+
+    /// Front-consumes (FIFO) the tracked orders in step with `queue_ahead_total`.
+    fn consume_queue_ahead_orders(
+        &mut self,
+        client_order_id: ClientOrderId,
+        mut amount_raw: QuantityRaw,
+    ) {
+        let Some(orders_ahead) = self.queue_ahead_orders.get_mut(&client_order_id) else {
+            return;
+        };
+
+        while amount_raw > 0 {
+            let Some((&book_order_id, &size_raw)) = orders_ahead.get_index(0) else {
+                break;
+            };
+
+            if size_raw <= amount_raw {
+                orders_ahead.shift_remove(&book_order_id);
+                amount_raw -= size_raw;
+            } else {
+                orders_ahead.insert(book_order_id, size_raw - amount_raw);
+                amount_raw = 0;
+            }
         }
     }
 
@@ -562,7 +618,7 @@ impl OrderMatchingEngine {
             return None;
         }
 
-        if let Some(&(tracked_price_raw, ahead_raw)) = self.queue_ahead.get(&client_order_id)
+        if let Some(&(tracked_price_raw, ahead_raw)) = self.queue_ahead_total.get(&client_order_id)
             && let Some(order_price) = order.price()
             && order_price.raw == tracked_price_raw
             && ahead_raw > 0
@@ -598,15 +654,40 @@ impl OrderMatchingEngine {
     }
 
     fn clear_all_queue_positions(&mut self) {
-        for (_, (_, ahead_raw)) in &mut self.queue_ahead {
+        for (_, (_, ahead_raw)) in &mut self.queue_ahead_total {
             *ahead_raw = 0;
+        }
+
+        for orders_ahead in self.queue_ahead_orders.values_mut() {
+            orders_ahead.clear();
+        }
+    }
+
+    fn adjust_queue_for_delta(&mut self, delta: &OrderBookDelta) {
+        if delta.action == BookAction::Delete {
+            if self.is_order_granular_delta(delta.flags) {
+                self.advance_l3_queue_on_delete(delta.order.order_id);
+            } else {
+                self.clear_queue_on_delete(delta.order.price.raw, delta.order.side);
+            }
+        } else if delta.action == BookAction::Update {
+            if self.is_order_granular_delta(delta.flags) {
+                self.adjust_l3_queue_on_update(&delta.order);
+            } else {
+                self.cap_queue_ahead(
+                    delta.order.price.raw,
+                    delta.order.size.raw,
+                    delta.order.side,
+                );
+            }
         }
     }
 
     fn clear_queue_on_delete(&mut self, deleted_price_raw: PriceRaw, deleted_side: OrderSide) {
-        let keys: Vec<ClientOrderId> = self.queue_ahead.keys().copied().collect();
+        let keys: Vec<ClientOrderId> = self.queue_ahead_total.keys().copied().collect();
         for client_order_id in keys {
-            if let Some(&(order_price_raw, _)) = self.queue_ahead.get(&client_order_id)
+            if let Some(&(order_price_raw, ahead_raw)) =
+                self.queue_ahead_total.get(&client_order_id)
                 && order_price_raw == deleted_price_raw
             {
                 let matches_side = self
@@ -615,9 +696,58 @@ impl OrderMatchingEngine {
                     .order(&client_order_id)
                     .is_some_and(|o| o.order_side() == deleted_side);
                 if matches_side {
-                    self.queue_ahead
-                        .insert(client_order_id, (order_price_raw, 0));
+                    self.reduce_queue_ahead(client_order_id, order_price_raw, ahead_raw, 0);
                 }
+            }
+        }
+    }
+
+    /// Returns `true` when the delta identifies a single book order (pure MBO);
+    /// TOB/MBP-flagged deltas use level-wide handling instead.
+    fn is_order_granular_delta(&self, flags: u8) -> bool {
+        self.book_type == BookType::L3_MBO
+            && !RecordFlag::F_TOB.matches(flags)
+            && !RecordFlag::F_MBP.matches(flags)
+    }
+
+    fn advance_l3_queue_on_delete(&mut self, book_order_id: OrderId) {
+        for (client_order_id, orders_ahead) in &mut self.queue_ahead_orders {
+            let Some(size_raw) = orders_ahead.shift_remove(&book_order_id) else {
+                continue;
+            };
+
+            if let Some((_, ahead_raw)) = self.queue_ahead_total.get_mut(client_order_id) {
+                *ahead_raw = ahead_raw.saturating_sub(size_raw);
+            }
+        }
+    }
+
+    /// Adjusts tracked queues for a per-order update. A size decrease retains
+    /// time priority and advances the queue by the difference. A size increase
+    /// keeps its book FIFO slot, so it stays ahead with the larger size
+    /// (pessimistic versus venues that demote, but consistent with the book
+    /// that later snapshots read). A price move leaves the level.
+    fn adjust_l3_queue_on_update(&mut self, book_order: &BookOrder) {
+        for (client_order_id, orders_ahead) in &mut self.queue_ahead_orders {
+            let Some(&tracked_size_raw) = orders_ahead.get(&book_order.order_id) else {
+                continue;
+            };
+            let Some((tracked_price_raw, ahead_raw)) =
+                self.queue_ahead_total.get_mut(client_order_id)
+            else {
+                continue;
+            };
+
+            if book_order.price.raw != *tracked_price_raw {
+                *ahead_raw = ahead_raw.saturating_sub(tracked_size_raw);
+                orders_ahead.shift_remove(&book_order.order_id);
+            } else if book_order.size.raw < tracked_size_raw {
+                // Size decrease retains time priority
+                *ahead_raw = ahead_raw.saturating_sub(tracked_size_raw - book_order.size.raw);
+                orders_ahead.insert(book_order.order_id, book_order.size.raw);
+            } else if book_order.size.raw > tracked_size_raw {
+                *ahead_raw = ahead_raw.saturating_add(book_order.size.raw - tracked_size_raw);
+                orders_ahead.insert(book_order.order_id, book_order.size.raw);
             }
         }
     }
@@ -628,15 +758,15 @@ impl OrderMatchingEngine {
         size_raw: QuantityRaw,
         order_side: OrderSide,
     ) {
-        let keys: Vec<ClientOrderId> = self.queue_ahead.keys().copied().collect();
+        let keys: Vec<ClientOrderId> = self.queue_ahead_total.keys().copied().collect();
         let mut stale: Vec<ClientOrderId> = Vec::new();
 
         for client_order_id in keys {
-            let (order_price_raw, ahead_raw) = match self.queue_ahead.get(&client_order_id).copied()
-            {
-                Some(v) => v,
-                None => continue,
-            };
+            let (order_price_raw, ahead_raw) =
+                match self.queue_ahead_total.get(&client_order_id).copied() {
+                    Some(v) => v,
+                    None => continue,
+                };
 
             if order_price_raw != price_raw || ahead_raw <= size_raw {
                 continue;
@@ -661,12 +791,12 @@ impl OrderMatchingEngine {
                 continue;
             }
 
-            self.queue_ahead
-                .insert(client_order_id, (order_price_raw, size_raw));
+            self.reduce_queue_ahead(client_order_id, order_price_raw, ahead_raw, size_raw);
         }
 
         for id in stale {
-            self.queue_ahead.shift_remove(&id);
+            self.queue_ahead_total.shift_remove(&id);
+            self.queue_ahead_orders.shift_remove(&id);
         }
     }
 
@@ -714,11 +844,12 @@ impl OrderMatchingEngine {
         new_size_raw: QuantityRaw,
         order_side: OrderSide,
     ) {
-        let keys: Vec<ClientOrderId> = self.queue_ahead.keys().copied().collect();
+        let keys: Vec<ClientOrderId> = self.queue_ahead_total.keys().copied().collect();
         let mut stale: Vec<ClientOrderId> = Vec::new();
 
         for client_order_id in keys {
-            let Some(&(order_price_raw, ahead_raw)) = self.queue_ahead.get(&client_order_id) else {
+            let Some(&(order_price_raw, ahead_raw)) = self.queue_ahead_total.get(&client_order_id)
+            else {
                 continue;
             };
 
@@ -749,16 +880,16 @@ impl OrderMatchingEngine {
             };
 
             if crossed {
-                self.queue_ahead
+                self.queue_ahead_total
                     .insert(client_order_id, (order_price_raw, 0));
             } else if order_price_raw == new_price_raw && ahead_raw > new_size_raw {
-                self.queue_ahead
+                self.queue_ahead_total
                     .insert(client_order_id, (order_price_raw, new_size_raw));
             }
         }
 
         for id in stale {
-            self.queue_ahead.shift_remove(&id);
+            self.queue_ahead_total.shift_remove(&id);
         }
 
         // Also resolve pending L1 orders affected by this price move
@@ -796,11 +927,11 @@ impl OrderMatchingEngine {
 
             if crossed {
                 self.queue_pending.shift_remove(&client_order_id);
-                self.queue_ahead
+                self.queue_ahead_total
                     .insert(client_order_id, (order_price_raw, 0));
             } else if order_price_raw == new_price_raw {
                 self.queue_pending.shift_remove(&client_order_id);
-                self.queue_ahead
+                self.queue_ahead_total
                     .insert(client_order_id, (order_price_raw, new_size_raw));
             }
         }
@@ -849,7 +980,7 @@ impl OrderMatchingEngine {
 
             if let Some(size) = matched_size {
                 self.queue_pending.shift_remove(&client_order_id);
-                self.queue_ahead
+                self.queue_ahead_total
                     .insert(client_order_id, (order_price_raw, size));
             }
         }
@@ -892,7 +1023,7 @@ impl OrderMatchingEngine {
 
             if crossed {
                 self.queue_pending.shift_remove(&client_order_id);
-                self.queue_ahead
+                self.queue_ahead_total
                     .insert(client_order_id, (order_price_raw, 0));
             }
         }
@@ -981,20 +1112,21 @@ impl OrderMatchingEngine {
             self.core
                 .update_price_increment(instrument.price_increment());
             self.book.reset();
+            self.trade_consumption = 0;
             self.bid_consumption.clear();
             self.ask_consumption.clear();
-            self.trade_consumption = 0;
-            self.queue_ahead.clear();
-            self.queue_excess.clear();
             self.queue_pending.clear();
+            self.queue_ahead_orders.clear();
+            self.queue_ahead_total.clear();
+            self.queue_excess.clear();
             self.prev_bid_price_raw = 0;
             self.prev_bid_size_raw = 0;
             self.prev_ask_price_raw = 0;
             self.prev_ask_size_raw = 0;
+            self.tob_initialized = false;
             self.last_quote_bid = None;
             self.last_quote_ask = None;
             self.precision_mismatch_streak = 0;
-            self.tob_initialized = false;
             self.target_bid = None;
             self.target_ask = None;
             self.target_last = None;
@@ -1187,14 +1319,8 @@ impl OrderMatchingEngine {
         if self.config.queue_position {
             if delta_snapshot_or_clear {
                 self.clear_all_queue_positions();
-            } else if delta.action == BookAction::Delete {
-                self.clear_queue_on_delete(delta.order.price.raw, delta.order.side);
-            } else if delta.action == BookAction::Update {
-                self.cap_queue_ahead(
-                    delta.order.price.raw,
-                    delta.order.size.raw,
-                    delta.order.side,
-                );
+            } else {
+                self.adjust_queue_for_delta(delta);
             }
         }
 
@@ -1240,15 +1366,8 @@ impl OrderMatchingEngine {
                     self.clear_all_queue_positions();
                     has_snapshot_or_clear = true;
                     break;
-                } else if delta.action == BookAction::Delete {
-                    self.clear_queue_on_delete(delta.order.price.raw, delta.order.side);
-                } else if delta.action == BookAction::Update {
-                    self.cap_queue_ahead(
-                        delta.order.price.raw,
-                        delta.order.size.raw,
-                        delta.order.side,
-                    );
                 }
+                self.adjust_queue_for_delta(delta);
             }
         }
 
@@ -6489,6 +6608,7 @@ impl BarTickSizes {
 mod tests {
     use std::{
         cell::{Cell, RefCell},
+        collections::{HashMap, HashSet},
         rc::Rc,
     };
 
@@ -6496,29 +6616,35 @@ mod tests {
     use nautilus_core::{UnixNanos, correctness::CorrectnessError};
     use nautilus_model::{
         data::{
-            DEPTH10_LEN, OrderBookDepth10, QuoteTick, option_chain::OptionGreeks, order::BookOrder,
+            DEPTH10_LEN, OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick,
+            option_chain::OptionGreeks,
+            order::{BookOrder, OrderId},
         },
         enums::{
-            AccountType, BookType, LiquiditySide, OmsType, OrderSide, OrderType, TimeInForce,
-            TrailingOffsetType, TriggerType,
+            AccountType, AggressorSide, BookAction, BookType, LiquiditySide, OmsType, OrderSide,
+            OrderType, RecordFlag, TimeInForce, TrailingOffsetType, TriggerType,
         },
         events::OrderEventAny,
-        identifiers::{AccountId, ClientOrderId, VenueOrderId},
+        identifiers::{AccountId, ClientOrderId, TradeId, VenueOrderId},
         instruments::{
             Instrument, InstrumentAny,
-            stubs::{crypto_option_btc_deribit, crypto_perpetual_ethusdt},
+            stubs::{crypto_option_btc_deribit, crypto_perpetual_ethusdt, futures_contract_es},
         },
         orderbook::OrderBook,
         orders::{Order, OrderAny, OrderTestBuilder, stubs::TestOrderEventStubs},
         types::{Money, Price, Quantity, fixed::FIXED_PRECISION, quantity::QuantityRaw},
     };
+    use proptest::prelude::*;
     use rstest::rstest;
     use rust_decimal::Decimal;
 
     use super::{BarTickSizes, OrderMatchingEngine, PostMatchOrderAction, post_match_order_action};
-    use crate::models::{
-        fee::{FeeModel, FeeModelAny, FeeModelHandle},
-        fill::{FillModel, FillModelHandle},
+    use crate::{
+        matching_engine::config::OrderMatchingEngineConfig,
+        models::{
+            fee::{FeeModel, FeeModelAny, FeeModelHandle},
+            fill::{FillModel, FillModelHandle},
+        },
     };
 
     fn assert_valid_bar_tick_sizes(volume: Quantity, size_increment: Quantity) {
@@ -7111,5 +7237,389 @@ mod tests {
         assert_eq!(sizes.low.raw, 4);
         assert_eq!(sizes.close.raw, 5);
         assert_valid_bar_tick_sizes(volume, increment);
+    }
+
+    fn get_l3_queue_engine(instrument: InstrumentAny) -> (OrderMatchingEngine, Rc<RefCell<Cache>>) {
+        let clock = Rc::new(RefCell::new(TestClock::new()));
+        let cache = Rc::new(RefCell::new(Cache::default()));
+        let config = OrderMatchingEngineConfig {
+            trade_execution: true,
+            queue_position: true,
+            ..Default::default()
+        };
+
+        let mut engine = OrderMatchingEngine::new(
+            instrument,
+            1,
+            FillModelHandle::default(),
+            FeeModelAny::default().into(),
+            BookType::L3_MBO,
+            OmsType::Netting,
+            AccountType::Margin,
+            clock,
+            Rc::clone(&cache),
+            config,
+        );
+
+        let handler_cache = Rc::clone(&cache);
+        engine.set_event_handler(Rc::new(move |event: OrderEventAny| {
+            if let Ok(mut cache) = handler_cache.try_borrow_mut() {
+                let _ = cache.update_order(&event);
+            }
+        }));
+
+        (engine, cache)
+    }
+
+    fn assert_l3_queue_synced(engine: &OrderMatchingEngine) {
+        for (client_order_id, orders_ahead) in &engine.queue_ahead_orders {
+            let set_sum: QuantityRaw = orders_ahead.values().sum();
+            let counter = engine
+                .queue_ahead_total
+                .get(client_order_id)
+                .map_or(0, |&(_, ahead_raw)| ahead_raw);
+            assert_eq!(
+                set_sum, counter,
+                "tracked orders out of sync with quantity-ahead counter for {client_order_id}",
+            );
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum QueueEvent {
+        Add { id: OrderId, size: u64 },
+        Update { id: OrderId, size: u64 },
+        MoveAway { id: OrderId },
+        Delete { id: OrderId },
+        Trade { size: u64, aggressor: u8 },
+        AggregateCap { size: u64 },
+        AggregateDelete,
+        RestOrder,
+    }
+
+    fn granular_queue_event() -> impl Strategy<Value = QueueEvent> {
+        prop_oneof![
+            3 => (1u64..=6, 1u64..=9).prop_map(|(id, size)| QueueEvent::Add { id, size }),
+            3 => (1u64..=6, 1u64..=9).prop_map(|(id, size)| QueueEvent::Update { id, size }),
+            1 => (1u64..=6).prop_map(|id| QueueEvent::MoveAway { id }),
+            2 => (1u64..=6).prop_map(|id| QueueEvent::Delete { id }),
+            2 => Just(QueueEvent::RestOrder),
+        ]
+    }
+
+    fn any_queue_event() -> impl Strategy<Value = QueueEvent> {
+        prop_oneof![
+            5 => granular_queue_event(),
+            3 => (1u64..=9, 0u8..3).prop_map(|(size, aggressor)| QueueEvent::Trade {
+                size,
+                aggressor,
+            }),
+            1 => (1u64..=9).prop_map(|size| QueueEvent::AggregateCap { size }),
+            1 => Just(QueueEvent::AggregateDelete),
+        ]
+    }
+
+    // Drives generated events through an L3 queue_position engine; the
+    // shadow id maps sanitize the feed to what real MBO feeds guarantee
+    struct L3QueueSim {
+        engine: OrderMatchingEngine,
+        account_id: AccountId,
+        live_main: HashMap<OrderId, u64>,
+        live_away: HashSet<OrderId>,
+        rest_snapshots: HashMap<ClientOrderId, HashSet<OrderId>>,
+        rested: usize,
+        sequence: u64,
+    }
+
+    impl L3QueueSim {
+        const MAIN_PRICE: &'static str = "100.00";
+        const AWAY_PRICE: &'static str = "101.00";
+
+        fn new() -> Self {
+            let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
+            let (engine, _cache) = get_l3_queue_engine(instrument);
+
+            Self {
+                engine,
+                account_id: AccountId::from("SIM-001"),
+                live_main: HashMap::new(),
+                live_away: HashSet::new(),
+                rest_snapshots: HashMap::new(),
+                rested: 0,
+                sequence: 0,
+            }
+        }
+
+        fn quantity(size: u64) -> Quantity {
+            Quantity::from(format!("{size}.000").as_str())
+        }
+
+        fn process_delta(
+            &mut self,
+            action: BookAction,
+            price: &str,
+            size: u64,
+            order_id: OrderId,
+            flags: u8,
+        ) {
+            self.sequence += 1;
+            let delta = OrderBookDelta::new(
+                self.engine.instrument.id(),
+                action,
+                BookOrder::new(
+                    OrderSide::Sell,
+                    Price::from(price),
+                    Self::quantity(size),
+                    order_id,
+                ),
+                flags,
+                self.sequence,
+                UnixNanos::from(self.sequence),
+                UnixNanos::from(self.sequence),
+            );
+            self.engine.process_order_book_delta(&delta).unwrap();
+        }
+
+        fn apply(&mut self, event: QueueEvent) {
+            match event {
+                QueueEvent::Add { id, size } => {
+                    if self.live_main.contains_key(&id) || self.live_away.contains(&id) {
+                        return;
+                    }
+                    self.process_delta(BookAction::Add, Self::MAIN_PRICE, size, id, 0);
+                    self.live_main.insert(id, size);
+                }
+                QueueEvent::Update { id, size } => {
+                    if !self.live_main.contains_key(&id) {
+                        return;
+                    }
+                    self.process_delta(BookAction::Update, Self::MAIN_PRICE, size, id, 0);
+                    self.live_main.insert(id, size);
+                }
+                QueueEvent::MoveAway { id } => {
+                    let Some(size) = self.live_main.remove(&id) else {
+                        return;
+                    };
+                    self.process_delta(BookAction::Update, Self::AWAY_PRICE, size, id, 0);
+                    self.live_away.insert(id);
+                }
+                QueueEvent::Delete { id } => {
+                    if let Some(size) = self.live_main.remove(&id) {
+                        self.process_delta(BookAction::Delete, Self::MAIN_PRICE, size, id, 0);
+                    } else if self.live_away.remove(&id) {
+                        self.process_delta(BookAction::Delete, Self::AWAY_PRICE, 1, id, 0);
+                    } else {
+                        // Unknown id exercises the ignore path
+                        self.process_delta(BookAction::Delete, Self::MAIN_PRICE, 1, id, 0);
+                    }
+
+                    // A later Add reusing this id is a new order, not the
+                    // snapshot-time one (real feeds never reuse ids)
+                    for snapshot_ids in self.rest_snapshots.values_mut() {
+                        snapshot_ids.remove(&id);
+                    }
+                }
+                QueueEvent::Trade { size, aggressor } => {
+                    self.sequence += 1;
+                    let aggressor_side = match aggressor {
+                        0 => AggressorSide::Buyer,
+                        1 => AggressorSide::Seller,
+                        _ => AggressorSide::NoAggressor,
+                    };
+                    let trade = TradeTick::new(
+                        self.engine.instrument.id(),
+                        Price::from(Self::MAIN_PRICE),
+                        Self::quantity(size),
+                        aggressor_side,
+                        TradeId::new(format!("T-{}", self.sequence).as_str()),
+                        UnixNanos::from(self.sequence),
+                        UnixNanos::from(self.sequence),
+                    );
+                    self.engine.process_trade_tick(&trade);
+                }
+                QueueEvent::AggregateCap { size } => {
+                    self.process_delta(
+                        BookAction::Update,
+                        Self::MAIN_PRICE,
+                        size,
+                        0,
+                        RecordFlag::F_MBP as u8,
+                    );
+                }
+                QueueEvent::AggregateDelete => {
+                    self.process_delta(
+                        BookAction::Delete,
+                        Self::MAIN_PRICE,
+                        1,
+                        0,
+                        RecordFlag::F_MBP as u8,
+                    );
+                }
+                QueueEvent::RestOrder => {
+                    if self.rested >= 3 {
+                        return;
+                    }
+                    self.rested += 1;
+                    let mut order = OrderTestBuilder::new(OrderType::Limit)
+                        .instrument_id(self.engine.instrument.id())
+                        .side(OrderSide::Sell)
+                        .price(Price::from(Self::MAIN_PRICE))
+                        .quantity(Self::quantity(5))
+                        .client_order_id(ClientOrderId::from(
+                            format!("O-PROP-{}", self.rested).as_str(),
+                        ))
+                        .submit(true)
+                        .build();
+                    self.engine.process_order(&mut order, self.account_id);
+
+                    assert!(
+                        self.engine
+                            .queue_ahead_orders
+                            .contains_key(&order.client_order_id()),
+                        "L3 snapshot must track the resting order",
+                    );
+
+                    self.rest_snapshots.insert(
+                        order.client_order_id(),
+                        self.live_main.keys().copied().collect(),
+                    );
+                }
+            }
+        }
+
+        // Without trades or aggregate rows, tracked orders must mirror the book
+        // exactly, and equal the rest-time snapshot ids still at the level
+        fn assert_tracked_orders_match_book(&self) {
+            let level: HashMap<OrderId, QuantityRaw> = self
+                .engine
+                .book
+                .get_orders_at_level(Price::from(Self::MAIN_PRICE), OrderSide::Buy)
+                .iter()
+                .map(|order| (order.order_id, order.size.raw))
+                .collect();
+
+            for (client_order_id, orders_ahead) in &self.engine.queue_ahead_orders {
+                for (order_id, size_raw) in orders_ahead {
+                    let book_size = level.get(order_id).copied().unwrap_or_else(|| {
+                        panic!("tracked order {order_id} for {client_order_id} not in book level")
+                    });
+                    assert_eq!(
+                        book_size, *size_raw,
+                        "tracked size diverged from book for order {order_id}",
+                    );
+                }
+
+                let tracked: HashSet<OrderId> = orders_ahead.keys().copied().collect();
+                let expected: HashSet<OrderId> = self.rest_snapshots[client_order_id]
+                    .iter()
+                    .filter(|id| self.live_main.contains_key(id))
+                    .copied()
+                    .collect();
+                assert_eq!(
+                    tracked, expected,
+                    "tracked set incomplete or stale for {client_order_id}",
+                );
+            }
+        }
+    }
+
+    #[rstest]
+    fn prop_test_l3_queue_tracking_stays_synced_with_counter() {
+        proptest!(|(events in prop::collection::vec(any_queue_event(), 1..=80))| {
+            let mut sim = L3QueueSim::new();
+            for event in events {
+                sim.apply(event);
+                assert_l3_queue_synced(&sim.engine);
+            }
+        });
+    }
+
+    #[rstest]
+    fn prop_test_l3_queue_tracking_mirrors_book_without_trades() {
+        proptest!(|(events in prop::collection::vec(granular_queue_event(), 1..=80))| {
+            let mut sim = L3QueueSim::new();
+            for event in events {
+                sim.apply(event);
+                assert_l3_queue_synced(&sim.engine);
+                sim.assert_tracked_orders_match_book();
+            }
+        });
+    }
+
+    // Replays real GLBX MBO flow (records 9150..10650 of
+    // tests/test_data/databento/esh4-glbx-mdp3-20231225.mbo.dbn.zst as JSON),
+    // joining the touch periodically; the mid-stream start also exercises
+    // unseen-id ignore paths
+    #[rstest]
+    fn test_l3_queue_position_replay_databento_mbo_stays_synced() {
+        let json = include_str!("../../test_data/databento_esh4_mbo.json");
+        let records: Vec<serde_json::Value> = serde_json::from_str(json).unwrap();
+        assert!(records.len() > 1000);
+
+        let instrument = InstrumentAny::FuturesContract(futures_contract_es(None, None));
+        let instrument_id = instrument.id();
+        let (mut engine, cache) = get_l3_queue_engine(instrument);
+        let account_id = AccountId::from("SIM-001");
+
+        let mut rested = 0usize;
+        let mut trades = 0usize;
+
+        for (index, record) in records.iter().enumerate() {
+            match record.get("type").and_then(serde_json::Value::as_str) {
+                Some("OrderBookDelta") => {
+                    let mut delta: OrderBookDelta = serde_json::from_value(record.clone()).unwrap();
+                    delta.instrument_id = instrument_id;
+                    engine.process_order_book_delta(&delta).unwrap();
+                }
+                Some("TradeTick") => {
+                    let mut trade: TradeTick = serde_json::from_value(record.clone()).unwrap();
+                    trade.instrument_id = instrument_id;
+                    engine.process_trade_tick(&trade);
+                    trades += 1;
+                }
+                other => panic!("unexpected record type {other:?}"),
+            }
+
+            if index % 150 == 100 {
+                let (side, price) = if rested.is_multiple_of(2) {
+                    (OrderSide::Sell, engine.book.best_ask_price())
+                } else {
+                    (OrderSide::Buy, engine.book.best_bid_price())
+                };
+
+                if let Some(price) = price {
+                    rested += 1;
+                    let mut order = OrderTestBuilder::new(OrderType::Limit)
+                        .instrument_id(instrument_id)
+                        .side(side)
+                        .price(price)
+                        .quantity(Quantity::from("1"))
+                        .client_order_id(ClientOrderId::from(format!("O-MBO-{rested}").as_str()))
+                        .submit(true)
+                        .build();
+                    engine.process_order(&mut order, account_id);
+
+                    // A crossed mid-stream book can fill a joined order on
+                    // arrival; only open orders are tracked
+                    let is_open = cache
+                        .borrow()
+                        .order(&order.client_order_id())
+                        .is_some_and(|order| order.is_open());
+                    if is_open {
+                        assert!(
+                            engine
+                                .queue_ahead_orders
+                                .contains_key(&order.client_order_id()),
+                            "L3 snapshot must track the resting order",
+                        );
+                    }
+                }
+            }
+
+            assert_l3_queue_synced(&engine);
+        }
+
+        assert!(rested >= 5, "replay must exercise resting orders");
+        assert!(trades >= 50, "replay must exercise trade interleavings");
     }
 }
