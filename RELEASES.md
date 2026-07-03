@@ -50,6 +50,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 
 ### Internal Improvements
+- Upgraded Rust (MSRV) to 1.96.1
 - Upgraded `redis` crate to v1.3.0
 
 ### Documentation Updates
