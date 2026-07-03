@@ -635,6 +635,14 @@ self.subscribe_order_book_deltas(
 
 Omitting both params subscribes to the full-depth book.
 
+Book deltas and depth10 snapshots for the same instrument share one venue
+`l2Book` stream:
+
+- The first subscription opens the stream and sets its precision options.
+- Requesting different options while the stream is active logs a warning and keeps the active options.
+- The stream closes when the last of the two uses unsubscribes.
+- Reconnects restore the stream with its original precision options.
+
 ### Hyperliquid specific data
 
 The adapter emits two Hyperliquid-specific custom data types:

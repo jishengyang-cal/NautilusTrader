@@ -49,6 +49,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Binance Futures external algo order materialization (#4348), thanks for reporting @linimin
 - Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
+- Fixed Hyperliquid `l2Book` resubscribe options and shared stream teardown (#4298)
 
 ### Internal Improvements
 - Improved portfolio statistics test coverage with canonical worked examples
