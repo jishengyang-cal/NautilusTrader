@@ -673,6 +673,9 @@ impl HyperliquidWebSocketClient {
     }
 
     /// Unsubscribe from L2 order book for an instrument.
+    ///
+    /// Tears down the venue `l2Book` stream unless active depth10 subscribers
+    /// still need it.
     #[pyo3(name = "unsubscribe_book")]
     fn py_unsubscribe_book<'py>(
         &self,
