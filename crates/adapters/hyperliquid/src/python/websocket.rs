@@ -741,7 +741,24 @@ impl HyperliquidWebSocketClient {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             client
-                .subscribe_book(instrument_id)
+                .subscribe_book_depth10(instrument_id)
+                .await
+                .map_err(to_pyruntime_err)?;
+            Ok(())
+        })
+    }
+
+    #[pyo3(name = "unsubscribe_book_snapshots")]
+    fn py_unsubscribe_book_snapshots<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            client
+                .unsubscribe_book_depth10(instrument_id)
                 .await
                 .map_err(to_pyruntime_err)?;
             Ok(())
