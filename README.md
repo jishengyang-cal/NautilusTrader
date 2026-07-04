@@ -51,7 +51,7 @@ DEX), traditional markets (FX, equities, futures, options), and betting exchange
 
 ## Features
 
-- **Fast**: Rust core with asynchronous networking using [tokio](https://crates.io/crates/tokio).
+- **Fast**: Rust core with the [mimalloc](https://github.com/microsoft/mimalloc) allocator and asynchronous networking using [tokio](https://crates.io/crates/tokio).
 - **Reliable**: Type- and thread-safety backed by Rust, with optional Redis-backed state persistence.
 - **Portable**: Runs on Linux, macOS, and Windows. Deploy using Docker.
 - **Flexible**: Modular adapters integrate any REST API or WebSocket feed.

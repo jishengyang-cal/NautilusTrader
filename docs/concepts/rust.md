@@ -134,6 +134,28 @@ Enable `high-precision` for crypto venues where prices can have many decimal
 places (e.g. `0.00000001`).
 :::
 
+### Memory allocator
+
+The Python wheels and the `nautilus` CLI use [mimalloc](https://crates.io/crates/mimalloc)
+for Rust allocations. A Rust binary chooses its own allocator, so add mimalloc to yours
+to match:
+
+```toml
+[dependencies]
+mimalloc = "0.1"
+```
+
+```rust
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+```
+
+The default system allocator also works, but backtest throughput drops materially,
+especially on Windows, where allocator overhead can reach half of hot-loop run time.
+See the [architecture guide](architecture.md#memory-allocation) for background.
+
 ## Actors
 
 An actor receives market data, custom data/signals, and system events but does

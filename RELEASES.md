@@ -24,6 +24,7 @@ installation. Follow-up `2.0.0rcN` wheels are likely to ship at a higher cadence
 releases as feedback arrives, before the final `2.0.0` release.
 
 ### Enhancements
+- Added opt-in `mimalloc` allocator feature, enabled by default for Python wheels (#4358), thanks @ivannp
 - Added `LiveNode` metrics for Rust live runner metrics
 - Added returns skewness and kurtosis portfolio statistics (#4334), thanks @Martingale42
 - Added WebSocket transport backend selection for Python and PyO3 configs (#4342), thanks @graceyangfan

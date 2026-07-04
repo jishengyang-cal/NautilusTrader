@@ -187,6 +187,7 @@ log = { version = "0.4.33", features = [
   "release_max_level_debug",
 ] }
 madsim = "0.2.34"
+mimalloc = "0.1.52"
 object_store = { version = "0.13.2", default-features = false, features = [
   "fs",
 ] }

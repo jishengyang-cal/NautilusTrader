@@ -52,6 +52,7 @@ features = [
   "arrow",
   "betfair",
   "high-precision",
+  "mimalloc",
   "redis",
   "postgres",
   "defi",
