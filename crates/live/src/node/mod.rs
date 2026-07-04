@@ -133,7 +133,7 @@ pub mod plugin;
 use builder::ExternalMessageBusIngress;
 pub use builder::LiveNodeBuilder;
 use config::{LiveNodeConfig, PluginConfig};
-pub use metrics::{RunnerChannelMetricsSnapshot, RunnerMetricsSnapshot};
+pub use metrics::{RunnerChannelMetricsSnapshot, RunnerMetricsDelta, RunnerMetricsSnapshot};
 use metrics::{RunnerChannelQueueDepths, RunnerMetricChannel, RunnerMetrics};
 use state::EngineConnectionStatus;
 pub use state::{LiveNodeHandle, NodeState};
