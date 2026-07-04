@@ -13,19 +13,19 @@ git update-index -q --refresh
 
 untracked="$(git ls-files --others --exclude-standard -- "${targets[@]}")"
 
-if git diff --quiet HEAD -- "${targets[@]}" && [ -z "$untracked" ]; then
+if git diff --quiet -- "${targets[@]}" && [ -z "$untracked" ]; then
   echo "No generated v2 file drift detected"
   exit 0
 fi
 
 echo "::error::Generated v2 files are out of sync"
-echo "Run \`make py-stubs-v2\` and commit the result."
+echo "Run \`make py-stubs-v2\` and stage or commit the result."
 echo
 echo "Changed files:"
 git status --short --untracked-files=all -- "${targets[@]}"
 echo
 echo "Diff stat:"
-git diff --stat HEAD -- "${targets[@]}" || true
+git diff --stat -- "${targets[@]}" || true
 
 if [ -n "$untracked" ]; then
   echo
@@ -34,5 +34,5 @@ if [ -n "$untracked" ]; then
 fi
 
 echo
-git diff --exit-code HEAD -- "${targets[@]}" || true
+git diff --exit-code -- "${targets[@]}" || true
 exit 1

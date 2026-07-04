@@ -42,6 +42,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 
 ### Fixes
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
+- Fixed Python v2 migration gaps for `core.datetime`, `Clock.set_time`, and Strategy data APIs
 - Fixed `PerContractFeeModel` generic spread fees to charge per leg ratio (#4360), thanks for reporting @pjlegato
 - Fixed `HEDGING` reduce-only orders without cached position IDs (#4312), thanks for reporting @luckykefu
 - Fixed indicator rolling-window bounds and averages past capacity (#4351), thanks @Martingale42
