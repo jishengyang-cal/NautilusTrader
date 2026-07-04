@@ -32,6 +32,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Ulcer Index, Omega Ratio, VaR, and Expected Shortfall portfolio statistics (#4352), thanks @Martingale42
 - Added Tail Ratio portfolio statistic (#4341), thanks @Martingale42
 - Added Hyperliquid market data stream health warnings for stalled Deltas, Depth10, and Quote subscriptions (#4298)
+- Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
 - Added Interactive Brokers PyO3 type stub annotations (#4350), thanks @dfjmax
 
 ### Breaking Changes

@@ -86,6 +86,9 @@ class HyperliquidDataClientConfig:
         stale_stream_receive_timeout_secs: int | None = None,
         stream_health_check_interval_secs: int | None = None,
         stale_stream_warning_cooldown_secs: int | None = None,
+        stale_stream_recovery_enabled: bool | None = None,
+        stale_stream_recovery_cooldown_secs: int | None = None,
+        stale_stream_max_targeted_resubscribes: int | None = None,
     ) -> None: ...
 
 @typing.final
