@@ -1312,6 +1312,95 @@ mod tests {
     }
 
     #[rstest]
+    fn test_live_exec_engine_config_converts_to_execution_manager_config() {
+        let config = LiveExecEngineConfig {
+            reconciliation: false,
+            reconciliation_lookback_mins: Some(45),
+            reconciliation_instrument_ids: Some(vec![
+                "ETHUSDT.BINANCE".to_string(),
+                "BTCUSDT.BINANCE".to_string(),
+            ]),
+            filter_unclaimed_external_orders: true,
+            filter_position_reports: true,
+            filtered_client_order_ids: Some(vec!["O-001".to_string(), "O-002".to_string()]),
+            generate_missing_orders: false,
+            inflight_check_interval_ms: 321,
+            inflight_check_threshold_ms: 654,
+            inflight_check_retries: 7,
+            open_check_interval_secs: Some(1.5),
+            open_check_lookback_mins: Some(9),
+            open_check_threshold_ms: 234,
+            open_check_missing_retries: 4,
+            open_check_open_only: false,
+            max_single_order_queries_per_cycle: 8,
+            single_order_query_delay_ms: 76,
+            position_check_interval_secs: Some(2.5),
+            position_check_lookback_mins: 11,
+            position_check_threshold_ms: 345,
+            position_check_retries: 6,
+            purge_closed_orders_buffer_mins: Some(12),
+            purge_closed_positions_buffer_mins: Some(13),
+            purge_account_events_lookback_mins: Some(14),
+            purge_from_database: true,
+            ..Default::default()
+        };
+
+        let converted = ExecutionManagerConfig::from(&config);
+
+        assert!(!converted.reconciliation);
+        assert_eq!(converted.lookback_mins, Some(45));
+        assert_eq!(converted.reconciliation_instrument_ids.len(), 2);
+        assert!(
+            converted
+                .reconciliation_instrument_ids
+                .contains(&InstrumentId::from("ETHUSDT.BINANCE"))
+        );
+        assert!(
+            converted
+                .reconciliation_instrument_ids
+                .contains(&InstrumentId::from("BTCUSDT.BINANCE"))
+        );
+        assert!(converted.filter_unclaimed_external);
+        assert!(converted.filter_position_reports);
+        assert_eq!(converted.filtered_client_order_ids.len(), 2);
+        assert!(
+            converted
+                .filtered_client_order_ids
+                .contains(&ClientOrderId::from("O-001"))
+        );
+        assert!(
+            converted
+                .filtered_client_order_ids
+                .contains(&ClientOrderId::from("O-002"))
+        );
+        assert!(!converted.generate_missing_orders);
+        assert_eq!(converted.inflight_check_interval_ms, 321);
+        assert_eq!(converted.inflight_threshold_ms, 654);
+        assert_eq!(converted.inflight_max_retries, 7);
+        assert_eq!(converted.open_check_interval_secs, Some(1.5));
+        assert_eq!(converted.open_check_lookback_mins, Some(9));
+        assert_eq!(
+            converted.open_check_threshold_ns,
+            234 * NANOSECONDS_IN_MILLISECOND
+        );
+        assert_eq!(converted.open_check_missing_retries, 4);
+        assert!(!converted.open_check_open_only);
+        assert_eq!(converted.max_single_order_queries_per_cycle, 8);
+        assert_eq!(converted.single_order_query_delay_ms, 76);
+        assert_eq!(converted.position_check_interval_secs, Some(2.5));
+        assert_eq!(converted.position_check_lookback_mins, 11);
+        assert_eq!(
+            converted.position_check_threshold_ns,
+            345 * NANOSECONDS_IN_MILLISECOND
+        );
+        assert_eq!(converted.position_check_retries, 6);
+        assert_eq!(converted.purge_closed_orders_buffer_mins, Some(12));
+        assert_eq!(converted.purge_closed_positions_buffer_mins, Some(13));
+        assert_eq!(converted.purge_account_events_lookback_mins, Some(14));
+        assert!(converted.purge_from_database);
+    }
+
+    #[rstest]
     fn test_live_risk_engine_config_converts_to_risk_engine_config() {
         let config = LiveRiskEngineConfig {
             bypass: true,

@@ -7617,6 +7617,39 @@ async fn test_check_open_orders_submitted_missing_at_venue_generates_rejected() 
     }
 }
 
+#[rstest]
+#[tokio::test]
+async fn test_check_open_orders_open_only_missing_venue_order_does_not_reject() {
+    let config = ExecutionManagerConfig {
+        open_check_threshold_ns: 0,
+        open_check_missing_retries: 1,
+        open_check_open_only: true,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    let order = create_limit_order(
+        "O-OPEN-ONLY",
+        test_instrument_id(),
+        OrderSide::Buy,
+        "10.0",
+        "100.0",
+    );
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    ctx.add_order(order);
+    ctx.cache.borrow_mut().update_order(&submitted).unwrap();
+
+    let mock_client = MockExecutionClient::new(vec![]);
+    let clients: Vec<&dyn ExecutionClient> = vec![&mock_client];
+
+    let events = ctx.manager.check_open_orders(&clients).await;
+
+    assert!(events.is_empty());
+    let cached_order = ctx.get_order(&ClientOrderId::from("O-OPEN-ONLY")).unwrap();
+    assert_eq!(cached_order.status(), OrderStatus::Submitted);
+}
+
 #[cfg_attr(
     not(all(feature = "simulation", madsim)),
     tokio::test(start_paused = true)

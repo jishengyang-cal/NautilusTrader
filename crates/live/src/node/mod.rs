@@ -1157,56 +1157,15 @@ impl LiveNode {
                         residual_events += 1;
                     }
 
-                    let mut close_ids: Vec<ClientOrderId> = Vec::new();
-
-                    match &evt {
-                        ExecutionEvent::Order(order_evt) => {
-                            self.exec_manager.observe_order_event(order_evt);
-                            close_ids.push(order_evt.client_order_id());
-                        }
-                        ExecutionEvent::OrderSubmittedBatch(batch) => {
-                            for submitted in &batch.events {
-                                self.exec_manager.record_local_activity(submitted.client_order_id);
-                            }
-                        }
-                        ExecutionEvent::OrderAcceptedBatch(batch) => {
-                            for accepted in &batch.events {
-                                // Stamp after clearing: `clear_recon_tracking` drops the
-                                // local-activity mark, the missing-order grace gate.
-                                self.exec_manager.clear_recon_tracking(
-                                    &accepted.client_order_id, true,
-                                );
-                                self.exec_manager.record_local_activity(accepted.client_order_id);
-                            }
-                        }
-                        ExecutionEvent::OrderCanceledBatch(batch) => {
-                            for canceled in &batch.events {
-                                self.exec_manager.clear_recon_tracking(
-                                    &canceled.client_order_id, true,
-                                );
-                                self.exec_manager.record_local_activity(canceled.client_order_id);
-                                close_ids.push(canceled.client_order_id);
-                            }
-                        }
-                        ExecutionEvent::Report(report) => {
-                            if let ExecutionReport::Fill(fill_report) = report
-                                && self.exec_manager.is_fill_recently_processed(&fill_report.trade_id) {
-                                    log::debug!(
-                                        "Skipping recently processed fill report: {}",
-                                        fill_report.trade_id,
-                                    );
-                                    record_runner_dispatch(
-                                        &metrics,
-                                        RunnerMetricChannel::ExecEvents,
-                                        dispatch_start,
-                                        metrics_start,
-                                    );
-                                    continue;
-                                }
-                            self.exec_manager.observe_execution_report(report);
-                        }
-                        ExecutionEvent::Account(_) => {}
-                    }
+                    let Some(close_ids) = self.observe_exec_event_before_dispatch(&evt) else {
+                        record_runner_dispatch(
+                            &metrics,
+                            RunnerMetricChannel::ExecEvents,
+                            dispatch_start,
+                            metrics_start,
+                        );
+                        continue;
+                    };
 
                     AsyncRunner::handle_exec_event(evt);
 
@@ -1502,6 +1461,60 @@ impl LiveNode {
         if drained > 0 {
             log::info!("Drained {drained} remaining events during shutdown");
         }
+    }
+
+    fn observe_exec_event_before_dispatch(
+        &mut self,
+        evt: &ExecutionEvent,
+    ) -> Option<Vec<ClientOrderId>> {
+        let mut close_ids = Vec::new();
+
+        match evt {
+            ExecutionEvent::Order(order_evt) => {
+                self.exec_manager.observe_order_event(order_evt);
+                close_ids.push(order_evt.client_order_id());
+            }
+            ExecutionEvent::OrderSubmittedBatch(batch) => {
+                for submitted in &batch.events {
+                    self.exec_manager
+                        .record_local_activity(submitted.client_order_id);
+                }
+            }
+            ExecutionEvent::OrderAcceptedBatch(batch) => {
+                for accepted in &batch.events {
+                    self.exec_manager
+                        .clear_recon_tracking(&accepted.client_order_id, true);
+                    self.exec_manager
+                        .record_local_activity(accepted.client_order_id);
+                }
+            }
+            ExecutionEvent::OrderCanceledBatch(batch) => {
+                for canceled in &batch.events {
+                    self.exec_manager
+                        .clear_recon_tracking(&canceled.client_order_id, true);
+                    self.exec_manager
+                        .record_local_activity(canceled.client_order_id);
+                    close_ids.push(canceled.client_order_id);
+                }
+            }
+            ExecutionEvent::Report(report) => {
+                if let ExecutionReport::Fill(fill_report) = report
+                    && self
+                        .exec_manager
+                        .is_fill_recently_processed(&fill_report.trade_id)
+                {
+                    log::debug!(
+                        "Skipping recently processed fill report: {}",
+                        fill_report.trade_id,
+                    );
+                    return None;
+                }
+                self.exec_manager.observe_execution_report(report);
+            }
+            ExecutionEvent::Account(_) => {}
+        }
+
+        Some(close_ids)
     }
 
     /// Gets the node's environment.
@@ -2305,7 +2318,7 @@ mod tests {
     use nautilus_common::{
         actor::DataActor,
         cache::Cache,
-        clock::Clock,
+        clock::{Clock, TestClock},
         enums::SerializationEncoding,
         messages::execution::{SubmitOrder, TradingCommand},
         msgbus::{
@@ -2321,8 +2334,10 @@ mod tests {
     use nautilus_model::{
         data::QuoteTick,
         enums::{OmsType, OrderStatus, OrderType},
+        events::{OrderAcceptedBatch, order::spec::OrderAcceptedSpec},
         identifiers::{
-            AccountId, ClientId, InstrumentId, PositionId, StrategyId, TraderId, VenueOrderId,
+            AccountId, ClientId, InstrumentId, PositionId, StrategyId, TradeId, TraderId,
+            VenueOrderId,
         },
         instruments::{Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt},
         orders::{OrderTestBuilder, stubs::TestOrderEventStubs},
@@ -2361,6 +2376,100 @@ mod tests {
 ╰─────────┴───────────┴───────────╯";
 
         assert_eq!(output, expected);
+    }
+
+    #[rstest]
+    fn test_observe_exec_event_before_dispatch_skips_recent_fill_report() {
+        let config = LiveNodeConfig {
+            exec_engine: crate::config::LiveExecEngineConfig {
+                reconciliation: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("FillSkipNode".to_string(), Some(config)).unwrap();
+        let event = stub_exec_event();
+        let trade_id = TradeId::from("T-001");
+
+        let close_ids = node.observe_exec_event_before_dispatch(&event);
+        assert_eq!(close_ids, Some(Vec::new()));
+        assert!(!node.exec_manager.is_fill_recently_processed(&trade_id));
+
+        node.exec_manager.mark_fill_processed(trade_id);
+
+        let close_ids = node.observe_exec_event_before_dispatch(&event);
+        assert_eq!(close_ids, None);
+    }
+
+    #[rstest]
+    fn test_observe_exec_event_before_dispatch_accepted_batch_stamps_local_activity() {
+        let config = LiveNodeConfig {
+            exec_engine: crate::config::LiveExecEngineConfig {
+                reconciliation: true,
+                open_check_threshold_ms: 5_000,
+                single_order_query_delay_ms: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("AcceptedBatchNode".to_string(), Some(config)).unwrap();
+        let account_id = AccountId::from("TEST-ACCEPTED-BATCH-001");
+        let client_id = ClientId::from("TEST-ACCEPTED-BATCH");
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let client_order_id = ClientOrderId::from("O-ACCEPTED-BATCH");
+        let venue_order_id = VenueOrderId::from("V-ACCEPTED-BATCH");
+
+        node.kernel
+            .cache
+            .borrow_mut()
+            .add_instrument(InstrumentAny::CryptoPerpetual(instrument))
+            .unwrap();
+        insert_accepted_limit_order_in_node(
+            &node,
+            account_id,
+            client_id,
+            instrument_id,
+            client_order_id,
+            venue_order_id,
+        );
+
+        assert_eq!(node.exec_manager.check_open_order_queries().len(), 1);
+
+        let accepted = OrderAcceptedSpec::builder()
+            .instrument_id(instrument_id)
+            .client_order_id(client_order_id)
+            .venue_order_id(venue_order_id)
+            .account_id(account_id)
+            .build();
+        let event = ExecutionEvent::OrderAcceptedBatch(OrderAcceptedBatch::new(vec![accepted]));
+
+        let close_ids = node.observe_exec_event_before_dispatch(&event);
+
+        assert_eq!(close_ids, Some(Vec::new()));
+        assert!(node.exec_manager.check_open_order_queries().is_empty());
+    }
+
+    #[rstest]
+    fn test_live_node_builder_clock_factory_drives_kernel_clock() {
+        let calls = Rc::new(Cell::new(0usize));
+        let calls_in_factory = calls.clone();
+        let sentinel = UnixNanos::from(123_456_789_u64);
+
+        let node = LiveNode::builder(TraderId::from("TESTER-001"), Environment::Sandbox)
+            .unwrap()
+            .with_reconciliation(false)
+            .with_clock_factory(move || {
+                calls_in_factory.set(calls_in_factory.get() + 1);
+                let mut clock = TestClock::new();
+                clock.advance_time(sentinel, true);
+                Rc::new(RefCell::new(clock)) as Rc<RefCell<dyn Clock>>
+            })
+            .build()
+            .unwrap();
+
+        assert_eq!(node.kernel().clock().borrow().timestamp_ns(), sentinel);
+        assert_eq!(calls.get(), 1);
     }
 
     #[derive(Debug)]
