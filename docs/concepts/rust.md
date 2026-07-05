@@ -483,4 +483,4 @@ against live venues.
 - [Actors](actors.md) - Actor concepts (applies to both Python and Rust).
 - [Strategies](strategies.md) - Strategy concepts and handler reference.
 - [Events](events/) - Event types and handler dispatch.
-- [Backtesting](backtesting.md) - Backtest concepts and matching engine behavior.
+- [Backtesting](backtesting/) - Backtest concepts and matching engine behavior.

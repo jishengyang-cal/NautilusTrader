@@ -466,4 +466,4 @@ node/kernel level instead. Shutdown-on-error observes Rust `log` records, not Py
 - [Configure a live trading node](../how_to/configure_live_trading.md) - Node and engine configuration.
 - [Adapters](adapters.md) - Venue connectivity.
 - [Execution](execution.md) - Order execution in live environments.
-- [Backtesting](backtesting.md) - Testing strategies before deployment.
+- [Backtesting](backtesting/) - Testing strategies before deployment.
