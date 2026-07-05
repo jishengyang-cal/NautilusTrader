@@ -88,7 +88,7 @@ fn get_exchange(
         .book_type(book_type)
         .starting_balances(vec![Money::new(1000.0, Currency::USD())])
         .default_leverage(Decimal::ONE)
-        .fee_model(FeeModelAny::MakerTaker(MakerTakerFeeModel))
+        .fee_model(FeeModelAny::MakerTaker(MakerTakerFeeModel).into())
         .build()
         .unwrap();
     let exchange = Rc::new(RefCell::new(
@@ -1404,7 +1404,7 @@ fn build_exchange_with_options(
         .book_type(BookType::L2_MBP)
         .starting_balances(vec![Money::new(1000.0, Currency::USD())])
         .default_leverage(Decimal::ONE)
-        .fee_model(FeeModelAny::MakerTaker(MakerTakerFeeModel))
+        .fee_model(FeeModelAny::MakerTaker(MakerTakerFeeModel).into())
         .frozen_account(frozen_account)
         .allow_cash_borrowing(allow_cash_borrowing)
         .build()
@@ -2469,7 +2469,7 @@ fn get_exchange_with_module(
         .starting_balances(vec![Money::new(1000.0, Currency::USD())])
         .default_leverage(Decimal::ONE)
         .modules(modules)
-        .fee_model(FeeModelAny::MakerTaker(MakerTakerFeeModel))
+        .fee_model(FeeModelAny::MakerTaker(MakerTakerFeeModel).into())
         .build()
         .unwrap();
     let exchange = Rc::new(RefCell::new(

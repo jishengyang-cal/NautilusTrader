@@ -38,7 +38,7 @@ use nautilus_core::{
 use nautilus_execution::{
     matching_core::RestingOrder,
     matching_engine::{config::OrderMatchingEngineConfig, engine::OrderMatchingEngine},
-    models::{fee::FeeModelHandle, fill::FillModelAny, latency::LatencyModel},
+    models::{fee::FeeModelHandle, fill::FillModelHandle, latency::LatencyModel},
 };
 use nautilus_model::{
     accounts::{Account, AccountAny, margin_model::MarginModelAny},
@@ -132,7 +132,7 @@ pub struct SimulatedExchange {
     default_leverage: Decimal,
     exec_client: Option<Rc<dyn ExecutionClient>>,
     fee_model: FeeModelHandle,
-    fill_model: FillModelAny,
+    fill_model: FillModelHandle,
     latency_model: Option<Box<dyn LatencyModel>>,
     instruments: AHashMap<InstrumentId, InstrumentAny>,
     matching_engines: AHashMap<InstrumentId, OrderMatchingEngine>,
@@ -216,7 +216,7 @@ impl SimulatedExchange {
             book_type: config.book_type,
             default_leverage,
             exec_client: None,
-            fee_model: config.fee_model.into(),
+            fee_model: config.fee_model,
             fill_model: config.fill_model,
             latency_model: config.latency_model,
             instruments: AHashMap::new(),
@@ -274,14 +274,10 @@ impl SimulatedExchange {
     }
 
     /// Sets the fill model for the exchange.
-    pub fn set_fill_model(&mut self, fill_model: FillModelAny) {
+    pub fn set_fill_model(&mut self, fill_model: FillModelHandle) {
         for matching_engine in self.matching_engines.values_mut() {
-            matching_engine.set_fill_model(fill_model.clone().into());
-            log::info!(
-                "Setting fill model for {} to {}",
-                matching_engine.venue,
-                self.fill_model
-            );
+            matching_engine.set_fill_model(fill_model.clone());
+            log::info!("Setting fill model for {}", matching_engine.venue);
         }
         self.fill_model = fill_model;
     }
@@ -421,7 +417,7 @@ impl SimulatedExchange {
         let matching_engine = OrderMatchingEngine::new(
             instrument,
             raw_id,
-            self.fill_model.clone().into(),
+            self.fill_model.clone(),
             self.fee_model.clone(),
             self.book_type,
             self.oms_type,

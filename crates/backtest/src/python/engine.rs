@@ -32,16 +32,8 @@ use nautilus_core::{
     python::{to_pyruntime_err, to_pytype_err, to_pyvalue_err},
 };
 use nautilus_execution::{
-    models::{
-        fill::{
-            BestPriceFillModel, CompetitionAwareFillModel, DefaultFillModel, FillModelAny,
-            LimitOrderPartialFillModel, MarketHoursFillModel, OneTickSlippageFillModel,
-            ProbabilisticFillModel, SizeAwareFillModel, ThreeTierFillModel, TwoTierFillModel,
-            VolumeSensitiveFillModel,
-        },
-        latency::{LatencyModelAny, StaticLatencyModel},
-    },
-    python::fee::pyobject_to_fee_model_any,
+    models::latency::{LatencyModelAny, StaticLatencyModel},
+    python::{fee::pyobject_to_fee_model_handle, fill::pyobject_to_fill_model_handle},
 };
 #[cfg(feature = "defi")]
 use nautilus_model::defi::DefiData;
@@ -234,11 +226,11 @@ impl PyBacktestEngine {
             .map(|obj| Python::attach(|py| pyobject_to_margin_model_any(py, obj.bind(py))))
             .transpose()?;
         let fill_model = fill_model
-            .map(|obj| Python::attach(|py| pyobject_to_fill_model_any(py, obj.bind(py))))
+            .map(|obj| Python::attach(|py| pyobject_to_fill_model_handle(obj.bind(py))))
             .transpose()?
             .unwrap_or_default();
         let fee_model = fee_model
-            .map(|obj| Python::attach(|py| pyobject_to_fee_model_any(obj.bind(py))))
+            .map(|obj| Python::attach(|py| pyobject_to_fee_model_handle(obj.bind(py))))
             .transpose()?
             .unwrap_or_default();
         let latency_model = latency_model
@@ -317,7 +309,7 @@ impl PyBacktestEngine {
         venue: Venue,
         fill_model: Py<PyAny>,
     ) -> PyResult<()> {
-        let fill_model = pyobject_to_fill_model_any(py, fill_model.bind(py))?;
+        let fill_model = pyobject_to_fill_model_handle(fill_model.bind(py))?;
         self.0.change_fill_model(venue, fill_model);
         Ok(())
     }
@@ -1668,60 +1660,6 @@ mod tests {
     }
 }
 
-pub(crate) fn pyobject_to_fill_model_any(
-    _py: Python,
-    obj: &Bound<'_, PyAny>,
-) -> PyResult<FillModelAny> {
-    if let Ok(m) = obj.extract::<DefaultFillModel>() {
-        return Ok(FillModelAny::Default(m));
-    }
-
-    if let Ok(m) = obj.extract::<BestPriceFillModel>() {
-        return Ok(FillModelAny::BestPrice(m));
-    }
-
-    if let Ok(m) = obj.extract::<OneTickSlippageFillModel>() {
-        return Ok(FillModelAny::OneTickSlippage(m));
-    }
-
-    if let Ok(m) = obj.extract::<ProbabilisticFillModel>() {
-        return Ok(FillModelAny::Probabilistic(m));
-    }
-
-    if let Ok(m) = obj.extract::<TwoTierFillModel>() {
-        return Ok(FillModelAny::TwoTier(m));
-    }
-
-    if let Ok(m) = obj.extract::<ThreeTierFillModel>() {
-        return Ok(FillModelAny::ThreeTier(m));
-    }
-
-    if let Ok(m) = obj.extract::<LimitOrderPartialFillModel>() {
-        return Ok(FillModelAny::LimitOrderPartialFill(m));
-    }
-
-    if let Ok(m) = obj.extract::<SizeAwareFillModel>() {
-        return Ok(FillModelAny::SizeAware(m));
-    }
-
-    if let Ok(m) = obj.extract::<CompetitionAwareFillModel>() {
-        return Ok(FillModelAny::CompetitionAware(m));
-    }
-
-    if let Ok(m) = obj.extract::<VolumeSensitiveFillModel>() {
-        return Ok(FillModelAny::VolumeSensitive(m));
-    }
-
-    if let Ok(m) = obj.extract::<MarketHoursFillModel>() {
-        return Ok(FillModelAny::MarketHours(m));
-    }
-
-    let type_name = obj.get_type().name()?;
-    Err(to_pytype_err(format!(
-        "Cannot convert {type_name} to FillModel"
-    )))
-}
-
 pub(crate) fn pyobject_to_simulation_module_any(
     _py: Python,
     obj: &Bound<'_, PyAny>,
@@ -1866,4 +1804,109 @@ fn pyobject_to_data(_py: Python, obj: &Bound<'_, PyAny>) -> PyResult<Data> {
 
     let type_name = obj.get_type().name()?;
     Err(to_pytype_err(format!("Cannot convert {type_name} to Data")))
+}
+
+#[cfg(test)]
+mod model_tests {
+    use nautilus_execution::python::{fee::PyFeeModel, fill::PyFillModel};
+    use nautilus_model::{
+        enums::{AccountType, BookType, OmsType, OtoTriggerMode},
+        identifiers::Venue,
+        types::{Currency, Money},
+    };
+    use pyo3::{
+        IntoPyObjectExt, Python,
+        ffi::c_str,
+        types::{PyAnyMethods, PyDict, PyDictMethods},
+    };
+    use rstest::rstest;
+
+    use crate::{config::BacktestEngineConfig, engine::BacktestEngine};
+
+    #[rstest]
+    fn test_add_venue_accepts_python_defined_fee_and_fill_models() {
+        Python::initialize();
+
+        let mut engine =
+            super::PyBacktestEngine(BacktestEngine::new(BacktestEngineConfig::default()).unwrap());
+        Python::attach(|py| {
+            let locals = PyDict::new(py);
+            locals
+                .set_item("FeeModel", py.get_type::<PyFeeModel>())
+                .unwrap();
+            locals
+                .set_item("FillModel", py.get_type::<PyFillModel>())
+                .unwrap();
+
+            let fill_model = py
+                .eval(
+                    c_str!(
+                        "type('CustomFillModel', (FillModel,), {\
+                            'is_limit_filled': lambda self: True, \
+                            'is_slipped': lambda self: False\
+                        })()"
+                    ),
+                    None,
+                    Some(&locals),
+                )
+                .unwrap();
+            let fee_model = py
+                .eval(
+                    c_str!(
+                        "type('CustomFeeModel', (FeeModel,), {\
+                            'get_commission': \
+                                lambda self, order, fill_quantity, fill_px, instrument: self.commission\
+                        })()"
+                    ),
+                    None,
+                    Some(&locals),
+                )
+                .unwrap();
+            fee_model
+                .setattr("commission", Money::from("0 USD").into_py_any(py).unwrap())
+                .unwrap();
+
+            engine
+                .py_add_venue(
+                    Venue::from("SIM"),
+                    OmsType::Netting,
+                    AccountType::Margin,
+                    vec![Money::from("1_000_000 USD")],
+                    None::<Currency>,
+                    None,
+                    None,
+                    None,
+                    Some(fill_model.unbind()),
+                    Some(fee_model.unbind()),
+                    None,
+                    None,
+                    BookType::L1_MBP,
+                    false,
+                    true,
+                    true,
+                    true,
+                    true,
+                    false,
+                    true,
+                    true,
+                    false,
+                    true,
+                    false,
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    OtoTriggerMode::Partial,
+                    None,
+                    None,
+                    false,
+                    None,
+                    true,
+                )
+                .unwrap();
+
+            assert_eq!(engine.0.list_venues(), vec![Venue::from("SIM")]);
+        });
+    }
 }

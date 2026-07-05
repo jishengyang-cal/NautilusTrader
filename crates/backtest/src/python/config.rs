@@ -24,7 +24,8 @@ use nautilus_common::{
 use nautilus_core::{UUID4, UnixNanos, python::to_pyvalue_err};
 use nautilus_data::engine::config::DataEngineConfig;
 use nautilus_execution::{
-    engine::config::ExecutionEngineConfig, python::fee::pyobject_to_fee_model_any,
+    engine::config::ExecutionEngineConfig,
+    python::{fee::pyobject_to_fee_model_any, fill::pyobject_to_fill_model_any},
 };
 use nautilus_model::{
     data::BarSpecification,
@@ -39,8 +40,7 @@ use rust_decimal::Decimal;
 use ustr::Ustr;
 
 use super::engine::{
-    pyobject_to_fill_model_any, pyobject_to_latency_model_any, pyobject_to_margin_model_any,
-    pyobject_to_simulation_module_any,
+    pyobject_to_latency_model_any, pyobject_to_margin_model_any, pyobject_to_simulation_module_any,
 };
 use crate::config::{
     BacktestDataConfig, BacktestEngineConfig, BacktestRunConfig, BacktestVenueConfig,
@@ -329,7 +329,7 @@ impl BacktestVenueConfig {
             .transpose()?
             .unwrap_or_default();
         let fill_model = fill_model
-            .map(|obj| Python::attach(|py| pyobject_to_fill_model_any(py, obj.bind(py))))
+            .map(|obj| Python::attach(|py| pyobject_to_fill_model_any(obj.bind(py))))
             .transpose()?;
         let latency_model = latency_model
             .map(|obj| Python::attach(|py| pyobject_to_latency_model_any(py, obj.bind(py))))

@@ -47,7 +47,7 @@ use nautilus_core::{
     UUID4, UnixNanos, datetime::unix_nanos_to_iso8601, string::formatting::Separable,
 };
 use nautilus_data::client::DataClientAdapter;
-use nautilus_execution::models::fill::FillModelAny;
+use nautilus_execution::models::fill::FillModelHandle;
 use nautilus_model::{
     accounts::{Account, AccountAny},
     data::{Data, HasTsInit},
@@ -312,7 +312,7 @@ impl BacktestEngine {
     }
 
     /// Changes the fill model for the specified venue.
-    pub fn change_fill_model(&mut self, venue: Venue, fill_model: FillModelAny) {
+    pub fn change_fill_model(&mut self, venue: Venue, fill_model: FillModelHandle) {
         if let Some(exchange) = self.venues.get_mut(&venue) {
             exchange.borrow_mut().set_fill_model(fill_model);
         } else {

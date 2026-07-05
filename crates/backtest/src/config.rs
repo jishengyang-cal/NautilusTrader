@@ -30,8 +30,8 @@ use nautilus_data::engine::config::DataEngineConfig;
 use nautilus_execution::{
     engine::config::ExecutionEngineConfig,
     models::{
-        fee::FeeModelAny,
-        fill::FillModelAny,
+        fee::{FeeModelAny, FeeModelHandle},
+        fill::{FillModelAny, FillModelHandle},
         latency::{LatencyModel, LatencyModelAny},
     },
 };
@@ -297,9 +297,9 @@ pub struct SimulatedVenueConfig {
     #[builder(default)]
     pub modules: Vec<Box<dyn SimulationModule>>,
     #[builder(default)]
-    pub fill_model: FillModelAny,
+    pub fill_model: FillModelHandle,
     #[builder(default)]
-    pub fee_model: FeeModelAny,
+    pub fee_model: FeeModelHandle,
     pub latency_model: Option<Box<dyn LatencyModel>>,
     #[builder(default = false)]
     pub routing: bool,
