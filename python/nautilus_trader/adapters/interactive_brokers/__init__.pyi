@@ -93,7 +93,6 @@ class DockerizedIBGateway:
     def stop_blocking(self) -> None: ...
     def container_status(self) -> typing.Any: ...
 
-@typing.final
 class DockerizedIBGatewayConfig:
     def __init__(
         self,
@@ -120,7 +119,6 @@ class DockerizedIBGatewayConfig:
     @property
     def vnc_port(self) -> int | None: ...
 
-@typing.final
 class HistoricalInteractiveBrokersClient:
     def __init__(
         self,
@@ -158,7 +156,6 @@ class HistoricalInteractiveBrokersClient:
 @typing.final
 class InteractiveBrokersDataClient: ...
 
-@typing.final
 class InteractiveBrokersDataClientConfig:
     def __init__(
         self,
@@ -206,7 +203,6 @@ class InteractiveBrokersDataClientFactory:
     def __init__(self) -> None: ...
     def name(self) -> str: ...
 
-@typing.final
 class InteractiveBrokersExecClientConfig:
     def __init__(
         self,
@@ -275,7 +271,6 @@ class InteractiveBrokersInstrumentProvider:
     def save_cache(self, cache_path: str) -> typing.Any: ...
     def load_cache(self, cache_path: str) -> typing.Any: ...
 
-@typing.final
 class InteractiveBrokersInstrumentProviderConfig:
     def __init__(
         self,

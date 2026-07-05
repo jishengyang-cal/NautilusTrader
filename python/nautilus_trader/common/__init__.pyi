@@ -120,7 +120,6 @@ class CustomData:
     @property
     def ts_init(self) -> int: ...
 
-@typing.final
 class DataActorConfig:
     def __init__(
         self,
@@ -603,7 +602,6 @@ class Clock:
     def cancel_timer(self, name: str) -> None: ...
     def cancel_timers(self) -> None: ...
 
-@typing.final
 class DataActor:
     def __init__(self, config: typing.Any | None = None) -> None: ...
     @property

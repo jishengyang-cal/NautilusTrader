@@ -260,7 +260,6 @@ class ImportableStrategyConfig:
     @property
     def config(self) -> dict: ...
 
-@typing.final
 class Strategy:
     def __init__(self, config: typing.Any | None = None) -> None: ...
     @property
@@ -731,7 +730,6 @@ class Strategy:
         params: dict | None = None,
     ) -> str: ...
 
-@typing.final
 class StrategyConfig:
     def __init__(
         self,
