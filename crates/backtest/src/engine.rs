@@ -57,6 +57,8 @@ use nautilus_model::{
     position::Position,
     types::Price,
 };
+#[cfg(feature = "python")]
+use nautilus_system::trader::Trader;
 use nautilus_system::{config::NautilusKernelConfig, kernel::NautilusKernel};
 use nautilus_trading::{
     ExecutionAlgorithm, ExecutionAlgorithmNative,
@@ -138,6 +140,17 @@ impl BacktestEngine {
         config.cache = Some(cache_config);
         let kernel = NautilusKernel::new("BacktestEngine".to_string(), config.clone())?;
         let instance_id = kernel.instance_id;
+        #[cfg(feature = "python")]
+        if let Some(controller) = config.controller.as_ref() {
+            Trader::add_controller_from_importable_config(&kernel.trader, controller)?;
+        }
+        #[cfg(not(feature = "python"))]
+        if let Some(controller) = config.controller.as_ref() {
+            anyhow::bail!(
+                "BacktestEngineConfig.controller for importable controller '{}' requires the python feature",
+                controller.controller_path
+            );
+        }
 
         Ok(Self {
             kernel,

@@ -105,6 +105,8 @@ use nautilus_model::{
     orders::Order,
     reports::{OrderStatusReport, PositionStatusReport},
 };
+#[cfg(feature = "python")]
+use nautilus_system::trader::Trader;
 use nautilus_system::{config::NautilusKernelConfig, kernel::NautilusKernel};
 use nautilus_trading::{
     ExecutionAlgorithm, ExecutionAlgorithmNative,
@@ -236,6 +238,17 @@ impl LiveNode {
         runner.bind_senders();
 
         let kernel = NautilusKernel::new(name, config.clone())?;
+        #[cfg(feature = "python")]
+        if let Some(controller) = config.controller.as_ref() {
+            Trader::add_controller_from_importable_config(&kernel.trader, controller)?;
+        }
+        #[cfg(not(feature = "python"))]
+        if let Some(controller) = config.controller.as_ref() {
+            anyhow::bail!(
+                "LiveNodeConfig.controller for importable controller '{}' requires the python feature",
+                controller.controller_path
+            );
+        }
 
         let exec_manager_config =
             ExecutionManagerConfig::from(&config.exec_engine).with_trader_id(config.trader_id);

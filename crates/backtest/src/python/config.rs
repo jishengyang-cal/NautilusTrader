@@ -35,6 +35,7 @@ use nautilus_model::{
 };
 use nautilus_portfolio::config::PortfolioConfig;
 use nautilus_risk::engine::config::RiskEngineConfig;
+use nautilus_trading::ImportableControllerConfig;
 use pyo3::{Py, PyAny, Python};
 use rust_decimal::Decimal;
 use ustr::Ustr;
@@ -73,6 +74,7 @@ impl BacktestEngineConfig {
         risk_engine = None,
         exec_engine = None,
         portfolio = None,
+        controller = None,
     ))]
     #[expect(clippy::too_many_arguments)]
     fn py_new(
@@ -96,6 +98,7 @@ impl BacktestEngineConfig {
         risk_engine: Option<RiskEngineConfig>,
         exec_engine: Option<ExecutionEngineConfig>,
         portfolio: Option<PortfolioConfig>,
+        controller: Option<ImportableControllerConfig>,
     ) -> Self {
         let defaults = Self::default();
         Self {
@@ -120,6 +123,7 @@ impl BacktestEngineConfig {
             risk_engine,
             exec_engine,
             portfolio,
+            controller,
             streaming: None,
         }
     }
@@ -230,6 +234,12 @@ impl BacktestEngineConfig {
     #[pyo3(name = "portfolio")]
     const fn py_portfolio(&self) -> Option<PortfolioConfig> {
         self.portfolio
+    }
+
+    #[getter]
+    #[pyo3(name = "controller")]
+    fn py_controller(&self) -> Option<ImportableControllerConfig> {
+        self.controller.clone()
     }
 
     fn __repr__(&self) -> String {

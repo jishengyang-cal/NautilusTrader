@@ -74,9 +74,13 @@ from nautilus_trader.trading import CompositeMarketMakerConfig
 from nautilus_trader.trading import EmaCrossConfig
 from nautilus_trader.trading import ExecutionAlgorithmConfig
 from nautilus_trader.trading import GridMarketMakerConfig
+from nautilus_trader.trading import ImportableControllerConfig
 from nautilus_trader.trading import ImportableExecAlgorithmConfig
 from nautilus_trader.trading import ImportableStrategyConfig
 from tests.providers import TestInstrumentProvider
+from tests.unit.common.actor import ControllerCreatedStrategy
+from tests.unit.common.actor import NonStartingStrategyCreatingController
+from tests.unit.common.actor import StrategyCreatingController
 
 
 USD = Currency.from_str("USD")
@@ -261,6 +265,55 @@ def test_importable_actor_receives_quotes_and_depth_snapshot_books():
     assert MarketDataAuditActor.last_bid == Price.from_str("2002.95")
     assert MarketDataAuditActor.last_book_bid == Price.from_str("2000.20")
     assert MarketDataAuditActor.last_book_ask == Price.from_str("2000.40")
+    engine.dispose()
+
+
+def test_importable_controller_creates_strategy_on_start():
+    StrategyCreatingController.reset()
+    ControllerCreatedStrategy.reset()
+    engine = BacktestEngine(
+        BacktestEngineConfig(
+            bypass_logging=True,
+            run_analysis=False,
+            controller=ImportableControllerConfig(
+                controller_path="tests.unit.common.actor:StrategyCreatingController",
+                config_path="tests.unit.common.actor:TestControllerConfig",
+                config={"actor_id": "Controller-001"},
+            ),
+        ),
+    )
+
+    engine.run()
+
+    assert StrategyCreatingController.started == 1
+    assert str(StrategyCreatingController.created_strategy_id) == "ControllerCreatedStrategy-001"
+    assert ControllerCreatedStrategy.started == 1
+    engine.dispose()
+
+
+def test_importable_controller_preserves_strategy_start_flag_on_start():
+    NonStartingStrategyCreatingController.reset()
+    ControllerCreatedStrategy.reset()
+    engine = BacktestEngine(
+        BacktestEngineConfig(
+            bypass_logging=True,
+            run_analysis=False,
+            controller=ImportableControllerConfig(
+                controller_path="tests.unit.common.actor:NonStartingStrategyCreatingController",
+                config_path="tests.unit.common.actor:TestControllerConfig",
+                config={"actor_id": "Controller-001"},
+            ),
+        ),
+    )
+
+    engine.run()
+
+    assert NonStartingStrategyCreatingController.started == 1
+    assert (
+        str(NonStartingStrategyCreatingController.created_strategy_id)
+        == "ControllerCreatedStrategy-001"
+    )
+    assert ControllerCreatedStrategy.started == 0
     engine.dispose()
 
 

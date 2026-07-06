@@ -45,6 +45,7 @@ use nautilus_model::{
 use nautilus_portfolio::config::PortfolioConfig;
 use nautilus_risk::engine::config::RiskEngineConfig;
 use nautilus_system::config::{NautilusKernelConfig, StreamingConfig};
+use nautilus_trading::ImportableControllerConfig;
 use rust_decimal::Decimal;
 use ustr::Ustr;
 
@@ -168,6 +169,8 @@ pub struct BacktestEngineConfig {
     pub exec_engine: Option<ExecutionEngineConfig>,
     /// The portfolio configuration.
     pub portfolio: Option<PortfolioConfig>,
+    /// The importable controller configuration.
+    pub controller: Option<ImportableControllerConfig>,
     /// The configuration for streaming to feather files.
     pub streaming: Option<StreamingConfig>,
     /// If logging should be bypassed.

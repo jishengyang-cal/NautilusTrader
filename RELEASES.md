@@ -31,6 +31,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Up/Down Capture ratio portfolio statistics (#4354), thanks @mahimn01
 - Added Ulcer Index, Omega Ratio, VaR, and Expected Shortfall portfolio statistics (#4352), thanks @Martingale42
 - Added Tail Ratio portfolio statistic (#4341), thanks @Martingale42
+- Added Python v2 controller subclassing and importable controller configs for backtest/live
+- Added Python v2 subclassable execution algorithms for routed orders
 - Added Python v2 `FeeModel` and `FillModel` subclass support for custom backtest models
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
 - Added Hyperliquid market data stream health warnings for stalled Deltas, Depth10, and Quote subscriptions (#4298)

@@ -48,6 +48,7 @@ use nautilus_system::{
     config::{NautilusKernelConfig, StreamingConfig},
     event_store::EventStoreConfig,
 };
+use nautilus_trading::ImportableControllerConfig;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -788,6 +789,8 @@ pub struct LiveNodeConfig {
     /// The execution client configurations.
     #[builder(default)]
     pub exec_clients: HashMap<String, LiveExecClientConfig>,
+    /// The importable controller configuration.
+    pub controller: Option<ImportableControllerConfig>,
     /// The Rust-native plug-in instances to load before startup.
     #[builder(default)]
     pub plugins: Vec<PluginConfig>,

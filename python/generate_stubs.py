@@ -198,6 +198,13 @@ EXTRA_REEXPORTS: dict[str, tuple[str, ...]] = {
         "from nautilus_trader.core.datetime import dt_to_unix_nanos as dt_to_unix_nanos",
         "from nautilus_trader.core.datetime import unix_nanos_to_dt as unix_nanos_to_dt",
     ),
+    "nautilus_trader/trading/__init__.pyi": (
+        "from nautilus_trader.trading.controller import Controller as Controller",
+    ),
+}
+
+EXTRA_ALL_EXPORTS: dict[str, tuple[str, ...]] = {
+    "nautilus_trader/trading/__init__.pyi": ("Controller",),
 }
 
 MODEL_EXPORTS = frozenset(MODULE_FIXUPS["model"].all_exports)
@@ -365,24 +372,29 @@ def inject_reexports(content: str, stub_path: Path) -> str:
     """
     posix = stub_path.as_posix()
     reexports = next((v for k, v in EXTRA_REEXPORTS.items() if posix.endswith(k)), None)
+    exports = next((v for k, v in EXTRA_ALL_EXPORTS.items() if posix.endswith(k)), None)
 
-    if not reexports:
+    if not reexports and not exports:
         return content
 
-    lines = content.split("\n")
-    missing = [imp for imp in reexports if imp not in lines]
+    if reexports:
+        lines = content.split("\n")
+        missing = [imp for imp in reexports if imp not in lines]
 
-    if not missing:
-        return content
+        if missing:
+            insert_at = 0
 
-    insert_at = 0
+            for i, line in enumerate(lines):
+                if line.startswith(("import ", "from ")):
+                    insert_at = i + 1
 
-    for i, line in enumerate(lines):
-        if line.startswith(("import ", "from ")):
-            insert_at = i + 1
+            lines[insert_at:insert_at] = missing
+            content = "\n".join(lines)
 
-    lines[insert_at:insert_at] = missing
-    return "\n".join(lines)
+    if exports:
+        content = _add_names_to_all(content, list(exports))
+
+    return content
 
 
 def post_process_stubs(root: Path) -> None:

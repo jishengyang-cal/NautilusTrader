@@ -7,10 +7,12 @@ import typing
 from nautilus_trader import common
 from nautilus_trader import model
 from nautilus_trader import portfolio
+from nautilus_trader.trading.controller import Controller as Controller
 
 __all__ = [
     "BookImbalanceActorConfig",
     "CompositeMarketMakerConfig",
+    "Controller",
     "DeltaNeutralVolConfig",
     "EmaCrossConfig",
     "ExecutionAlgorithm",
@@ -18,6 +20,7 @@ __all__ = [
     "ForexSession",
     "GridMarketMakerConfig",
     "HurstVpinDirectionalConfig",
+    "ImportableControllerConfig",
     "ImportableExecAlgorithmConfig",
     "ImportableStrategyConfig",
     "Strategy",
@@ -240,6 +243,16 @@ class HurstVpinDirectionalConfig:
     def vpin_threshold(self) -> float: ...
     @property
     def max_holding_secs(self) -> int: ...
+
+@typing.final
+class ImportableControllerConfig:
+    def __init__(self, controller_path: str, config_path: str, config: dict) -> None: ...
+    @property
+    def controller_path(self) -> str: ...
+    @property
+    def config_path(self) -> str: ...
+    @property
+    def config(self) -> dict: ...
 
 @typing.final
 class ImportableExecAlgorithmConfig:
