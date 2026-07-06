@@ -1598,6 +1598,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pytz" },
     { name = "tqdm" },
+    { name = "tzdata" },
     { name = "uvloop", marker = "sys_platform != 'win32'" },
 ]
 
@@ -1674,6 +1675,7 @@ requires-dist = [
     { name = "pytz", specifier = ">=2026.2" },
     { name = "simplejson", marker = "extra == 'visualization'", specifier = "==3.20.2" },
     { name = "tqdm", specifier = ">=4.68.3,<5.0.0" },
+    { name = "tzdata", specifier = ">=2026.2" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = "==0.22.1,<1.0.0" },
 ]
 provides-extras = ["betfair", "ib", "docker", "polymarket", "visualization"]

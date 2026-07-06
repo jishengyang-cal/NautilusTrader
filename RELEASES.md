@@ -60,6 +60,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Redis message bus startup with Python v2 configs (#4356), thanks for reporting @davidgreyme
 - Fixed Binance Futures order reports omitting external limit order prices (#4346), thanks for reporting @linimin
 - Fixed Binance Futures external algo order materialization (#4348), thanks for reporting @linimin
+- Fixed Binance Futures algo orders to consume USD-M order-count limits (#4395), thanks for reporting @cjdsellers
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
 - Fixed Derive option `scheduled_activation` parsing as UNIX seconds (was parsed as milliseconds)
@@ -69,6 +70,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
 - Fixed Hyperliquid `l2Book` resubscribe options and shared stream teardown (#4298)
 - Fixed Interactive Brokers `contract_details_to_dict` crash when `contractDetails.ineligibilityReasonList` contains non-serializable `IneligibilityReason` objects
+- Fixed Interactive Brokers futures/options parsing for legacy `US/*` time zones
 
 ### Internal Improvements
 - Improved core decimal deserialization to round fractional scales above 28 digits instead of erroring
@@ -79,6 +81,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Upgraded `redis` crate to v1.3.0
 
 ### Documentation Updates
+- Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
 - Added SinoPac Securities community adapter listing (#4324), thanks @Martingale42
 - Added canonical references and doc comments for portfolio statistics
 - Fixed Lighter get-started Python v2 development wheel link

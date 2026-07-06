@@ -32,6 +32,7 @@ dependencies = [
   "portion>=2.6.1",
   "pyarrow>=24.0.0",
   "pytz>=2026.2",
+  "tzdata>=2026.2",
   "tqdm>=4.68.3,<5.0.0",
   "uvloop==0.22.1,<1.0.0; sys_platform != \"win32\"", # Pinned to 0.22.1 for stability
 ]
