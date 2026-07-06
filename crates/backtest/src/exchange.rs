@@ -1440,13 +1440,31 @@ impl SimulatedExchange {
             command => command,
         };
 
-        if let Some(matching_engine) = self.matching_engines.get_mut(&instrument_id) {
-            let account_id = if let Some(exec_client) = &self.exec_client {
-                exec_client.account_id()
-            } else {
-                panic!("Execution client should be initialized");
-            };
+        let account_id = if let Some(exec_client) = &self.exec_client {
+            exec_client.account_id()
+        } else {
+            panic!("Execution client should be initialized");
+        };
 
+        if let TradingCommand::SubmitOrderList(ref command) = command {
+            let mut orders: Vec<OrderAny> = self
+                .cache
+                .borrow()
+                .orders_for_ids(&command.order_list.client_order_ids, command);
+
+            for order in &mut orders {
+                let order_instrument_id = order.instrument_id();
+                if let Some(matching_engine) = self.matching_engines.get_mut(&order_instrument_id) {
+                    matching_engine.process_order(order, account_id);
+                } else {
+                    panic!("Matching engine not found for instrument {order_instrument_id}");
+                }
+            }
+
+            return;
+        }
+
+        if let Some(matching_engine) = self.matching_engines.get_mut(&instrument_id) {
             match command {
                 TradingCommand::SubmitOrder(command) => {
                     let mut order = self
@@ -1471,16 +1489,6 @@ impl SimulatedExchange {
                 }
                 TradingCommand::CancelAllOrders(ref command) => {
                     matching_engine.process_cancel_all(command, account_id);
-                }
-                TradingCommand::SubmitOrderList(ref command) => {
-                    let mut orders: Vec<OrderAny> = self
-                        .cache
-                        .borrow()
-                        .orders_for_ids(&command.order_list.client_order_ids, command);
-
-                    for order in &mut orders {
-                        matching_engine.process_order(order, account_id);
-                    }
                 }
                 _ => {}
             }
