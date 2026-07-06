@@ -1212,6 +1212,11 @@ impl BlockchainDataClientCore {
             dex_extended.collect_created_event.as_ref(),
             dex_extended.flash_created_event.as_deref(),
         );
+        self.subscription_manager.register_dex_fee_protocol_events(
+            dex_id,
+            dex_extended.fee_protocol_update_event.as_deref(),
+            dex_extended.fee_protocol_collect_event.as_deref(),
+        );
         Ok(())
     }
 

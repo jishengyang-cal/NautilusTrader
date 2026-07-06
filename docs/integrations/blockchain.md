@@ -232,7 +232,8 @@ Pool discovery:
 
 - `use_hypersync_for_live_data = true`: subscribe to blocks through HyperSync, then fetch matching
   DEX events for subscribed pools.
-- `use_hypersync_for_live_data = false`: use WSS RPC where a streaming implementation exists.
+- `use_hypersync_for_live_data = false`: use WSS RPC block and pool-log subscriptions for live
+  swaps, liquidity updates, fee collections, flash events, and fee-protocol events.
 
 ### Snapshot bootstrap
 
