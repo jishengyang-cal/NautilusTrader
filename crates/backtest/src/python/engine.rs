@@ -65,7 +65,10 @@ use nautilus_trading::examples::{
 use nautilus_trading::{
     ImportableExecAlgorithmConfig, ImportableStrategyConfig,
     algorithm::{TwapAlgorithm, TwapAlgorithmConfig},
-    python::strategy::{PyStrategy, PyStrategyInner},
+    python::{
+        algorithm::PyExecutionAlgorithm,
+        strategy::{PyStrategy, PyStrategyInner},
+    },
 };
 use pyo3::prelude::*;
 use rust_decimal::Decimal;
@@ -1146,6 +1149,10 @@ impl PyBacktestEngine {
     fn add_python_exec_algorithm(&mut self, exec_algorithm: &Py<PyAny>) -> PyResult<()> {
         self.ensure_can_add_exec_algorithm()?;
 
+        if self.try_add_py_execution_algorithm(exec_algorithm)? {
+            return Ok(());
+        }
+
         let actor_id = Python::attach(|py| -> anyhow::Result<ActorId> {
             let bound = exec_algorithm.bind(py);
 
@@ -1260,6 +1267,75 @@ impl PyBacktestEngine {
 
         log::info!("Registered Python exec algorithm {exec_algorithm_id}");
         Ok(())
+    }
+
+    fn try_add_py_execution_algorithm(&mut self, exec_algorithm: &Py<PyAny>) -> PyResult<bool> {
+        let py_exec_algorithm =
+            Python::attach(|py| -> anyhow::Result<Option<PyExecutionAlgorithm>> {
+                let bound = exec_algorithm.bind(py);
+
+                let config_instance = bound
+                    .getattr("config")
+                    .ok()
+                    .filter(|config| !config.is_none());
+
+                let Ok(mut py_exec_algorithm_ref) =
+                    bound.extract::<PyRefMut<PyExecutionAlgorithm>>()
+                else {
+                    return Ok(None);
+                };
+
+                if let Some(config_obj) = config_instance.as_ref() {
+                    let id_attr = config_obj
+                        .getattr("exec_algorithm_id")
+                        .ok()
+                        .filter(|v| !v.is_none())
+                        .or_else(|| config_obj.getattr("actor_id").ok().filter(|v| !v.is_none()));
+
+                    if let Some(id_value) = id_attr {
+                        let exec_algorithm_id =
+                            if let Ok(eaid) = id_value.extract::<ExecAlgorithmId>() {
+                                eaid
+                            } else if let Ok(aid) = id_value.extract::<ActorId>() {
+                                ExecAlgorithmId::new_checked(aid.inner().as_str())?
+                            } else if let Ok(id_str) = id_value.extract::<String>() {
+                                ExecAlgorithmId::new_checked(&id_str)?
+                            } else {
+                                anyhow::bail!("Invalid `exec_algorithm_id`/`actor_id` type");
+                            };
+                        py_exec_algorithm_ref.set_exec_algorithm_id(exec_algorithm_id);
+                    }
+
+                    if let Ok(log_events) = config_obj.getattr("log_events")
+                        && let Ok(log_events_val) = log_events.extract::<bool>()
+                    {
+                        py_exec_algorithm_ref.set_log_events(log_events_val);
+                    }
+
+                    if let Ok(log_commands) = config_obj.getattr("log_commands")
+                        && let Ok(log_commands_val) = log_commands.extract::<bool>()
+                    {
+                        py_exec_algorithm_ref.set_log_commands(log_commands_val);
+                    }
+                }
+
+                py_exec_algorithm_ref.set_python_instance(exec_algorithm.clone_ref(py));
+
+                Ok(Some(py_exec_algorithm_ref.clone()))
+            })
+            .map_err(to_pyruntime_err)?;
+
+        let Some(py_exec_algorithm) = py_exec_algorithm else {
+            return Ok(false);
+        };
+
+        let exec_algorithm_id = py_exec_algorithm.exec_algorithm_id();
+        self.0
+            .add_exec_algorithm(py_exec_algorithm)
+            .map_err(to_pyruntime_err)?;
+
+        log::info!("Registered Python exec algorithm {exec_algorithm_id}");
+        Ok(true)
     }
 
     /// Rejects adding an execution algorithm when the trader is running or disposed.
