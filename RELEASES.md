@@ -74,6 +74,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
 - Fixed Architect AX `/transactions` requests to include the required bounded time range
 - Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas
+- Fixed OKX price-limit metadata parsing and public limit-price requests
 - Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno

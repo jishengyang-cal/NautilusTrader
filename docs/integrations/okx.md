@@ -30,6 +30,7 @@ Live example scripts are available in
 Relevant OKX docs:
 
 - [Get instruments](https://www.okx.com/docs-v5/en/#public-data-rest-api-get-instruments).
+- [Get limit price](https://www.okx.com/docs-v5/en/#public-data-rest-api-get-limit-price).
 - [Get Spreads (Public)](https://www.okx.com/docs-v5/en/#spread-trading-rest-api-get-spreads-public).
 - [Spread trading place order](https://www.okx.com/docs-v5/en/#spread-trading-rest-api-place-order).
 - [Event contract series](https://www.okx.com/docs-v5/en/#public-data-rest-api-get-series).
@@ -45,6 +46,25 @@ Relevant OKX docs:
 **Instrument multipliers**: For derivatives (`SWAP`, `FUTURES`, `OPTION`), instrument
 multipliers are calculated as the product of OKX's `ctMult` and `ctVal` fields. This
 keeps position sizing aligned with OKX contract size and value.
+:::
+
+:::info
+**Price limits**: OKX exposes `initPxLmtPct`, `floatPxLmtPct`, and `maxPxLmtPct`
+on `public/instruments` for spot, margin, swap, and futures instruments. The adapter
+preserves non-empty values in the instrument `info` field as `okx_init_px_lmt_pct`,
+`okx_float_px_lmt_pct`, and `okx_max_px_lmt_pct`. These fields describe exchange
+band percentages, so they are not parsed as static Nautilus `min_price` or `max_price`
+values.
+
+Use `OKXHttpClient.request_price_limit(instrument_id)` when you need the current computed
+buy and sell limits from OKX's `GET /api/v5/public/price-limit` endpoint. OKX documents
+the percentage fields as empty for options and event contracts; the adapter leaves their
+instrument `info` unchanged.
+:::
+
+:::note
+OKX finance-product endpoints such as `/api/v5/finance/okusd/*` are outside the OKX
+trading adapter surface.
 :::
 
 The OKX adapter includes multiple components, which can be used separately or together:
@@ -980,6 +1000,7 @@ responses and temporary throttling on that key.
 | `/api/v5/public/event-contract/events`  | 5               | OKX 10 requests / 2 seconds.                      |
 | `/api/v5/public/event-contract/markets` | 5               | OKX 10 requests / 2 seconds.                      |
 | `/api/v5/public/opt-summary`            | 10              | OKX 20 requests / 2 seconds.                      |
+| `/api/v5/public/price-limit`            | 10              | OKX 20 requests / 2 seconds.                      |
 | `/api/v5/public/time`                   | 5               | OKX 10 requests / 2 seconds.                      |
 | `/api/v5/public/mark-price`             | 5               | OKX 10 requests / 2 seconds.                      |
 | `/api/v5/public/funding-rate-history`   | 5               | OKX 10 requests / 2 seconds.                      |

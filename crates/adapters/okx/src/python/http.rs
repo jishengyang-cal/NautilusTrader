@@ -652,6 +652,28 @@ impl OKXHttpClient {
         })
     }
 
+    /// Requests the current price limits for the `instrument_id` from OKX.
+    #[pyo3(name = "request_price_limit")]
+    fn py_request_price_limit<'py>(
+        &self,
+        py: Python<'py>,
+        instrument_id: InstrumentId,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let price_limit = client
+                .request_price_limit(instrument_id)
+                .await
+                .map_err(to_pyvalue_err)?;
+
+            Python::attach(|py| {
+                let value = serde_json::to_value(price_limit).map_err(to_pyvalue_err)?;
+                value_to_pyobject(py, &value)
+            })
+        })
+    }
+
     /// Requests the latest index price for the `instrument_id` from OKX.
     #[pyo3(name = "request_index_price")]
     fn py_request_index_price<'py>(

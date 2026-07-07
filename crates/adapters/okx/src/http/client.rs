@@ -90,8 +90,8 @@ use super::{
         OKXFundingRateHistory, OKXIndexTicker, OKXMarkPrice, OKXOptionSummary, OKXOrderAlgo,
         OKXOrderBookSnapshot, OKXOrderHistory, OKXPlaceAlgoOrderRequest, OKXPlaceAlgoOrderResponse,
         OKXPlaceOrderRequest, OKXPlaceOrderResponse, OKXPlaceSpreadOrderRequest, OKXPosition,
-        OKXPositionHistory, OKXPositionTier, OKXServerTime, OKXSpread, OKXSpreadOrder,
-        OKXSpreadTrade, OKXTransactionDetail,
+        OKXPositionHistory, OKXPositionTier, OKXPriceLimit, OKXServerTime, OKXSpread,
+        OKXSpreadOrder, OKXSpreadTrade, OKXTransactionDetail,
     },
     query::{
         GetAlgoOrdersParams, GetAlgoOrdersParamsBuilder, GetCandlesticksParams,
@@ -101,7 +101,8 @@ use super::{
         GetMarkPriceParams, GetMarkPriceParamsBuilder, GetOptionSummaryParams, GetOrderBookParams,
         GetOrderHistoryParams, GetOrderHistoryParamsBuilder, GetOrderListParams,
         GetOrderListParamsBuilder, GetPositionTiersParams, GetPositionsHistoryParams,
-        GetPositionsParams, GetPositionsParamsBuilder, GetSpreadOrderParams, GetSpreadOrdersParams,
+        GetPositionsParams, GetPositionsParamsBuilder, GetPriceLimitParams,
+        GetPriceLimitParamsBuilder, GetSpreadOrderParams, GetSpreadOrdersParams,
         GetSpreadOrdersParamsBuilder, GetSpreadTradesParams, GetSpreadTradesParamsBuilder,
         GetSpreadsParams, GetTradeFeeParams, GetTradesParams, GetTradesParamsBuilder,
         GetTransactionDetailsParams, GetTransactionDetailsParamsBuilder, SetPositionModeParams,
@@ -413,6 +414,10 @@ impl OKXRawHttpClient {
             (
                 "okx:/api/v5/public/mark-price".to_string(),
                 Quota::per_second(NonZeroU32::new(5).expect("non-zero")).expect("valid constant"),
+            ),
+            (
+                "okx:/api/v5/public/price-limit".to_string(),
+                Quota::per_second(NonZeroU32::new(10).expect("non-zero")).expect("valid constant"),
             ),
             (
                 "okx:/api/v5/sprd/spreads".to_string(),
@@ -1233,6 +1238,30 @@ impl OKXRawHttpClient {
         self.send_request(
             Method::GET,
             "/api/v5/public/mark-price",
+            Some(&params),
+            None,
+            false,
+        )
+        .await
+    }
+
+    /// Requests the current price limits for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or if the response body
+    /// cannot be parsed into [`OKXPriceLimit`].
+    ///
+    /// # References
+    ///
+    /// <https://www.okx.com/docs-v5/en/#public-data-rest-api-get-limit-price>
+    pub async fn get_price_limit(
+        &self,
+        params: GetPriceLimitParams,
+    ) -> Result<Vec<OKXPriceLimit>, OKXHttpError> {
+        self.send_request(
+            Method::GET,
+            "/api/v5/public/price-limit",
             Some(&params),
             None,
             false,
@@ -2426,6 +2455,30 @@ impl OKXHttpClient {
             parse_mark_price_update(raw, instrument_id, inst.price_precision(), ts_init)
                 .map_err(|e| anyhow::anyhow!(e))?;
         Ok(mark_price)
+    }
+
+    /// Requests the current price limits for the `instrument_id` from OKX.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP request fails or no price limit is returned.
+    pub async fn request_price_limit(
+        &self,
+        instrument_id: InstrumentId,
+    ) -> anyhow::Result<OKXPriceLimit> {
+        let mut params = GetPriceLimitParamsBuilder::default();
+        params.inst_id(instrument_id.symbol.inner());
+        let params = params.build().map_err(|e| anyhow::anyhow!(e))?;
+
+        let resp = self
+            .inner
+            .get_price_limit(params)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        resp.first()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No price limit returned from OKX"))
     }
 
     fn resolve_forward_price_requests(
