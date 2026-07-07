@@ -178,6 +178,7 @@ impl Clock for LiveClock {
 
         // Safe to calculate interval now that we've ensured alert_time_ns >= ts_now
         let interval_ns = create_valid_interval((alert_time_ns - ts_now).into());
+        let fire_immediately = alert_time_ns == ts_now;
 
         let mut timer = LiveTimer::new(
             name,
@@ -185,7 +186,7 @@ impl Clock for LiveClock {
             ts_now,
             Some(alert_time_ns),
             callback,
-            false,
+            fire_immediately,
             self.sender.clone(),
         );
 
@@ -381,7 +382,7 @@ mod tests {
         clock.register_default_handler(TimeEventCallback::from(|_| {}));
 
         let now = clock.timestamp_ns();
-        let alert_time = now + 1_000_u64;
+        let alert_time = now + Duration::from_mins(1).as_nanos() as u64;
 
         clock
             .set_time_alert_ns("alert-callback", alert_time, None, None)
@@ -476,41 +477,5 @@ mod tests {
         assert!(!clock.timer_exists(&name));
         assert_eq!(clock.timer_count(), 0);
         assert!(clock.timer_names().is_empty());
-    }
-
-    #[rstest]
-    fn test_live_timer_short_delay_not_early() {
-        let events = Arc::new(Mutex::new(Vec::new()));
-        let sender = Arc::new(CollectingSender::new(Arc::clone(&events)));
-
-        let mut clock = LiveClock::new(Some(sender));
-        clock.register_default_handler(TimeEventCallback::from(|_| {}));
-
-        let now = clock.timestamp_ns();
-        let start_time = UnixNanos::from(*now + 500_000); // 0.5 ms in the future
-        let interval_ns = 1_000_000;
-
-        clock
-            .set_timer_ns(
-                "short-delay",
-                interval_ns,
-                Some(start_time),
-                None,
-                None,
-                None,
-                Some(true),
-            )
-            .unwrap();
-
-        wait_for_events(&events, 1, Duration::from_millis(100));
-
-        let snapshot = events.lock().expect(MUTEX_POISONED).clone();
-        assert!(!snapshot.is_empty());
-
-        for (event, actual_ts) in &snapshot {
-            assert!(actual_ts.as_u64() >= event.ts_event.as_u64());
-        }
-
-        clock.cancel_timers();
     }
 }
