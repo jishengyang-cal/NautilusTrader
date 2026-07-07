@@ -46,6 +46,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 
 ### Fixes
 - Fixed mixed-instrument backtest `SubmitOrderList` fills to use each leg's own book (#4392), thanks for reporting @gtalknitin
+- Fixed Python v2 config stub/readback drift for `DataActorConfig` and `StrategyConfig`,
+  and added drift checks covering `ExecutionAlgorithmConfig`
 - Fixed `PerContractFeeModel` generic spread fees to charge per leg ratio (#4360), thanks for reporting @pjlegato
 - Fixed `HEDGING` reduce-only orders without cached position IDs (#4312), thanks for reporting @luckykefu
 - Fixed indicator rolling-window bounds and averages past capacity (#4351), thanks @Martingale42
