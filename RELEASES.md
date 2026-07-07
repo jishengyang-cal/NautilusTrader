@@ -70,6 +70,9 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
 - Fixed Derive option `scheduled_activation` parsing as UNIX seconds (was parsed as milliseconds)
 - Fixed Derive response decoding to tolerate unknown venue enum values and salvage undecodable trade rows with a log
+- Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
+- Fixed Architect AX `/transactions` requests to include the required bounded time range
+- Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas
 - Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
@@ -90,6 +93,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 
 ### Documentation Updates
 - Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
+- Updated Architect AX integration docs for current market-data, REST schema, and funding-rate behavior
 - Added SinoPac Securities community adapter listing (#4324), thanks @Martingale42
 - Added canonical references and doc comments for portfolio statistics
 - Fixed Lighter get-started Python v2 development wheel link
