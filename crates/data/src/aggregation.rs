@@ -78,11 +78,21 @@ pub trait BarAggregator: Any + Debug {
     /// Updates the aggregator with the given quote.
     fn handle_quote(&mut self, quote: QuoteTick) {
         let spec = self.bar_type().spec();
-        self.update(
+        // Quote-fed aggregators use Bid/Ask/Mid (Last uses trades), so this cannot fail; guard
+        // rather than unwrap to stay panic-free
+        let (Ok(price), Ok(size)) = (
             quote.extract_price(spec.price_type),
             quote.extract_size(spec.price_type),
-            quote.ts_init,
-        );
+        ) else {
+            log::error!(
+                "Cannot aggregate quote for {}: price type {} unsupported for quotes",
+                self.bar_type(),
+                spec.price_type,
+            );
+            return;
+        };
+
+        self.update(price, size, quote.ts_init);
     }
     /// Updates the aggregator with the given trade.
     fn handle_trade(&mut self, trade: TradeTick) {

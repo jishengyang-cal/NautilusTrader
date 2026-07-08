@@ -64,8 +64,9 @@ impl Indicator for SimpleMovingAverage {
         self.initialized
     }
 
-    fn handle_quote(&mut self, quote: &QuoteTick) {
-        self.process_raw(quote.extract_price(self.price_type).into());
+    fn handle_quote(&mut self, quote: &QuoteTick) -> anyhow::Result<()> {
+        self.process_raw(quote.extract_price(self.price_type)?.into());
+        Ok(())
     }
 
     fn handle_trade(&mut self, trade: &TradeTick) {
@@ -195,7 +196,7 @@ mod tests {
     #[rstest]
     fn sma_handle_single_quote(indicator_sma_10: SimpleMovingAverage, stub_quote: QuoteTick) {
         let mut sma = indicator_sma_10;
-        sma.handle_quote(&stub_quote);
+        sma.handle_quote(&stub_quote).unwrap();
         assert_eq!(sma.count, 1);
         assert_eq!(sma.value, 1501.0);
     }
@@ -206,8 +207,8 @@ mod tests {
         let q1 = stub_quote("1500.0", "1502.0");
         let q2 = stub_quote("1502.0", "1504.0");
 
-        sma.handle_quote(&q1);
-        sma.handle_quote(&q2);
+        sma.handle_quote(&q1).unwrap();
+        sma.handle_quote(&q2).unwrap();
         assert_eq!(sma.count, 2);
         assert_eq!(sma.value, 1502.0);
     }

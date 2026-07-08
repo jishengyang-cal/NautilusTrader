@@ -74,8 +74,12 @@ impl RelativeStrengthIndex {
     }
 
     #[pyo3(name = "handle_quote_tick")]
-    fn py_handle_quote_tick(&mut self, quote: &QuoteTick) {
-        self.py_update_raw(quote.extract_price(PriceType::Mid).into());
+    fn py_handle_quote_tick(&mut self, quote: &QuoteTick) -> PyResult<()> {
+        let price = quote
+            .extract_price(PriceType::Mid)
+            .map_err(nautilus_core::python::to_pyvalue_err)?;
+        self.py_update_raw(price.into());
+        Ok(())
     }
 
     #[pyo3(name = "handle_bar")]
