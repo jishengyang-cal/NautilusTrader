@@ -2769,6 +2769,7 @@ impl OrderMatchingEngine {
             false,
             Some(position.id),
             Some(Money::zero(self.instrument.quote_currency())),
+            None,
         )
     }
 
@@ -2807,6 +2808,7 @@ impl OrderMatchingEngine {
             false,
             None,
             Some(Money::zero(underlying_instrument.quote_currency())),
+            None,
         )
     }
 
@@ -5717,16 +5719,21 @@ impl OrderMatchingEngine {
     }
 
     fn update_trailing_stop_order(&self, order: &OrderAny) {
-        let (new_trigger_price, new_price) = trailing_stop_calculate(
+        let (new_trigger_price, new_price) = match trailing_stop_calculate(
             self.instrument.price_increment(),
             order.trigger_price(),
-            order.activation_price(),
             order,
             self.core.bid,
             self.core.ask,
             self.core.last,
-        )
-        .unwrap();
+        ) {
+            Ok(prices) => prices,
+            Err(e) => {
+                // Missing market data yet: await the next update to compute the trigger.
+                log::debug!("Cannot calculate trailing-stop update: {e}");
+                return;
+            }
+        };
 
         if new_trigger_price.is_none() && new_price.is_none() {
             return;
@@ -6525,6 +6532,7 @@ impl OrderMatchingEngine {
             false,
             venue_position_id,
             Some(commission),
+            None,
         ));
 
         self.dispatch_order_event(event);

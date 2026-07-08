@@ -2444,6 +2444,7 @@ mod tests {
             ts_init: UnixNanos::default(),
             reconciliation: false,
             commission: None,
+            info: None,
             causation_id: None,
         })
     }

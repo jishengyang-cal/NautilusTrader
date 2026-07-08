@@ -605,6 +605,7 @@ fn emit_order_filled(identity: &OrderIdentity, fill: &FillReport, ctx: &WsDispat
         false,
         fill.venue_position_id,
         Some(fill.commission),
+        None,
     );
     ctx.emitter.send_order_event(OrderEventAny::Filled(filled));
 }

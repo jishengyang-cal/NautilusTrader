@@ -1173,7 +1173,7 @@ pub trait ExecutionAlgorithm: DataActor {
             OrderEventAny::ModifyRejected(e) => self.on_order_modify_rejected(*e),
             OrderEventAny::CancelRejected(e) => self.on_order_cancel_rejected(*e),
             OrderEventAny::Updated(e) => self.on_order_updated(*e),
-            OrderEventAny::Filled(e) => self.on_algo_order_filled(*e),
+            OrderEventAny::Filled(e) => self.on_algo_order_filled(e.clone()),
         }
 
         self.on_order_event(event);

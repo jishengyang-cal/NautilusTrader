@@ -3763,6 +3763,8 @@ impl<'a> FromCapnp<'a> for OrderFilled {
             reconciliation,
             position_id,
             commission,
+            // Cap'n Proto schema does not carry `info`; decodes as `None`
+            info: None,
             causation_id: None,
         })
     }
@@ -4099,6 +4101,8 @@ impl<'a> FromCapnp<'a> for OrderInitialized {
             ts_init: ts_init.into(),
             price,
             trigger_price,
+            // Cap'n Proto schema does not carry `activation_price`; decodes as `None`
+            activation_price: None,
             trigger_type,
             limit_offset,
             trailing_offset,

@@ -657,6 +657,7 @@ where
             quantity: order.quantity(),
             price: order.price(),
             trigger_price: order.trigger_price(),
+            activation_price: order.activation_price(),
             trigger_type: order.trigger_type(),
             time_in_force: order.time_in_force(),
             expire_time: order.expire_time(),

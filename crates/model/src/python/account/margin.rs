@@ -223,12 +223,12 @@ impl MarginAccount {
     fn py_calculate_pnls(
         &self,
         instrument: Py<PyAny>,
-        fill: OrderFilled,
+        fill: &OrderFilled,
         position: Option<Position>,
         py: Python,
     ) -> PyResult<Vec<Money>> {
         let instrument = pyobject_to_instrument_any(py, instrument)?;
-        Account::calculate_pnls(self, &instrument, &fill, position).map_err(to_pyvalue_err)
+        Account::calculate_pnls(self, &instrument, fill, position).map_err(to_pyvalue_err)
     }
 
     fn __repr__(&self) -> String {

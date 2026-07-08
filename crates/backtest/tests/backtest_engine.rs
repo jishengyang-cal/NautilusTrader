@@ -1517,7 +1517,7 @@ fn expiration_fill_price(
             OrderEventAny::Filled(fill)
                 if fill.client_order_id.as_str().starts_with("EXPIRATION-") =>
             {
-                Some(*fill)
+                Some(fill.clone())
             }
             _ => None,
         })

@@ -1364,7 +1364,7 @@ class OrderFactory:
         instrument_id: model.InstrumentId,
         order_side: model.OrderSide,
         quantity: model.Quantity,
-        price: model.Price,
+        price: model.Price | None,
         limit_offset: decimal.Decimal,
         trailing_offset: decimal.Decimal,
         trailing_offset_type: model.TrailingOffsetType | None = None,

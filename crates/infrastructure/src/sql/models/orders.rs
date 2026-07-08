@@ -280,6 +280,7 @@ impl<'r> FromRow<'r, PgRow> for OrderInitializedModel {
             ts_event,
             ts_init,
             price,
+            None, // activation_price not yet persisted to SQL
             trigger_price,
             trigger_type,
             limit_offset,
@@ -459,6 +460,7 @@ impl<'r> FromRow<'r, PgRow> for OrderFilledModel {
             false,
             position_id,
             commission,
+            None,
         );
         Ok(Self(order_event))
     }
@@ -745,6 +747,7 @@ impl<'r> FromRow<'r, PgRow> for OrderSnapshotModel {
             quantity,
             price,
             trigger_price,
+            activation_price: None, // not yet persisted to SQL
             trigger_type,
             limit_offset,
             trailing_offset,

@@ -4106,6 +4106,145 @@ fn test_updating_of_trailing_stop_market_order_with_no_trigger_price_set(
 }
 
 #[rstest]
+fn test_trailing_stop_market_activates_at_market_and_materializes_trigger(
+    instrument_eth_usdt: InstrumentAny,
+    order_event_handler: TypedIntoMessageSavingHandler<OrderEventAny>,
+    account_id: AccountId,
+) {
+    let mut engine_l2 =
+        get_order_matching_engine_l2(instrument_eth_usdt.clone(), None, None, None, None);
+
+    let orderbook_delta_sell = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            OrderSide::Sell,
+            Price::from("1500.00"),
+            Quantity::from("1.000"),
+            1,
+        ))
+        .build();
+    engine_l2
+        .process_order_book_delta(&orderbook_delta_sell)
+        .unwrap();
+
+    // TrailingStopMarket with neither trigger_price nor activation_price: it activates at
+    // market and its trigger materializes from `trailing_offset` on the first update.
+    let client_order_id = ClientOrderId::from("O-19700101-000000-001-001-1");
+    let mut trailing_stop_market = OrderTestBuilder::new(OrderType::TrailingStopMarket)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(client_order_id)
+        .trigger_type(TriggerType::LastPrice)
+        .trailing_offset(dec!(1))
+        .trailing_offset_type(TrailingOffsetType::Price)
+        .submit(true)
+        .build();
+
+    assert_eq!(trailing_stop_market.trigger_price(), None);
+    assert_eq!(trailing_stop_market.activation_price(), None);
+
+    engine_l2.process_order(&mut trailing_stop_market, account_id);
+
+    let tick = TradeTick::new(
+        instrument_eth_usdt.id(),
+        Price::from("1480.00"),
+        Quantity::from("1.000"),
+        AggressorSide::Seller,
+        TradeId::from("1"),
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    engine_l2.process_trade_tick(&tick);
+
+    let saved_messages = get_order_event_handler_messages(&order_event_handler);
+    assert_eq!(saved_messages.len(), 2);
+    let accepted = match saved_messages.first().unwrap() {
+        OrderEventAny::Accepted(accepted) => accepted,
+        other => panic!("Expected OrderAccepted, was {other:?}"),
+    };
+    assert_eq!(accepted.client_order_id, client_order_id);
+    let updated = match saved_messages.get(1).unwrap() {
+        OrderEventAny::Updated(updated) => updated,
+        other => panic!("Expected OrderUpdated, was {other:?}"),
+    };
+    assert_eq!(updated.client_order_id, client_order_id);
+    // Trigger materializes at last (1480) + trailing_offset (1) for a BUY
+    assert_eq!(updated.trigger_price.unwrap(), Price::from("1481.00"));
+}
+
+#[rstest]
+fn test_trailing_stop_limit_activates_at_market_and_materializes_prices(
+    instrument_eth_usdt: InstrumentAny,
+    order_event_handler: TypedIntoMessageSavingHandler<OrderEventAny>,
+    account_id: AccountId,
+) {
+    let mut engine_l2 =
+        get_order_matching_engine_l2(instrument_eth_usdt.clone(), None, None, None, None);
+
+    let orderbook_delta_sell = OrderBookDeltaTestBuilder::new(instrument_eth_usdt.id())
+        .book_action(BookAction::Add)
+        .book_order(BookOrder::new(
+            OrderSide::Sell,
+            Price::from("1500.00"),
+            Quantity::from("1.000"),
+            1,
+        ))
+        .build();
+    engine_l2
+        .process_order_book_delta(&orderbook_delta_sell)
+        .unwrap();
+
+    // TrailingStopLimit with neither trigger_price nor limit price nor activation_price: both
+    // trigger and limit materialize from the offsets on the first update after activation.
+    let client_order_id = ClientOrderId::from("O-19700101-000000-001-001-1");
+    let mut trailing_stop_limit = OrderTestBuilder::new(OrderType::TrailingStopLimit)
+        .instrument_id(instrument_eth_usdt.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("1.000"))
+        .client_order_id(client_order_id)
+        .trigger_type(TriggerType::LastPrice)
+        .trailing_offset(dec!(1))
+        .limit_offset(dec!(2))
+        .trailing_offset_type(TrailingOffsetType::Price)
+        .submit(true)
+        .build();
+
+    assert_eq!(trailing_stop_limit.trigger_price(), None);
+    assert_eq!(trailing_stop_limit.price(), None);
+    assert_eq!(trailing_stop_limit.activation_price(), None);
+
+    engine_l2.process_order(&mut trailing_stop_limit, account_id);
+
+    let tick = TradeTick::new(
+        instrument_eth_usdt.id(),
+        Price::from("1480.00"),
+        Quantity::from("1.000"),
+        AggressorSide::Seller,
+        TradeId::from("1"),
+        UnixNanos::default(),
+        UnixNanos::default(),
+    );
+    engine_l2.process_trade_tick(&tick);
+
+    let saved_messages = get_order_event_handler_messages(&order_event_handler);
+    assert_eq!(saved_messages.len(), 2);
+    let accepted = match saved_messages.first().unwrap() {
+        OrderEventAny::Accepted(accepted) => accepted,
+        other => panic!("Expected OrderAccepted, was {other:?}"),
+    };
+    assert_eq!(accepted.client_order_id, client_order_id);
+    let updated = match saved_messages.get(1).unwrap() {
+        OrderEventAny::Updated(updated) => updated,
+        other => panic!("Expected OrderUpdated, was {other:?}"),
+    };
+    assert_eq!(updated.client_order_id, client_order_id);
+    // Trigger materializes at last (1480) + trailing_offset (1); limit at last + limit_offset (2)
+    assert_eq!(updated.trigger_price.unwrap(), Price::from("1481.00"));
+    assert_eq!(updated.price.unwrap(), Price::from("1482.00"));
+}
+
+#[rstest]
 #[case(ContingencyType::Oco)]
 #[case(ContingencyType::Ouo)]
 fn test_updating_of_contingent_orders(
@@ -4486,7 +4625,9 @@ fn test_hedging_reduce_only_fallback_scopes_open_position_to_order_strategy(
     let fill = get_order_event_handler_messages(&order_event_handler)
         .iter()
         .find_map(|event| match event {
-            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => Some(*fill),
+            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => {
+                Some(fill.clone())
+            }
             _ => None,
         })
         .expect("Expected strategy B reduce-only order to fill");
@@ -4543,7 +4684,9 @@ fn test_hedging_non_reduce_only_market_order_keeps_empty_position_id(
     let fill = get_order_event_handler_messages(&order_event_handler)
         .iter()
         .find_map(|event| match event {
-            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => Some(*fill),
+            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => {
+                Some(fill.clone())
+            }
             _ => None,
         })
         .expect("Expected hedging market order to fill");
@@ -4631,7 +4774,9 @@ fn test_hedging_reduce_only_fallback_covers_short_position(
     let fill = get_order_event_handler_messages(&order_event_handler)
         .iter()
         .find_map(|event| match event {
-            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => Some(*fill),
+            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => {
+                Some(fill.clone())
+            }
             _ => None,
         })
         .expect("Expected reduce-only short cover to fill");
@@ -4740,7 +4885,9 @@ fn test_hedging_reduce_only_uses_cached_position_id_before_open_position_scan(
     let fill = get_order_event_handler_messages(&order_event_handler)
         .iter()
         .find_map(|event| match event {
-            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => Some(*fill),
+            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => {
+                Some(fill.clone())
+            }
             _ => None,
         })
         .expect("Expected reduce-only order with cached position id to fill");
@@ -8115,7 +8262,7 @@ fn test_no_aggressor_trade_fills_resting_limit_at_trade_price(
     let fills: Vec<_> = get_order_event_handler_messages(&order_event_handler)
         .iter()
         .filter_map(|e| match e {
-            OrderEventAny::Filled(f) => Some(*f),
+            OrderEventAny::Filled(f) => Some(f.clone()),
             _ => None,
         })
         .collect();
@@ -8812,7 +8959,7 @@ fn test_settlement_price_used_on_contract_expiration(
     let mut fill = messages
         .iter()
         .find_map(|e| match e {
-            OrderEventAny::Filled(f) => Some(*f),
+            OrderEventAny::Filled(f) => Some(f.clone()),
             _ => None,
         })
         .expect("Expected a fill event from the market order");
@@ -8859,7 +9006,7 @@ fn test_settlement_price_used_on_contract_expiration(
     let expiration_fill = messages
         .iter()
         .find_map(|e| match e {
-            OrderEventAny::Filled(f) => Some(*f),
+            OrderEventAny::Filled(f) => Some(f.clone()),
             _ => None,
         })
         .expect("Expected a fill event from contract expiration");
@@ -9728,7 +9875,7 @@ fn test_l1_queue_position_at_bbo_trades_decrement_queue(
     let fills: Vec<_> = get_order_event_handler_messages(&handler)
         .iter()
         .filter_map(|e| match e {
-            OrderEventAny::Filled(f) => Some(*f),
+            OrderEventAny::Filled(f) => Some(f.clone()),
             _ => None,
         })
         .collect();
@@ -9967,7 +10114,7 @@ fn test_l1_queue_position_full_example(account_id: AccountId, instrument_eth_usd
     let fills: Vec<_> = get_order_event_handler_messages(&handler)
         .iter()
         .filter_map(|e| match e {
-            OrderEventAny::Filled(f) => Some(*f),
+            OrderEventAny::Filled(f) => Some(f.clone()),
             _ => None,
         })
         .collect();
@@ -12237,7 +12384,7 @@ fn test_update_instrument_normalizes_tick_compatible_resting_order_fill(
     let filled_events: Vec<_> = get_order_event_handler_messages(&order_event_handler)
         .iter()
         .filter_map(|event| match event {
-            OrderEventAny::Filled(filled) => Some(*filled),
+            OrderEventAny::Filled(filled) => Some(filled.clone()),
             _ => None,
         })
         .collect();
@@ -14372,7 +14519,9 @@ fn test_reduce_only_l1_market_order_slip_caps_remaining_position(
     let fills: Vec<OrderFilled> = messages
         .iter()
         .filter_map(|event| match event {
-            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => Some(*fill),
+            OrderEventAny::Filled(fill) if fill.client_order_id == client_order_id => {
+                Some(fill.clone())
+            }
             _ => None,
         })
         .collect();

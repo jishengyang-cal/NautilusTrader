@@ -43,12 +43,17 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Interactive Brokers PyO3 type stub annotations (#4350), thanks @dfjmax
 - Added Polymarket v2 WS `hash` and `transaction_hash` field decoding (#4377), thanks for reporting @SebastianPartarrieu
 - Added Tardis MEXC spot and futures market data support
+- Added v2 support for trailing-stop orders with no trigger or activation price, which activate at market and materialize the trigger (and trailing-stop-limit price) from the trailing offset on the first update
+- Added `activation_price` to v2 `OrderInitialized` and `OrderSnapshot` so trailing-stop activation survives event and dict reconstruction
+- Added `info` fill metadata to v2 `OrderFilled`
 
 ### Breaking Changes
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
+- Changed v2 order-event serialization to carry `activation_price` on `OrderInitialized`/`OrderSnapshot` and `info` on `OrderFilled`; catalog data written before this change cannot be read
+- Changed v2 `TrailingStopMarketOrder`/`TrailingStopLimitOrder`, `OrderInitialized`, and `OrderFilled` Python and PyO3 constructors to accept `activation_price`/`info` parameters
 
 ### Fixes
 - Fixed v2 composite bar aggregation (`@` source) to deliver aggregated bars to subscribed actors and strategies

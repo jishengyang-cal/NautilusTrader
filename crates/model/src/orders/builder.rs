@@ -17,7 +17,7 @@
 #![allow(dead_code)]
 
 use indexmap::IndexMap;
-use nautilus_core::{UUID4, UnixNanos};
+use nautilus_core::{UUID4, UnixNanos, correctness::FAILED};
 use rust_decimal::Decimal;
 use ustr::Ustr;
 
@@ -55,6 +55,7 @@ pub struct OrderTestBuilder {
     quantity: Option<Quantity>,
     price: Option<Price>,
     trigger_price: Option<Price>,
+    activation_price: Option<Price>,
     trigger_type: Option<TriggerType>,
     limit_offset: Option<Decimal>,
     trailing_offset: Option<Decimal>,
@@ -98,6 +99,7 @@ impl OrderTestBuilder {
             quantity: None,
             price: None,
             trigger_price: None,
+            activation_price: None,
             trigger_type: None,
             limit_offset: None,
             trailing_offset: None,
@@ -234,6 +236,16 @@ impl OrderTestBuilder {
 
     fn get_trigger_price(&self) -> Price {
         self.trigger_price.expect("Trigger price not set")
+    }
+
+    // ----------- ActivationPrice ----------
+    pub fn activation_price(&mut self, activation_price: Price) -> &mut Self {
+        self.activation_price = Some(activation_price);
+        self
+    }
+
+    fn get_activation_price(&self) -> Option<Price> {
+        self.activation_price
     }
 
     // ----------- TriggerType ----------
@@ -673,15 +685,18 @@ impl OrderTestBuilder {
                 self.get_init_id(),
                 self.get_ts_init(),
             )),
-            OrderType::TrailingStopMarket => {
-                OrderAny::TrailingStopMarket(TrailingStopMarketOrder::new(
+            OrderType::TrailingStopMarket => OrderAny::TrailingStopMarket(
+                // `new_checked` (not `new`) so the trigger may be left unset for the
+                // activate-at-market path where it materializes on the first trail update.
+                TrailingStopMarketOrder::new_checked(
                     self.get_trader_id(),
                     self.get_strategy_id(),
                     self.get_instrument_id(),
                     self.get_client_order_id(),
                     self.get_side(),
                     self.get_quantity(),
-                    self.get_trigger_price(),
+                    self.get_activation_price(),
+                    self.trigger_price,
                     self.get_trigger_type(),
                     self.get_trailing_offset(),
                     self.get_trailing_offset_type(),
@@ -702,18 +717,20 @@ impl OrderTestBuilder {
                     self.get_tags(),
                     self.get_init_id(),
                     self.get_ts_init(),
-                ))
-            }
-            OrderType::TrailingStopLimit => {
-                OrderAny::TrailingStopLimit(TrailingStopLimitOrder::new(
+                )
+                .unwrap_or_else(|e| panic!("{FAILED}: {e}")),
+            ),
+            OrderType::TrailingStopLimit => OrderAny::TrailingStopLimit(
+                TrailingStopLimitOrder::new_checked(
                     self.get_trader_id(),
                     self.get_strategy_id(),
                     self.get_instrument_id(),
                     self.get_client_order_id(),
                     self.get_side(),
                     self.get_quantity(),
-                    self.get_price(),
-                    self.get_trigger_price(),
+                    self.get_activation_price(),
+                    self.price,
+                    self.trigger_price,
                     self.get_trigger_type(),
                     self.get_limit_offset(),
                     self.get_trailing_offset(),
@@ -736,8 +753,9 @@ impl OrderTestBuilder {
                     self.get_tags(),
                     self.get_init_id(),
                     self.get_ts_init(),
-                ))
-            }
+                )
+                .unwrap_or_else(|e| panic!("{FAILED}: {e}")),
+            ),
         };
 
         if self.submitted {

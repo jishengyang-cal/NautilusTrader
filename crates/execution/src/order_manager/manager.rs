@@ -195,7 +195,7 @@ impl OrderManager {
             OrderEventAny::Canceled(event) => self.handle_order_canceled(*event),
             OrderEventAny::Expired(event) => self.handle_order_expired(*event),
             OrderEventAny::Updated(event) => self.handle_order_updated(*event),
-            OrderEventAny::Filled(event) => self.handle_order_filled(*event),
+            OrderEventAny::Filled(event) => self.handle_order_filled(event),
             _ => Vec::new(),
         }
     }
@@ -287,7 +287,7 @@ impl OrderManager {
         Vec::new()
     }
 
-    pub fn handle_order_filled(&mut self, filled: OrderFilled) -> Vec<OrderManagerAction> {
+    pub fn handle_order_filled(&mut self, filled: &OrderFilled) -> Vec<OrderManagerAction> {
         let order = if let Some(order) = self
             .cache
             .borrow()
@@ -938,7 +938,7 @@ mod tests {
             event => panic!("expected OrderFilled, was {event:?}"),
         };
 
-        let actions = manager.handle_order_filled(filled);
+        let actions = manager.handle_order_filled(&filled);
 
         assert!(matches!(
             actions.as_slice(),
@@ -1056,7 +1056,7 @@ mod tests {
             event => panic!("expected OrderFilled, was {event:?}"),
         };
 
-        let actions = manager.handle_order_filled(filled);
+        let actions = manager.handle_order_filled(&filled);
 
         assert_eq!(actions.len(), 2);
         assert!(matches!(
