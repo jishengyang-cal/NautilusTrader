@@ -1309,8 +1309,15 @@ impl PyDataActor {
 
     #[pyo3(name = "shutdown_system")]
     #[pyo3(signature = (reason=None))]
-    fn py_shutdown_system(&self, reason: Option<String>) {
+    fn py_shutdown_system(&self, reason: Option<String>) -> PyResult<()> {
+        if !self.inner().core.is_registered() {
+            return Err(to_pyruntime_err(
+                "Actor must be registered with a trader before shutting down the system",
+            ));
+        }
+
         self.inner().shutdown_system(reason);
+        Ok(())
     }
 
     #[pyo3(name = "publish_data")]
@@ -2751,8 +2758,12 @@ mod tests {
     ) {
         let actor = create_registered_actor(clock, cache, trader_id);
 
-        actor.py_shutdown_system(Some("Test shutdown".to_string()));
-        actor.py_shutdown_system(None);
+        assert!(
+            actor
+                .py_shutdown_system(Some("Test shutdown".to_string()))
+                .is_ok()
+        );
+        assert!(actor.py_shutdown_system(None).is_ok());
     }
 
     #[rstest]

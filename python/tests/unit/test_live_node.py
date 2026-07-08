@@ -20,6 +20,7 @@ from nautilus_trader.common import DataActor
 from nautilus_trader.common import DataActorConfig
 from nautilus_trader.common import Environment
 from nautilus_trader.common import ImportableActorConfig
+from nautilus_trader.common import MessageBusConfig
 from nautilus_trader.live import LiveDataEngineConfig
 from nautilus_trader.live import LiveExecEngineConfig
 from nautilus_trader.live import LiveNode
@@ -130,6 +131,48 @@ def test_live_node_config_registers_importable_controller():
     assert node.trader_id == trader_id
     assert ControllerRegistrationProbe.constructed == 1
     assert ControllerRegistrationProbe.received_actor_id == "Controller-001"
+
+
+@pytest.mark.parametrize(
+    ("trader_id", "stop_before_dispose"),
+    [
+        ("TESTER-004", True),
+        ("TESTER-005", False),
+    ],
+)
+def test_live_node_start_stop_dispose_local(trader_id, stop_before_dispose):
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId(trader_id),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            msgbus=MessageBusConfig(external_streams=["signals"]),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+
+    try:
+        assert node.is_running is False
+
+        node.start()
+        assert node.is_running is True
+
+        if stop_before_dispose:
+            node.stop()
+        else:
+            node.dispose()
+
+        assert node.is_running is False
+    finally:
+        node.dispose()
+
+    assert node.is_running is False
 
 
 def test_importable_exec_algorithm_config_construction():

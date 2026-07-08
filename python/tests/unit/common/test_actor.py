@@ -524,6 +524,11 @@ def test_data_actor_shutdown_system_signature_exposes_optional_reason(actor):
     assert parameter.default is None
 
 
+def test_data_actor_shutdown_system_requires_registration(actor):
+    with pytest.raises(RuntimeError, match="registered"):
+        actor.shutdown_system("unit test shutdown")
+
+
 @pytest.mark.parametrize(("method_name", "parameter_names"), CALLBACK_SIGNATURES)
 def test_data_actor_callback_methods_expose_expected_signatures(
     actor,

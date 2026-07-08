@@ -536,6 +536,7 @@ CLOSE_ALL_POSITIONS_PARAMETERS = (
 )
 QUERY_ACCOUNT_PARAMETERS = ("account_id", "client_id", "params")
 QUERY_ORDER_PARAMETERS = ("order", "client_id", "params")
+SHUTDOWN_SYSTEM_PARAMETERS = ("reason",)
 PUBLISH_DATA_PARAMETERS = ("data_type", "data")
 PUBLISH_SIGNAL_PARAMETERS = ("name", "value", "ts_event")
 SIGNAL_SUBSCRIPTION_PARAMETERS = ("name", "priority")
@@ -715,6 +716,21 @@ def test_strategy_data_surface_methods_expose_expected_signatures(method_name, p
     signature = inspect.signature(getattr(strategy, method_name))
 
     assert tuple(signature.parameters) == parameter_names
+
+
+def test_strategy_shutdown_system_exposes_actor_signature():
+    strategy = Strategy()
+    signature = inspect.signature(strategy.shutdown_system)
+
+    assert tuple(signature.parameters) == SHUTDOWN_SYSTEM_PARAMETERS
+    assert signature.parameters["reason"].default is None
+
+
+def test_strategy_shutdown_system_requires_registration():
+    strategy = Strategy()
+
+    with pytest.raises(RuntimeError, match="registered"):
+        strategy.shutdown_system("unit test shutdown")
 
 
 @pytest.mark.parametrize("method_name", REMOVED_ORDER_EVENT_SUBSCRIPTION_METHODS)

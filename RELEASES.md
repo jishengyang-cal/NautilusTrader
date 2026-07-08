@@ -34,6 +34,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Python v2 controller subclassing and importable controller configs for backtest/live
 - Added Python v2 subclassable execution algorithms for routed orders
 - Added Python v2 `FeeModel` and `FillModel` subclass support for custom backtest models
+- Added Python v2 `Strategy.shutdown_system()` and `LiveNode.dispose()` bindings
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
 - Added Hyperliquid market data stream health warnings for stalled Deltas, Depth10, and Quote subscriptions (#4298)
 - Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
@@ -61,6 +62,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Python v2 migration gaps for `core.datetime`, `Clock.set_time`, and Strategy data APIs
 - Fixed Python v2 subclassable PyO3 stubs marked as final (#4384), thanks @bebop23
 - Fixed Python v2 `Strategy` close-position and close-all-position commands to accept and forward `params`
+- Fixed Python v2 `DataActor.shutdown_system()` unregistered calls to raise `RuntimeError`
+- Fixed Python v2 `LiveNode.stop()` to complete shutdown instead of only signaling the handle
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
 - Fixed live reconciliation real-time gates to use the monotonic clock (#4376), thanks @folknor
 - Fixed live missing-order reconciliation to use monotonic receipt time (#4387), thanks @folknor

@@ -1626,6 +1626,20 @@ impl PyStrategy {
         Component::fault(self.inner_mut()).map_err(to_pyruntime_err)
     }
 
+    #[pyo3(name = "shutdown_system")]
+    #[pyo3(signature = (reason=None))]
+    fn py_shutdown_system(&self, reason: Option<String>) -> PyResult<()> {
+        let inner = self.inner();
+        if !inner.core.actor.is_registered() {
+            return Err(to_pyruntime_err(
+                "Strategy must be registered with a trader before shutting down the system",
+            ));
+        }
+
+        DataActor::shutdown_system(inner, reason);
+        Ok(())
+    }
+
     #[getter]
     #[pyo3(name = "registered_indicators")]
     fn py_registered_indicators(&self, py: Python<'_>) -> PyResult<Py<PyList>> {

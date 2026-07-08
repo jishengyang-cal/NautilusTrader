@@ -472,6 +472,13 @@ impl LiveNode {
         }
     }
 
+    /// Disposes the live node kernel and releases resources.
+    pub fn dispose(&mut self) {
+        self.close_external_ingress();
+        self.kernel.dispose();
+        self.handle.set_state(NodeState::Stopped);
+    }
+
     /// Awaits engine clients to connect with timeout.
     ///
     /// Returns the final connection wait status.

@@ -229,14 +229,29 @@ impl LiveNode {
     ///
     /// Returns an error if shutdown fails.
     #[pyo3(name = "stop")]
-    fn py_stop(&self) -> PyResult<()> {
+    fn py_stop(&mut self, py: Python<'_>) -> PyResult<()> {
         if !self.is_running() {
             return Err(to_pyruntime_err("LiveNode is not running"));
         }
 
-        // Use the handle to signal stop - this is thread-safe and doesn't require async
-        self.handle().stop();
-        Ok(())
+        stop_live_node_detached(py, self)
+    }
+
+    /// Disposes the live node kernel and releases resources.
+    #[pyo3(name = "dispose")]
+    fn py_dispose(&mut self, py: Python<'_>) -> PyResult<()> {
+        let stop_result = if self.is_running() {
+            stop_live_node_detached(py, self)
+        } else {
+            Ok(())
+        };
+
+        if let Err(ref err) = stop_result {
+            log::error!("Failed to stop LiveNode during dispose: {err}");
+        }
+
+        self.dispose();
+        stop_result
     }
 
     #[allow(
@@ -843,6 +858,22 @@ fn run_live_node_detached(py: Python<'_>, node: &mut LiveNode) -> PyResult<()> {
         py.detach(move || {
             let ptr = node_ptr;
             get_runtime().block_on(async { (*ptr.0).run().await })
+        })
+    }
+    .map_err(to_pyruntime_err)
+}
+
+#[allow(unsafe_code)]
+fn stop_live_node_detached(py: Python<'_>, node: &mut LiveNode) -> PyResult<()> {
+    let node_ptr = SendPtr(std::ptr::from_mut::<LiveNode>(node));
+
+    // SAFETY: the Python binding holds the only mutable reference to `LiveNode`
+    // until `stop()` returns, and the detached closure completes before the
+    // caller can access `node` again.
+    unsafe {
+        py.detach(move || {
+            let ptr = node_ptr;
+            get_runtime().block_on(async { (*ptr.0).stop().await })
         })
     }
     .map_err(to_pyruntime_err)
@@ -1593,6 +1624,106 @@ mod tests {
     }
 
     #[derive(Debug)]
+    struct TestDisconnectFailureDataClientFactory {
+        dispose_count: Arc<AtomicUsize>,
+    }
+
+    impl TestDisconnectFailureDataClientFactory {
+        fn new(dispose_count: Arc<AtomicUsize>) -> Self {
+            Self { dispose_count }
+        }
+    }
+
+    impl DataClientFactory for TestDisconnectFailureDataClientFactory {
+        fn create(
+            &self,
+            name: &str,
+            _config: &dyn ClientConfig,
+            _cache: CacheView,
+            _clock: Rc<RefCell<dyn Clock>>,
+        ) -> anyhow::Result<Box<dyn DataClient>> {
+            Ok(Box::new(TestDisconnectFailureDataClient::new(
+                ClientId::from(name),
+                Venue::from("SIM"),
+                self.dispose_count.clone(),
+            )))
+        }
+
+        fn name(&self) -> &'static str {
+            "TEST_DISCONNECT_FAILURE"
+        }
+
+        fn config_type(&self) -> &'static str {
+            "TestDataClientConfig"
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestDisconnectFailureDataClient {
+        client_id: ClientId,
+        venue: Venue,
+        connected: Arc<AtomicBool>,
+        dispose_count: Arc<AtomicUsize>,
+    }
+
+    impl TestDisconnectFailureDataClient {
+        fn new(client_id: ClientId, venue: Venue, dispose_count: Arc<AtomicUsize>) -> Self {
+            Self {
+                client_id,
+                venue,
+                connected: Arc::new(AtomicBool::new(false)),
+                dispose_count,
+            }
+        }
+    }
+
+    #[async_trait(?Send)]
+    impl DataClient for TestDisconnectFailureDataClient {
+        fn client_id(&self) -> ClientId {
+            self.client_id
+        }
+
+        fn venue(&self) -> Option<Venue> {
+            Some(self.venue)
+        }
+
+        fn start(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn stop(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn reset(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn dispose(&mut self) -> anyhow::Result<()> {
+            self.dispose_count.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+
+        fn is_connected(&self) -> bool {
+            self.connected.load(Ordering::Relaxed)
+        }
+
+        fn is_disconnected(&self) -> bool {
+            !self.is_connected()
+        }
+
+        async fn connect(&mut self) -> anyhow::Result<()> {
+            self.connected.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+
+        async fn disconnect(&mut self) -> anyhow::Result<()> {
+            self.connected.store(false, Ordering::Relaxed);
+            anyhow::bail!("test disconnect failed")
+        }
+    }
+
+    #[derive(Debug)]
     struct TestHistoricalBarsDataClient {
         client_id: ClientId,
         venue: Venue,
@@ -2059,6 +2190,95 @@ class ClaimsStrategy(Strategy):
             acquired_before_stop.load(Ordering::SeqCst),
             "worker thread should acquire the GIL while LiveNode::run is blocked"
         );
+    }
+
+    #[rstest]
+    fn test_stop_live_node_detached_releases_gil() {
+        Python::initialize();
+
+        let mut node = LiveNode::builder(TraderId::from("TESTER-002"), Environment::Sandbox)
+            .unwrap()
+            .with_reconciliation(false)
+            .with_delay_post_stop_secs(1)
+            .with_timeout_connection(1)
+            .build()
+            .unwrap();
+
+        node.py_start().expect("node should start");
+
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        let acquired_before_stop_return = Arc::new(AtomicBool::new(false));
+        let acquired_before_stop_return_for_thread = acquired_before_stop_return.clone();
+        let stop_returned = Arc::new(AtomicBool::new(false));
+        let stop_returned_for_thread = stop_returned.clone();
+        let mut gil_thread = None;
+
+        Python::attach(|py| {
+            gil_thread = Some(thread::spawn(move || {
+                attempt_tx
+                    .send(())
+                    .expect("GIL acquisition attempt should send");
+                Python::attach(|_| {});
+
+                if !stop_returned_for_thread.load(Ordering::SeqCst) {
+                    acquired_before_stop_return_for_thread.store(true, Ordering::SeqCst);
+                }
+            }));
+
+            attempt_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("worker thread should attempt to acquire the GIL");
+
+            super::stop_live_node_detached(py, &mut node).expect("node should stop cleanly");
+            stop_returned.store(true, Ordering::SeqCst);
+        });
+
+        gil_thread
+            .expect("GIL worker thread should be spawned")
+            .join()
+            .expect("GIL worker thread should join");
+
+        assert!(
+            acquired_before_stop_return.load(Ordering::SeqCst),
+            "worker thread should acquire the GIL while LiveNode::stop is blocked"
+        );
+        assert!(!node.is_running());
+    }
+
+    #[rstest]
+    fn test_py_dispose_disposes_kernel_after_stop_error() {
+        Python::initialize();
+
+        let dispose_count = Arc::new(AtomicUsize::new(0));
+        let factory = TestDisconnectFailureDataClientFactory::new(dispose_count.clone());
+        let config = TestDataClientConfig;
+        let mut node = LiveNode::builder(TraderId::from("TESTER-003"), Environment::Sandbox)
+            .unwrap()
+            .with_reconciliation(false)
+            .with_delay_post_stop_secs(0)
+            .with_timeout_connection(1)
+            .with_timeout_disconnection_secs(0)
+            .add_data_client(
+                Some("TEST_DISCONNECT_FAILURE".to_string()),
+                Box::new(factory),
+                Box::new(config),
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let dispose_result = Python::attach(|py| {
+            node.py_start().expect("node should start");
+            assert!(node.is_running());
+
+            node.py_dispose(py)
+        });
+
+        let error = dispose_result.expect_err("dispose should return the stop error");
+
+        assert!(error.to_string().contains("test disconnect failed"));
+        assert_eq!(dispose_count.load(Ordering::Relaxed), 1);
+        assert!(!node.is_running());
     }
 
     #[rstest]
