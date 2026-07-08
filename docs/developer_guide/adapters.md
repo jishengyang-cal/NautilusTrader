@@ -1693,6 +1693,13 @@ fn should_retry_error(error: &MyWsError) -> bool {
   unknown outcome and waits for reconciliation or a later venue update.
 - Use `RetryManager` from `nautilus_network::retry` for consistent backoff.
 
+#### Outbound WebSocket payload logging
+
+`nautilus_network::websocket::WebSocketClient::send_text` logs outbound text payloads at TRACE for
+local adapter debugging. Since adapter sends can include authentication data, do not duplicate raw
+payloads in adapter-level DEBUG or INFO logs. At higher levels, log only metadata such as message
+type, channel, and payload length.
+
 ### Naming conventions
 
 Adapters follow standardized naming conventions for consistency across all venue integrations.

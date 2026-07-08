@@ -55,6 +55,13 @@ The implementation of each integration aims to meet the following criteria:
 - Exchange specific data types will be added to support the functionality and return types which are reasonably expected by a user.
 - Actions unsupported by an exchange or NautilusTrader will be logged as a warning or error when invoked.
 
+::::warning[Trace logging and credentials]
+
+TRACE logs may include raw outbound WebSocket payloads, which can contain authentication data for
+some venues. Use TRACE only for local debugging, and redact TRACE logs before sharing them.
+
+::::
+
 ## API unification
 
 All integrations must conform to NautilusTrader’s system API, requiring normalization and standardization:
