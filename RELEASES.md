@@ -45,8 +45,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Tardis MEXC spot and futures market data support
 
 ### Breaking Changes
-- Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares;
-  run `make init-db`
+- Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
@@ -68,17 +67,20 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Python v2 `Strategy` close-position and close-all-position commands to accept and forward `params`
 - Fixed Python v2 `DataActor.shutdown_system()` unregistered calls to raise `RuntimeError`
 - Fixed Python v2 `LiveNode.stop()` to complete shutdown instead of only signaling the handle
-- Fixed Python v2 boundary error handling to raise Python exceptions instead of panicking for invalid order events, catalog/Tardis inputs, cache load failures, and malformed market-data enum values
+- Fixed Python v2 boundary error handling to raise exceptions instead of panicking on invalid inputs
 - Fixed Python v2 DeFi comparisons to return `NotImplemented` for unsupported ordering instead of panicking
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
 - Fixed live reconciliation real-time gates to use the monotonic clock (#4376), thanks @folknor
 - Fixed live missing-order reconciliation to use monotonic receipt time (#4387), thanks @folknor
 - Fixed live execution engine position activity to stamp receipt time instead of venue `ts_event`
+- Fixed `LiveTimer` firing past its `stop_time_ns` bound and dropping the boundary event (#4401), thanks @folknor
+- Fixed `Clock.timer_exists` to exclude expired timers like `timer_names`/`timer_count` (#4400), thanks @folknor
 - Fixed Redis message bus startup with Python v2 configs (#4356), thanks for reporting @davidgreyme
 - Fixed Binance Futures order reports omitting external limit order prices (#4346), thanks for reporting @linimin
 - Fixed Binance Futures external algo order materialization (#4348), thanks for reporting @linimin
 - Fixed Binance Futures algo orders to consume USD-M order-count limits (#4395), thanks for reporting @cjdsellers
-- Fixed Binance Spot instrument loading after the venue SBE schema `3:5` rollout
+- Fixed Binance Futures inflight query falsely rejecting untriggered algo orders (#4411), thanks @reijz
+- Fixed Binance Spot instrument loading after the SBE schema `3:5` rollout (#4407), thanks for reporting @learnerLj
 - Fixed Blockchain HyperSync live pool-event streaming to use a durable per-DEX stream and avoid tip-window overreach
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
@@ -86,8 +88,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Derive response decoding to tolerate unknown venue enum values and salvage undecodable trade rows with a log
 - Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
 - Fixed Architect AX `/transactions` requests to include the required bounded time range
-- Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas
-- Fixed OKX price-limit metadata parsing and public limit-price requests
+- Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas (#4402)
+- Fixed OKX price-limit metadata parsing and public limit-price requests (#4413)
 - Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
@@ -105,8 +107,9 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Made portfolio reference-count clones explicit (#4364), thanks @ChrisAB
 - Upgraded Rust (MSRV) to 1.96.1
 - Upgraded Cython to v3.2.8
-- Upgraded `redis` crate to v1.3.0
 - Upgraded `capnp` to v0.26.2 and `py-clob-client-v2` to v1.0.2
+- Upgraded `databento` crate to v0.54.0
+- Upgraded `redis` crate to v1.3.0
 
 ### Documentation Updates
 - Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
