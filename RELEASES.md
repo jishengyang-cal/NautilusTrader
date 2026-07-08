@@ -39,6 +39,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
 - Added Interactive Brokers PyO3 type stub annotations (#4350), thanks @dfjmax
 - Added Polymarket v2 WS `hash` and `transaction_hash` field decoding (#4377), thanks for reporting @SebastianPartarrieu
+- Added Tardis MEXC spot and futures market data support
 
 ### Breaking Changes
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
