@@ -370,10 +370,10 @@ fn duration_ns(duration: Duration) -> u64 {
 
 fn saturating_fetch_add(atomic: &AtomicU64, value: u64) {
     atomic
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
             Some(current.saturating_add(value))
         })
-        .expect("fetch_update closure returns Some");
+        .expect("try_update closure returns Some");
 }
 
 #[cfg(test)]

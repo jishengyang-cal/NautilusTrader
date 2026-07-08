@@ -278,7 +278,7 @@ fn main() -> anyhow::Result<()> {
         .account_type(AccountType::Margin)
         .book_type(BookType::L1_MBP)
         .starting_balances(vec![starting_balance(series_id.settlement_currency)])
-        .fee_model(option_fee_model()?.into())
+        .fee_model(option_fee_model()?)
         .build()?;
 
     let quote_data = BacktestDataConfig::builder()

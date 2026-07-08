@@ -2079,7 +2079,7 @@ impl DataClient for BinanceFuturesDataClient {
 
         let should_unsubscribe = self
             .force_order_all_market_refs
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 if current == 0 {
                     None
                 } else {

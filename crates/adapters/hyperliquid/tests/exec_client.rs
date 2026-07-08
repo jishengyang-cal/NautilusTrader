@@ -220,7 +220,7 @@ async fn handle_info(State(state): State<TestServerState>, body: axum::body::Byt
         "frontendOpenOrders" => {
             if state
                 .fail_frontend_open_orders_count
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                     if n > 0 { Some(n - 1) } else { None }
                 })
                 .is_ok()

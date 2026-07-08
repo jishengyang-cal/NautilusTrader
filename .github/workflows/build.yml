@@ -1237,6 +1237,9 @@ jobs:
       - name: Run check-features
         run: make check-features
 
+      - name: Run check-all-targets
+        run: make check-all-targets
+
   tag-release:
     needs:
       - build-linux-x86
