@@ -3057,6 +3057,7 @@ mod tests {
             bids,
             asks,
             timestamp: "1700000000000".to_string(),
+            hash: None,
         })
     }
 
@@ -3337,6 +3338,7 @@ mod tests {
             bids: vec![level("not-a-number", "1"), level("0.49", "10")],
             asks: vec![level("0.51", "8"), level("0.55", "12")],
             timestamp: "1700000000000".to_string(),
+            hash: None,
         });
         handle_market_message(snap, &ctx);
 
@@ -3549,6 +3551,7 @@ mod tests {
             bids: vec![],
             asks: vec![],
             timestamp: "1700000000000".to_string(),
+            hash: None,
         });
         handle_market_message(empty, &ctx);
 
