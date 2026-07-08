@@ -898,10 +898,14 @@ ALO (Add-Liquidity-Only) lane.
 | Submit order list | ✓          | ✓    | Batch order submission (single API call).             |
 | Modify order      | ✓          | ✓    | Requires venue order ID.                              |
 | Cancel order      | ✓          | ✓    | Cancel by client order ID.                            |
-| Cancel all orders | ✓          | ✓    | Single batched `cancelByCloid` for open orders.       |
-| Batch cancel      | ✓          | ✓    | Single batched `cancelByCloid` for the provided list. |
+| Cancel all orders | ✓          | ✓    | Batched `cancelByCloid` for open orders.              |
+| Batch cancel      | ✓          | ✓    | Batched `cancelByCloid` for the provided list.        |
 
 :::info
+Cancels prefer `cancelByCloid` and fall back to `cancel` by numeric OID when no CLOID is cached;
+fast and standard cancels dispatch as separate batched actions, so one cancel request can produce
+more than one venue call.
+
 When the venue returns an authoritative per-order rejection inside a batch-cancel response (for
 example `MissingOrder` for an already-terminal order), the adapter emits a per-order
 `OrderCancelRejected` event and leaves the other cancels intact. Whole-request failures with
@@ -961,11 +965,12 @@ sequenceDiagram
 
 If Hyperliquid delivers `CANCELED(old_oid)` before `ACCEPTED(new_oid)` for an in-flight modify,
 a pending-modify intent lets the dispatch drop the old leg's cancel and still route the
-subsequent `ACCEPTED` through the `OrderUpdated` path. The intent is queued before the HTTP call
-and cleared by its own attempt on failure, so a failed modify never leaves stale race state.
-Because detection otherwise relies on the cached `venue_order_id`, the adapter also recovers a
-modify that times out on the HTTP call but still reaches the venue: the eventual WS
-`ACCEPTED(new_oid)` sees the old cached `oid` and translates to `OrderUpdated`. See
+subsequent `ACCEPTED` through the `OrderUpdated` path. The intent is queued before the HTTP call,
+so an early cancel is suppressed even while the request is still in flight. A modify the venue
+rejects clears its own intent; a transport failure keeps it, so a modify that reaches the venue
+despite a client-side timeout still suppresses the early `CANCELED(old_oid)` and promotes the
+eventual `ACCEPTED(new_oid)` to `OrderUpdated` (detection otherwise falls back to the cached
+`venue_order_id`, which the late `ACCEPTED` no longer matches). See
 [GH-3827](https://github.com/nautechsystems/nautilus_trader/issues/3827).
 
 Rapid repeated modifies under the same `cloid` queue as a chain of in-flight intents rather than
@@ -989,23 +994,12 @@ The order is therefore not left bound to the canceled leg, and subsequent modifi
 cancels target the live replacement. See
 [GH-4270](https://github.com/nautechsystems/nautilus_trader/issues/4270).
 
-:::note
-One narrow edge case remains when all three conditions occur together:
-
-1. The modify HTTP call raises (transport timeout or connection error).
-2. Hyperliquid still processes the modify on the exchange side.
-3. Hyperliquid delivers `CANCELED(old_oid)` before `ACCEPTED(new_oid)` on the WebSocket.
-
-Under (1) the pending-modify marker is not installed, so the early `CANCELED(old_oid)` emits as
-`OrderCanceled` before the replacement `ACCEPTED(new_oid)` arrives. The periodic reconciliation
-cycle restores the correct order state against the exchange.
-:::
-
-A `FillReport` for the replacement leg can also race ahead of `ACCEPTED(new_oid)`. The dispatch
-buffers such fills (when the pending-modify marker is set and the report's `oid` does not match
-the cached value) and drains them on the matching `ACCEPTED`, so `OrderFilled` always follows
-the promoting `OrderUpdated` against up-to-date state. See
-[GH-3972](https://github.com/nautechsystems/nautilus_trader/issues/3972).
+A `FillReport` for the replacement leg can also race ahead of `ACCEPTED(new_oid)`. When the
+pending-modify marker is set and the report's `oid` does not match the cached value, the dispatch
+promotes the binding directly from the fill (`OrderUpdated` then `OrderFilled`) using the modify
+target price. If no price is available to promote with, it buffers the fill instead and drains it
+on the matching `ACCEPTED`, so `OrderFilled` always follows the promoting `OrderUpdated` against
+up-to-date state. See [GH-3972](https://github.com/nautechsystems/nautilus_trader/issues/3972).
 
 :::note
 A chained-modify edge case is deferred: if a delayed fill from a *prior* leg arrives during a
@@ -1028,7 +1022,9 @@ There is a limitation of one order book per instrument per trader instance.
 `AccountState` merges perp margin and spot balances. Perp margin and cross-margin
 usage come from `clearinghouseState`; non-zero spot tokens (USDC, USDH, HYPE,
 vault tokens, HIP-4 outcome side tokens, etc.) come from `spotClearinghouseState`.
-USDC is deduplicated when the perp summary is present.
+USDC comes from the perp summary when it reflects non-zero collateral, margin, or
+withdrawable balance; when the perp summary is absent or zeroed, spot USDC is used
+instead.
 
 Standard perps default to cross margin; HIP-3 perps default to isolated. On
 connect, the execution client reconciles orders, fills, and positions against
@@ -1226,10 +1222,13 @@ match the venue limit.
 | `account_address`              | `None`    | Main account address for agent wallet trading; loaded from `HYPERLIQUID_ACCOUNT_ADDRESS`. |
 | `environment`                  | `None`    | Environment enum (`MAINNET` or `TESTNET`); resolves to `MAINNET` when unset. |
 | `base_url_ws`                  | `None`    | Override for the WebSocket base URL. |
+| `base_url_http`                | `None`    | Override for the HTTP info base URL. |
+| `base_url_exchange`            | `None`    | Override for the exchange API base URL. |
 | `max_retries`                  | `3`       | Maximum retry attempts for submit, cancel, or modify order requests. |
 | `retry_delay_initial_ms`       | `100`     | Initial delay (milliseconds) between retries. |
 | `retry_delay_max_ms`           | `5000`    | Maximum delay (milliseconds) between retries. |
 | `http_timeout_secs`            | `60`      | Timeout (seconds) applied to REST calls. |
+| `ws_post_timeout_secs`         | `10`      | Timeout (seconds) applied to WebSocket post trading requests. |
 | `normalize_prices`             | `True`    | Normalize order prices to 5 significant figures before submission. |
 | `include_builder_attribution`  | `True`    | Include zero‑fee Nautilus builder attribution on eligible mainnet orders. |
 | `market_order_slippage_bps`    | `50`      | Slippage buffer (bps) applied to MARKET and stop trigger derivations. Overridable per‑order via `SubmitOrder.params`. |

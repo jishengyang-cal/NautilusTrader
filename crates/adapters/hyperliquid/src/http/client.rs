@@ -2552,9 +2552,10 @@ impl HyperliquidHttpClient {
     /// Request account state (balances and margins) for a user.
     ///
     /// Fetches perp and spot clearinghouse state from Hyperliquid and merges them
-    /// into a single [`AccountState`]. USDC is taken from the perp margin summary
-    /// when present (to avoid double-counting combined `withdrawable`); non-USDC
-    /// tokens are appended from the spot balances.
+    /// into a single [`AccountState`]. USDC comes from the perp margin summary only
+    /// when that summary reflects non-zero collateral, margin used, or withdrawable
+    /// balance; if the summary is absent or zeroed, spot USDC is used instead. Non-USDC
+    /// tokens are always appended from the spot balances.
     ///
     /// # Errors
     ///
