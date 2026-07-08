@@ -1046,16 +1046,18 @@ impl ExecutionClient for HyperliquidExecutionClient {
             ws_client.cache_cloid_mapping(Ustr::from(&cloid.to_hex()), client_order_id);
         }
 
-        // Mark before the post await so an early CANCELED(old_voi) on the WS is suppressed.
-        if let Some(old_venue_order_id) = old_venue_order_id {
-            dispatch_state.mark_pending_modify(
+        // Mark before the post await so an early WS CANCELED(old_voi) is
+        // suppressed; capture the generation so a failure clears only this modify
+        let modify_generation = old_venue_order_id.map(|old_venue_order_id| {
+            let generation = dispatch_state.mark_pending_modify(
                 client_order_id,
                 old_venue_order_id,
                 target_total_qty,
             );
             // Stashed so the cancel-replace promotion can reduce the replacement on an in-flight fill
             dispatch_state.stash_modify_request(client_order_id, hyperliquid_order.clone());
-        }
+            generation
+        });
 
         self.spawn_task("modify_order", async move {
             let action = HyperliquidExecAction::Modify {
@@ -1070,7 +1072,11 @@ impl ExecutionClient for HyperliquidExecutionClient {
                     if response.is_ok() {
                         if let Some(inner_error) = extract_inner_error(&response) {
                             log::warn!("Order modification rejected by exchange: {inner_error}");
-                            dispatch_state.clear_pending_modify(&client_order_id);
+
+                            if let Some(generation) = modify_generation {
+                                dispatch_state
+                                    .clear_modify_generation(&client_order_id, generation);
+                            }
                             remove_generated_modify_cloid(
                                 &http_client,
                                 &ws_client,
@@ -1082,7 +1088,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
                     } else {
                         let error_msg = extract_error_message(&response);
                         log::warn!("Order modification rejected by exchange: {error_msg}");
-                        dispatch_state.clear_pending_modify(&client_order_id);
+
+                        if let Some(generation) = modify_generation {
+                            dispatch_state.clear_modify_generation(&client_order_id, generation);
+                        }
                         remove_generated_modify_cloid(
                             &http_client,
                             &ws_client,
@@ -1099,7 +1108,10 @@ impl ExecutionClient for HyperliquidExecutionClient {
                         );
                     } else {
                         log::warn!("Order modification WebSocket post request failed: {e}");
-                        dispatch_state.clear_pending_modify(&client_order_id);
+
+                        if let Some(generation) = modify_generation {
+                            dispatch_state.clear_modify_generation(&client_order_id, generation);
+                        }
                         remove_generated_modify_cloid(
                             &http_client,
                             &ws_client,
@@ -1915,7 +1927,7 @@ fn is_inflight_modify_old_leg_cancel(
     report: &OrderStatusReport,
 ) -> bool {
     report.order_status == OrderStatus::Canceled
-        && dispatch_state.pending_modify(client_order_id) == Some(report.venue_order_id)
+        && dispatch_state.pending_modify_contains_old(client_order_id, report.venue_order_id)
 }
 
 fn remove_generated_modify_cloid(

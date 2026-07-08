@@ -952,7 +952,7 @@ sequenceDiagram
     ExecClient->>Dispatch: mark_pending_modify(cloid, old_oid)
     WS-->>ExecClient: ACCEPTED(new_oid, cloid)
     ExecClient->>Dispatch: dispatch_order_event()
-    Dispatch->>Dispatch: cached_voi != new_oid -> promote to OrderUpdated,<br/>clear_pending_modify, record_venue_order_id(new_oid)
+    Dispatch->>Dispatch: cached_voi != new_oid -> promote to OrderUpdated,<br/>claim_front_modify, record_venue_order_id(new_oid)
     Dispatch-->>Strategy: OrderUpdated(venue_order_id=new_oid)
     WS-->>ExecClient: CANCELED(old_oid, cloid)
     ExecClient->>Dispatch: dispatch_order_event()
@@ -960,14 +960,22 @@ sequenceDiagram
 ```
 
 If Hyperliquid delivers `CANCELED(old_oid)` before `ACCEPTED(new_oid)` for an in-flight modify,
-the pending-modify marker lets the dispatch drop the old leg's cancel and still route the
-subsequent `ACCEPTED` through the `OrderUpdated` path. The marker is only set after a confirmed
-HTTP success, so a failed modify never leaves stale race state. Because detection otherwise
-relies on the cached `venue_order_id`, the adapter also recovers a modify that times out on the
-HTTP call but still reaches the venue: the eventual WS `ACCEPTED(new_oid)` sees the old cached
-`oid` and translates to `OrderUpdated`. See [GH-3827](https://github.com/nautechsystems/nautilus_trader/issues/3827).
+a pending-modify intent lets the dispatch drop the old leg's cancel and still route the
+subsequent `ACCEPTED` through the `OrderUpdated` path. The intent is queued before the HTTP call
+and cleared by its own attempt on failure, so a failed modify never leaves stale race state.
+Because detection otherwise relies on the cached `venue_order_id`, the adapter also recovers a
+modify that times out on the HTTP call but still reaches the venue: the eventual WS
+`ACCEPTED(new_oid)` sees the old cached `oid` and translates to `OrderUpdated`. See
+[GH-3827](https://github.com/nautechsystems/nautilus_trader/issues/3827).
 
-The same marker guards the inflight query and single-order reconcile paths. While a modify is in
+Rapid repeated modifies under the same `cloid` queue as a chain of in-flight intents rather than
+a single marker. A later modify does not overwrite an earlier intent's old-leg suppression, and a
+failed modify clears only its own attempt, leaving newer queued modifies intact. Each replacement
+`ACCEPTED` promotes the oldest queued intent and advances the next intent's old leg to the promoted
+replacement, so every leg's stale cancel is suppressed and each `OrderUpdated` carries its own
+target quantity.
+
+The same chain guards the inflight query and single-order reconcile paths. While a modify is in
 flight, `query_order` and `generate_order_status_report` drop a `Canceled` for the superseded leg,
 so an out-of-band status probe that resolves the old `oid` before the replacement appears cannot
 terminate the live order. A non-cancel status for the old leg (such as a late `Filled`) is still
@@ -976,8 +984,8 @@ forwarded so reconciliation can recover it.
 These paths also promote the replacement. Hyperliquid lists the replacement under the same `cloid`
 with a new `oid` in `frontendOpenOrders`, so when the replacement `ACCEPTED(new_oid)` was dropped
 on the WebSocket and no fill has arrived, the query resolves it by `cloid` and promotes it to
-`OrderUpdated` directly (rebinding the `cloid` to `new_oid` and clearing the pending-modify
-marker). The order is therefore not left bound to the canceled leg, and subsequent modifies and
+`OrderUpdated` directly (rebinding the `cloid` to `new_oid` and advancing the modify chain).
+The order is therefore not left bound to the canceled leg, and subsequent modifies and
 cancels target the live replacement. See
 [GH-4270](https://github.com/nautechsystems/nautilus_trader/issues/4270).
 
