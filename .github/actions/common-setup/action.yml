@@ -38,7 +38,8 @@ inputs:
   uv-cache-enabled:
     description: >-
       Whether to persist the uv cache with GitHub Actions cache: true, false, or
-      auto (enabled on GitHub-hosted runners, disabled on self-hosted runners).
+      auto (enabled on GitHub-hosted runners, disabled on self-hosted runners and
+      macOS runners).
     required: false
     default: "auto"
   prek-cache-enabled:
@@ -276,7 +277,11 @@ runs:
       uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       with:
         version: ${{ env.UV_VERSION }}
-        enable-cache: ${{ inputs.uv-cache-enabled }}
+        enable-cache: >-
+          ${{ inputs.uv-cache-enabled == 'auto'
+          && runner.os == 'macOS'
+          && 'false'
+          || inputs.uv-cache-enabled }}
         cache-suffix: ${{ env.CACHE_SCOPE }}-uv-${{ env.UV_VERSION }}
         prune-cache: true
 
@@ -285,7 +290,7 @@ runs:
       run: |
         echo "UV_CACHE_DIR=$(uv cache dir)" >> $GITHUB_ENV
 
-    # Self-hosted runners skip setup-uv's save-cache (and its built-in prune) under auto.
+    # Self-hosted and macOS runners skip setup-uv's cache post-step under auto.
     - name: Prune uv cache
       shell: bash
       run: uv cache prune --ci
