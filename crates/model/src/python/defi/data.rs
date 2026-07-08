@@ -782,8 +782,9 @@ impl PoolFeeCollect {
 impl PoolFeeProtocolUpdate {
     /// Represents a protocol-fee configuration change in a Uniswap V3-style pool.
     ///
-    /// Emitted by `SetFeeProtocol`, this carries the new protocol-fee values for each token.
-    /// Only the new values are kept; the previous values in the event are not needed to rebuild state.
+    /// Emitted by `SetFeeProtocol`, this carries the new protocol-fee values for each token. Uniswap
+    /// V3 uses 4-bit denominators, while PancakeSwap V3 uses `uint32` basis-point shares. Only the new
+    /// values are kept; the previous values in the event are not needed to rebuild state.
     #[new]
     #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
     fn py_new(
