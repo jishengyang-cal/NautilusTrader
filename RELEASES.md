@@ -75,6 +75,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Binance Futures external algo order materialization (#4348), thanks for reporting @linimin
 - Fixed Binance Futures algo orders to consume USD-M order-count limits (#4395), thanks for reporting @cjdsellers
 - Fixed Binance Spot instrument loading after the venue SBE schema `3:5` rollout
+- Fixed Blockchain HyperSync live pool-event streaming to use a durable per-DEX stream and avoid tip-window overreach
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
 - Fixed Derive option `scheduled_activation` parsing as UNIX seconds (was parsed as milliseconds)
