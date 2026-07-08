@@ -37,6 +37,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Python v2 `Strategy.shutdown_system()` and `LiveNode.dispose()` bindings
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
 - Added PancakeSwap V3 protocol-fee replay accounting; run `make init-db` for schema changes
+- Added Hyperliquid fast-cancel payloads for non-trigger order cancels (#4414), thanks for reporting @magnified103
 - Added Hyperliquid market data stream health warnings for stalled Deltas, Depth10, and Quote subscriptions (#4298)
 - Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
 - Added Interactive Brokers PyO3 type stub annotations (#4350), thanks @dfjmax

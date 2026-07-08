@@ -1827,6 +1827,7 @@ impl HyperliquidHttpClient {
                         asset: asset_id,
                         cloid,
                     }],
+                    fast: None,
                 }
             } else if let Some(oid) = venue_order_id {
                 let oid_u64 = oid
@@ -1838,6 +1839,7 @@ impl HyperliquidHttpClient {
                         asset: asset_id,
                         oid: oid_u64,
                     }],
+                    fast: None,
                 }
             } else {
                 let cloid = self.get_or_generate_client_order_id_cloid(client_order_id);
@@ -1846,6 +1848,7 @@ impl HyperliquidHttpClient {
                         asset: asset_id,
                         cloid,
                     }],
+                    fast: None,
                 }
             }
         } else if let Some(oid) = venue_order_id {
@@ -1858,6 +1861,7 @@ impl HyperliquidHttpClient {
                     asset: asset_id,
                     oid: oid_u64,
                 }],
+                fast: None,
             }
         } else {
             return Err(Error::bad_request(

@@ -1127,6 +1127,14 @@ impl ExecutionClient for HyperliquidExecutionClient {
         let venue_order_id = cmd.venue_order_id;
         let symbol = cmd.instrument_id.symbol.inner();
         let ws_client = self.ws_client.clone();
+        let fast = can_fast_cancel_order(
+            self.core
+                .cache()
+                .order(&client_order_id)
+                .as_ref()
+                .map(|order| order.order_type()),
+        )
+        .then_some(true);
 
         self.spawn_task("cancel_order", async move {
             let asset = match http_client.get_asset_index_for_symbol(symbol) {
@@ -1143,11 +1151,13 @@ impl ExecutionClient for HyperliquidExecutionClient {
                 if let Some(cloid) = http_client.cached_client_order_id_cloid(&client_order_id) {
                     HyperliquidExecAction::CancelByCloid {
                         cancels: vec![HyperliquidExecCancelByCloidRequest { asset, cloid }],
+                        fast,
                     }
                 } else if let Some(venue_order_id) = venue_order_id {
                     match venue_order_id.as_str().parse::<u64>() {
                         Ok(oid) => HyperliquidExecAction::Cancel {
                             cancels: vec![HyperliquidExecCancelOrderRequest { asset, oid }],
+                            fast,
                         },
                         Err(_) => {
                             log::warn!(
@@ -1160,6 +1170,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
                     let cloid = http_client.get_or_generate_client_order_id_cloid(client_order_id);
                     HyperliquidExecAction::CancelByCloid {
                         cancels: vec![HyperliquidExecCancelByCloidRequest { asset, cloid }],
+                        fast,
                     }
                 };
 
@@ -1233,6 +1244,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
                 client_order_id: o.client_order_id(),
                 venue_order_id: o.venue_order_id(),
                 symbol,
+                fast: can_fast_cancel_order(Some(o.order_type())),
             })
             .collect();
 
@@ -1286,6 +1298,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
             return Ok(());
         }
 
+        let cache = self.core.cache();
         let entries: Vec<CancelEntry> = cmd
             .cancels
             .iter()
@@ -1295,6 +1308,12 @@ impl ExecutionClient for HyperliquidExecutionClient {
                 client_order_id: c.client_order_id,
                 venue_order_id: c.venue_order_id,
                 symbol: c.instrument_id.symbol.inner(),
+                fast: can_fast_cancel_order(
+                    cache
+                        .order(&c.client_order_id)
+                        .as_ref()
+                        .map(|order| order.order_type()),
+                ),
             })
             .collect();
 
@@ -1924,22 +1943,19 @@ struct CancelEntry {
     client_order_id: ClientOrderId,
     venue_order_id: Option<VenueOrderId>,
     symbol: Ustr,
+    fast: bool,
 }
 
 struct CancelDispatch {
-    cloid_requests: Vec<HyperliquidExecCancelByCloidRequest>,
-    cloid_entries: Vec<CancelEntry>,
-    oid_requests: Vec<HyperliquidExecCancelOrderRequest>,
-    oid_entries: Vec<CancelEntry>,
+    cloid_requests: Vec<(HyperliquidExecCancelByCloidRequest, CancelEntry)>,
+    oid_requests: Vec<(HyperliquidExecCancelOrderRequest, CancelEntry)>,
 }
 
 impl CancelDispatch {
     fn new() -> Self {
         Self {
             cloid_requests: Vec::new(),
-            cloid_entries: Vec::new(),
             oid_requests: Vec::new(),
-            oid_entries: Vec::new(),
         }
     }
 
@@ -1949,15 +1965,17 @@ impl CancelDispatch {
 
     fn push(&mut self, entry: &CancelEntry, asset: u32, http_client: &HyperliquidHttpClient) {
         if let Some(cloid) = http_client.cached_client_order_id_cloid(&entry.client_order_id) {
-            self.cloid_requests
-                .push(HyperliquidExecCancelByCloidRequest { asset, cloid });
-            self.cloid_entries.push(entry.clone());
+            self.cloid_requests.push((
+                HyperliquidExecCancelByCloidRequest { asset, cloid },
+                entry.clone(),
+            ));
         } else if let Some(venue_order_id) = entry.venue_order_id {
             match venue_order_id.as_str().parse::<u64>() {
                 Ok(oid) => {
-                    self.oid_requests
-                        .push(HyperliquidExecCancelOrderRequest { asset, oid });
-                    self.oid_entries.push(entry.clone());
+                    self.oid_requests.push((
+                        HyperliquidExecCancelOrderRequest { asset, oid },
+                        entry.clone(),
+                    ));
                 }
                 Err(_) => {
                     log::warn!(
@@ -1968,9 +1986,10 @@ impl CancelDispatch {
             }
         } else {
             let cloid = http_client.get_or_generate_client_order_id_cloid(entry.client_order_id);
-            self.cloid_requests
-                .push(HyperliquidExecCancelByCloidRequest { asset, cloid });
-            self.cloid_entries.push(entry.clone());
+            self.cloid_requests.push((
+                HyperliquidExecCancelByCloidRequest { asset, cloid },
+                entry.clone(),
+            ));
         }
     }
 }
@@ -1985,14 +2004,33 @@ async fn submit_cancel_dispatch(
 ) {
     let CancelDispatch {
         cloid_requests,
-        cloid_entries,
         oid_requests,
-        oid_entries,
     } = dispatch;
+
+    let (fast_cloid_requests, fast_cloid_entries, cloid_requests, cloid_entries) =
+        split_fast_cancel_requests(cloid_requests);
+
+    if !fast_cloid_requests.is_empty() {
+        let action = HyperliquidExecAction::CancelByCloid {
+            cancels: fast_cloid_requests,
+            fast: Some(true),
+        };
+        submit_cancel_action(
+            label,
+            action,
+            &fast_cloid_entries,
+            ws_client,
+            http_client,
+            emitter,
+            clock,
+        )
+        .await;
+    }
 
     if !cloid_requests.is_empty() {
         let action = HyperliquidExecAction::CancelByCloid {
             cancels: cloid_requests,
+            fast: None,
         };
         submit_cancel_action(
             label,
@@ -2006,9 +2044,30 @@ async fn submit_cancel_dispatch(
         .await;
     }
 
+    let (fast_oid_requests, fast_oid_entries, oid_requests, oid_entries) =
+        split_fast_cancel_requests(oid_requests);
+
+    if !fast_oid_requests.is_empty() {
+        let action = HyperliquidExecAction::Cancel {
+            cancels: fast_oid_requests,
+            fast: Some(true),
+        };
+        submit_cancel_action(
+            label,
+            action,
+            &fast_oid_entries,
+            ws_client,
+            http_client,
+            emitter,
+            clock,
+        )
+        .await;
+    }
+
     if !oid_requests.is_empty() {
         let action = HyperliquidExecAction::Cancel {
             cancels: oid_requests,
+            fast: None,
         };
         submit_cancel_action(
             label,
@@ -2021,6 +2080,32 @@ async fn submit_cancel_dispatch(
         )
         .await;
     }
+}
+
+fn split_fast_cancel_requests<T>(
+    requests: Vec<(T, CancelEntry)>,
+) -> (Vec<T>, Vec<CancelEntry>, Vec<T>, Vec<CancelEntry>) {
+    let mut fast_requests = Vec::new();
+    let mut fast_entries = Vec::new();
+    let mut requests_without_fast = Vec::new();
+    let mut entries_without_fast = Vec::new();
+
+    for (request, entry) in requests {
+        if entry.fast {
+            fast_requests.push(request);
+            fast_entries.push(entry);
+        } else {
+            requests_without_fast.push(request);
+            entries_without_fast.push(entry);
+        }
+    }
+
+    (
+        fast_requests,
+        fast_entries,
+        requests_without_fast,
+        entries_without_fast,
+    )
 }
 
 async fn submit_cancel_action(
@@ -2179,6 +2264,10 @@ pub fn validate_order_for_hyperliquid(order: &OrderAny) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn can_fast_cancel_order(order_type: Option<OrderType>) -> bool {
+    matches!(order_type, Some(OrderType::Market | OrderType::Limit))
 }
 
 fn cancel_status_count_mismatch_reason(
@@ -2447,10 +2536,11 @@ mod tests {
     use ustr::Ustr;
 
     use super::{
-        ExecutionReport, FifoCache, HyperliquidHttpClient, HyperliquidWebSocketClient,
-        OrderIdentity, PostRejectionRoute, WsDispatchState, determine_order_list_grouping,
-        filter_order_status_reports_for_command, handle_execution_report,
-        register_order_identity_into, validate_order_for_hyperliquid,
+        CancelEntry, ExecutionReport, FifoCache, HyperliquidHttpClient, HyperliquidWebSocketClient,
+        OrderIdentity, PostRejectionRoute, WsDispatchState, can_fast_cancel_order,
+        determine_order_list_grouping, filter_order_status_reports_for_command,
+        handle_execution_report, register_order_identity_into, split_fast_cancel_requests,
+        validate_order_for_hyperliquid,
     };
     use crate::{
         common::enums::HyperliquidEnvironment,
@@ -2839,6 +2929,65 @@ mod tests {
     ) {
         let result = determine_order_list_grouping(&orders);
         assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::market(Some(OrderType::Market), true)]
+    #[case::limit(Some(OrderType::Limit), true)]
+    #[case::stop_market(Some(OrderType::StopMarket), false)]
+    #[case::unknown(None, false)]
+    fn test_can_fast_cancel_order_only_allows_plain_order_types(
+        #[case] order_type: Option<OrderType>,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(can_fast_cancel_order(order_type), expected);
+    }
+
+    #[rstest]
+    fn test_split_fast_cancel_requests_preserves_request_entry_alignment() {
+        let requests = vec![
+            (10_u64, cancel_entry("O-FAST-1", true)),
+            (20_u64, cancel_entry("O-NORMAL-1", false)),
+            (30_u64, cancel_entry("O-FAST-2", true)),
+            (40_u64, cancel_entry("O-NORMAL-2", false)),
+        ];
+
+        let (fast_requests, fast_entries, normal_requests, normal_entries) =
+            split_fast_cancel_requests(requests);
+
+        assert_eq!(fast_requests, vec![10, 30]);
+        assert_eq!(
+            client_order_ids(&fast_entries),
+            vec![
+                ClientOrderId::from("O-FAST-1"),
+                ClientOrderId::from("O-FAST-2"),
+            ]
+        );
+        assert!(fast_entries.iter().all(|entry| entry.fast));
+        assert_eq!(normal_requests, vec![20, 40]);
+        assert_eq!(
+            client_order_ids(&normal_entries),
+            vec![
+                ClientOrderId::from("O-NORMAL-1"),
+                ClientOrderId::from("O-NORMAL-2"),
+            ]
+        );
+        assert!(normal_entries.iter().all(|entry| !entry.fast));
+    }
+
+    fn cancel_entry(client_order_id: &str, fast: bool) -> CancelEntry {
+        CancelEntry {
+            strategy_id: StrategyId::from("S-001"),
+            instrument_id: InstrumentId::from(TEST_INSTRUMENT_ID),
+            client_order_id: ClientOrderId::from(client_order_id),
+            venue_order_id: Some(VenueOrderId::new("123")),
+            symbol: Ustr::from("BTC-USD-PERP"),
+            fast,
+        }
+    }
+
+    fn client_order_ids(entries: &[CancelEntry]) -> Vec<ClientOrderId> {
+        entries.iter().map(|entry| entry.client_order_id).collect()
     }
 
     fn limit_order_with_quote_quantity(id: &str, quote_quantity: bool) -> OrderAny {
