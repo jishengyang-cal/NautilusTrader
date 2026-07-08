@@ -4006,7 +4006,7 @@ impl DataActor for CloseOnStop {
     }
 
     fn on_stop(&mut self) -> anyhow::Result<()> {
-        self.close_all_positions(self.instrument_id, None, None, None, None, None, None)
+        self.close_all_positions(self.instrument_id, None, None, None, None, None, None, None)
     }
 
     fn on_quote(&mut self, _quote: &QuoteTick) -> anyhow::Result<()> {
@@ -4660,7 +4660,7 @@ impl DataActor for MultiInstrumentCloseOnStop {
 
     fn on_stop(&mut self) -> anyhow::Result<()> {
         for instrument_id in self.instrument_ids.clone() {
-            self.close_all_positions(instrument_id, None, None, None, None, None, None)?;
+            self.close_all_positions(instrument_id, None, None, None, None, None, None, None)?;
         }
         Ok(())
     }

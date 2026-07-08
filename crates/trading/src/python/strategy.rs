@@ -1857,7 +1857,8 @@ impl PyStrategy {
     }
 
     #[pyo3(name = "close_position")]
-    #[pyo3(signature = (position, client_id=None, tags=None, time_in_force=None, reduce_only=None, quote_quantity=None))]
+    #[pyo3(signature = (position, client_id=None, tags=None, time_in_force=None, reduce_only=None, quote_quantity=None, params=None))]
+    #[expect(clippy::too_many_arguments)]
     fn py_close_position(
         &mut self,
         position: &Position,
@@ -1866,8 +1867,15 @@ impl PyStrategy {
         time_in_force: Option<TimeInForce>,
         reduce_only: Option<bool>,
         quote_quantity: Option<bool>,
+        params: Option<Py<PyDict>>,
     ) -> PyResult<()> {
         let tags = tags.map(|t| t.into_iter().map(|s| Ustr::from(&s)).collect());
+        let params_map = Python::attach(|py| -> PyResult<Option<Params>> {
+            match params {
+                Some(dict) => from_pydict(py, &dict),
+                None => Ok(None),
+            }
+        })?;
         Strategy::close_position(
             self.inner_mut(),
             position,
@@ -1876,12 +1884,13 @@ impl PyStrategy {
             time_in_force,
             reduce_only,
             quote_quantity,
+            params_map,
         )
         .map_err(to_pyruntime_err)
     }
 
     #[pyo3(name = "close_all_positions")]
-    #[pyo3(signature = (instrument_id, position_side=None, client_id=None, tags=None, time_in_force=None, reduce_only=None, quote_quantity=None))]
+    #[pyo3(signature = (instrument_id, position_side=None, client_id=None, tags=None, time_in_force=None, reduce_only=None, quote_quantity=None, params=None))]
     #[expect(clippy::too_many_arguments)]
     fn py_close_all_positions(
         &mut self,
@@ -1892,8 +1901,15 @@ impl PyStrategy {
         time_in_force: Option<TimeInForce>,
         reduce_only: Option<bool>,
         quote_quantity: Option<bool>,
+        params: Option<Py<PyDict>>,
     ) -> PyResult<()> {
         let tags = tags.map(|t| t.into_iter().map(|s| Ustr::from(&s)).collect());
+        let params_map = Python::attach(|py| -> PyResult<Option<Params>> {
+            match params {
+                Some(dict) => from_pydict(py, &dict),
+                None => Ok(None),
+            }
+        })?;
         Strategy::close_all_positions(
             self.inner_mut(),
             instrument_id,
@@ -1903,6 +1919,7 @@ impl PyStrategy {
             time_in_force,
             reduce_only,
             quote_quantity,
+            params_map,
         )
         .map_err(to_pyruntime_err)
     }
@@ -3145,7 +3162,7 @@ mod tests {
         },
         enums::{
             AggressorSide, BookType, GreeksConvention, InstrumentCloseType, MarketStatusAction,
-            OrderSide, OrderType, PositionSide, TimeInForce,
+            OmsType, OrderSide, OrderType, PositionSide, TimeInForce,
         },
         events::{
             OrderAccepted, OrderCancelRejected, OrderCanceled, OrderDenied, OrderEmulated,
@@ -3161,6 +3178,7 @@ mod tests {
         instruments::{CurrencyPair, InstrumentAny, stubs::audusd_sim},
         orderbook::OrderBook,
         orders::{Order, OrderTestBuilder},
+        position::Position,
         python::orders::order_any_to_pyobject,
         types::{Currency, Money, Price, Quantity},
     };
@@ -3658,6 +3676,27 @@ class IndicatorEventStrategy:
             .build();
 
         order_any_to_pyobject(py, order)
+    }
+
+    fn sample_open_position(
+        strategy_id: StrategyId,
+        position_id: PositionId,
+        client_order_id: ClientOrderId,
+    ) -> Position {
+        let instrument = sample_instrument();
+        let fill = OrderFilledSpec::builder()
+            .trader_id(TraderId::from("TRADER-001"))
+            .strategy_id(strategy_id)
+            .instrument_id(instrument.id)
+            .client_order_id(client_order_id)
+            .position_id(position_id)
+            .order_side(OrderSide::Buy)
+            .last_qty(Quantity::from(100_000))
+            .last_px(Price::from("1.00000"))
+            .currency(instrument.quote_currency)
+            .build();
+
+        Position::new(&InstrumentAny::CurrencyPair(instrument), fill)
     }
 
     fn create_registered_tracking_strategy_with_config(
@@ -4278,6 +4317,139 @@ class IndicatorEventStrategy:
                     .and_then(|params| params.get("routing_hint")),
                 Some(&Value::String("prefer_batch".to_string()))
             );
+        });
+    }
+
+    #[rstest::rstest]
+    fn test_python_close_position_forwards_params_to_submit_order() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let (_, mut rust_strategy) = create_registered_tracking_strategy(py);
+            let (risk_handler, risk_messages): (_, TypedIntoMessageSavingHandler<TradingCommand>) =
+                get_typed_into_message_saving_handler(Some(Ustr::from("RiskEngine.queue_execute")));
+            msgbus::register_trading_command_endpoint(
+                MessagingSwitchboard::risk_engine_queue_execute(),
+                risk_handler,
+            );
+
+            let position_id = PositionId::from("P-PYO3-CLOSE-001");
+            let position = sample_open_position(
+                rust_strategy.strategy_id(),
+                position_id,
+                ClientOrderId::from("O-PYO3-CLOSE-001"),
+            );
+            let params = PyDict::new(py);
+
+            params.set_item("routing_hint", "close_single").unwrap();
+            rust_strategy
+                .py_close_position(
+                    &position,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(params.unbind()),
+                )
+                .unwrap();
+
+            let risk_messages = risk_messages.get_messages();
+            assert_eq!(risk_messages.len(), 1);
+            let Some(TradingCommand::SubmitOrder(command)) = risk_messages.first() else {
+                panic!("expected SubmitOrder command");
+            };
+            assert_eq!(command.position_id, Some(position_id));
+            assert_eq!(
+                command
+                    .params
+                    .as_ref()
+                    .and_then(|params| params.get("routing_hint")),
+                Some(&Value::String("close_single".to_string()))
+            );
+        });
+    }
+
+    #[rstest::rstest]
+    fn test_python_close_all_positions_forwards_params_to_submit_order() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            let (_, mut rust_strategy) = create_registered_tracking_strategy(py);
+            let (risk_handler, risk_messages): (_, TypedIntoMessageSavingHandler<TradingCommand>) =
+                get_typed_into_message_saving_handler(Some(Ustr::from("RiskEngine.queue_execute")));
+            msgbus::register_trading_command_endpoint(
+                MessagingSwitchboard::risk_engine_queue_execute(),
+                risk_handler,
+            );
+
+            let instrument = sample_instrument();
+            let position_id1 = PositionId::from("P-PYO3-CLOSE-ALL-001");
+            let position_id2 = PositionId::from("P-PYO3-CLOSE-ALL-002");
+            let position1 = sample_open_position(
+                rust_strategy.strategy_id(),
+                position_id1,
+                ClientOrderId::from("O-PYO3-CLOSE-ALL-001"),
+            );
+            let position2 = sample_open_position(
+                rust_strategy.strategy_id(),
+                position_id2,
+                ClientOrderId::from("O-PYO3-CLOSE-ALL-002"),
+            );
+            let cache = rust_strategy.inner().core.cache_rc();
+
+            {
+                let mut cache = cache.borrow_mut();
+                cache
+                    .add_instrument(InstrumentAny::CurrencyPair(instrument.clone()))
+                    .unwrap();
+                cache.add_position(&position1, OmsType::Hedging).unwrap();
+                cache.add_position(&position2, OmsType::Hedging).unwrap();
+            }
+
+            let params = PyDict::new(py);
+
+            params.set_item("routing_hint", "close_all").unwrap();
+            rust_strategy
+                .py_close_all_positions(
+                    instrument.id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(params.unbind()),
+                )
+                .unwrap();
+
+            let risk_messages = risk_messages.get_messages();
+            assert_eq!(risk_messages.len(), 2);
+            let commands: Vec<_> = risk_messages
+                .iter()
+                .map(|message| {
+                    let TradingCommand::SubmitOrder(command) = message else {
+                        panic!("expected SubmitOrder command");
+                    };
+                    command
+                })
+                .collect();
+
+            assert!(
+                commands
+                    .iter()
+                    .any(|command| command.position_id == Some(position_id1))
+            );
+            assert!(
+                commands
+                    .iter()
+                    .any(|command| command.position_id == Some(position_id2))
+            );
+            assert!(commands.iter().all(|command| {
+                command
+                    .params
+                    .as_ref()
+                    .and_then(|params| params.get("routing_hint"))
+                    == Some(&Value::String("close_all".to_string()))
+            }));
         });
     }
 

@@ -496,6 +496,7 @@ class Strategy:
         time_in_force: model.TimeInForce | None = None,
         reduce_only: bool | None = None,
         quote_quantity: bool | None = None,
+        params: dict | None = None,
     ) -> None: ...
     def close_all_positions(
         self,
@@ -506,6 +507,7 @@ class Strategy:
         time_in_force: model.TimeInForce | None = None,
         reduce_only: bool | None = None,
         quote_quantity: bool | None = None,
+        params: dict | None = None,
     ) -> None: ...
     def query_account(
         self,

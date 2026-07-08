@@ -58,6 +58,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed v2 position reconciliation grace to measure on the monotonic clock (#4366), thanks @folknor
 - Fixed Python v2 migration gaps for `core.datetime`, `Clock.set_time`, and Strategy data APIs
 - Fixed Python v2 subclassable PyO3 stubs marked as final (#4384), thanks @bebop23
+- Fixed Python v2 `Strategy` close-position and close-all-position commands to accept and forward `params`
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
 - Fixed live reconciliation real-time gates to use the monotonic clock (#4376), thanks @folknor
 - Fixed live missing-order reconciliation to use monotonic receipt time (#4387), thanks @folknor

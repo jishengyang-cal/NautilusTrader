@@ -1094,6 +1094,7 @@ pub trait Strategy: DataActor {
     /// # Errors
     ///
     /// Returns an error if the strategy is not registered or position closing fails.
+    #[expect(clippy::too_many_arguments)]
     fn close_position(
         &mut self,
         position: &Position,
@@ -1102,6 +1103,7 @@ pub trait Strategy: DataActor {
         time_in_force: Option<TimeInForce>,
         reduce_only: Option<bool>,
         quote_quantity: Option<bool>,
+        params: Option<Params>,
     ) -> anyhow::Result<()>
     where
         Self: StrategyNative,
@@ -1128,7 +1130,7 @@ pub trait Strategy: DataActor {
             None,
         );
 
-        self.submit_order(order, Some(position.id), client_id, None)
+        self.submit_order(order, Some(position.id), client_id, params)
     }
 
     /// Closes all open positions for the given instrument.
@@ -1146,6 +1148,7 @@ pub trait Strategy: DataActor {
         time_in_force: Option<TimeInForce>,
         reduce_only: Option<bool>,
         quote_quantity: Option<bool>,
+        params: Option<Params>,
     ) -> anyhow::Result<()>
     where
         Self: StrategyNative,
@@ -1203,7 +1206,7 @@ pub trait Strategy: DataActor {
                 None,
             );
 
-            self.submit_order(order, Some(pos_id), client_id, None)?;
+            self.submit_order(order, Some(pos_id), client_id, params.clone())?;
         }
 
         Ok(())
@@ -1678,6 +1681,7 @@ pub trait Strategy: DataActor {
                 Some(vec![market_exit_tag]),
                 Some(time_in_force),
                 Some(reduce_only),
+                None,
                 None,
             ) {
                 log::error!("Error closing positions for {instrument_id}: {e}");

@@ -522,6 +522,7 @@ CLOSE_POSITION_PARAMETERS = (
     "time_in_force",
     "reduce_only",
     "quote_quantity",
+    "params",
 )
 CLOSE_ALL_POSITIONS_PARAMETERS = (
     "instrument_id",
@@ -531,6 +532,7 @@ CLOSE_ALL_POSITIONS_PARAMETERS = (
     "time_in_force",
     "reduce_only",
     "quote_quantity",
+    "params",
 )
 QUERY_ACCOUNT_PARAMETERS = ("account_id", "client_id", "params")
 QUERY_ORDER_PARAMETERS = ("order", "client_id", "params")

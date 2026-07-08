@@ -157,6 +157,7 @@ impl DataActor for ExecTester {
                 time_in_force,
                 Some(self.config.reduce_only_on_stop),
                 None,
+                None,
             ) {
                 log::error!("Failed to close all positions: {e}");
             }

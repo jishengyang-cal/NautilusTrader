@@ -263,7 +263,7 @@ impl DataActor for CompositeMarketMaker {
         let instrument_id = self.config.instrument_id;
         let signal_instrument_id = self.config.signal_instrument_id;
         self.cancel_all_orders(instrument_id, None, None, None)?;
-        self.close_all_positions(instrument_id, None, None, None, None, None, None)?;
+        self.close_all_positions(instrument_id, None, None, None, None, None, None, None)?;
         self.unsubscribe_quotes(instrument_id, None, None);
         self.unsubscribe_quotes(signal_instrument_id, None, None);
         Ok(())

@@ -796,7 +796,7 @@ def _betfair_order_book_deltas(instrument: BettingInstrument) -> list[OrderBookD
     ]
 
 
-@pytest.mark.skip(reason="v2 missing: Betfair adapter + MarketMaker example strategy")
+@pytest.mark.skip(reason="post-cutover: v1 Betfair data fixture + Python MarketMaker workflow")
 class TestBacktestAcceptanceTestsMarketMaking:
     def test_run_market_maker(self):
         pass
@@ -1431,7 +1431,7 @@ class TestBacktestCommandSettling:
 
 
 @pytest.mark.skip(
-    reason="v2 missing: databento data_utils + options/spreads + StreamingConfig + DataCatalogConfig wiring",
+    reason="post-cutover: databento data_utils/options/spreads + StreamingConfig/DataCatalogConfig wiring",
 )
 class TestBacktestNodeWithBacktestDataIterator:
     def test_backtest_same_with_and_without_data_configs(self):
