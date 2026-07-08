@@ -64,6 +64,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Python v2 `Strategy` close-position and close-all-position commands to accept and forward `params`
 - Fixed Python v2 `DataActor.shutdown_system()` unregistered calls to raise `RuntimeError`
 - Fixed Python v2 `LiveNode.stop()` to complete shutdown instead of only signaling the handle
+- Fixed Python v2 boundary error handling to raise Python exceptions instead of panicking for invalid order events, catalog/Tardis inputs, cache load failures, and malformed market-data enum values
+- Fixed Python v2 DeFi comparisons to return `NotImplemented` for unsupported ordering instead of panicking
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
 - Fixed live reconciliation real-time gates to use the monotonic clock (#4376), thanks @folknor
 - Fixed live missing-order reconciliation to use monotonic receipt time (#4387), thanks @folknor

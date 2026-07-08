@@ -91,7 +91,7 @@ impl PostgresCacheDatabase {
         get_runtime().block_on(async {
             let result = DatabaseQueries::load_instrument(&self.pool, &instrument_id)
                 .await
-                .unwrap();
+                .map_err(to_pyruntime_err)?;
 
             match result {
                 Some(instrument) => {
@@ -106,7 +106,9 @@ impl PostgresCacheDatabase {
     #[pyo3(name = "load_instruments")]
     fn py_load_instruments(&self, py: Python) -> PyResult<Vec<Py<PyAny>>> {
         get_runtime().block_on(async {
-            let result = DatabaseQueries::load_instruments(&self.pool).await.unwrap();
+            let result = DatabaseQueries::load_instruments(&self.pool)
+                .await
+                .map_err(to_pyruntime_err)?;
             let mut instruments = Vec::new();
 
             for instrument in result {
@@ -126,7 +128,7 @@ impl PostgresCacheDatabase {
         get_runtime().block_on(async {
             let result = DatabaseQueries::load_order(&self.pool, &client_order_id)
                 .await
-                .unwrap();
+                .map_err(to_pyruntime_err)?;
 
             match result {
                 Some(order) => {
@@ -143,7 +145,7 @@ impl PostgresCacheDatabase {
         get_runtime().block_on(async {
             let result = DatabaseQueries::load_account(&self.pool, &account_id)
                 .await
-                .unwrap();
+                .map_err(to_pyruntime_err)?;
 
             match result {
                 Some(account) => {
@@ -160,7 +162,7 @@ impl PostgresCacheDatabase {
         get_runtime().block_on(async {
             let result = DatabaseQueries::load_quotes(&self.pool, &instrument_id)
                 .await
-                .unwrap();
+                .map_err(to_pyruntime_err)?;
             let mut quotes = Vec::new();
 
             for quote in result {
@@ -176,7 +178,7 @@ impl PostgresCacheDatabase {
         get_runtime().block_on(async {
             let result = DatabaseQueries::load_trades(&self.pool, &instrument_id)
                 .await
-                .unwrap();
+                .map_err(to_pyruntime_err)?;
             let mut trades = Vec::new();
 
             for trade in result {
@@ -192,7 +194,7 @@ impl PostgresCacheDatabase {
         get_runtime().block_on(async {
             let result = DatabaseQueries::load_bars(&self.pool, &instrument_id)
                 .await
-                .unwrap();
+                .map_err(to_pyruntime_err)?;
             let mut bars = Vec::new();
 
             for bar in result {

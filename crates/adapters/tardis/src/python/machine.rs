@@ -17,7 +17,9 @@ use std::{path::Path, sync::Arc};
 
 use ahash::AHashMap;
 use futures_util::{Stream, StreamExt, pin_mut};
-use nautilus_core::python::{IntoPyObjectNautilusExt, call_python, to_pyruntime_err};
+use nautilus_core::python::{
+    IntoPyObjectNautilusExt, call_python, to_pyruntime_err, to_pyvalue_err,
+};
 use nautilus_model::{
     data::{Bar, Data, funding::FundingRateUpdate},
     identifiers::InstrumentId,
@@ -49,16 +51,16 @@ use crate::{
 impl ReplayNormalizedRequestOptions {
     #[staticmethod]
     #[pyo3(name = "from_json")]
-    fn py_from_json(#[gen_stub(override_type(type_repr = "bytes"))] data: &[u8]) -> Self {
-        serde_json::from_slice(data).expect("Failed to parse JSON")
+    fn py_from_json(#[gen_stub(override_type(type_repr = "bytes"))] data: &[u8]) -> PyResult<Self> {
+        serde_json::from_slice(data).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "from_json_array")]
     #[staticmethod]
     fn py_from_json_array(
         #[gen_stub(override_type(type_repr = "bytes"))] data: &[u8],
-    ) -> Vec<Self> {
-        serde_json::from_slice(data).expect("Failed to parse JSON array")
+    ) -> PyResult<Vec<Self>> {
+        serde_json::from_slice(data).map_err(to_pyvalue_err)
     }
 }
 
@@ -67,16 +69,16 @@ impl ReplayNormalizedRequestOptions {
 impl StreamNormalizedRequestOptions {
     #[staticmethod]
     #[pyo3(name = "from_json")]
-    fn py_from_json(#[gen_stub(override_type(type_repr = "bytes"))] data: &[u8]) -> Self {
-        serde_json::from_slice(data).expect("Failed to parse JSON")
+    fn py_from_json(#[gen_stub(override_type(type_repr = "bytes"))] data: &[u8]) -> PyResult<Self> {
+        serde_json::from_slice(data).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "from_json_array")]
     #[staticmethod]
     fn py_from_json_array(
         #[gen_stub(override_type(type_repr = "bytes"))] data: &[u8],
-    ) -> Vec<Self> {
-        serde_json::from_slice(data).expect("Failed to parse JSON array")
+    ) -> PyResult<Vec<Self>> {
+        serde_json::from_slice(data).map_err(to_pyvalue_err)
     }
 }
 

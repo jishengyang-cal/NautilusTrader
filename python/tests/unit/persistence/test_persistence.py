@@ -15,6 +15,8 @@
 
 import os
 
+import pytest
+
 from nautilus_trader.common import Cache
 from nautilus_trader.common import Clock
 from nautilus_trader.model import HIGH_PRECISION
@@ -149,6 +151,11 @@ def test_catalog_construction(tmp_path):
     catalog = ParquetDataCatalog(path)
 
     assert catalog is not None
+
+
+def test_catalog_construction_rejects_invalid_uri():
+    with pytest.raises(OSError, match="Failed to create ParquetDataCatalog"):
+        ParquetDataCatalog("s3://")
 
 
 def test_catalog_write_and_read_bars(tmp_path):
