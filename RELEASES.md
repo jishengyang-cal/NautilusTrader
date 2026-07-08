@@ -99,6 +99,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Upgraded Rust (MSRV) to 1.96.1
 - Upgraded Cython to v3.2.8
 - Upgraded `redis` crate to v1.3.0
+- Upgraded `capnp` to v0.26.2 and `py-clob-client-v2` to v1.0.2
 
 ### Documentation Updates
 - Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
