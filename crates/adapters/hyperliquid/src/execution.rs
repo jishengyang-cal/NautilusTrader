@@ -72,8 +72,8 @@ use crate::{
         models::{
             ClearinghouseState, Cloid, HyperliquidExecAction, HyperliquidExecCancelByCloidRequest,
             HyperliquidExecCancelOrderRequest, HyperliquidExecGrouping,
-            HyperliquidExecModifyOrderRequest, HyperliquidExecOrderKind,
-            HyperliquidExecPlaceOrderRequest, SpotClearinghouseState,
+            HyperliquidExecModifyOrderRequest, HyperliquidExecModifyTarget,
+            HyperliquidExecOrderKind, HyperliquidExecPlaceOrderRequest, SpotClearinghouseState,
         },
         parse::derive_outcome_settlements,
     },
@@ -865,56 +865,22 @@ impl ExecutionClient for HyperliquidExecutionClient {
     fn modify_order(&self, cmd: ModifyOrder) -> anyhow::Result<()> {
         log::debug!("Modifying order: {cmd:?}");
 
-        let venue_order_id = match cmd.venue_order_id {
-            Some(id) => id,
-            None => {
-                let reason = "venue_order_id is required for modify";
-                log::warn!("Cannot modify order {}: {reason}", cmd.client_order_id);
-                self.emitter.emit_order_modify_rejected_event(
-                    cmd.strategy_id,
-                    cmd.instrument_id,
-                    cmd.client_order_id,
-                    None,
-                    reason,
-                    self.clock.get_time_ns(),
-                );
-                return Ok(());
-            }
-        };
-
-        let oid: u64 = match venue_order_id.as_str().parse() {
-            Ok(id) => id,
-            Err(e) => {
-                let reason = format!("Failed to parse venue_order_id '{venue_order_id}': {e}");
-                log::warn!("{reason}");
-                self.emitter.emit_order_modify_rejected_event(
-                    cmd.strategy_id,
-                    cmd.instrument_id,
-                    cmd.client_order_id,
-                    Some(venue_order_id),
-                    &reason,
-                    self.clock.get_time_ns(),
-                );
-                return Ok(());
-            }
-        };
+        let client_order_id = cmd.client_order_id;
+        let venue_order_id = cmd
+            .venue_order_id
+            .or_else(|| self.core.cache().venue_order_id(&client_order_id).copied());
 
         // Look up cached order to get side, reduce_only, post_only, TIF
-        let order = match self
-            .core
-            .cache()
-            .order(&cmd.client_order_id)
-            .map(|o| o.clone())
-        {
+        let order = match self.core.cache().order(&client_order_id).map(|o| o.clone()) {
             Some(o) => o,
             None => {
                 let reason = "order not found in cache";
-                log::warn!("Cannot modify order {}: {reason}", cmd.client_order_id);
+                log::warn!("Cannot modify order {client_order_id}: {reason}");
                 self.emitter.emit_order_modify_rejected_event(
                     cmd.strategy_id,
                     cmd.instrument_id,
-                    cmd.client_order_id,
-                    Some(venue_order_id),
+                    client_order_id,
+                    venue_order_id,
                     reason,
                     self.clock.get_time_ns(),
                 );
@@ -926,6 +892,59 @@ impl ExecutionClient for HyperliquidExecutionClient {
         let symbol = cmd.instrument_id.symbol.inner();
         let should_normalize = self.config.normalize_prices;
         let slippage_bps = self.resolve_slippage_bps(cmd.params.as_ref());
+        let modify_target = match http_client.unique_cached_client_order_id_cloid(&client_order_id)
+        {
+            Some(cloid) => HyperliquidExecModifyTarget::Cloid(cloid),
+            None => {
+                let Some(venue_order_id) = venue_order_id.as_ref() else {
+                    let reason = "venue_order_id or unique cached CLOID is required for modify";
+                    log::warn!("Cannot modify order {client_order_id}: {reason}");
+                    self.emitter.emit_order_modify_rejected_event(
+                        cmd.strategy_id,
+                        cmd.instrument_id,
+                        client_order_id,
+                        None,
+                        reason,
+                        self.clock.get_time_ns(),
+                    );
+                    return Ok(());
+                };
+
+                match HyperliquidExecModifyTarget::from_venue_order_id(venue_order_id) {
+                    Ok(target) => target,
+                    Err(e) => {
+                        let reason =
+                            format!("Failed to parse venue_order_id '{venue_order_id}': {e}");
+                        log::warn!("{reason}");
+                        self.emitter.emit_order_modify_rejected_event(
+                            cmd.strategy_id,
+                            cmd.instrument_id,
+                            client_order_id,
+                            Some(*venue_order_id),
+                            &reason,
+                            self.clock.get_time_ns(),
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        };
+        let old_venue_order_id = venue_order_id.filter(|id| id.as_str().parse::<u64>().is_ok());
+        if matches!(modify_target, HyperliquidExecModifyTarget::Cloid(_))
+            && old_venue_order_id.is_none()
+        {
+            let reason = "cached venue_order_id is required for CLOID modify";
+            log::warn!("Cannot modify order {client_order_id}: {reason}");
+            self.emitter.emit_order_modify_rejected_event(
+                cmd.strategy_id,
+                cmd.instrument_id,
+                client_order_id,
+                venue_order_id,
+                reason,
+                self.clock.get_time_ns(),
+            );
+            return Ok(());
+        }
 
         // Hyperliquid modify is cancel-replace; subtract filled to avoid overfill.
         let target_total_qty = cmd.quantity.unwrap_or(order.quantity());
@@ -938,8 +957,8 @@ impl ExecutionClient for HyperliquidExecutionClient {
             self.emitter.emit_order_modify_rejected_event(
                 cmd.strategy_id,
                 cmd.instrument_id,
-                cmd.client_order_id,
-                Some(venue_order_id),
+                client_order_id,
+                venue_order_id,
                 &reason,
                 self.clock.get_time_ns(),
             );
@@ -1012,12 +1031,14 @@ impl ExecutionClient for HyperliquidExecutionClient {
                 return Ok(());
             }
         };
+        let cached_cloid_before_modify = http_client.cached_client_order_id_cloid(&client_order_id);
         let cloid = http_client.get_or_generate_client_order_id_cloid(order.client_order_id());
+        let generated_modify_cloid = cached_cloid_before_modify
+            .is_none()
+            .then_some((client_order_id, cloid));
         hyperliquid_order.cloid = Some(cloid);
 
         let dispatch_state = self.ws_dispatch_state.clone();
-        let client_order_id = cmd.client_order_id;
-        let old_venue_order_id = venue_order_id;
         let ws_client = self.ws_client.clone();
 
         if let Some(cloid) = hyperliquid_order.cloid {
@@ -1026,14 +1047,20 @@ impl ExecutionClient for HyperliquidExecutionClient {
         }
 
         // Mark before the post await so an early CANCELED(old_voi) on the WS is suppressed.
-        dispatch_state.mark_pending_modify(client_order_id, old_venue_order_id, target_total_qty);
-        // Stashed so the cancel-replace promotion can reduce the replacement on an in-flight fill
-        dispatch_state.stash_modify_request(client_order_id, hyperliquid_order.clone());
+        if let Some(old_venue_order_id) = old_venue_order_id {
+            dispatch_state.mark_pending_modify(
+                client_order_id,
+                old_venue_order_id,
+                target_total_qty,
+            );
+            // Stashed so the cancel-replace promotion can reduce the replacement on an in-flight fill
+            dispatch_state.stash_modify_request(client_order_id, hyperliquid_order.clone());
+        }
 
         self.spawn_task("modify_order", async move {
             let action = HyperliquidExecAction::Modify {
                 modify: HyperliquidExecModifyOrderRequest {
-                    oid,
+                    oid: modify_target,
                     order: hyperliquid_order,
                 },
             };
@@ -1044,6 +1071,11 @@ impl ExecutionClient for HyperliquidExecutionClient {
                         if let Some(inner_error) = extract_inner_error(&response) {
                             log::warn!("Order modification rejected by exchange: {inner_error}");
                             dispatch_state.clear_pending_modify(&client_order_id);
+                            remove_generated_modify_cloid(
+                                &http_client,
+                                &ws_client,
+                                generated_modify_cloid,
+                            );
                         } else {
                             log::debug!("Order modified successfully: {response:?}");
                         }
@@ -1051,6 +1083,11 @@ impl ExecutionClient for HyperliquidExecutionClient {
                         let error_msg = extract_error_message(&response);
                         log::warn!("Order modification rejected by exchange: {error_msg}");
                         dispatch_state.clear_pending_modify(&client_order_id);
+                        remove_generated_modify_cloid(
+                            &http_client,
+                            &ws_client,
+                            generated_modify_cloid,
+                        );
                     }
                 }
                 Err(e) => {
@@ -1063,6 +1100,11 @@ impl ExecutionClient for HyperliquidExecutionClient {
                     } else {
                         log::warn!("Order modification WebSocket post request failed: {e}");
                         dispatch_state.clear_pending_modify(&client_order_id);
+                        remove_generated_modify_cloid(
+                            &http_client,
+                            &ws_client,
+                            generated_modify_cloid,
+                        );
                     }
                 }
             }
@@ -1857,6 +1899,24 @@ fn is_inflight_modify_old_leg_cancel(
         && dispatch_state.pending_modify(client_order_id) == Some(report.venue_order_id)
 }
 
+fn remove_generated_modify_cloid(
+    http_client: &HyperliquidHttpClient,
+    ws_client: &HyperliquidWebSocketClient,
+    generated_modify_cloid: Option<(ClientOrderId, Cloid)>,
+) {
+    let Some((client_order_id, cloid)) = generated_modify_cloid else {
+        return;
+    };
+
+    if http_client.cached_client_order_id_cloid(&client_order_id) != Some(cloid) {
+        return;
+    }
+
+    let cloid_hex = Ustr::from(&cloid.to_hex());
+    ws_client.remove_cloid_mapping(&cloid_hex);
+    http_client.remove_client_order_id_cloid(&client_order_id);
+}
+
 #[derive(Clone)]
 struct CancelEntry {
     strategy_id: StrategyId,
@@ -2304,7 +2364,10 @@ fn spawn_corrective_reduce(
 
     get_runtime().spawn(async move {
         let action = HyperliquidExecAction::Modify {
-            modify: HyperliquidExecModifyOrderRequest { oid, order },
+            modify: HyperliquidExecModifyOrderRequest {
+                oid: oid.into(),
+                order,
+            },
         };
 
         let keep_marker = match ws_client.post_action_exec(&http_client, &action).await {

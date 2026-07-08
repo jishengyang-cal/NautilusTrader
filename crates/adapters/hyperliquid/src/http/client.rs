@@ -82,8 +82,8 @@ use crate::{
             HyperliquidExecCancelByCloidRequest, HyperliquidExecCancelOrderRequest,
             HyperliquidExecGrouping, HyperliquidExecLimitParams, HyperliquidExecMergeOutcomeParams,
             HyperliquidExecMergeQuestionParams, HyperliquidExecModifyOrderRequest,
-            HyperliquidExecNegateOutcomeParams, HyperliquidExecOrderKind,
-            HyperliquidExecOrderResponseData, HyperliquidExecOrderStatus,
+            HyperliquidExecModifyTarget, HyperliquidExecNegateOutcomeParams,
+            HyperliquidExecOrderKind, HyperliquidExecOrderResponseData, HyperliquidExecOrderStatus,
             HyperliquidExecPlaceOrderRequest, HyperliquidExecSplitOutcomeParams,
             HyperliquidExecTif, HyperliquidExecTpSl, HyperliquidExecTriggerParams,
             HyperliquidExecUserOutcomeOp, HyperliquidFills, HyperliquidFundingHistoryEntry,
@@ -935,6 +935,27 @@ impl HyperliquidHttpClient {
             .expect(MUTEX_POISONED)
             .get(client_order_id)
             .copied()
+    }
+
+    /// Returns the cached CLOID for a client order ID when no other client
+    /// order ID maps to the same CLOID.
+    #[allow(
+        clippy::missing_panics_doc,
+        reason = "cloid cache mutex poisoning is not expected"
+    )]
+    #[must_use]
+    pub(crate) fn unique_cached_client_order_id_cloid(
+        &self,
+        client_order_id: &ClientOrderId,
+    ) -> Option<Cloid> {
+        let cloids = self.client_order_id_cloids.lock().expect(MUTEX_POISONED);
+        let cloid = cloids.get(client_order_id).copied()?;
+        let mapping_count = cloids
+            .values()
+            .filter(|cached_cloid| **cached_cloid == cloid)
+            .count();
+
+        (mapping_count == 1).then_some(cloid)
     }
 
     /// Removes the cached CLOID for a client order ID.
@@ -1864,18 +1885,18 @@ impl HyperliquidHttpClient {
 
     /// Modify an order on the Hyperliquid exchange.
     ///
-    /// The HL modify API requires a full replacement order spec plus the
-    /// venue order ID. The caller must provide all order fields.
+    /// The HL modify API requires a full replacement order spec plus a venue
+    /// order ID or cached CLOID target. The caller must provide all order fields.
     ///
     /// # Errors
     ///
-    /// Returns an error if the asset index is not found, the venue order ID
-    /// is invalid, or the API returns an error.
+    /// Returns an error if the asset index is not found, no safe modify target
+    /// exists, the venue order ID is invalid, or the API returns an error.
     #[expect(clippy::too_many_arguments)]
     pub async fn modify_order(
         &self,
         instrument_id: InstrumentId,
-        venue_order_id: VenueOrderId,
+        venue_order_id: Option<VenueOrderId>,
         order_side: OrderSide,
         order_type: OrderType,
         price: Price,
@@ -1893,10 +1914,21 @@ impl HyperliquidHttpClient {
             ))
         })?;
 
-        let oid: u64 = venue_order_id
-            .as_str()
-            .parse()
-            .map_err(|_| Error::bad_request("Invalid venue order ID format"))?;
+        let oid = match client_order_id
+            .as_ref()
+            .and_then(|id| self.unique_cached_client_order_id_cloid(id))
+        {
+            Some(cloid) => HyperliquidExecModifyTarget::Cloid(cloid),
+            None => {
+                let Some(venue_order_id) = venue_order_id.as_ref() else {
+                    return Err(Error::bad_request(
+                        "venue_order_id or unique cached CLOID is required for modify",
+                    ));
+                };
+                HyperliquidExecModifyTarget::from_venue_order_id(venue_order_id)
+                    .map_err(|_| Error::bad_request("Invalid venue order ID format"))?
+            }
+        };
 
         let is_buy = matches!(order_side, OrderSide::Buy);
         let decimals = self.get_price_precision_for_symbol(symbol).unwrap_or(2);
@@ -3671,12 +3703,14 @@ mod tests {
         let client = HyperliquidHttpClient::new(HyperliquidEnvironment::Mainnet, 60, None).unwrap();
         let client_order_id = ClientOrderId::new("O-CLOID-CACHE");
         let other_client_order_id = ClientOrderId::new("O-CLOID-CACHE-OTHER");
+        let duplicate_client_order_id = ClientOrderId::new("O-CLOID-CACHE-DUPLICATE");
         let explicit_cloid = Cloid::from_hex("0x1234567890abcdef1234567890abcdef").unwrap();
 
         let first = client.get_or_generate_client_order_id_cloid(client_order_id);
         let second = client.get_or_generate_client_order_id_cloid(client_order_id);
         client.cache_client_order_id_cloid(client_order_id, explicit_cloid);
         client.cache_client_order_id_cloid(other_client_order_id, explicit_cloid);
+        client.cache_client_order_id_cloid(duplicate_client_order_id, explicit_cloid);
 
         assert_eq!(first, Cloid::from_client_order_id(client_order_id));
         assert_eq!(first, second);
@@ -3686,8 +3720,17 @@ mod tests {
             "cache insert must not overwrite an existing generated CLOID",
         );
         assert_eq!(
+            client.unique_cached_client_order_id_cloid(&client_order_id),
+            Some(first),
+        );
+        assert_eq!(
             client.cached_client_order_id_cloid(&other_client_order_id),
             Some(explicit_cloid),
+        );
+        assert_eq!(
+            client.unique_cached_client_order_id_cloid(&other_client_order_id),
+            None,
+            "duplicate CLOID mappings are not safe modify targets",
         );
         assert_eq!(
             client.remove_client_order_id_cloid(&client_order_id),

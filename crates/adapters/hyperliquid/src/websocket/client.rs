@@ -69,8 +69,9 @@ use crate::{
             HyperliquidExchangeResponse, HyperliquidExecAction,
             HyperliquidExecCancelByCloidRequest, HyperliquidExecCancelOrderRequest,
             HyperliquidExecGrouping, HyperliquidExecLimitParams, HyperliquidExecModifyOrderRequest,
-            HyperliquidExecOrderKind, HyperliquidExecPlaceOrderRequest, HyperliquidExecTif,
-            HyperliquidExecTpSl, HyperliquidExecTriggerParams, RESPONSE_STATUS_OK,
+            HyperliquidExecModifyTarget, HyperliquidExecOrderKind,
+            HyperliquidExecPlaceOrderRequest, HyperliquidExecTif, HyperliquidExecTpSl,
+            HyperliquidExecTriggerParams, RESPONSE_STATUS_OK,
         },
         rate_limits::{WeightedLimiter, exec_action_weight},
     },
@@ -892,7 +893,7 @@ impl HyperliquidWebSocketClient {
         &self,
         signer: &HyperliquidHttpClient,
         instrument_id: InstrumentId,
-        venue_order_id: VenueOrderId,
+        venue_order_id: Option<VenueOrderId>,
         order_side: OrderSide,
         order_type: OrderType,
         price: Price,
@@ -909,10 +910,21 @@ impl HyperliquidWebSocketClient {
                 "Asset index not found for symbol: {symbol}. Ensure instruments are loaded."
             ))
         })?;
-        let oid = venue_order_id
-            .as_str()
-            .parse::<u64>()
-            .map_err(|_| HyperliquidError::bad_request("Invalid venue order ID format"))?;
+        let oid = match client_order_id
+            .as_ref()
+            .and_then(|id| signer.unique_cached_client_order_id_cloid(id))
+        {
+            Some(cloid) => HyperliquidExecModifyTarget::Cloid(cloid),
+            None => {
+                let Some(venue_order_id) = venue_order_id.as_ref() else {
+                    return Err(HyperliquidError::bad_request(
+                        "venue_order_id or unique cached CLOID is required for modify",
+                    ));
+                };
+                HyperliquidExecModifyTarget::from_venue_order_id(venue_order_id)
+                    .map_err(|_| HyperliquidError::bad_request("Invalid venue order ID format"))?
+            }
+        };
         let is_buy = matches!(order_side, OrderSide::Buy);
         let price_decimals = signer.get_price_precision_for_symbol(symbol).unwrap_or(2);
         let price = if signer.normalize_prices() {

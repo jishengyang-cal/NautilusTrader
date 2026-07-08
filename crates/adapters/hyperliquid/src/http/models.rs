@@ -17,7 +17,7 @@ use std::fmt::Display;
 
 use alloy_primitives::{Address, keccak256};
 use nautilus_core::hex;
-use nautilus_model::identifiers::ClientOrderId;
+use nautilus_model::identifiers::{ClientOrderId, VenueOrderId};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ustr::Ustr;
@@ -1231,6 +1231,44 @@ mod tests {
             })
         );
     }
+
+    #[rstest]
+    fn test_modify_target_serializes_numeric_oid() {
+        let request = modify_request_with_target(HyperliquidExecModifyTarget::Oid(12345));
+        let value: serde_json::Value = serde_json::to_value(request).unwrap();
+
+        assert_eq!(value["oid"], json!(12345));
+    }
+
+    #[rstest]
+    fn test_modify_target_serializes_cloid() {
+        let cloid = Cloid::from_hex("0x1234567890abcdef1234567890abcdef").unwrap();
+        let request = modify_request_with_target(HyperliquidExecModifyTarget::Cloid(cloid));
+        let value: serde_json::Value = serde_json::to_value(request).unwrap();
+
+        assert_eq!(value["oid"], json!("0x1234567890abcdef1234567890abcdef"));
+    }
+
+    fn modify_request_with_target(
+        oid: HyperliquidExecModifyTarget,
+    ) -> HyperliquidExecModifyOrderRequest {
+        HyperliquidExecModifyOrderRequest {
+            oid,
+            order: HyperliquidExecPlaceOrderRequest {
+                asset: 0,
+                is_buy: true,
+                price: dec!(51000),
+                size: dec!(0.2),
+                reduce_only: false,
+                kind: HyperliquidExecOrderKind::Limit {
+                    limit: HyperliquidExecLimitParams {
+                        tif: HyperliquidExecTif::Gtc,
+                    },
+                },
+                cloid: None,
+            },
+        }
+    }
 }
 
 /// Time-in-force for limit orders in exchange endpoint.
@@ -1388,14 +1426,52 @@ pub struct HyperliquidExecCancelByCloidRequest {
     pub cloid: Cloid,
 }
 
+/// Target of a modify request.
+///
+/// Hyperliquid names this field `oid`, but accepts either a numeric venue
+/// order ID or a CLOID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HyperliquidExecModifyTarget {
+    /// Numeric venue order ID.
+    Oid(OrderId),
+    /// CLOID.
+    Cloid(Cloid),
+}
+
+impl HyperliquidExecModifyTarget {
+    /// Creates a numeric modify target from a Nautilus venue order ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the venue order ID is not a numeric Hyperliquid order ID.
+    pub fn from_venue_order_id(
+        venue_order_id: &VenueOrderId,
+    ) -> Result<Self, std::num::ParseIntError> {
+        venue_order_id.as_str().parse::<OrderId>().map(Self::Oid)
+    }
+}
+
+impl From<OrderId> for HyperliquidExecModifyTarget {
+    fn from(value: OrderId) -> Self {
+        Self::Oid(value)
+    }
+}
+
+impl From<Cloid> for HyperliquidExecModifyTarget {
+    fn from(value: Cloid) -> Self {
+        Self::Cloid(value)
+    }
+}
+
 /// Modify specification for modifying existing orders via exchange endpoint.
 ///
 /// The HL API requires the full order spec (same as a place order) plus
-/// the venue order ID to modify.
+/// the venue order ID or CLOID to modify.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HyperliquidExecModifyOrderRequest {
-    /// Venue order ID to modify.
-    pub oid: OrderId,
+    /// Venue order ID or CLOID to modify.
+    pub oid: HyperliquidExecModifyTarget,
     /// Full replacement order specification.
     pub order: HyperliquidExecPlaceOrderRequest,
 }

@@ -379,15 +379,15 @@ impl HyperliquidHttpClient {
 
     /// Modify an order on the Hyperliquid exchange.
     ///
-    /// The HL modify API requires a full replacement order spec plus the
-    /// venue order ID. The caller must provide all order fields.
+    /// The HL modify API requires a full replacement order spec plus a venue
+    /// order ID or cached CLOID target. The caller must provide all order fields.
     #[pyo3(name = "modify_order")]
     #[expect(clippy::too_many_arguments)]
     fn py_modify_order<'py>(
         &self,
         py: Python<'py>,
         instrument_id: InstrumentId,
-        venue_order_id: VenueOrderId,
+        venue_order_id: Option<VenueOrderId>,
         order_side: OrderSide,
         order_type: OrderType,
         price: Price,

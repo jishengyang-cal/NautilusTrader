@@ -216,7 +216,7 @@ class HyperliquidHttpClient:
     def modify_order(
         self,
         instrument_id: model.InstrumentId,
-        venue_order_id: model.VenueOrderId,
+        venue_order_id: model.VenueOrderId | None,
         order_side: model.OrderSide,
         order_type: model.OrderType,
         price: model.Price,
@@ -330,7 +330,7 @@ class HyperliquidWebSocketClient:
         self,
         signer: HyperliquidHttpClient,
         instrument_id: model.InstrumentId,
-        venue_order_id: model.VenueOrderId,
+        venue_order_id: model.VenueOrderId | None,
         order_side: model.OrderSide,
         order_type: model.OrderType,
         price: model.Price,

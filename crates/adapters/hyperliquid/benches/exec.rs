@@ -297,7 +297,7 @@ fn bench_modify(c: &mut Criterion) {
         b.iter(|| {
             let action = HyperliquidExecAction::Modify {
                 modify: HyperliquidExecModifyOrderRequest {
-                    oid: 430_481_837_807,
+                    oid: 430_481_837_807.into(),
                     order: replacement.clone(),
                 },
             };
