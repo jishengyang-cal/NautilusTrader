@@ -36,6 +36,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Python v2 `FeeModel` and `FillModel` subclass support for custom backtest models
 - Added Python v2 `Strategy.shutdown_system()` and `LiveNode.dispose()` bindings
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
+- Added PancakeSwap V3 protocol-fee replay accounting; run `make init-db` for schema changes
 - Added Hyperliquid market data stream health warnings for stalled Deltas, Depth10, and Quote subscriptions (#4298)
 - Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
 - Added Interactive Brokers PyO3 type stub annotations (#4350), thanks @dfjmax
@@ -43,6 +44,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Tardis MEXC spot and futures market data support
 
 ### Breaking Changes
+- Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares;
+  run `make init-db`
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)

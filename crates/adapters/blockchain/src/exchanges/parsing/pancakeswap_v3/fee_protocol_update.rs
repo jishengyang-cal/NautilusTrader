@@ -30,21 +30,18 @@ use crate::{
 };
 
 const FEE_PROTOCOL_UPDATE_EVENT_SIGNATURE_HASH: &str =
-    "973d8d92bb299f4af6ce49b52a8adb85ae46b9f214c4c4fc06ac77401237b133";
+    "b3159fed3ddfba67bae294599eafe2d0ec98c08bb38e0e5fb87d33154b6e05aa";
 
-// Define sol macro for easier parsing of SetFeeProtocol event data.
-// All four parameters are non-indexed and live in the log data:
-// feeProtocol0Old (uint8), feeProtocol1Old (uint8), feeProtocol0New (uint8), feeProtocol1New (uint8)
 sol! {
     struct SetFeeProtocolEventData {
-        uint8 fee_protocol0_old;
-        uint8 fee_protocol1_old;
-        uint8 fee_protocol0_new;
-        uint8 fee_protocol1_new;
+        uint32 fee_protocol0_old;
+        uint32 fee_protocol1_old;
+        uint32 fee_protocol0_new;
+        uint32 fee_protocol1_new;
     }
 }
 
-/// Parses a `SetFeeProtocol` event from a Uniswap V3 HyperSync log.
+/// Parses a PancakeSwap V3 `SetFeeProtocol` event from a HyperSync log.
 ///
 /// # Errors
 ///
@@ -66,7 +63,6 @@ pub fn parse_fee_protocol_update_event_hypersync(
     if let Some(data) = &log.data {
         let data_bytes = data.as_ref();
 
-        // Validate the data contains 4 parameters of 32 bytes each
         if data_bytes.len() < 4 * 32 {
             anyhow::bail!("SetFeeProtocol event data is too short");
         }
@@ -91,15 +87,15 @@ pub fn parse_fee_protocol_update_event_hypersync(
             extract_transaction_hash(log)?,
             extract_transaction_index(log)?,
             extract_log_index(log)?,
-            u32::from(decoded.fee_protocol0_new),
-            u32::from(decoded.fee_protocol1_new),
+            decoded.fee_protocol0_new,
+            decoded.fee_protocol1_new,
         ))
     } else {
         anyhow::bail!("Missing data in SetFeeProtocol event log");
     }
 }
 
-/// Parses a `SetFeeProtocol` event from an RPC log.
+/// Parses a PancakeSwap V3 `SetFeeProtocol` event from an RPC log.
 ///
 /// # Errors
 ///
@@ -116,7 +112,6 @@ pub fn parse_fee_protocol_update_event_rpc(
 
     let data_bytes = rpc_helpers::extract_data_bytes(log)?;
 
-    // Validate the data contains 4 parameters of 32 bytes each
     if data_bytes.len() < 4 * 32 {
         anyhow::bail!("SetFeeProtocol event data is too short");
     }
@@ -135,8 +130,8 @@ pub fn parse_fee_protocol_update_event_rpc(
         rpc_helpers::extract_transaction_hash(log)?,
         rpc_helpers::extract_transaction_index(log)?,
         rpc_helpers::extract_log_index(log)?,
-        u32::from(decoded.fee_protocol0_new),
-        u32::from(decoded.fee_protocol1_new),
+        decoded.fee_protocol0_new,
+        decoded.fee_protocol1_new,
     ))
 }
 
@@ -145,15 +140,12 @@ mod tests {
     use rstest::*;
 
     use super::*;
-    use crate::exchanges::arbitrum;
+    use crate::exchanges::bsc;
 
-    /// Real Arbitrum on-chain `SetFeeProtocol` log at block 3,106,049 (Uniswap V3 event ABI).
-    /// Pool: 0x0d500e0f1d159e75f3771fb5e6ab86de19a8abd4
-    /// new protocol fees: feeProtocol0=6, feeProtocol1=6
     const HYPERSYNC_LOG: &str =
-        include_str!("../../../../test_data/uniswap_v3_set_fee_protocol_hypersync.json");
+        include_str!("../../../../test_data/pancakeswap_v3_set_fee_protocol_hypersync.json");
     const RPC_LOG: &str =
-        include_str!("../../../../test_data/uniswap_v3_set_fee_protocol_rpc.json");
+        include_str!("../../../../test_data/pancakeswap_v3_set_fee_protocol_rpc.json");
 
     #[fixture]
     fn hypersync_log() -> HypersyncLog {
@@ -167,37 +159,37 @@ mod tests {
 
     #[rstest]
     fn test_parse_fee_protocol_update_event_hypersync(hypersync_log: HypersyncLog) {
-        let dex = arbitrum::UNISWAP_V3.dex.clone();
+        let dex = bsc::PANCAKESWAP_V3.dex.clone();
         let event = parse_fee_protocol_update_event_hypersync(dex, &hypersync_log).unwrap();
 
         assert_eq!(
             event.pool_identifier.to_string(),
-            "0x0d500E0f1d159E75f3771Fb5e6aB86DE19A8abD4"
+            "0x172fcD41E0913e95784454622d1c3724f546f849"
         );
-        assert_eq!(event.fee_protocol0_new, 6);
-        assert_eq!(event.fee_protocol1_new, 6);
-        assert_eq!(event.block_number, 3_106_049);
-        assert_eq!(event.transaction_index, 0);
-        assert_eq!(event.log_index, 0);
+        assert_eq!(event.fee_protocol0_new, 1_000);
+        assert_eq!(event.fee_protocol1_new, 4_000);
+        assert_eq!(event.block_number, 105_475_426);
+        assert_eq!(event.transaction_index, 5);
+        assert_eq!(event.log_index, 17);
     }
 
     #[rstest]
     fn test_parse_fee_protocol_update_event_rpc(rpc_log: RpcLog) {
-        let dex = arbitrum::UNISWAP_V3.dex.clone();
+        let dex = bsc::PANCAKESWAP_V3.dex.clone();
         let event = parse_fee_protocol_update_event_rpc(dex, &rpc_log).unwrap();
 
         assert_eq!(
             event.pool_identifier.to_string(),
-            "0x0d500E0f1d159E75f3771Fb5e6aB86DE19A8abD4"
+            "0x172fcD41E0913e95784454622d1c3724f546f849"
         );
-        assert_eq!(event.fee_protocol0_new, 6);
-        assert_eq!(event.fee_protocol1_new, 6);
-        assert_eq!(event.block_number, 3_106_049);
+        assert_eq!(event.fee_protocol0_new, 1_000);
+        assert_eq!(event.fee_protocol1_new, 4_000);
+        assert_eq!(event.block_number, 105_475_426);
     }
 
     #[rstest]
     fn test_hypersync_rpc_match(hypersync_log: HypersyncLog, rpc_log: RpcLog) {
-        let dex = arbitrum::UNISWAP_V3.dex.clone();
+        let dex = bsc::PANCAKESWAP_V3.dex.clone();
         let event_hypersync =
             parse_fee_protocol_update_event_hypersync(dex.clone(), &hypersync_log).unwrap();
         let event_rpc = parse_fee_protocol_update_event_rpc(dex, &rpc_log).unwrap();

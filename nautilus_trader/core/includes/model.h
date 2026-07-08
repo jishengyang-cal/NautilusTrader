@@ -163,6 +163,11 @@
 #define QUANTITY_MIN 0.0
 
 /**
+ * Protocol-fee denominator for basis-point fee shares.
+ */
+#define PROTOCOL_FEE_BASIS_POINTS_DENOMINATOR 10000
+
+/**
  * Minimum valid tick value for Uniswap V3 pools.
  */
 #define PoolTick_MIN_TICK -887272

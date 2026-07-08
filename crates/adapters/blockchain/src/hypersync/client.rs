@@ -162,6 +162,17 @@ impl DexEventSignatures {
     }
 }
 
+struct DexEventStreamContext {
+    dex: DexType,
+    client: Arc<hypersync_client::Client>,
+    tx: tokio::sync::mpsc::UnboundedSender<BlockchainMessage>,
+    filter: DexEventStreamFilter,
+    dex_extended: &'static DexExtended,
+    signatures: DexEventSignatures,
+    next_from_block: Arc<AtomicU64>,
+    cancellation_token: tokio_util::sync::CancellationToken,
+}
+
 /// A client for interacting with a HyperSync API to retrieve blockchain data.
 #[derive(Debug)]
 pub struct HyperSyncClient {
@@ -272,7 +283,10 @@ impl HyperSyncClient {
 
         let client = self.client.clone();
         let chain = self.chain.name;
-        let dex_extended = get_dex_extended(chain, &dex).expect("Failed to get dex extended");
+        let Some(dex_extended) = get_dex_extended(chain, &dex) else {
+            log::error!("Failed to get DEX registration for {dex} on {chain}");
+            return;
+        };
         let signatures = DexEventSignatures::new(dex_extended);
         let stream_token = self.cancellation_token.child_token();
         let task_token = stream_token.clone();
@@ -281,16 +295,16 @@ impl HyperSyncClient {
         let task_filter = filter.clone();
 
         let task = get_runtime().spawn(async move {
-            Self::run_dex_event_stream(
+            Self::run_dex_event_stream(DexEventStreamContext {
                 dex,
                 client,
                 tx,
-                task_filter,
+                filter: task_filter,
                 dex_extended,
                 signatures,
-                task_next_from_block,
-                task_token,
-            )
+                next_from_block: task_next_from_block,
+                cancellation_token: task_token,
+            })
             .await;
         });
 
@@ -581,16 +595,18 @@ impl HyperSyncClient {
         }
     }
 
-    async fn run_dex_event_stream(
-        dex: DexType,
-        client: Arc<hypersync_client::Client>,
-        tx: tokio::sync::mpsc::UnboundedSender<BlockchainMessage>,
-        filter: DexEventStreamFilter,
-        dex_extended: &'static DexExtended,
-        signatures: DexEventSignatures,
-        next_from_block: Arc<AtomicU64>,
-        cancellation_token: tokio_util::sync::CancellationToken,
-    ) {
+    async fn run_dex_event_stream(context: DexEventStreamContext) {
+        let DexEventStreamContext {
+            dex,
+            client,
+            tx,
+            filter,
+            dex_extended,
+            signatures,
+            next_from_block,
+            cancellation_token,
+        } = context;
+
         log::debug!("Starting task 'dex_event_stream' for {dex}");
 
         loop {

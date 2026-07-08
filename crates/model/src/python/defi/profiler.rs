@@ -108,6 +108,18 @@ impl PoolProfiler {
         self.state.fee_protocol
     }
 
+    #[getter]
+    #[pyo3(name = "fee_protocol0_basis_points")]
+    fn py_fee_protocol0_basis_points(&self) -> Option<u32> {
+        self.state.fee_protocol0_basis_points
+    }
+
+    #[getter]
+    #[pyo3(name = "fee_protocol1_basis_points")]
+    fn py_fee_protocol1_basis_points(&self) -> Option<u32> {
+        self.state.fee_protocol1_basis_points
+    }
+
     /// Returns the pool's active liquidity tracked by the tick map.
     ///
     /// This represents the effective liquidity available for trading at the current price.

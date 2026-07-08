@@ -96,6 +96,9 @@ cdef extern from "../includes/model.h":
     # The minimum valid quantity value that can be represented.
     const double QUANTITY_MIN # = 0.0
 
+    # Protocol-fee denominator for basis-point fee shares.
+    const uint32_t PROTOCOL_FEE_BASIS_POINTS_DENOMINATOR # = 10000
+
     # Minimum valid tick value for Uniswap V3 pools.
     const int32_t PoolTick_MIN_TICK # = -887272
 

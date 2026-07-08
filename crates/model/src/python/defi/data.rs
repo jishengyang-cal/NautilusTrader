@@ -782,7 +782,7 @@ impl PoolFeeCollect {
 impl PoolFeeProtocolUpdate {
     /// Represents a protocol-fee configuration change in a Uniswap V3-style pool.
     ///
-    /// Emitted by `SetFeeProtocol`, this carries the new protocol-fee denominators for each token.
+    /// Emitted by `SetFeeProtocol`, this carries the new protocol-fee values for each token.
     /// Only the new values are kept; the previous values in the event are not needed to rebuild state.
     #[new]
     #[expect(clippy::too_many_arguments, clippy::needless_pass_by_value)]
@@ -795,8 +795,8 @@ impl PoolFeeProtocolUpdate {
         transaction_hash: String,
         transaction_index: u32,
         log_index: u32,
-        fee_protocol0_new: u8,
-        fee_protocol1_new: u8,
+        fee_protocol0_new: u32,
+        fee_protocol1_new: u32,
         timestamp: u64,
     ) -> PyResult<Self> {
         let pool_identifier = pool_identifier.parse().map_err(to_pyvalue_err)?;
@@ -890,13 +890,13 @@ impl PoolFeeProtocolUpdate {
 
     #[getter]
     #[pyo3(name = "fee_protocol0_new")]
-    fn py_fee_protocol0_new(&self) -> u8 {
+    fn py_fee_protocol0_new(&self) -> u32 {
         self.fee_protocol0_new
     }
 
     #[getter]
     #[pyo3(name = "fee_protocol1_new")]
-    fn py_fee_protocol1_new(&self) -> u8 {
+    fn py_fee_protocol1_new(&self) -> u32 {
         self.fee_protocol1_new
     }
 
