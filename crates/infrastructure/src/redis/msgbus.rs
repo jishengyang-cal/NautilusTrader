@@ -784,7 +784,7 @@ fn decode_bus_message(stream_msg: &redis::Value) -> anyhow::Result<BusMessage> {
     let mut encoding = SerializationEncoding::default();
     let mut payload: Option<Bytes> = None;
 
-    for pair in fields.chunks_exact(2) {
+    for pair in fields.as_chunks::<2>().0 {
         let redis::Value::BulkString(key) = &pair[0] else {
             anyhow::bail!("Invalid stream field key: {stream_msg:?}");
         };
