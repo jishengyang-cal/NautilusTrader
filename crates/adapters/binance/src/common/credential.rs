@@ -476,6 +476,20 @@ mod tests {
     }
 
     #[rstest]
+    fn test_canonical_ws_query_string_preserves_urlencoding() {
+        let symbol = serde_json::json!("LTCBTC");
+        let new_client_order_id = serde_json::json!("desk alpha");
+        let unsorted = [
+            ("symbol", &symbol),
+            ("newClientOrderId", &new_client_order_id),
+        ];
+
+        let query = canonical_ws_query_string(unsorted).unwrap();
+
+        assert_eq!(query, "newClientOrderId=desk+alpha&symbol=LTCBTC");
+    }
+
+    #[rstest]
     fn test_debug_redacts_secret() {
         let cred = Credential::new("test_key".to_string(), BINANCE_TEST_SECRET.to_string());
         let dbg_out = format!("{cred:?}");
