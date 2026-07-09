@@ -130,6 +130,10 @@ impl TardisMachineClient {
     }
 
     /// Connects to the Tardis Machine replay WebSocket and yields parsed `Data` items.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the WebSocket connection cannot be established.
     #[pyo3(name = "replay")]
     fn py_replay<'py>(
         &self,
@@ -235,6 +239,10 @@ impl TardisMachineClient {
     }
 
     /// Connects to the Tardis Machine stream WebSocket for a single instrument and yields parsed `Data` items.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the WebSocket connection cannot be established.
     #[pyo3(name = "stream")]
     fn py_stream<'py>(
         &self,

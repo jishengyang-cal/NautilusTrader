@@ -96,6 +96,10 @@ impl LiveNode {
     }
 
     /// Creates a new `LiveNodeBuilder` for fluent configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the environment is invalid for live trading.
     #[staticmethod]
     #[pyo3(name = "builder")]
     fn py_builder(
@@ -777,6 +781,10 @@ impl LiveNode {
     }
 
     /// Rejects plug-in registration when host support is not linked.
+    ///
+    /// # Errors
+    ///
+    /// Always returns an error explaining that host-side support is required.
     #[pyo3(name = "add_plugin", signature = (path, type_name, config=None, sha256=None))]
     fn py_add_plugin(
         &mut self,

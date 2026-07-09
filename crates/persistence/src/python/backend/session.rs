@@ -110,6 +110,11 @@ impl DataBackendSession {
     ///
     /// The file data must be ordered by the `ts_init` in ascending order for this
     /// to work correctly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if parquet registration, SQL planning, stream execution, or
+    /// data decoding setup fails.
     #[pyo3(name = "add_file")]
     #[pyo3(signature = (data_type, table_name, file_path, sql_query=None))]
     fn py_add_file(
@@ -198,6 +203,11 @@ impl DataBackendSession {
     }
 
     /// Register an object store with the session context from a URI with optional storage options.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the object store URI cannot be normalized or the backend
+    /// cannot be created.
     #[pyo3(name = "register_object_store_from_uri")]
     #[pyo3(signature = (uri, storage_options=None))]
     fn py_register_object_store_from_uri(
