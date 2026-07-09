@@ -547,8 +547,8 @@ impl TestDefault for OrderInitialized {
             order_type: OrderType::Market,
             quantity: Quantity::new(100_000.0, 0),
             price: Option::default(),
-            trigger_price: Option::default(),
             activation_price: Option::default(),
+            trigger_price: Option::default(),
             trigger_type: Option::default(),
             time_in_force: TimeInForce::Day,
             expire_time: Option::default(),
@@ -621,7 +621,7 @@ impl TestDefault for OrderPendingCancel {
             ts_init: UnixNanos::default(),
             reconciliation: false,
             venue_order_id: None,
-            account_id: AccountId::test_default(),
+            account_id: Some(AccountId::test_default()),
             causation_id: None,
         }
     }
@@ -645,7 +645,7 @@ impl TestDefault for OrderPendingUpdate {
             ts_init: UnixNanos::default(),
             reconciliation: false,
             venue_order_id: None,
-            account_id: AccountId::test_default(),
+            account_id: Some(AccountId::test_default()),
             causation_id: None,
         }
     }

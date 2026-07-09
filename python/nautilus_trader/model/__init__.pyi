@@ -3771,7 +3771,7 @@ class OrderPendingCancel:
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
         client_order_id: ClientOrderId,
-        account_id: AccountId,
+        account_id: AccountId | None,
         event_id: core.UUID4,
         ts_event: int,
         ts_init: int,
@@ -3791,7 +3791,7 @@ class OrderPendingCancel:
     @property
     def venue_order_id(self) -> VenueOrderId | None: ...
     @property
-    def account_id(self) -> AccountId: ...
+    def account_id(self) -> AccountId | None: ...
     @property
     def event_id(self) -> core.UUID4: ...
     @property
@@ -3810,7 +3810,7 @@ class OrderPendingUpdate:
         strategy_id: StrategyId,
         instrument_id: InstrumentId,
         client_order_id: ClientOrderId,
-        account_id: AccountId,
+        account_id: AccountId | None,
         event_id: core.UUID4,
         ts_event: int,
         ts_init: int,
@@ -3830,7 +3830,7 @@ class OrderPendingUpdate:
     @property
     def venue_order_id(self) -> VenueOrderId | None: ...
     @property
-    def account_id(self) -> AccountId: ...
+    def account_id(self) -> AccountId | None: ...
     @property
     def event_id(self) -> core.UUID4: ...
     @property
@@ -3945,6 +3945,7 @@ class OrderStatusReport:
         contingency_type: ContingencyType | None = None,
         expire_time: int | None = None,
         price: Price | None = None,
+        activation_price: Price | None = None,
         trigger_price: Price | None = None,
         trigger_type: TriggerType | None = None,
         limit_offset: decimal.Decimal | None = None,
@@ -3999,6 +4000,8 @@ class OrderStatusReport:
     def expire_time(self) -> int | None: ...
     @property
     def price(self) -> Price | None: ...
+    @property
+    def activation_price(self) -> Price | None: ...
     @property
     def trigger_price(self) -> Price | None: ...
     @property

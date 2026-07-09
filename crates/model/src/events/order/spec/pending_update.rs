@@ -60,7 +60,7 @@ impl<S: order_pending_update_spec_builder::IsComplete> OrderPendingUpdateSpecBui
             spec.strategy_id,
             spec.instrument_id,
             spec.client_order_id,
-            spec.account_id,
+            Some(spec.account_id),
             spec.event_id,
             spec.ts_event,
             spec.ts_init,
@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(event.strategy_id, StrategyId::test_default());
         assert_eq!(event.instrument_id, InstrumentId::test_default());
         assert_eq!(event.client_order_id, ClientOrderId::test_default());
-        assert_eq!(event.account_id, AccountId::test_default());
+        assert_eq!(event.account_id, Some(AccountId::test_default()));
         assert_eq!(event.ts_event, UnixNanos::default());
         assert_eq!(event.ts_init, UnixNanos::default());
         assert!(!event.reconciliation);

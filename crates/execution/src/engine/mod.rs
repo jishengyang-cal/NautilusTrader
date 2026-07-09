@@ -1162,7 +1162,7 @@ impl ExecutionEngine {
             ts_now,
             ts_now,
             report.price,
-            None, // activation_price not carried on OrderStatusReport
+            report.activation_price,
             report.trigger_price,
             report.trigger_type,
             report.limit_offset,

@@ -3897,7 +3897,7 @@ fn submit_and_pending_cancel(cache: &Rc<RefCell<Cache>>, order: &mut OrderAny) {
         order.strategy_id(),
         order.instrument_id(),
         order.client_order_id(),
-        account_id,
+        Some(account_id),
         UUID4::new(),
         UnixNanos::default(),
         UnixNanos::default(),

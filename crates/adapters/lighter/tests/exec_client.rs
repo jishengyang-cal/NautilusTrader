@@ -1222,7 +1222,7 @@ fn cache_pending_cancel_order(
         strategy_id(),
         instrument_id,
         client_order_id,
-        account_id(),
+        Some(account_id()),
         UUID4::new(),
         UnixNanos::default(),
         UnixNanos::default(),

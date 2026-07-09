@@ -131,7 +131,7 @@ const ORDER_PENDING_CANCEL_FIELDS: &[JsonFieldSpec] = &[
     JsonFieldSpec::utf8("strategy_id", false),
     JsonFieldSpec::utf8("instrument_id", false),
     JsonFieldSpec::utf8("client_order_id", false),
-    JsonFieldSpec::utf8("account_id", false),
+    JsonFieldSpec::utf8("account_id", true),
     JsonFieldSpec::utf8("event_id", false),
     JsonFieldSpec::u64("ts_event", false),
     JsonFieldSpec::u64("ts_init", false),
@@ -197,7 +197,7 @@ const ORDER_PENDING_UPDATE_FIELDS: &[JsonFieldSpec] = &[
     JsonFieldSpec::utf8("strategy_id", false),
     JsonFieldSpec::utf8("instrument_id", false),
     JsonFieldSpec::utf8("client_order_id", false),
-    JsonFieldSpec::utf8("account_id", false),
+    JsonFieldSpec::utf8("account_id", true),
     JsonFieldSpec::utf8("event_id", false),
     JsonFieldSpec::u64("ts_event", false),
     JsonFieldSpec::u64("ts_init", false),
@@ -449,8 +449,24 @@ mod tests {
     }
 
     #[rstest]
+    fn test_order_pending_update_none_account_round_trip(order_pending_update: OrderPendingUpdate) {
+        roundtrip(OrderPendingUpdate {
+            account_id: None,
+            ..order_pending_update
+        });
+    }
+
+    #[rstest]
     fn test_order_pending_cancel_round_trip(order_pending_cancel: OrderPendingCancel) {
         roundtrip(order_pending_cancel);
+    }
+
+    #[rstest]
+    fn test_order_pending_cancel_none_account_round_trip(order_pending_cancel: OrderPendingCancel) {
+        roundtrip(OrderPendingCancel {
+            account_id: None,
+            ..order_pending_cancel
+        });
     }
 
     #[rstest]

@@ -2205,8 +2205,8 @@ pub mod tests {
         assert_eq!(tsl_order.order_side(), OrderSide::Sell);
         assert_eq!(tsl_order.order_type(), OrderType::TrailingStopLimit);
         assert_eq!(tsl_order.price(), Some(Price::from("45100.00")));
-        assert_eq!(tsl_order.trigger_price(), Some(Price::from("45000.00")));
         assert_eq!(tsl_order.activation_price(), Some(Price::from("45000.00")));
+        assert_eq!(tsl_order.trigger_price(), Some(Price::from("45000.00")));
         assert_eq!(tsl_order.trigger_type(), Some(TriggerType::LastPrice));
         assert_eq!(tsl_order.trailing_offset(), Some(Decimal::new(50, 2)));
         assert_eq!(tsl_order.limit_offset(), Some(Decimal::new(10, 2)));
