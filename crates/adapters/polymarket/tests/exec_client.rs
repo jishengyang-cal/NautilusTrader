@@ -63,7 +63,7 @@ use nautilus_model::{
     },
     instruments::{BinaryOption, InstrumentAny},
     orders::{
-        LimitOrder, MarketOrder, Order, OrderAny, OrderList, StopMarketOrder,
+        LimitOrder, MarketOrder, Order, OrderAny, OrderList, OrderTestBuilder,
         stubs::TestOrderEventStubs,
     },
     types::{AccountBalance, Currency, Money, Price, Quantity},
@@ -1505,27 +1505,16 @@ fn make_market_order_with_time_in_force(
     quote_quantity: bool,
     time_in_force: TimeInForce,
 ) -> OrderAny {
-    OrderAny::Market(MarketOrder::new(
-        TraderId::from("TESTER-001"),
-        StrategyId::from("S-001"),
-        instrument_id,
-        ClientOrderId::from(client_order_id),
-        side,
-        Quantity::new(10.0, 0),
-        time_in_force,
-        UUID4::new(),
-        UnixNanos::default(),
-        false, // reduce_only
-        quote_quantity,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    ))
+    OrderTestBuilder::new(OrderType::Market)
+        .trader_id(TraderId::from("TESTER-001"))
+        .strategy_id(StrategyId::from("S-001"))
+        .instrument_id(instrument_id)
+        .client_order_id(ClientOrderId::from(client_order_id))
+        .side(side)
+        .quantity(Quantity::new(10.0, 0))
+        .time_in_force(time_in_force)
+        .quote_quantity(quote_quantity)
+        .build()
 }
 
 #[rstest]
@@ -2087,33 +2076,16 @@ fn make_stop_market_order(
     instrument_id: InstrumentId,
     side: OrderSide,
 ) -> OrderAny {
-    OrderAny::StopMarket(StopMarketOrder::new(
-        TraderId::from("TESTER-001"),
-        StrategyId::from("S-001"),
-        instrument_id,
-        ClientOrderId::from(client_order_id),
-        side,
-        Quantity::new(10.0, 0),
-        Price::new(0.50, 4),
-        TriggerType::LastPrice,
-        TimeInForce::Gtc,
-        None,  // expire_time
-        false, // reduce_only
-        false, // quote_quantity
-        None,  // display_qty
-        None,  // emulation_trigger
-        None,  // trigger_instrument_id
-        None,  // contingency_type
-        None,  // order_list_id
-        None,  // linked_order_ids
-        None,  // parent_order_id
-        None,  // exec_algorithm_id
-        None,  // exec_algorithm_params
-        None,  // exec_spawn_id
-        None,  // tags
-        UUID4::new(),
-        UnixNanos::default(),
-    ))
+    OrderTestBuilder::new(OrderType::StopMarket)
+        .trader_id(TraderId::from("TESTER-001"))
+        .strategy_id(StrategyId::from("S-001"))
+        .instrument_id(instrument_id)
+        .client_order_id(ClientOrderId::from(client_order_id))
+        .side(side)
+        .quantity(Quantity::new(10.0, 0))
+        .trigger_price(Price::new(0.50, 4))
+        .trigger_type(TriggerType::LastPrice)
+        .build()
 }
 
 fn make_closed_limit_order(
@@ -2157,33 +2129,25 @@ fn make_limit_order(
         None
     };
 
-    OrderAny::Limit(LimitOrder::new(
-        TraderId::from("TESTER-001"),
-        StrategyId::from("S-001"),
-        instrument_id,
-        ClientOrderId::from(client_order_id),
-        side,
-        Quantity::new(10.0, 0),
-        Price::new(0.50, 4),
-        time_in_force,
-        expire_time,
-        post_only,
-        reduce_only,
-        quote_quantity,
-        None, // display_qty
-        None, // emulation_trigger
-        None, // trigger_instrument_id
-        None, // contingency_type
-        None, // order_list_id
-        None, // linked_order_ids
-        None, // parent_order_id
-        None, // exec_algorithm_id
-        None, // exec_algorithm_params
-        None, // exec_spawn_id
-        None, // tags
-        UUID4::new(),
-        UnixNanos::default(),
-    ))
+    let mut builder = OrderTestBuilder::new(OrderType::Limit);
+    builder
+        .trader_id(TraderId::from("TESTER-001"))
+        .strategy_id(StrategyId::from("S-001"))
+        .instrument_id(instrument_id)
+        .client_order_id(ClientOrderId::from(client_order_id))
+        .side(side)
+        .quantity(Quantity::new(10.0, 0))
+        .price(Price::new(0.50, 4))
+        .time_in_force(time_in_force)
+        .post_only(post_only)
+        .reduce_only(reduce_only)
+        .quote_quantity(quote_quantity);
+
+    if let Some(expire_time) = expire_time {
+        builder.expire_time(expire_time);
+    }
+
+    builder.build()
 }
 
 fn make_submit_cmd(order: &OrderAny, instrument_id: InstrumentId) -> SubmitOrder {
