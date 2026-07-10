@@ -153,9 +153,18 @@ def test_catalog_construction(tmp_path):
     assert catalog is not None
 
 
-def test_catalog_construction_rejects_invalid_uri():
-    with pytest.raises(OSError, match="Failed to create ParquetDataCatalog"):
-        ParquetDataCatalog("s3://")
+@pytest.mark.parametrize(
+    ("uri", "message"),
+    [
+        ("s3://", "Invalid S3 URI: missing bucket"),
+        ("gs://", "Invalid GCS URI: missing bucket"),
+        ("az://", "Invalid Azure URI: missing container"),
+        ("https://", "empty host"),
+    ],
+)
+def test_catalog_construction_rejects_malformed_uri(uri, message):
+    with pytest.raises(OSError, match=message):
+        ParquetDataCatalog(uri)
 
 
 def test_catalog_write_and_read_bars(tmp_path):
@@ -167,7 +176,10 @@ def test_catalog_write_and_read_bars(tmp_path):
 
     bar_type_str = str(AUDUSD_1_MIN_BID)
     intervals = catalog.get_intervals("bars", bar_type_str)
+    loaded = catalog.query_bars(["AUD/USD.SIM"])
+
     assert intervals == [(1, 2)]
+    assert loaded == [_make_bar(1), _make_bar(2)]
 
 
 def test_catalog_write_and_read_quotes(tmp_path):
@@ -182,7 +194,10 @@ def test_catalog_write_and_read_quotes(tmp_path):
     catalog.write_quote_ticks(quotes)
 
     intervals = catalog.get_intervals("quotes", "AUD/USD.SIM")
+    loaded = catalog.query_quote_ticks(["AUD/USD.SIM"])
+
     assert intervals == [(1, 2)]
+    assert loaded == quotes
 
 
 def test_catalog_write_and_read_trades(tmp_path):
@@ -197,7 +212,10 @@ def test_catalog_write_and_read_trades(tmp_path):
     catalog.write_trade_ticks(trades)
 
     intervals = catalog.get_intervals("trades", "AUD/USD.SIM")
+    loaded = catalog.query_trade_ticks(["AUD/USD.SIM"])
+
     assert intervals == [(1, 2)]
+    assert loaded == trades
 
 
 def test_catalog_append_data(tmp_path):
@@ -239,8 +257,7 @@ def test_catalog_instrument_roundtrip(tmp_path):
     catalog.write_instruments([inst])
     read = catalog.instruments(instrument_ids=["AUD/USD.SIM"])
 
-    assert len(read) == 1
-    assert str(read[0].id) == "AUD/USD.SIM"
+    assert [instrument.to_dict() for instrument in read] == [inst.to_dict()]
 
 
 def test_quote_tick_wrangler_construction():

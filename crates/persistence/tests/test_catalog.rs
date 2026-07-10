@@ -460,14 +460,19 @@ fn test_datafusion_parquet_round_trip() {
 
 #[rstest]
 fn test_rust_write_2_bars_to_catalog() {
-    let (_temp_dir, catalog) = create_temp_catalog();
+    let (_temp_dir, mut catalog) = create_temp_catalog();
 
     let bars = vec![create_bar(1), create_bar(2)];
     catalog.write_to_parquet(&bars, None, None, None).unwrap();
 
     let bar_type = bars[0].bar_type.to_string();
     let intervals = catalog.get_intervals("bars", Some(&bar_type)).unwrap();
+    let loaded = catalog
+        .bars(Some(vec!["AUD/USD.SIM".to_string()]), None, None)
+        .unwrap();
+
     assert_eq!(intervals, vec![(1, 2)]);
+    assert_eq!(loaded, bars);
 }
 
 #[rstest]
@@ -829,42 +834,34 @@ fn test_rust_extend_file_name() {
 
 #[rstest]
 fn test_rust_write_quote_ticks() {
-    let (_temp_dir, catalog) = create_temp_catalog();
+    let (_temp_dir, mut catalog) = create_temp_catalog();
 
     let quote_ticks = vec![create_quote_tick(1), create_quote_tick(2)];
     catalog
         .write_to_parquet(&quote_ticks, None, None, None)
         .unwrap();
 
-    let files = catalog
-        .query_files(
-            "quotes",
-            Some(vec!["ETH/USDT.BINANCE".to_string()]),
-            None,
-            None,
-        )
+    let loaded = catalog
+        .quote_ticks(Some(vec!["ETH/USDT.BINANCE".to_string()]), None, None)
         .unwrap();
-    assert!(!files.is_empty());
+
+    assert_eq!(loaded, quote_ticks);
 }
 
 #[rstest]
 fn test_rust_write_trade_ticks() {
-    let (_temp_dir, catalog) = create_temp_catalog();
+    let (_temp_dir, mut catalog) = create_temp_catalog();
 
     let trade_ticks = vec![create_trade_tick(1), create_trade_tick(2)];
     catalog
         .write_to_parquet(&trade_ticks, None, None, None)
         .unwrap();
 
-    let files = catalog
-        .query_files(
-            "trades",
-            Some(vec!["ETH/USDT.BINANCE".to_string()]),
-            None,
-            None,
-        )
+    let loaded = catalog
+        .trade_ticks(Some(vec!["ETH/USDT.BINANCE".to_string()]), None, None)
         .unwrap();
-    assert!(!files.is_empty());
+
+    assert_eq!(loaded, trade_ticks);
 }
 
 // Non-ASCII ids are stored percent-encoded on disk; queries must resolve the on-disk name.
@@ -4854,10 +4851,17 @@ fn test_instrument_roundtrip_with_info_params() {
     let instrument_any = InstrumentAny::CurrencyPair(currency_pair);
     let id_str = Instrument::id(&instrument_any).to_string();
 
-    catalog.write_instruments(vec![instrument_any]).unwrap();
+    catalog
+        .write_instruments(vec![instrument_any.clone()])
+        .unwrap();
 
     let ids = vec![id_str];
     let read = catalog.query_instruments(Some(&ids)).unwrap();
+
+    assert_eq!(
+        serde_json::to_value(&read).unwrap(),
+        serde_json::to_value(vec![instrument_any]).unwrap()
+    );
     assert_eq!(read.len(), 1, "Should read back exactly one instrument");
 
     let read_any = &read[0];
