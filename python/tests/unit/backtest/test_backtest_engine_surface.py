@@ -378,21 +378,29 @@ def test_importable_strategy_routes_synthetic_bars_through_native_twap():
     orders = engine.cache.orders()
     primary_orders = [order for order in orders if order.exec_spawn_id is None]
     spawned_orders = [order for order in orders if order.exec_spawn_id is not None]
+    open_positions = engine.cache.positions_open(instrument_id=instrument.id)
 
     assert result.iterations == len(closes)
-    assert primary_orders
-    assert spawned_orders
+    assert result.elapsed_time_secs == 420.0
+    assert len(orders) == 20
+    assert len(primary_orders) == 5
+    assert len(spawned_orders) == 15
     assert all(order.exec_algorithm_id == algo_id for order in orders)
     assert all(order.status == OrderStatus.FILLED for order in orders)
+    assert not engine.cache.orders_open(instrument_id=instrument.id)
+    assert len(open_positions) == 1
+    assert open_positions[0].quantity.as_decimal() == Decimal("0.010000")
+    assert open_positions[0].event_count == 4
+    assert not engine.cache.positions_closed(instrument_id=instrument.id)
 
     for primary in primary_orders:
         children = [
             order for order in spawned_orders if order.exec_spawn_id == primary.client_order_id
         ]
-        sequence_qty = primary.quantity.as_decimal() + sum(
-            order.quantity.as_decimal() for order in children
+        assert len(children) == 3
+        assert all(
+            order.quantity.as_decimal() == Decimal("0.002500") for order in [primary, *children]
         )
-        assert sequence_qty == Decimal("0.010000")
     engine.dispose()
 
 
