@@ -42,6 +42,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
 - Added Interactive Brokers PyO3 type stub annotations (#4350), thanks @dfjmax
 - Added Polymarket v2 WS `hash` and `transaction_hash` field decoding (#4377), thanks for reporting @SebastianPartarrieu
+- Added Python v2 `ExecTesterConfig` controls for UUID order IDs, quote quantity, and stop-time cancels
 - Added Tardis MEXC spot and futures market data support
 - Added v2 support for trailing-stop orders with no trigger or activation price, which activate at market and materialize the trigger (and trailing-stop-limit price) from the trailing offset on the first update
 - Added `activation_price` to v2 `OrderInitialized` and `OrderSnapshot` so trailing-stop activation survives event and dict reconstruction
@@ -128,6 +129,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 ### Documentation Updates
 - Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
 - Updated Architect AX integration docs for current market-data, REST schema, and funding-rate behavior
+- Updated Polymarket v2 examples and integration docs for current markets, order modes, and configuration
 - Added SinoPac Securities community adapter listing (#4324), thanks @Martingale42
 - Added canonical references and doc comments for portfolio statistics
 - Fixed Lighter get-started Python v2 development wheel link
