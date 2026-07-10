@@ -119,7 +119,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Improved live reconciliation recency tracking with `RecencyMap` (#4386), thanks @folknor
 - Improved portfolio statistics test coverage with canonical worked examples
 - Made portfolio reference-count clones explicit (#4364), thanks @ChrisAB
-- Upgraded Rust (MSRV) to 1.96.1
+- Upgraded Rust (MSRV) to 1.97.0
 - Upgraded Cython to v3.2.8
 - Upgraded `capnp` to v0.26.2 and `py-clob-client-v2` to v1.0.2
 - Upgraded `databento` crate to v0.54.0
