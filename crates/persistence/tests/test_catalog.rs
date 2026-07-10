@@ -15,7 +15,7 @@
 
 use std::{collections::HashMap, fs, io::Write, str::FromStr, sync::Arc};
 
-use nautilus_core::{Params, UnixNanos};
+use nautilus_core::{Params, UUID4, UnixNanos};
 use nautilus_model::{
     data::{
         Bar, BarSpecification, BarType, BookOrder, CustomData, Data, DataType, FundingRateUpdate,
@@ -24,15 +24,16 @@ use nautilus_model::{
         is_monotonically_increasing_by_init, to_variant,
     },
     enums::{
-        AggregationSource, AggressorSide, BarAggregation, BookAction, CurrencyType,
+        AccountType, AggregationSource, AggressorSide, BarAggregation, BookAction, CurrencyType,
         GreeksConvention, OrderSide, PriceType,
     },
-    identifiers::{InstrumentId, Symbol, TradeId},
+    events::AccountState,
+    identifiers::{AccountId, InstrumentId, Symbol, TradeId},
     instruments::{
         CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny,
         stubs::{audusd_sim, equity_aapl},
     },
-    types::{Currency, Price, Quantity},
+    types::{AccountBalance, Currency, MarginBalance, Money, Price, Quantity},
 };
 use nautilus_persistence::{
     backend::{
@@ -85,17 +86,17 @@ fn ethusdt_binance_id() -> InstrumentId {
 fn create_order_book_delta(ts_init: u64) -> OrderBookDelta {
     OrderBookDelta::new(
         ethusdt_binance_id(),
-        BookAction::Add,
+        BookAction::Update,
         BookOrder::new(
-            OrderSide::Buy,
-            Price::new(10000.0, 1),
-            Quantity::new(0.1, 1),
-            0,
+            OrderSide::Sell,
+            Price::new(10_000.12, 2),
+            Quantity::new(0.123, 3),
+            42,
         ),
-        0,
-        0,
+        7,
+        ts_init + 100,
+        UnixNanos::from(ts_init - 1),
         UnixNanos::from(ts_init),
-        UnixNanos::from(0),
     )
 }
 
@@ -154,9 +155,9 @@ fn create_order_book_depth10(ts_init: u64) -> OrderBookDepth10 {
         asks,
         bid_counts,
         ask_counts,
-        0,
-        0,
-        UnixNanos::from(0),
+        6,
+        ts_init + 200,
+        UnixNanos::from(ts_init - 1),
         UnixNanos::from(ts_init),
     )
 }
@@ -1016,38 +1017,116 @@ fn test_query_bars_non_ascii_instrument_id_partial_match() {
 
 #[rstest]
 fn test_rust_write_order_book_deltas() {
-    let (_temp_dir, catalog) = create_temp_catalog();
+    let (_temp_dir, mut catalog) = create_temp_catalog();
 
     let deltas = vec![create_order_book_delta(1), create_order_book_delta(2)];
     catalog.write_to_parquet(&deltas, None, None, None).unwrap();
 
-    let files = catalog
-        .query_files(
-            "order_book_deltas",
+    let loaded = catalog
+        .query_typed_data::<OrderBookDelta>(
             Some(vec!["ETH/USDT.BINANCE".to_string()]),
             None,
             None,
+            None,
+            None,
+            true,
         )
         .unwrap();
-    assert!(!files.is_empty());
+
+    assert_eq!(loaded.len(), deltas.len());
+
+    for (expected, actual) in deltas.iter().zip(&loaded) {
+        assert_eq!(actual.instrument_id, expected.instrument_id);
+        assert_eq!(actual.action, expected.action);
+        assert_eq!(actual.flags, expected.flags);
+        assert_eq!(actual.sequence, expected.sequence);
+        assert_eq!(actual.ts_event, expected.ts_event);
+        assert_eq!(actual.ts_init, expected.ts_init);
+        assert_eq!(actual.order.side, expected.order.side);
+        assert_eq!(actual.order.price, expected.order.price);
+        assert_eq!(actual.order.size, expected.order.size);
+        assert_eq!(actual.order.order_id, expected.order.order_id);
+    }
 }
 
 #[rstest]
 fn test_rust_write_order_book_depths() {
-    let (_temp_dir, catalog) = create_temp_catalog();
+    let (_temp_dir, mut catalog) = create_temp_catalog();
 
     let depths = vec![create_order_book_depth10(1), create_order_book_depth10(2)];
     catalog.write_to_parquet(&depths, None, None, None).unwrap();
 
-    let files = catalog
-        .query_files(
-            "order_book_depths",
+    let loaded = catalog
+        .query_typed_data::<OrderBookDepth10>(
             Some(vec!["ETH/USDT.BINANCE".to_string()]),
             None,
             None,
+            None,
+            None,
+            true,
         )
         .unwrap();
-    assert!(!files.is_empty());
+
+    assert_eq!(loaded.len(), depths.len());
+
+    for (expected, actual) in depths.iter().zip(&loaded) {
+        assert_eq!(actual.instrument_id, expected.instrument_id);
+        assert_eq!(actual.bid_counts, expected.bid_counts);
+        assert_eq!(actual.ask_counts, expected.ask_counts);
+        assert_eq!(actual.flags, expected.flags);
+        assert_eq!(actual.sequence, expected.sequence);
+        assert_eq!(actual.ts_event, expected.ts_event);
+        assert_eq!(actual.ts_init, expected.ts_init);
+
+        for (expected_order, actual_order) in expected
+            .bids
+            .iter()
+            .zip(&actual.bids)
+            .chain(expected.asks.iter().zip(&actual.asks))
+        {
+            assert_eq!(actual_order.side, expected_order.side);
+            assert_eq!(actual_order.price, expected_order.price);
+            assert_eq!(actual_order.size, expected_order.size);
+            assert_ne!(expected_order.order_id, 0);
+            assert_eq!(actual_order.order_id, 0);
+        }
+    }
+}
+
+#[rstest]
+fn test_rust_write_and_read_account_state() {
+    let (_temp_dir, mut catalog) = create_temp_catalog();
+    let account_states = vec![AccountState::new(
+        AccountId::from("SIM-001"),
+        AccountType::Margin,
+        vec![AccountBalance::new(
+            Money::from("1000.00 USD"),
+            Money::from("200.00 USD"),
+            Money::from("800.00 USD"),
+        )],
+        vec![MarginBalance::new(
+            Money::from("150.00 USD"),
+            Money::from("75.00 USD"),
+            Some(ethusdt_binance_id()),
+        )],
+        true,
+        UUID4::new(),
+        UnixNanos::from(1),
+        UnixNanos::from(2),
+        Some(Currency::USD()),
+    )];
+    catalog
+        .write_to_parquet(&account_states, None, None, None)
+        .unwrap();
+
+    let loaded = catalog
+        .query_typed::<AccountState>(None, None, None, None, None, true)
+        .unwrap();
+
+    assert_eq!(
+        serde_json::to_value(loaded).unwrap(),
+        serde_json::to_value(account_states).unwrap(),
+    );
 }
 
 #[rstest]

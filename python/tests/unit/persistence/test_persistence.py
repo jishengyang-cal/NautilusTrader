@@ -24,8 +24,13 @@ from nautilus_trader.model import Bar
 from nautilus_trader.model import BarAggregation
 from nautilus_trader.model import BarSpecification
 from nautilus_trader.model import BarType
+from nautilus_trader.model import BookAction
+from nautilus_trader.model import BookOrder
 from nautilus_trader.model import CurrencyPair
 from nautilus_trader.model import InstrumentId
+from nautilus_trader.model import OrderBookDelta
+from nautilus_trader.model import OrderBookDepth10
+from nautilus_trader.model import OrderSide
 from nautilus_trader.model import Price
 from nautilus_trader.model import PriceType
 from nautilus_trader.model import Quantity
@@ -216,6 +221,121 @@ def test_catalog_write_and_read_trades(tmp_path):
 
     assert intervals == [(1, 2)]
     assert loaded == trades
+
+
+def test_catalog_write_and_read_order_book_deltas(tmp_path):
+    path = str(tmp_path / "catalog")
+    os.makedirs(path, exist_ok=True)
+    catalog = ParquetDataCatalog(path)
+    deltas = [
+        OrderBookDelta(
+            instrument_id=AUDUSD_SIM,
+            action=BookAction.ADD,
+            order=BookOrder(
+                OrderSide.BUY,
+                Price.from_str("1.10001"),
+                Quantity.from_str("100.123"),
+                42,
+            ),
+            flags=7,
+            sequence=101,
+            ts_event=1,
+            ts_init=2,
+        ),
+        OrderBookDelta(
+            instrument_id=AUDUSD_SIM,
+            action=BookAction.UPDATE,
+            order=BookOrder(
+                OrderSide.SELL,
+                Price.from_str("1.10002"),
+                Quantity.from_str("200.456"),
+                43,
+            ),
+            flags=8,
+            sequence=102,
+            ts_event=3,
+            ts_init=4,
+        ),
+    ]
+    catalog.write_order_book_deltas(deltas)
+
+    loaded = catalog.query_order_book_deltas(["AUD/USD.SIM"])
+
+    assert len(loaded) == len(deltas)
+
+    for expected, actual in zip(deltas, loaded, strict=True):
+        assert actual.instrument_id == expected.instrument_id
+        assert actual.action == expected.action
+        assert actual.flags == expected.flags
+        assert actual.sequence == expected.sequence
+        assert actual.ts_event == expected.ts_event
+        assert actual.ts_init == expected.ts_init
+        assert actual.order.side == expected.order.side
+        assert actual.order.price == expected.order.price
+        assert actual.order.size == expected.order.size
+        assert actual.order.order_id == expected.order.order_id
+
+
+def test_catalog_write_and_read_order_book_depths(tmp_path):
+    path = str(tmp_path / "catalog")
+    os.makedirs(path, exist_ok=True)
+    catalog = ParquetDataCatalog(path)
+    bids = [
+        BookOrder(
+            OrderSide.BUY,
+            Price.from_str(f"{1.10000 - level * 0.00001:.5f}"),
+            Quantity.from_str(str(level + 1)),
+            level + 1,
+        )
+        for level in range(10)
+    ]
+    asks = [
+        BookOrder(
+            OrderSide.SELL,
+            Price.from_str(f"{1.10001 + level * 0.00001:.5f}"),
+            Quantity.from_str(str(level + 11)),
+            level + 11,
+        )
+        for level in range(10)
+    ]
+    depths = [
+        OrderBookDepth10(
+            instrument_id=AUDUSD_SIM,
+            bids=bids,
+            asks=asks,
+            bid_counts=list(range(1, 11)),
+            ask_counts=list(range(11, 21)),
+            flags=9,
+            sequence=201,
+            ts_event=5,
+            ts_init=6,
+        ),
+    ]
+    catalog.write_order_book_depths(depths)
+
+    loaded = catalog.query_order_book_depths(["AUD/USD.SIM"])
+
+    assert len(loaded) == len(depths)
+
+    for expected, actual in zip(depths, loaded, strict=True):
+        assert actual.instrument_id == expected.instrument_id
+        assert actual.bid_counts == expected.bid_counts
+        assert actual.ask_counts == expected.ask_counts
+        assert actual.flags == expected.flags
+        assert actual.sequence == expected.sequence
+        assert actual.ts_event == expected.ts_event
+        assert actual.ts_init == expected.ts_init
+
+        for expected_orders, actual_orders in (
+            (expected.bids, actual.bids),
+            (expected.asks, actual.asks),
+        ):
+            for expected_order, actual_order in zip(expected_orders, actual_orders, strict=True):
+                assert actual_order.side == expected_order.side
+                assert actual_order.price == expected_order.price
+                assert actual_order.size == expected_order.size
+                assert expected_order.order_id != 0
+                assert actual_order.order_id == 0
 
 
 def test_catalog_append_data(tmp_path):
