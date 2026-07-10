@@ -34,6 +34,7 @@ from nautilus_trader.model import OrderSide
 from nautilus_trader.model import Price
 from nautilus_trader.model import PriceType
 from nautilus_trader.model import Quantity
+from nautilus_trader.model import QuoteTick
 from nautilus_trader.model import Symbol
 from nautilus_trader.model import Venue
 from nautilus_trader.persistence import BarDataWrangler
@@ -85,6 +86,11 @@ def test_backend_session_construction_with_chunk_size():
     assert session is not None
 
 
+def test_backend_session_rejects_zero_chunk_size():
+    with pytest.raises(ValueError, match="chunk_size must be positive"):
+        DataBackendSession(chunk_size=0)
+
+
 def test_backend_session_add_file_and_query_quotes():
     session = DataBackendSession()
     session.add_file(NautilusDataType.QuoteTick, "quotes", _data_path("quotes.parquet"))
@@ -93,6 +99,43 @@ def test_backend_session_add_file_and_query_quotes():
     chunk_count = sum(1 for _ in result)
 
     assert chunk_count > 0
+
+
+def test_backend_session_to_list_queries_quotes():
+    session = DataBackendSession()
+    session.add_file(NautilusDataType.QuoteTick, "quotes", _data_path("quotes.parquet"))
+
+    quotes = session.to_query_result().to_list()
+
+    assert len(quotes) == 9_500
+    assert all(isinstance(quote, QuoteTick) for quote in quotes)
+    assert quotes[0].ts_init == 1_577_898_000_000_000_065
+    assert quotes[-1].ts_init == 1_577_919_652_000_000_125
+
+
+def test_backend_session_to_list_returns_unread_records():
+    session = DataBackendSession(chunk_size=1_000)
+    session.add_file(NautilusDataType.QuoteTick, "quotes", _data_path("quotes.parquet"))
+    result = session.to_query_result()
+
+    next(result)
+    quotes = result.to_list()
+
+    assert len(quotes) == 8_500
+    assert all(isinstance(quote, QuoteTick) for quote in quotes)
+    assert quotes[0].ts_init == 1_577_900_944_000_000_879
+
+
+def test_backend_session_to_list_returns_empty_for_empty_query():
+    session = DataBackendSession()
+    session.add_file(
+        NautilusDataType.QuoteTick,
+        "quotes",
+        _data_path("quotes.parquet"),
+        "SELECT * FROM quotes WHERE 1=0",
+    )
+
+    assert session.to_query_result().to_list() == []
 
 
 def test_backend_session_add_file_and_query_trades():
