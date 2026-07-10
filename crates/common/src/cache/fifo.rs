@@ -681,9 +681,8 @@ mod tests {
         assert!(cache.contains_key(&4));
     }
 
-    use proptest::prelude::*;
-
     use ahash::AHashMap;
+    use proptest::prelude::*;
 
     #[derive(Clone, Debug)]
     enum SetOperation {
