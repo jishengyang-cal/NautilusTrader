@@ -201,7 +201,7 @@ def test_native_ema_cross_trades_whipsaw_quote_data():
     engine.dispose()
 
 
-def test_builtin_book_imbalance_actor_consumes_quotes():
+def test_builtin_book_imbalance_actor_consumes_l2_book_deltas(capfd):
     engine = BacktestEngine(BacktestEngineConfig(bypass_logging=True, run_analysis=False))
     instrument = TestInstrumentProvider.ethusdt_binance()
     engine.add_venue(
@@ -210,19 +210,28 @@ def test_builtin_book_imbalance_actor_consumes_quotes():
         account_type=AccountType.MARGIN,
         starting_balances=[Money(1_000_000.0, USDT)],
         base_currency=USDT,
+        book_type=BookType.L2_MBP,
     )
     engine.add_instrument(instrument)
     engine.add_builtin_actor(
         "BookImbalanceActor",
-        BookImbalanceActorConfig(instrument_ids=[instrument.id], log_interval=0),
+        BookImbalanceActorConfig(instrument_ids=[instrument.id], log_interval=1),
     )
 
-    engine.add_data(_crypto_quotes(instrument, count=12, mid_start=Decimal("2000.00")))
+    engine.add_data(_book_deltas(instrument))
     engine.run()
     result = engine.get_result()
+    captured = capfd.readouterr()
 
-    assert result.iterations == 12
+    assert (
+        "ETHUSDT.BINANCE  updates: 5  bid_vol: 50.00  ask_vol: 50.00  imbalance: 0.0000"
+        in captured.out
+    )
+    assert result.iterations == 5
     assert result.total_orders == 0
+    assert result.total_positions == 0
+    assert result.summary["orders.open"] == "0"
+    assert result.summary["positions.open"] == "0"
     assert result.summary["venues.total"] == "1"
     engine.dispose()
 
