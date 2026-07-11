@@ -1712,6 +1712,44 @@ fn test_write_data_enum_funding_rates_round_trip() {
 }
 
 #[rstest]
+fn test_write_data_enum_groups_mixed_bar_types() {
+    let (_temp_dir, mut catalog) = create_temp_catalog();
+    let audusd_bars = vec![create_bar(1_000), create_bar(2_000)];
+    let index_bars = vec![create_index_bar(1_500)];
+    let mut data: Vec<Data> = audusd_bars.iter().copied().map(Data::Bar).collect();
+    data.extend(index_bars.iter().copied().map(Data::Bar));
+
+    // Interleaved bar types in one write must be grouped, not written under the
+    // first element's bar type
+    catalog
+        .write_data_enum(&data, None, None, Some(false))
+        .unwrap();
+
+    let audusd_result = catalog
+        .bars(Some(vec![audusd_bars[0].bar_type.to_string()]), None, None)
+        .unwrap();
+    let index_result = catalog
+        .bars(Some(vec![index_bars[0].bar_type.to_string()]), None, None)
+        .unwrap();
+
+    assert_eq!(audusd_result, audusd_bars);
+    assert_eq!(index_result, index_bars);
+}
+
+#[rstest]
+fn test_write_to_parquet_rejects_mixed_bar_types() {
+    let (_temp_dir, catalog) = create_temp_catalog();
+    let mixed = vec![create_bar(1_000), create_index_bar(2_000)];
+
+    let result = catalog.write_to_parquet(&mixed, None, None, Some(false));
+
+    assert!(
+        result.is_err(),
+        "mixed bar types in a single write must error, was {result:?}"
+    );
+}
+
+#[rstest]
 fn test_generic_query_typed_data_empty_result() {
     let (_temp_dir, mut catalog) = create_temp_catalog();
 
