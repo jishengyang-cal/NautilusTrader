@@ -423,6 +423,8 @@ precision requirements**:
 :::note
 
 - The adapter validates tick-size and market-order precision before signing.
+- The adapter rejects limit prices outside the current market's `tick_size` to `1 - tick_size`
+  range before signing.
 - Market-order precision limits include two decimals for the sell size plus tick-derived bounds
   for the computed amount.
 - Tick sizes can change dynamically during market conditions, particularly when markets become one-sided.
@@ -604,6 +606,10 @@ The `PolymarketWebSocketClient` is built on top of the high-performance Nautilus
 The data adapter opens `market` subscriptions dynamically as instruments are requested. It currently
 uses one market WebSocket connection. The `ws_max_subscriptions` configuration field is present,
 but V2 does not yet enforce it or shard subscriptions across connections.
+
+A single `price_change` payload can contain interleaved updates for several assets. The adapter
+groups updates by instrument and publishes one atomic order book delta batch per instrument, while
+quote processing remains in the venue payload order.
 
 ### Runtime instrument loading
 

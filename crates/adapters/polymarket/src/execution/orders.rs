@@ -54,6 +54,13 @@ impl PolymarketExecutionClient {
             None => return,
         };
 
+        if let Err(reason) =
+            PolymarketOrderBuilder::validate_limit_price(&order, instrument.price_increment())
+        {
+            self.emitter.emit_order_denied(&order, &reason);
+            return;
+        }
+
         let neg_risk = self.get_neg_risk(&order.instrument_id());
         let token_id = instrument.raw_symbol().to_string();
         let tick_decimals = instrument.price_precision() as u32;
@@ -460,6 +467,13 @@ impl PolymarketExecutionClient {
                 Some(i) => i,
                 None => continue,
             };
+
+            if let Err(reason) =
+                PolymarketOrderBuilder::validate_limit_price(&order, instrument.price_increment())
+            {
+                self.emitter.emit_order_denied(&order, &reason);
+                continue;
+            }
 
             let price = order
                 .price()

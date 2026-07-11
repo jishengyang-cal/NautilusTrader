@@ -2248,6 +2248,29 @@ fn make_limit_order(
     post_only: bool,
     time_in_force: TimeInForce,
 ) -> OrderAny {
+    make_limit_order_at_price(
+        client_order_id,
+        instrument_id,
+        side,
+        reduce_only,
+        quote_quantity,
+        post_only,
+        time_in_force,
+        Price::new(0.50, 4),
+    )
+}
+
+#[expect(clippy::too_many_arguments)]
+fn make_limit_order_at_price(
+    client_order_id: &str,
+    instrument_id: InstrumentId,
+    side: OrderSide,
+    reduce_only: bool,
+    quote_quantity: bool,
+    post_only: bool,
+    time_in_force: TimeInForce,
+    price: Price,
+) -> OrderAny {
     let expire_time = if time_in_force == TimeInForce::Gtd {
         Some(UnixNanos::from(2_000_000_000_000_000_000u64))
     } else {
@@ -2262,7 +2285,7 @@ fn make_limit_order(
         .client_order_id(ClientOrderId::from(client_order_id))
         .side(side)
         .quantity(Quantity::new(10.0, 0))
-        .price(Price::new(0.50, 4))
+        .price(price)
         .time_in_force(time_in_force)
         .post_only(post_only)
         .reduce_only(reduce_only)
@@ -2528,6 +2551,79 @@ async fn test_submit_order_denied_for_post_only_with_ioc() {
 
     let event = rx.try_recv().unwrap();
     assert_order_event(event, "Denied");
+}
+
+#[rstest]
+#[case("-0.01")]
+#[case("1.01")]
+#[tokio::test]
+async fn test_submit_order_denied_for_price_out_of_range(#[case] price: &str) {
+    let state = TestServerState::default();
+    let addr = start_mock_server(state.clone()).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    client.start().unwrap();
+
+    let instrument_id = InstrumentId::from("TEST-TOKEN.POLYMARKET");
+    add_instrument_to_cache(&cache, instrument_id);
+    let order = make_limit_order_at_price(
+        "O-PRICE-RANGE",
+        instrument_id,
+        OrderSide::Buy,
+        false,
+        false,
+        false,
+        TimeInForce::Gtc,
+        Price::from(price),
+    );
+    cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .unwrap();
+
+    client
+        .submit_order(make_submit_cmd(&order, instrument_id))
+        .unwrap();
+
+    let denied = assert_order_event(rx.try_recv().unwrap(), "Denied");
+    assert_eq!(
+        order_event_reason(&denied),
+        format!("Limit order price {price} outside Polymarket range [0.0001, 0.9999]")
+    );
+    assert_eq!(*state.order_post_count.lock().await, 0);
+}
+
+#[rstest]
+#[case("0.0001")]
+#[case("0.9999")]
+#[tokio::test]
+async fn test_submit_order_allows_tick_relative_price_boundary(#[case] price: &str) {
+    let state = TestServerState::default();
+    let addr = start_mock_server(state).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    client.start().unwrap();
+
+    let instrument_id = InstrumentId::from("TEST-TOKEN.POLYMARKET");
+    add_instrument_to_cache(&cache, instrument_id);
+    let order = make_limit_order_at_price(
+        "O-PRICE-BOUNDARY",
+        instrument_id,
+        OrderSide::Buy,
+        false,
+        false,
+        false,
+        TimeInForce::Gtc,
+        Price::from(price),
+    );
+    cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .unwrap();
+
+    client
+        .submit_order(make_submit_cmd(&order, instrument_id))
+        .unwrap();
+
+    assert_order_event(rx.try_recv().unwrap(), "Submitted");
 }
 
 #[rstest]
@@ -2896,8 +2992,12 @@ async fn test_submit_order_list_posts_batch_and_accepts_orders() {
 }
 
 #[rstest]
+#[case::unsupported_instruction(false)]
+#[case::out_of_range_price(true)]
 #[tokio::test]
-async fn test_submit_order_list_denies_invalid_orders_before_batch_post() {
+async fn test_submit_order_list_denies_invalid_orders_before_batch_post(
+    #[case] out_of_range_price: bool,
+) {
     let state = TestServerState::default();
     *state.batch_order_response.lock().await = Some(json!([
         {"success": true, "orderID": "0xbatch-order-1", "errorMsg": ""},
@@ -2919,15 +3019,28 @@ async fn test_submit_order_list_denies_invalid_orders_before_batch_post() {
         false,
         TimeInForce::Gtc,
     );
-    let invalid = make_limit_order(
-        "O-LIST-INVALID",
-        instrument_id,
-        OrderSide::Sell,
-        false,
-        false,
-        true,
-        TimeInForce::Ioc,
-    );
+    let invalid = if out_of_range_price {
+        make_limit_order_at_price(
+            "O-LIST-INVALID",
+            instrument_id,
+            OrderSide::Sell,
+            false,
+            false,
+            false,
+            TimeInForce::Gtc,
+            Price::from("1.01"),
+        )
+    } else {
+        make_limit_order(
+            "O-LIST-INVALID",
+            instrument_id,
+            OrderSide::Sell,
+            false,
+            false,
+            true,
+            TimeInForce::Ioc,
+        )
+    };
     let valid2 = make_limit_order(
         "O-LIST-VALID-2",
         instrument_id,
