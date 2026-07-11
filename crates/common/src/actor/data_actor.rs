@@ -4760,6 +4760,12 @@ impl DataActorCore {
     ) -> anyhow::Result<UUID4> {
         self.check_registered();
 
+        anyhow::ensure!(
+            bar_type.is_standard(),
+            "Composite bar types are not supported for `request_bars`, was {bar_type}; \
+             request aggregation via the `bar_types` params instead",
+        );
+
         let now = self.clock_ref().utc_now();
         check_timestamps(now, start, end)?;
 

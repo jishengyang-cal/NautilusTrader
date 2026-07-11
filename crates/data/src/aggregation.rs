@@ -122,6 +122,14 @@ pub trait BarAggregator: Any + Debug {
     fn set_aggregator_weak(&mut self, _weak: Weak<RefCell<Box<dyn BarAggregator>>>) {}
     /// Configures the continuous-future price adjustment for the underlying builder.
     fn set_adjustment(&mut self, _adjustment: Decimal, _mode: ContinuousFutureAdjustmentType) {}
+    /// Sets whether empty intervals emit bars at the last close.
+    /// Default implementation does nothing, `TimeBarAggregator` overrides.
+    fn set_build_with_no_updates(&mut self, _value: bool) {}
+    /// If the aggregator is processing historical data on a private clock.
+    /// Default implementation returns `false`, `TimeBarAggregator` overrides.
+    fn is_historical(&self) -> bool {
+        false
+    }
 }
 
 impl dyn BarAggregator {
@@ -2139,6 +2147,14 @@ impl BarAggregator for TimeBarAggregator {
 
     fn set_adjustment(&mut self, adjustment: Decimal, mode: ContinuousFutureAdjustmentType) {
         self.core.set_adjustment(adjustment, mode);
+    }
+
+    fn set_build_with_no_updates(&mut self, value: bool) {
+        self.build_with_no_updates = value;
+    }
+
+    fn is_historical(&self) -> bool {
+        self.historical_mode
     }
 }
 

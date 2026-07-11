@@ -74,6 +74,13 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed v2 catalog writes silently re-labeling mixed instruments or bar types under the first element's identity; writes now group by identity and reject mixed input
 - Fixed v2 catalog internal-to-external bar type conversion corrupting symbols containing `-INTERNAL` and mishandling composite bar types
 - Fixed v2 SQL bar row decoding to return a decode error instead of panicking on invalid rows, and to reject composite bar types on insert
+- Fixed v2 external bar unsubscribe detaching the venue stream while other actors remained subscribed
+- Fixed v2 continuous future bar unsubscribe tearing down the chain while other actors remained subscribed
+- Fixed v2 continuous future bar requests emitting synthetic last-close bars across roll gaps (v1 parity)
+- Fixed v2 orphaned composite source aggregator teardown leaking the underlying client tick subscription
+- Fixed v2 `subscribed_bars` to include internally aggregated subscriptions (v1 parity)
+- Fixed v2 `request_bars` to reject composite bar types (v1 parity)
+- Added v2 `skip_first_non_full_bar` per-command override for bar subscriptions and aggregation requests (v1 parity)
 - Fixed v2 volume aggregation step thresholds to use exact integer arithmetic instead of floating-point conversion
 - Fixed v2 `ValueBarAggregator` to accumulate value in `Decimal` matching the v1 implementation
 - Fixed v2 internal bar aggregation to include the first tick when aggregating from ticks, quotes, or trades in backtests
