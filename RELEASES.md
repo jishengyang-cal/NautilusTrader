@@ -64,6 +64,11 @@ releases as feedback arrives, before the final `2.0.0` release.
 
 ### Fixes
 - Fixed v2 composite bar aggregation (`@` source) to deliver aggregated bars to subscribed actors and strategies
+- Fixed v2 tick, tick-imbalance, and tick-runs aggregators to emit bars with the standard bar type for composite subscriptions, matching all other aggregators
+- Fixed v2 volume-runs and value-runs aggregators dropping leftover volume when a trade spanned a bar boundary and the next trade continued the same side
+- Fixed v2 value-based aggregators dropping fractional volume when threshold chunks rounded to the instrument size precision
+- Fixed v2 volume aggregation step thresholds to use exact integer arithmetic instead of floating-point conversion
+- Fixed v2 `ValueBarAggregator` to accumulate value in `Decimal` matching the v1 implementation
 - Fixed v2 internal bar aggregation to include the first tick when aggregating from ticks, quotes, or trades in backtests
 - Fixed v2 quote extraction and quote-fed indicators to raise a clear error for a `Last` price type instead of panicking across the Python boundary
 - Fixed mixed-instrument backtest `SubmitOrderList` fills to use each leg's own book (#4392), thanks for reporting @gtalknitin

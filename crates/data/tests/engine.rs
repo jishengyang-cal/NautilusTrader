@@ -1824,8 +1824,12 @@ fn test_request_scoped_composite_bar_aggregator_handles_bar_response(
         Some(params),
     )));
 
+    // Aggregated bars are cached under the standard bar type (v1 parity)
     assert_eq!(
-        cache.borrow().bar(&composite).map(|bar| bar.ts_event),
+        cache
+            .borrow()
+            .bar(&composite.standard())
+            .map(|bar| bar.ts_event),
         Some(UnixNanos::from(1_000)),
     );
 }
@@ -2334,11 +2338,12 @@ fn test_continuous_future_request_preserves_bar_type_chain(
         child.params,
     )));
 
-    let first_level = cache.borrow().bar(&bar_type_1).copied().unwrap();
+    // Aggregated bars are cached under the standard bar type (v1 parity)
+    let first_level = cache.borrow().bar(&bar_type_1.standard()).copied().unwrap();
     assert_eq!(first_level.open, Price::from("97.00"));
     assert_eq!(first_level.close, Price::from("98.00"));
     assert_eq!(first_level.volume, Quantity::from(2));
-    let second_level = cache.borrow().bar(&bar_type_2).copied().unwrap();
+    let second_level = cache.borrow().bar(&bar_type_2.standard()).copied().unwrap();
     assert_eq!(second_level.open, Price::from("92.00"));
     assert_eq!(second_level.high, Price::from("98.00"));
     assert_eq!(second_level.low, Price::from("92.00"));
@@ -7802,7 +7807,8 @@ fn test_composite_bar_aggregator_source_bar_subscription_uses_default_priority(
     let bar_type = BarType::from("AUD/USD.SIM-1-TICK-LAST-INTERNAL@1-TICK-EXTERNAL");
     let source_bar_type = bar_type.composite();
     let source_topic = switchboard::get_bars_topic(source_bar_type);
-    let target_topic = switchboard::get_bars_topic(bar_type);
+    // Aggregated bars are emitted with the standard bar type (v1 parity)
+    let target_topic = switchboard::get_bars_topic(bar_type.standard());
 
     let dispatch_order: Rc<RefCell<Vec<&'static str>>> = Rc::new(RefCell::new(Vec::new()));
 
