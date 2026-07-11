@@ -1147,6 +1147,13 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             .context("failed to query hedge mode")?;
         self.is_hedge_mode.store(is_hedge_mode, Ordering::Release);
         log::info!("Hedge mode (dual side position): {is_hedge_mode}");
+        if is_hedge_mode != (self.core.oms_type == OmsType::Hedging) {
+            log::warn!(
+                "Binance Futures account position mode does not match the configured OMS type: \
+                 dual_side_position={is_hedge_mode}, oms_type={:?}; set oms_type to match the account position mode",
+                self.core.oms_type,
+            );
+        }
 
         // Load instruments if not already done
         let _instruments = if self.core.instruments_initialized() {
