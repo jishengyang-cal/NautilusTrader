@@ -22,7 +22,7 @@ use nautilus_testkit::common::ensure_histdata_eurusd_quotes_parquet;
 use rstest::rstest;
 
 #[rstest]
-fn test_pinned_histdata_quotes_through_direct_session() {
+fn test_pinned_quotes_through_direct_session() {
     let filepath = ensure_histdata_eurusd_quotes_parquet();
     let mut session = DataBackendSession::new(1_000);
     session
