@@ -267,7 +267,7 @@ fn create_bar(ts_init: u64) -> Bar {
     Bar::new(
         bar_type,
         Price::new(1.00001, 5),
-        Price::new(1.1, 1),
+        Price::new(1.10000, 5),
         Price::new(1.00000, 5),
         Price::new(1.00000, 5),
         Quantity::new(100_000.0, 0),
@@ -286,7 +286,7 @@ fn create_index_bar(ts_init: u64) -> Bar {
     Bar::new(
         bar_type,
         Price::new(1.00001, 5),
-        Price::new(1.1, 1),
+        Price::new(1.10000, 5),
         Price::new(1.00000, 5),
         Price::new(1.00000, 5),
         Quantity::new(0.0, 0),
@@ -987,7 +987,7 @@ fn test_query_bars_non_ascii_instrument_id_partial_match() {
     let bar = Bar::new(
         bar_type,
         Price::new(1.00001, 5),
-        Price::new(1.1, 1),
+        Price::new(1.10000, 5),
         Price::new(1.00000, 5),
         Price::new(1.00000, 5),
         Quantity::new(100_000.0, 0),

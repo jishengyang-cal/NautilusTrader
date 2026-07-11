@@ -67,6 +67,10 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed v2 tick, tick-imbalance, and tick-runs aggregators to emit bars with the standard bar type for composite subscriptions, matching all other aggregators
 - Fixed v2 volume-runs and value-runs aggregators dropping leftover volume when a trade spanned a bar boundary and the next trade continued the same side
 - Fixed v2 value-based aggregators dropping fractional volume when threshold chunks rounded to the instrument size precision
+- Fixed v2 `BarType.new_composite` to validate the composite specification on construction instead of panicking later in `composite()`
+- Fixed v2 `Bar` and `BarSpecification` deserialization to validate OHLC ordering and step periodicity, matching v1 `from_dict` behavior
+- Fixed v2 `Bar.from_pyobject` and bar type parsing at the Python boundary to raise `ValueError` instead of panicking
+- Fixed v2 `12-MONTH` bar specification validation so the shipped `BAR_SPEC_12_MONTH_LAST` (OKX yearly candles) parses and round-trips
 - Fixed v2 volume aggregation step thresholds to use exact integer arithmetic instead of floating-point conversion
 - Fixed v2 `ValueBarAggregator` to accumulate value in `Decimal` matching the v1 implementation
 - Fixed v2 internal bar aggregation to include the first tick when aggregating from ticks, quotes, or trades in backtests
