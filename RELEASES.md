@@ -76,6 +76,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed v2 catalog writes silently re-labeling mixed instruments or bar types under the first element's identity; writes now group by identity and reject mixed input
 - Fixed v2 catalog internal-to-external bar type conversion corrupting symbols containing `-INTERNAL` and mishandling composite bar types
 - Fixed v2 SQL bar row decoding to return a decode error instead of panicking on invalid rows, and to reject composite bar types on insert
+- Fixed v2 execution mass-status reconciliation to preserve venue fill IDs and commissions, apply
+  terminal fill gaps, and convert Betfair cumulative matched sizes into incremental fills
 - Fixed v2 external bar unsubscribe detaching the venue stream while other actors remained subscribed
 - Fixed v2 continuous future bar unsubscribe tearing down the chain while other actors remained subscribed
 - Fixed v2 continuous future bar requests emitting synthetic last-close bars across roll gaps (v1 parity)
@@ -137,6 +139,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
 - Fixed Polymarket v2 order cancellation during shutdown so accepted venue orders are not left open
 - Fixed Polymarket v2 book delta atomicity and local limit-price range validation
+- Fixed Polymarket v2 execution races, ambiguous submissions, trade finality, fill IDs, and proxy funder validation
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
 - Fixed Hyperliquid `l2Book` resubscribe options and shared stream teardown (#4298)
