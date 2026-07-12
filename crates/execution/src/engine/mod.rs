@@ -1844,6 +1844,11 @@ impl ExecutionEngine {
         self.handle_event(event);
     }
 
+    /// Projects a reconciled fill onto its order without applying position or portfolio economics.
+    pub fn project_reconciliation_fill(&mut self, fill: &OrderFilled) {
+        self.handle_event_with_position_application(&OrderEventAny::Filled(fill.clone()), false);
+    }
+
     /// Starts the execution engine and all registered execution clients.
     pub fn start(&mut self) {
         for client in self.get_clients_mut() {
@@ -2493,6 +2498,14 @@ impl ExecutionEngine {
     }
 
     fn handle_event(&mut self, event: &OrderEventAny) {
+        self.handle_event_with_position_application(event, true);
+    }
+
+    fn handle_event_with_position_application(
+        &mut self,
+        event: &OrderEventAny,
+        apply_position: bool,
+    ) {
         self.event_count += 1;
 
         if self.config.debug {
@@ -2596,23 +2609,35 @@ impl ExecutionEngine {
                     );
                     return;
                 };
-                let oms_type = self.determine_oms_type(fill);
+                let configured_oms_type = self.determine_oms_type(fill);
                 let position_id =
-                    self.determine_position_id(fill, oms_type, Some(&order_before_fill));
+                    self.determine_position_id(fill, configured_oms_type, Some(&order_before_fill));
+                let oms_type = self
+                    .cache
+                    .borrow()
+                    .oms_type(&position_id)
+                    .unwrap_or(configured_oms_type);
 
                 let mut fill = fill.clone();
                 fill.position_id = Some(position_id);
 
-                if self
-                    .validate_fill_for_order(&order_before_fill, &fill)
-                    .is_ok()
-                {
+                let validation = if apply_position {
+                    self.validate_fill_for_order(&order_before_fill, &fill)
+                } else {
+                    self.validate_fill_for_order_projection(&order_before_fill, &fill)
+                };
+
+                if validation.is_ok() {
                     let event = OrderEventAny::Filled(fill.clone());
                     let Some(order) = self.update_cached_order(client_order_id, &event) else {
                         return;
                     };
 
-                    let position_events = self.handle_order_fill(&order, fill, oms_type);
+                    let position_events = if apply_position {
+                        self.handle_order_fill(&order, fill, oms_type)
+                    } else {
+                        Vec::new()
+                    };
                     self.publish_order_event(&event);
                     self.publish_position_events(position_events);
                 }
@@ -2936,6 +2961,18 @@ impl ExecutionEngine {
                 position_id
             );
             anyhow::bail!("Duplicate position fill");
+        }
+
+        self.check_overfill(order, fill)
+    }
+
+    fn validate_fill_for_order_projection(
+        &self,
+        order: &OrderAny,
+        fill: &OrderFilled,
+    ) -> anyhow::Result<()> {
+        if order.is_duplicate_fill(fill) {
+            anyhow::bail!("Duplicate fill");
         }
 
         self.check_overfill(order, fill)
