@@ -175,6 +175,20 @@ def test_live_node_start_stop_dispose_local(trader_id, stop_before_dispose):
     assert node.is_running is False
 
 
+def test_live_node_dispose_before_start_twice_does_not_raise():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-006"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+        ),
+    )
+
+    node.dispose()
+    node.dispose()
+
+
 def test_importable_exec_algorithm_config_construction():
     config = ImportableExecAlgorithmConfig(
         exec_algorithm_path="tests.unit.common.actor:TestExecAlgorithm",

@@ -113,6 +113,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Python v2 `Strategy` close-position and close-all-position commands to accept and forward `params`
 - Fixed Python v2 `DataActor.shutdown_system()` unregistered calls to raise `RuntimeError`
 - Fixed Python v2 `LiveNode.stop()` to complete shutdown instead of only signaling the handle
+- Fixed Rust and Python v2 `LiveNode.dispose()` before start to release the trader cleanly and
+  remain idempotent
 - Fixed Python v2 boundary error handling to raise exceptions instead of panicking on invalid inputs
 - Fixed Python v2 DeFi comparisons to return `NotImplemented` for unsupported ordering instead of panicking
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin

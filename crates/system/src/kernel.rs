@@ -24,7 +24,7 @@ use nautilus_common::{
     cache::{Cache, CacheConfig, database::CacheDatabaseAdapter},
     clock::Clock,
     component::Component,
-    enums::Environment,
+    enums::{ComponentState, Environment},
     logging::{
         arm_shutdown_on_error, disarm_shutdown_on_error, headers, init_logging,
         logger::{LogGuard, LoggerConfig},
@@ -761,8 +761,19 @@ impl NautilusKernel {
         disarm_shutdown_on_error();
         log::info!("Disposing");
 
-        if let Err(e) = self.trader.borrow_mut().dispose() {
-            log::error!("Error disposing trader: {e:?}");
+        {
+            let mut trader = self.trader.borrow_mut();
+            if trader.state() == ComponentState::PreInitialized
+                && let Err(e) = trader.initialize()
+            {
+                log::error!("Error initializing trader for disposal: {e:?}");
+            }
+
+            if !trader.is_disposed()
+                && let Err(e) = trader.dispose()
+            {
+                log::error!("Error disposing trader: {e:?}");
+            }
         }
 
         self.stop_engines();

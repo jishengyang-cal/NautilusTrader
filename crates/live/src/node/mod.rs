@@ -3171,6 +3171,23 @@ mod tests {
     }
 
     #[rstest]
+    fn test_dispose_before_start_is_idempotent() {
+        let mut node = LiveNode::build("TestNode".to_string(), None).unwrap();
+        node.add_strategy(TestStrategy::new(StrategyConfig {
+            strategy_id: Some(StrategyId::from("DISPOSAL-001")),
+            ..Default::default()
+        }))
+        .unwrap();
+
+        node.dispose();
+        node.dispose();
+
+        assert!(node.kernel.trader().borrow().is_disposed());
+        assert_eq!(node.kernel.trader().borrow().component_count(), 0);
+        assert_eq!(node.state(), NodeState::Stopped);
+    }
+
+    #[rstest]
     fn test_handle_initial_state() {
         let handle = LiveNodeHandle::new();
 
