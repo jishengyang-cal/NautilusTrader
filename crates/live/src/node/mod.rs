@@ -1404,7 +1404,11 @@ impl LiveNode {
             if let OrderEventAny::Filled(fill) = event {
                 self.exec_manager
                     .record_position_activity(fill.instrument_id, fill.account_id);
-                self.exec_manager.mark_fill_processed(fill.trade_id);
+                self.exec_manager.mark_fill_processed(
+                    fill.account_id,
+                    fill.instrument_id,
+                    fill.trade_id,
+                );
             }
             self.kernel.exec_engine.borrow_mut().process(event);
         }
@@ -1556,9 +1560,11 @@ impl LiveNode {
             }
             ExecutionEvent::Report(report) => {
                 if let ExecutionReport::Fill(fill_report) = report
-                    && self
-                        .exec_manager
-                        .is_fill_recently_processed(&fill_report.trade_id)
+                    && self.exec_manager.is_fill_recently_processed(
+                        fill_report.account_id,
+                        fill_report.instrument_id,
+                        fill_report.trade_id,
+                    )
                 {
                     log::debug!(
                         "Skipping recently processed fill report: {}",
@@ -2446,13 +2452,20 @@ mod tests {
         };
         let mut node = LiveNode::build("FillSkipNode".to_string(), Some(config)).unwrap();
         let event = stub_exec_event();
+        let account_id = AccountId::from("TEST-001");
+        let instrument_id = InstrumentId::from("TEST.VENUE");
         let trade_id = TradeId::from("T-001");
 
         let close_ids = node.observe_exec_event_before_dispatch(&event);
         assert_eq!(close_ids, Some(Vec::new()));
-        assert!(!node.exec_manager.is_fill_recently_processed(&trade_id));
+        assert!(
+            !node
+                .exec_manager
+                .is_fill_recently_processed(account_id, instrument_id, trade_id)
+        );
 
-        node.exec_manager.mark_fill_processed(trade_id);
+        node.exec_manager
+            .mark_fill_processed(account_id, instrument_id, trade_id);
 
         let close_ids = node.observe_exec_event_before_dispatch(&event);
         assert_eq!(close_ids, None);
