@@ -433,7 +433,9 @@ impl LiveNode {
             return Err(e);
         }
 
-        self.kernel.start_trader();
+        if let Err(e) = self.kernel.start_trader() {
+            return self.abort_after_trader_start_failure(e).await;
+        }
         #[cfg(feature = "plugin")]
         if let Err(e) = self.plugins.start_controllers() {
             return self.abort_after_trader_start_failure(e).await;
@@ -890,7 +892,19 @@ impl LiveNode {
 
                 return Err(e);
             }
-            self.kernel.start_trader();
+
+            if let Err(e) = self.kernel.start_trader() {
+                let result = self.abort_after_trader_start_failure(e).await;
+                Self::drain_channels(
+                    &mut time_evt_rx,
+                    &mut data_evt_rx,
+                    &mut data_cmd_rx,
+                    &mut exec_evt_rx,
+                    &mut exec_cmd_rx,
+                );
+                log::info!("Event loop stopped");
+                return result;
+            }
             #[cfg(feature = "plugin")]
             if let Err(e) = self.plugins.start_controllers() {
                 let result = self.abort_after_trader_start_failure(e).await;
@@ -1439,21 +1453,30 @@ impl LiveNode {
         self.finalize_stop().await
     }
 
-    #[cfg(feature = "plugin")]
     async fn abort_after_trader_start_failure(
         &mut self,
         start_err: anyhow::Error,
     ) -> anyhow::Result<()> {
-        log::info!("Plug-in controller startup failed, aborting startup");
+        log::info!("Trader startup failed, aborting startup");
         self.handle.set_state(NodeState::ShuttingDown);
-        self.kernel.stop_trader();
+        let stop_result = self.kernel.stop_trader_after_start_failure();
+        let finalize_result = self.finalize_stop().await;
 
-        if let Err(finalize_err) = self.finalize_stop().await {
-            anyhow::bail!(
-                "failed to start plug-in controller: {start_err}; failed to finalize startup abort: {finalize_err}"
-            );
+        match (stop_result, finalize_result) {
+            (Ok(()), Ok(())) => Err(start_err),
+            (Err(stop_err), Ok(())) => anyhow::bail!(
+                "Failed during trader startup: {start_err}; failed to stop partial trader start: \
+                 {stop_err}"
+            ),
+            (Ok(()), Err(finalize_err)) => anyhow::bail!(
+                "Failed during trader startup: {start_err}; failed to finalize startup abort: \
+                 {finalize_err}"
+            ),
+            (Err(stop_err), Err(finalize_err)) => anyhow::bail!(
+                "Failed during trader startup: {start_err}; failed to stop partial trader start: \
+                 {stop_err}; failed to finalize startup abort: {finalize_err}"
+            ),
         }
-        Err(start_err)
     }
 
     fn initiate_shutdown(&mut self) {

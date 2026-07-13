@@ -115,6 +115,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Python v2 `LiveNode.stop()` to complete shutdown instead of only signaling the handle
 - Fixed Rust and Python v2 `LiveNode.dispose()` before start to release the trader cleanly and
   remain idempotent
+- Fixed Rust and Python v2 `LiveNode` startup failures to propagate the original error, stop
+  partially started trader components, and disconnect all clients before disposal
 - Fixed Python v2 boundary error handling to raise exceptions instead of panicking on invalid inputs
 - Fixed Python v2 DeFi comparisons to return `NotImplemented` for unsupported ordering instead of panicking
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
