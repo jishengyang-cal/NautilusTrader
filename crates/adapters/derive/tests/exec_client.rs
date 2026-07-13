@@ -28,7 +28,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -129,6 +129,9 @@ struct WsState {
     connection_count: Arc<AtomicUsize>,
     login_frames: Arc<tokio::sync::Mutex<Vec<Value>>>,
     subscribe_frames: Arc<tokio::sync::Mutex<Vec<Value>>>,
+    subscribe_status: Arc<tokio::sync::Mutex<Option<HashMap<String, String>>>>,
+    login_failures_after_first: Arc<AtomicUsize>,
+    disconnect_after_subscribe: Arc<AtomicBool>,
     // Order entry now flows over the WebSocket Trading API. Each vector holds
     // the `params` object of a captured `private/*` frame so assertions read
     // the signed body fields directly (`body["instrument_name"]`, etc.).
@@ -157,6 +160,9 @@ impl Default for WsState {
             connection_count: Arc::new(AtomicUsize::new(0)),
             login_frames: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             subscribe_frames: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            subscribe_status: Arc::new(tokio::sync::Mutex::new(None)),
+            login_failures_after_first: Arc::new(AtomicUsize::new(0)),
+            disconnect_after_subscribe: Arc::new(AtomicBool::new(false)),
             submitted_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             submitted_trigger_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancelled_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -430,8 +436,29 @@ async fn handle_ws(mut socket: WebSocket, state: WsState) {
                         let params = payload.get("params").cloned().unwrap_or(Value::Null);
                         let reply = match method {
                             "public/login" => {
-                                state.login_frames.lock().await.push(payload.clone());
-                                json!({"id": id, "result": {"success": true}})
+                                let login_count = {
+                                    let mut frames = state.login_frames.lock().await;
+                                    frames.push(payload.clone());
+                                    frames.len()
+                                };
+                                let reject_reconnect = login_count > 1
+                                    && state
+                                        .login_failures_after_first
+                                        .fetch_update(
+                                            Ordering::SeqCst,
+                                            Ordering::SeqCst,
+                                            |remaining| remaining.checked_sub(1),
+                                        )
+                                        .is_ok();
+
+                                if reject_reconnect {
+                                    json!({
+                                        "id": id,
+                                        "error": {"code": -32602, "message": "bad signature"},
+                                    })
+                                } else {
+                                    json!({"id": id, "result": {"success": true}})
+                                }
                             }
                             "subscribe" => {
                                 state.subscribe_frames.lock().await.push(payload.clone());
@@ -441,7 +468,28 @@ async fn handle_ws(mut socket: WebSocket, state: WsState) {
                                     .and_then(Value::as_array)
                                     .cloned()
                                     .unwrap_or_default();
-                                json!({"id": id, "result": {"channels": channels}})
+
+                                if let Some(status) = state.subscribe_status.lock().await.clone() {
+                                    let current_subscriptions = channels
+                                        .iter()
+                                        .filter(|channel| {
+                                            channel
+                                                .as_str()
+                                                .and_then(|channel| status.get(channel))
+                                                .is_some_and(|status| status == "ok")
+                                        })
+                                        .cloned()
+                                        .collect::<Vec<_>>();
+                                    json!({
+                                        "id": id,
+                                        "result": {
+                                            "current_subscriptions": current_subscriptions,
+                                            "status": status,
+                                        },
+                                    })
+                                } else {
+                                    json!({"id": id, "result": {"channels": channels}})
+                                }
                             }
                             "private/order" => {
                                 state.submitted_orders.lock().await.push(params);
@@ -571,6 +619,13 @@ async fn handle_ws(mut socket: WebSocket, state: WsState) {
                             .await
                             .is_err()
                         {
+                            break;
+                        }
+
+                        if method == "subscribe"
+                            && state.disconnect_after_subscribe.swap(false, Ordering::SeqCst)
+                        {
+                            let _ = socket.send(Message::Close(None)).await;
                             break;
                         }
                     }
@@ -1239,6 +1294,117 @@ async fn test_exec_client_connect_subscribes_private_channels() {
     assert!(channels.contains(&format!("{TEST_SUBACCOUNT}.balances")));
 
     tc.client.disconnect().await.expect("disconnect succeeds");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_exec_client_connect_fails_when_private_channel_is_rejected() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    *ws_state.subscribe_status.lock().await = Some(HashMap::from([
+        (format!("{TEST_SUBACCOUNT}.orders"), "ok".to_string()),
+        (
+            format!("{TEST_SUBACCOUNT}.trades"),
+            "unauthorized".to_string(),
+        ),
+        (format!("{TEST_SUBACCOUNT}.balances"), "ok".to_string()),
+    ]));
+    let mut tc = build_client(rest_state, ws_state.clone()).await;
+
+    let err = tc
+        .client
+        .connect()
+        .await
+        .expect_err("private subscribe rejection must fail connect");
+
+    let error_chain = format!("{err:#}");
+    assert!(error_chain.contains("private WS subscriptions"));
+    assert!(error_chain.contains("unauthorized"));
+    assert!(!tc.client.is_connected());
+    wait_until(
+        || {
+            let state = ws_state.clone();
+            async move { state.connection_count.load(Ordering::SeqCst) == 0 }
+        },
+        "failed connect tears down WS transport",
+    )
+    .await;
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_exec_client_reconnect_refreshes_account_and_submits_mass_status() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    ws_state
+        .disconnect_after_subscribe
+        .store(true, Ordering::SeqCst);
+    let mut tc = build_client(rest_state.clone(), ws_state.clone()).await;
+
+    tc.client.connect().await.expect("connect succeeds");
+    let event = drain_until(
+        &mut tc.rx,
+        |event| {
+            matches!(
+                event,
+                ExecutionEvent::Report(ExecutionReport::MassStatus(_))
+            )
+        },
+        "post-reconnect mass status",
+    )
+    .await;
+
+    if let ExecutionEvent::Report(ExecutionReport::MassStatus(status)) = event {
+        assert_eq!(status.client_id, ClientId::from("DERIVE"));
+        assert_eq!(status.account_id, AccountId::from("DERIVE-001"));
+    } else {
+        unreachable!();
+    }
+    assert!(rest_state.get_subaccount_calls.lock().await.len() >= 2);
+    assert!(!rest_state.open_orders_calls.lock().await.is_empty());
+    assert!(!rest_state.trigger_orders_calls.lock().await.is_empty());
+    assert!(!rest_state.order_history_calls.lock().await.is_empty());
+    assert!(!rest_state.trade_history_calls.lock().await.is_empty());
+    assert!(!rest_state.positions_calls.lock().await.is_empty());
+    assert_eq!(ws_state.login_frames.lock().await.len(), 2);
+    assert_eq!(ws_state.subscribe_frames.lock().await.len(), 2);
+    assert!(tc.client.is_connected());
+
+    tc.client.disconnect().await.expect("disconnect succeeds");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_exec_client_marks_disconnected_after_reconnect_auth_exhaustion() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    ws_state
+        .login_failures_after_first
+        .store(10, Ordering::SeqCst);
+    ws_state
+        .disconnect_after_subscribe
+        .store(true, Ordering::SeqCst);
+    let mut tc = build_client(rest_state, ws_state.clone()).await;
+
+    tc.client.connect().await.expect("initial connect succeeds");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while tc.client.is_connected() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("execution client remained connected after auth exhaustion");
+
+    assert!(!tc.client.is_connected());
+    assert_eq!(ws_state.login_frames.lock().await.len(), 4);
+    wait_until(
+        || {
+            let state = ws_state.clone();
+            async move { state.connection_count.load(Ordering::SeqCst) == 0 }
+        },
+        "failed session recovery closes transport",
+    )
+    .await;
 }
 
 #[rstest]
@@ -3200,6 +3366,55 @@ async fn test_query_account_emits_account_state_event() {
     let calls = rest_state.get_subaccount_calls.lock().await;
     // At least one call (connect refresh) plus the explicit query.
     assert!(calls.len() >= 2);
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_balance_subscription_refreshes_authoritative_account_state() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    let mut tc = build_client(rest_state.clone(), ws_state.clone()).await;
+    tc.client.connect().await.expect("connect succeeds");
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Account(_)),
+        "initial AccountState",
+    )
+    .await;
+
+    let mut updated_subaccount = sample_subaccount_json();
+    updated_subaccount["collaterals"][0]["amount"] = json!("1250");
+    updated_subaccount["collaterals"][0]["mark_value"] = json!("1250");
+    updated_subaccount["collaterals_value"] = json!("1250");
+    updated_subaccount["subaccount_value"] = json!("1250");
+    *rest_state.subaccount_response.lock().await = updated_subaccount;
+
+    ws_state.push_notification(make_subscription_frame(
+        &format!("{TEST_SUBACCOUNT}.balances"),
+        &json!([{
+            "name": "USDC",
+            "new_balance": "1250",
+            "previous_balance": "1000",
+            "update_type": "asset_deposit",
+        }]),
+    ));
+
+    let event = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Account(_)),
+        "balance refresh AccountState",
+    )
+    .await;
+
+    if let ExecutionEvent::Account(state) = event {
+        assert_eq!(state.balances.len(), 1);
+        assert_eq!(state.balances[0].total.as_decimal(), dec!(1250));
+    } else {
+        unreachable!();
+    }
+    assert!(rest_state.get_subaccount_calls.lock().await.len() >= 2);
 
     tc.client.disconnect().await.expect("disconnect");
 }

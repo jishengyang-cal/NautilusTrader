@@ -99,7 +99,7 @@ pub struct DeriveDataClient {
     http_client: DeriveHttpClient,
     provider: DeriveInstrumentProvider,
     ws_client: DeriveWebSocketClient,
-    is_connected: AtomicBool,
+    is_connected: Arc<AtomicBool>,
     cancellation_token: CancellationToken,
     ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
@@ -151,7 +151,7 @@ impl DeriveDataClient {
             http_client,
             provider,
             ws_client,
-            is_connected: AtomicBool::new(false),
+            is_connected: Arc::new(AtomicBool::new(false)),
             cancellation_token: CancellationToken::new(),
             ws_stream_handle: Mutex::new(None),
             pending_tasks: Mutex::new(Vec::new()),
@@ -233,13 +233,19 @@ impl DeriveDataClient {
             quote_cache: QuoteCache::new(),
         };
         let cancellation = self.cancellation_token.clone();
+        let is_connected = Arc::clone(&self.is_connected);
 
         let handle = get_runtime().spawn(async move {
             loop {
                 tokio::select! {
                     maybe_msg = rx.recv() => {
                         match maybe_msg {
-                            Some(msg) => Self::handle_ws_message(msg, &mut ctx),
+                            Some(msg) => {
+                                if matches!(&msg, DeriveWsMessage::SessionRecoveryFailed(_)) {
+                                    is_connected.store(false, Ordering::Release);
+                                }
+                                Self::handle_ws_message(msg, &mut ctx);
+                            }
                             None => {
                                 log::debug!("Derive WebSocket data stream ended");
                                 break;
@@ -276,6 +282,9 @@ impl DeriveDataClient {
             DeriveWsMessage::Reconnected => {
                 ctx.quote_cache.clear();
                 log::info!("Derive WebSocket reconnected");
+            }
+            DeriveWsMessage::SessionRecoveryFailed(reason) => {
+                log::error!("Derive WebSocket session recovery failed: {reason}");
             }
             DeriveWsMessage::Authenticated => log::debug!("Derive WebSocket authenticated"),
         }
@@ -2256,6 +2265,32 @@ mod tests {
         DeriveDataClient::handle_ws_message(DeriveWsMessage::Subscription(payload), &mut ctx);
 
         assert!(rx.try_recv().is_err());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_session_recovery_failure_marks_client_disconnected() {
+        let (data_tx, _data_rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+        replace_data_event_sender(data_tx);
+        let config = DeriveDataClientConfig {
+            environment: DeriveEnvironment::Mainnet,
+            ..Default::default()
+        };
+        let client = DeriveDataClient::new(*DERIVE_CLIENT_ID, config).unwrap();
+        let (ws_tx, ws_rx) = tokio::sync::mpsc::unbounded_channel();
+        client.is_connected.store(true, Ordering::Release);
+        client.spawn_stream_task(ws_rx);
+
+        ws_tx
+            .send(DeriveWsMessage::SessionRecoveryFailed(
+                "subscription replay failed".to_string(),
+            ))
+            .unwrap();
+        wait_until_async(|| async { !client.is_connected() }, Duration::from_secs(2)).await;
+
+        assert!(!client.is_connected());
+
+        client.cancellation_token.cancel();
     }
 
     #[rstest]

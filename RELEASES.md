@@ -147,6 +147,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Databento MBO fill/no-action decoding and replay gating (#4446), thanks @taozle
 - Fixed Deribit live execution routing tracked fills and amendments through order events while
   preserving reports for external orders
+- Fixed Derive execution WebSocket connect and reconnect handling to reject failed private
+  subscriptions, retry authentication, refresh balances, and reconcile execution state
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
 - Fixed Derive option `scheduled_activation` parsing as UNIX seconds (was parsed as milliseconds)
 - Fixed Derive response decoding to tolerate unknown venue enum values and salvage undecodable trade rows with a log

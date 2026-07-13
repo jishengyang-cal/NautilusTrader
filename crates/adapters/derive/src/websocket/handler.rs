@@ -68,6 +68,8 @@ pub enum DeriveWsMessage {
     /// Underlying transport reconnected; outer client triggers re-login and
     /// resubscribes the tracked channels.
     Reconnected,
+    /// Re-login or subscription replay exhausted its retry budget.
+    SessionRecoveryFailed(String),
     /// Channel update pushed by the venue.
     Subscription(WsSubscriptionPayload),
 }

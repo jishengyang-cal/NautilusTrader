@@ -38,6 +38,7 @@ use nautilus_common::{
     cache::ORDER_NOT_FOUND,
     clients::ExecutionClient,
     live::{get_runtime, runner::get_exec_event_sender},
+    messages::ExecutionReport,
     messages::execution::{
         BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
         GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
@@ -126,7 +127,7 @@ pub struct DeriveExecutionClient {
     instruments: Arc<AtomicMap<InstrumentId, DeriveInstrument>>,
     nonce_manager: Arc<NonceManager>,
     signing: SigningContext,
-    is_connected: AtomicBool,
+    is_connected: Arc<AtomicBool>,
     cancellation_token: CancellationToken,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
     ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
@@ -215,7 +216,7 @@ impl DeriveExecutionClient {
             instruments: Arc::new(AtomicMap::new()),
             nonce_manager: Arc::new(NonceManager::new()),
             signing,
-            is_connected: AtomicBool::new(false),
+            is_connected: Arc::new(AtomicBool::new(false)),
             cancellation_token: CancellationToken::new(),
             pending_tasks: Mutex::new(Vec::new()),
             ws_stream_handle: Mutex::new(None),
@@ -283,20 +284,20 @@ impl DeriveExecutionClient {
         Ok(())
     }
 
+    fn reconciliation_context(&self) -> DeriveReconciliationContext {
+        DeriveReconciliationContext {
+            http_client: self.http_client.clone(),
+            emitter: self.emitter.clone(),
+            client_id: self.core.client_id,
+            account_id: self.core.account_id,
+            subaccount_id: self.credential.subaccount_id(),
+            clock: self.clock,
+            dispatch_state: Arc::clone(&self.dispatch_state),
+        }
+    }
+
     async fn refresh_account_state(&self) -> anyhow::Result<()> {
-        let value = self
-            .http_client
-            .get_subaccount(&DeriveGetSubaccountParams::new(
-                self.credential.subaccount_id(),
-            ))
-            .await
-            .context("failed to fetch Derive subaccount snapshot")?;
-        let (balances, margins) = parse_derive_subaccount_to_balances(&value)
-            .context("failed to parse Derive subaccount balances")?;
-        let ts_event = self.clock.get_time_ns();
-        self.emitter
-            .emit_account_state(balances, margins, true, ts_event);
-        Ok(())
+        self.reconciliation_context().refresh_account_state().await
     }
 
     /// Blocks until the account appears in the cache, or `timeout_secs` elapses.
@@ -357,6 +358,8 @@ impl DeriveExecutionClient {
         let clock = self.clock;
         let cancellation = self.cancellation_token.clone();
         let dispatch_state = self.dispatch_state.clone();
+        let reconciliation = self.reconciliation_context();
+        let is_connected = Arc::clone(&self.is_connected);
 
         let handle = get_runtime().spawn(async move {
             let mut rx = rx;
@@ -367,6 +370,42 @@ impl DeriveExecutionClient {
                     () = cancellation.cancelled() => break,
                     maybe = rx.recv() => {
                         match maybe {
+                            Some(DeriveWsMessage::Reconnected) => {
+                                let context = reconciliation.clone();
+                                let task_cancellation = cancellation.clone();
+
+                                get_runtime().spawn(async move {
+                                    tokio::select! {
+                                        () = task_cancellation.cancelled() => {}
+                                        result = context.recover_after_reconnect() => {
+                                            if let Err(e) = result {
+                                                log::warn!("Derive post-reconnect recovery failed: {e:?}");
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            Some(DeriveWsMessage::SessionRecoveryFailed(reason)) => {
+                                is_connected.store(false, Ordering::Release);
+                                log::error!("Derive execution WebSocket recovery failed: {reason}");
+                            }
+                            Some(DeriveWsMessage::Subscription(payload))
+                                if payload.channel.as_str().ends_with(".balances") =>
+                            {
+                                let context = reconciliation.clone();
+                                let task_cancellation = cancellation.clone();
+
+                                get_runtime().spawn(async move {
+                                    tokio::select! {
+                                        () = task_cancellation.cancelled() => {}
+                                        result = context.refresh_account_state() => {
+                                            if let Err(e) = result {
+                                                log::warn!("Derive balance update refresh failed: {e:?}");
+                                            }
+                                        }
+                                    }
+                                });
+                            }
                             Some(message) => handle_ws_message(
                                 message,
                                 &emitter,
@@ -484,7 +523,9 @@ impl ExecutionClient for DeriveExecutionClient {
         ];
 
         if let Err(e) = self.ws_client.subscribe_channels(channels).await {
-            log::warn!("Derive private WS subscriptions failed: {e}");
+            log::warn!("Derive private WS subscriptions failed: {e}; tearing down");
+            self.teardown_partial_connect().await;
+            return Err(anyhow::Error::new(e).context("failed Derive private WS subscriptions"));
         }
 
         self.start_ws_dispatch(rx);
@@ -691,280 +732,37 @@ impl ExecutionClient for DeriveExecutionClient {
         &self,
         cmd: &GenerateOrderStatusReports,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
-        let subaccount_id = self.credential.subaccount_id();
-        let instrument_name = cmd.instrument_id.map(|id| id.symbol.as_str().to_string());
-
-        // open_only routes to private/get_open_orders and
-        // private/get_trigger_orders regardless of window; the venue
-        // endpoints have no time bound but the caller's start/end is applied
-        // below. For full history we walk private/get_order_history pages,
-        // scoped to the optional window.
-        let orders: Vec<DeriveOrder> = if cmd.open_only {
-            let mut orders = self
-                .http_client
-                .get_open_orders(&DeriveGetOpenOrdersParams::new(subaccount_id))
-                .await?
-                .orders;
-            orders.extend(
-                self.http_client
-                    .get_trigger_orders(&DeriveGetTriggerOrdersParams::new(subaccount_id))
-                    .await?
-                    .orders,
-            );
-            orders
-        } else {
-            let start_ms = cmd.start.map(|t| t.as_millis() as i64);
-            let end_ms = cmd.end.map(|t| t.as_millis() as i64);
-            let mut page: u32 = 1;
-            let mut collected: Vec<DeriveOrder> = Vec::new();
-
-            loop {
-                let mut params =
-                    DeriveGetOrderHistoryParams::new(subaccount_id, page, DERIVE_PRIVATE_PAGE_SIZE)
-                        .with_window(start_ms, end_ms);
-
-                if let Some(name) = instrument_name.as_deref() {
-                    params = params.with_instrument_name(name);
-                }
-
-                let result = self.http_client.get_order_history(&params).await?;
-                let total_pages = result.pagination.num_pages;
-                collected.extend(result.orders);
-
-                if (page as i64) >= total_pages || total_pages == 0 {
-                    break;
-                }
-                page += 1;
-            }
-            collected
-        };
-
-        let ts_init = self.clock.get_time_ns();
-        let start_ms = cmd.start.map(|t| t.as_millis() as i64);
-        let end_ms = cmd.end.map(|t| t.as_millis() as i64);
-        let mut reports = Vec::with_capacity(orders.len());
-        for order in orders {
-            if let Some(instrument_id) = cmd.instrument_id
-                && InstrumentId::new(Symbol::new(order.instrument_name.as_str()), *DERIVE_VENUE)
-                    != instrument_id
-            {
-                continue;
-            }
-            // open_only routed via private/get_open_orders ignores time bounds
-            // at the venue level; apply the command's window here so callers
-            // asking for "open orders since X" get exactly that.
-            if let Some(start) = start_ms
-                && order.last_update_timestamp < start
-            {
-                continue;
-            }
-
-            if let Some(end) = end_ms
-                && order.last_update_timestamp > end
-            {
-                continue;
-            }
-
-            match parse_derive_order_to_report(&order, self.core.account_id, ts_init) {
-                Ok(report) => reports.push(report),
-                Err(e) => log::warn!("Skipping order in status report: {e}"),
-            }
-        }
-        Ok(reports)
+        self.reconciliation_context()
+            .generate_order_status_reports(cmd)
+            .await
     }
 
     async fn generate_fill_reports(
         &self,
         cmd: GenerateFillReports,
     ) -> anyhow::Result<Vec<FillReport>> {
-        let instrument_name = cmd.instrument_id.map(|id| id.symbol.as_str().to_string());
-        let mut page: u32 = 1;
-        let mut all_trades: Vec<DeriveTrade> = Vec::new();
-
-        loop {
-            let mut params = DeriveGetTradeHistoryParams::new(
-                self.credential.subaccount_id(),
-                page,
-                DERIVE_PRIVATE_PAGE_SIZE,
-            )
-            .with_window(
-                cmd.start.map(|t| t.as_millis() as i64),
-                cmd.end.map(|t| t.as_millis() as i64),
-            );
-
-            if let Some(name) = instrument_name.as_deref() {
-                params = params.with_instrument_name(name);
-            }
-
-            let result = self.http_client.get_private_trade_history(&params).await?;
-            let total_pages = result.pagination.num_pages;
-            all_trades.extend(result.trades);
-
-            if (page as i64) >= total_pages || total_pages == 0 {
-                break;
-            }
-            page += 1;
-        }
-
-        let ts_init = self.clock.get_time_ns();
-        let fee_currency = Currency::USDC();
-        let venue_order_id_filter = cmd
-            .venue_order_id
-            .as_ref()
-            .map(|id| id.as_str().to_string());
-        let mut reports = Vec::with_capacity(all_trades.len());
-        for trade in all_trades {
-            if let Some(target) = venue_order_id_filter.as_deref()
-                && trade.order_id != target
-            {
-                continue;
-            }
-
-            match parse_derive_trade_to_fill_report(
-                &trade,
-                self.core.account_id,
-                fee_currency,
-                ts_init,
-            ) {
-                Ok(Some(report)) => {
-                    // The WS dispatch path owns insertion. Report generation
-                    // only filters fills already emitted live so a discarded
-                    // reconciliation snapshot cannot poison a later retry.
-                    if self.dispatch_state.contains_trade(&report.trade_id) {
-                        log::debug!(
-                            "Skipping duplicate Derive fill (trade_id={}) in generate_fill_reports",
-                            report.trade_id,
-                        );
-                        continue;
-                    }
-                    reports.push(report);
-                }
-                Ok(None) => {}
-                Err(e) => log::warn!("Skipping trade in fill report: {e}"),
-            }
-        }
-        Ok(reports)
+        self.reconciliation_context()
+            .generate_fill_reports(cmd)
+            .await
     }
 
     async fn generate_position_status_reports(
         &self,
         cmd: &GeneratePositionStatusReports,
     ) -> anyhow::Result<Vec<PositionStatusReport>> {
-        let positions = self
-            .http_client
-            .get_positions(&DeriveGetPositionsParams::new(
-                self.credential.subaccount_id(),
-            ))
-            .await?
-            .positions;
-        let ts_init = self.clock.get_time_ns();
-        let mut reports = Vec::with_capacity(positions.len());
-        for position in positions {
-            if let Some(target) = cmd.instrument_id
-                && InstrumentId::new(
-                    Symbol::new(position.instrument_name.as_str()),
-                    *DERIVE_VENUE,
-                ) != target
-            {
-                continue;
-            }
-
-            match parse_derive_position_to_report(&position, self.core.account_id, ts_init) {
-                Ok(report) => reports.push(report),
-                Err(e) => log::warn!("Skipping position in status report: {e}"),
-            }
-        }
-        Ok(reports)
+        self.reconciliation_context()
+            .generate_position_status_reports(cmd)
+            .await
     }
 
     async fn generate_mass_status(
         &self,
         lookback_mins: Option<u64>,
     ) -> anyhow::Result<Option<ExecutionMassStatus>> {
-        log::info!("Generating ExecutionMassStatus (lookback_mins={lookback_mins:?})");
-
-        let ts_now = self.clock.get_time_ns();
-        let start = lookback_mins.map(|mins| {
-            let lookback_ns = mins.saturating_mul(60).saturating_mul(1_000_000_000);
-            UnixNanos::from(ts_now.as_u64().saturating_sub(lookback_ns))
-        });
-
-        let open_order_cmd = GenerateOrderStatusReports::new(
-            UUID4::new(),
-            ts_now,
-            true,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
-        let history_order_cmd = GenerateOrderStatusReports::new(
-            UUID4::new(),
-            ts_now,
-            false,
-            None,
-            start,
-            None,
-            None,
-            None,
-        );
-        let fill_cmd =
-            GenerateFillReports::new(UUID4::new(), ts_now, None, None, start, None, None, None);
-        let position_cmd =
-            GeneratePositionStatusReports::new(UUID4::new(), ts_now, None, None, None, None, None);
-
-        let (history_order_reports, open_order_reports, fill_reports, position_reports) = tokio::try_join!(
-            self.generate_order_status_reports(&history_order_cmd),
-            self.generate_order_status_reports(&open_order_cmd),
-            self.generate_fill_reports(fill_cmd),
-            self.generate_position_status_reports(&position_cmd),
-        )?;
-
-        log::info!(
-            "Received {} historical OrderStatusReports",
-            history_order_reports.len()
-        );
-        log::info!(
-            "Received {} open OrderStatusReports",
-            open_order_reports.len()
-        );
-        log::info!("Received {} FillReports", fill_reports.len());
-        log::info!("Received {} PositionReports", position_reports.len());
-
-        let mut touched_instruments = AHashSet::new();
-
-        for report in history_order_reports
-            .iter()
-            .chain(open_order_reports.iter())
-        {
-            touched_instruments.insert(report.instrument_id);
-        }
-
-        for report in &fill_reports {
-            touched_instruments.insert(report.instrument_id);
-        }
-
-        let mut mass_status = ExecutionMassStatus::new(
-            self.core.client_id,
-            self.core.account_id,
-            *DERIVE_VENUE,
-            ts_now,
-            None,
-        );
-
-        mass_status.add_order_reports(history_order_reports);
-        mass_status.add_order_reports(open_order_reports);
-        mass_status.add_fill_reports(fill_reports);
-        mass_status.add_position_reports(position_reports);
-        add_missing_flat_position_reports(
-            &mut mass_status,
-            self.core.account_id,
-            touched_instruments,
-            ts_now,
-        );
-
-        Ok(Some(mass_status))
+        self.reconciliation_context()
+            .generate_mass_status(lookback_mins)
+            .await
+            .map(Some)
     }
 
     fn submit_order(&self, cmd: SubmitOrder) -> anyhow::Result<()> {
@@ -1848,6 +1646,306 @@ impl ExecutionClient for DeriveExecutionClient {
     }
 }
 
+#[derive(Clone)]
+struct DeriveReconciliationContext {
+    http_client: DeriveHttpClient,
+    emitter: ExecutionEventEmitter,
+    client_id: ClientId,
+    account_id: AccountId,
+    subaccount_id: u64,
+    clock: &'static AtomicTime,
+    dispatch_state: Arc<WsDispatchState>,
+}
+
+impl DeriveReconciliationContext {
+    async fn refresh_account_state(&self) -> anyhow::Result<()> {
+        let value = self
+            .http_client
+            .get_subaccount(&DeriveGetSubaccountParams::new(self.subaccount_id))
+            .await
+            .context("failed to fetch Derive subaccount snapshot")?;
+        let (balances, margins) = parse_derive_subaccount_to_balances(&value)
+            .context("failed to parse Derive subaccount balances")?;
+        let ts_event = self.clock.get_time_ns();
+        self.emitter
+            .emit_account_state(balances, margins, true, ts_event);
+        Ok(())
+    }
+
+    async fn recover_after_reconnect(&self) -> anyhow::Result<()> {
+        self.refresh_account_state().await?;
+        let mass_status = self.generate_mass_status(None).await?;
+        let order_count = mass_status.order_reports().len();
+        let fill_count: usize = mass_status.fill_reports().values().map(Vec::len).sum();
+        let position_count = mass_status.position_reports().len();
+        self.emitter
+            .send_execution_report(ExecutionReport::MassStatus(Box::new(mass_status)));
+        log::info!(
+            "Derive post-reconnect reconciliation submitted: orders={order_count}, fills={fill_count}, positions={position_count}",
+        );
+        Ok(())
+    }
+
+    async fn generate_order_status_reports(
+        &self,
+        cmd: &GenerateOrderStatusReports,
+    ) -> anyhow::Result<Vec<OrderStatusReport>> {
+        let instrument_name = cmd.instrument_id.map(|id| id.symbol.as_str().to_string());
+        let orders: Vec<DeriveOrder> = if cmd.open_only {
+            let mut orders = self
+                .http_client
+                .get_open_orders(&DeriveGetOpenOrdersParams::new(self.subaccount_id))
+                .await?
+                .orders;
+            orders.extend(
+                self.http_client
+                    .get_trigger_orders(&DeriveGetTriggerOrdersParams::new(self.subaccount_id))
+                    .await?
+                    .orders,
+            );
+            orders
+        } else {
+            let start_ms = cmd.start.map(|t| t.as_millis() as i64);
+            let end_ms = cmd.end.map(|t| t.as_millis() as i64);
+            let mut page: u32 = 1;
+            let mut collected = Vec::new();
+
+            loop {
+                let mut params = DeriveGetOrderHistoryParams::new(
+                    self.subaccount_id,
+                    page,
+                    DERIVE_PRIVATE_PAGE_SIZE,
+                )
+                .with_window(start_ms, end_ms);
+
+                if let Some(name) = instrument_name.as_deref() {
+                    params = params.with_instrument_name(name);
+                }
+
+                let result = self.http_client.get_order_history(&params).await?;
+                let total_pages = result.pagination.num_pages;
+                collected.extend(result.orders);
+
+                if (page as i64) >= total_pages || total_pages == 0 {
+                    break;
+                }
+                page += 1;
+            }
+            collected
+        };
+
+        let ts_init = self.clock.get_time_ns();
+        let start_ms = cmd.start.map(|t| t.as_millis() as i64);
+        let end_ms = cmd.end.map(|t| t.as_millis() as i64);
+        let mut reports = Vec::with_capacity(orders.len());
+        for order in orders {
+            if let Some(instrument_id) = cmd.instrument_id
+                && InstrumentId::new(Symbol::new(order.instrument_name.as_str()), *DERIVE_VENUE)
+                    != instrument_id
+            {
+                continue;
+            }
+
+            if let Some(start) = start_ms
+                && order.last_update_timestamp < start
+            {
+                continue;
+            }
+
+            if let Some(end) = end_ms
+                && order.last_update_timestamp > end
+            {
+                continue;
+            }
+
+            match parse_derive_order_to_report(&order, self.account_id, ts_init) {
+                Ok(report) => reports.push(report),
+                Err(e) => log::warn!("Skipping order in status report: {e}"),
+            }
+        }
+        Ok(reports)
+    }
+
+    async fn generate_fill_reports(
+        &self,
+        cmd: GenerateFillReports,
+    ) -> anyhow::Result<Vec<FillReport>> {
+        let instrument_name = cmd.instrument_id.map(|id| id.symbol.as_str().to_string());
+        let mut page: u32 = 1;
+        let mut all_trades: Vec<DeriveTrade> = Vec::new();
+
+        loop {
+            let mut params = DeriveGetTradeHistoryParams::new(
+                self.subaccount_id,
+                page,
+                DERIVE_PRIVATE_PAGE_SIZE,
+            )
+            .with_window(
+                cmd.start.map(|t| t.as_millis() as i64),
+                cmd.end.map(|t| t.as_millis() as i64),
+            );
+
+            if let Some(name) = instrument_name.as_deref() {
+                params = params.with_instrument_name(name);
+            }
+
+            let result = self.http_client.get_private_trade_history(&params).await?;
+            let total_pages = result.pagination.num_pages;
+            all_trades.extend(result.trades);
+
+            if (page as i64) >= total_pages || total_pages == 0 {
+                break;
+            }
+            page += 1;
+        }
+
+        let ts_init = self.clock.get_time_ns();
+        let venue_order_id_filter = cmd
+            .venue_order_id
+            .as_ref()
+            .map(|id| id.as_str().to_string());
+        let mut reports = Vec::with_capacity(all_trades.len());
+        for trade in all_trades {
+            if let Some(target) = venue_order_id_filter.as_deref()
+                && trade.order_id != target
+            {
+                continue;
+            }
+
+            match parse_derive_trade_to_fill_report(
+                &trade,
+                self.account_id,
+                Currency::USDC(),
+                ts_init,
+            ) {
+                Ok(Some(report)) => {
+                    if self.dispatch_state.contains_trade(&report.trade_id) {
+                        log::debug!(
+                            "Skipping duplicate Derive fill (trade_id={}) in generate_fill_reports",
+                            report.trade_id,
+                        );
+                        continue;
+                    }
+                    reports.push(report);
+                }
+                Ok(None) => {}
+                Err(e) => log::warn!("Skipping trade in fill report: {e}"),
+            }
+        }
+        Ok(reports)
+    }
+
+    async fn generate_position_status_reports(
+        &self,
+        cmd: &GeneratePositionStatusReports,
+    ) -> anyhow::Result<Vec<PositionStatusReport>> {
+        let positions = self
+            .http_client
+            .get_positions(&DeriveGetPositionsParams::new(self.subaccount_id))
+            .await?
+            .positions;
+        let ts_init = self.clock.get_time_ns();
+        let mut reports = Vec::with_capacity(positions.len());
+        for position in positions {
+            if let Some(target) = cmd.instrument_id
+                && InstrumentId::new(
+                    Symbol::new(position.instrument_name.as_str()),
+                    *DERIVE_VENUE,
+                ) != target
+            {
+                continue;
+            }
+
+            match parse_derive_position_to_report(&position, self.account_id, ts_init) {
+                Ok(report) => reports.push(report),
+                Err(e) => log::warn!("Skipping position in status report: {e}"),
+            }
+        }
+        Ok(reports)
+    }
+
+    async fn generate_mass_status(
+        &self,
+        lookback_mins: Option<u64>,
+    ) -> anyhow::Result<ExecutionMassStatus> {
+        log::info!("Generating ExecutionMassStatus (lookback_mins={lookback_mins:?})");
+
+        let ts_now = self.clock.get_time_ns();
+        let start = lookback_mins.map(|mins| {
+            let lookback_ns = mins.saturating_mul(60).saturating_mul(1_000_000_000);
+            UnixNanos::from(ts_now.as_u64().saturating_sub(lookback_ns))
+        });
+        let open_order_cmd = GenerateOrderStatusReports::new(
+            UUID4::new(),
+            ts_now,
+            true,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let history_order_cmd = GenerateOrderStatusReports::new(
+            UUID4::new(),
+            ts_now,
+            false,
+            None,
+            start,
+            None,
+            None,
+            None,
+        );
+        let fill_cmd =
+            GenerateFillReports::new(UUID4::new(), ts_now, None, None, start, None, None, None);
+        let position_cmd =
+            GeneratePositionStatusReports::new(UUID4::new(), ts_now, None, None, None, None, None);
+
+        let (history_order_reports, open_order_reports, fill_reports, position_reports) = tokio::try_join!(
+            self.generate_order_status_reports(&history_order_cmd),
+            self.generate_order_status_reports(&open_order_cmd),
+            self.generate_fill_reports(fill_cmd),
+            self.generate_position_status_reports(&position_cmd),
+        )?;
+        log::info!(
+            "Received {} historical OrderStatusReports",
+            history_order_reports.len()
+        );
+        log::info!(
+            "Received {} open OrderStatusReports",
+            open_order_reports.len()
+        );
+        log::info!("Received {} FillReports", fill_reports.len());
+        log::info!("Received {} PositionReports", position_reports.len());
+
+        let mut touched_instruments = AHashSet::new();
+
+        for report in history_order_reports
+            .iter()
+            .chain(open_order_reports.iter())
+        {
+            touched_instruments.insert(report.instrument_id);
+        }
+
+        for report in &fill_reports {
+            touched_instruments.insert(report.instrument_id);
+        }
+
+        let mut mass_status =
+            ExecutionMassStatus::new(self.client_id, self.account_id, *DERIVE_VENUE, ts_now, None);
+        mass_status.add_order_reports(history_order_reports);
+        mass_status.add_order_reports(open_order_reports);
+        mass_status.add_fill_reports(fill_reports);
+        mass_status.add_position_reports(position_reports);
+        add_missing_flat_position_reports(
+            &mut mass_status,
+            self.account_id,
+            touched_instruments,
+            ts_now,
+        );
+        Ok(mass_status)
+    }
+}
+
 // Reason text and post-only classification for a definitive WS write failure.
 // Non-JSON-RPC errors carry no venue code and are never post-only crossings.
 fn ws_rejection_reason(error: &DeriveWsError) -> (String, bool) {
@@ -1906,7 +2004,9 @@ fn handle_ws_message(
 ) {
     let payload = match message {
         DeriveWsMessage::Subscription(payload) => payload,
-        DeriveWsMessage::Authenticated | DeriveWsMessage::Reconnected => return,
+        DeriveWsMessage::Authenticated
+        | DeriveWsMessage::Reconnected
+        | DeriveWsMessage::SessionRecoveryFailed(_) => return,
     };
 
     let is_orders_channel = payload.channel.as_str().ends_with(".orders");
