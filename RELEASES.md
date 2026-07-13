@@ -95,6 +95,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed v2 wranglers to detect raw fixed-point overflow before Arrow conversion (#4372), thanks @MandalorianBatman
 - Fixed `PerContractFeeModel` generic spread fees to charge per leg ratio (#4360), thanks for reporting @pjlegato
 - Fixed `HEDGING` reduce-only orders without cached position IDs (#4312), thanks for reporting @luckykefu
+- Fixed v2 hedging reduce-only fills without position IDs opening phantom positions (#4424), thanks
+  for reporting @luckykefu and for the initial patch @akashchakrabortymsc-cmd
 - Fixed indicator rolling-window bounds and averages past capacity (#4351), thanks @Martingale42
 - Fixed Rust RSI moving-average selection and max-value regression (#4382), thanks @bebop23
 - Fixed v2 matching engine queue position for per-order deltas in L3 books (#4370), thanks for reporting @warmi024
