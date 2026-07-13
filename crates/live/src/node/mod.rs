@@ -503,7 +503,7 @@ impl LiveNode {
         let timeout = self.config.timeout_connection;
         let interval = Duration::from_millis(100);
 
-        while start.elapsed() < timeout {
+        loop {
             if self.handle.should_stop() {
                 log::warn!("Stop signal received, aborting connection wait");
                 return EngineConnectionStatus::StopRequested;
@@ -518,6 +518,11 @@ impl LiveNode {
                 log::info!("All engine clients connected");
                 return EngineConnectionStatus::Connected;
             }
+
+            if start.elapsed() >= timeout {
+                break;
+            }
+
             dst::time::sleep(interval).await;
         }
 
@@ -538,11 +543,16 @@ impl LiveNode {
         let timeout = self.config.timeout_disconnection;
         let interval = Duration::from_millis(100);
 
-        while start.elapsed() < timeout {
+        loop {
             if self.kernel.check_engines_disconnected() {
                 log::info!("All engine clients disconnected");
                 return;
             }
+
+            if start.elapsed() >= timeout {
+                break;
+            }
+
             dst::time::sleep(interval).await;
         }
 

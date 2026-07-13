@@ -32,6 +32,7 @@ from nautilus_trader.trading import ImportableControllerConfig
 from nautilus_trader.trading import ImportableExecAlgorithmConfig
 from nautilus_trader.trading import ImportableStrategyConfig
 from tests.unit.common.actor import ControllerRegistrationProbe
+from tests.unit.common.actor import LifecycleProbeStrategy
 
 
 @pytest.fixture(scope="module")
@@ -141,6 +142,7 @@ def test_live_node_config_registers_importable_controller():
     ],
 )
 def test_live_node_start_stop_dispose_local(trader_id, stop_before_dispose):
+    LifecycleProbeStrategy.reset()
     node = LiveNode.build(
         "TEST",
         LiveNodeConfig(
@@ -154,6 +156,13 @@ def test_live_node_start_stop_dispose_local(trader_id, stop_before_dispose):
             timeout_disconnection_secs=0,
             delay_post_stop_secs=0,
             timeout_shutdown_secs=0,
+        ),
+    )
+    node.add_strategy_from_config(
+        ImportableStrategyConfig(
+            strategy_path="tests.unit.common.actor:LifecycleProbeStrategy",
+            config_path="nautilus_trader.trading:StrategyConfig",
+            config={},
         ),
     )
 
@@ -171,8 +180,12 @@ def test_live_node_start_stop_dispose_local(trader_id, stop_before_dispose):
         assert node.is_running is False
     finally:
         node.dispose()
+        node.dispose()
 
     assert node.is_running is False
+    assert LifecycleProbeStrategy.started == 1
+    assert LifecycleProbeStrategy.stopped == 1
+    assert LifecycleProbeStrategy.disposed == 1
 
 
 def test_live_node_dispose_before_start_twice_does_not_raise():

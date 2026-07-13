@@ -903,6 +903,42 @@ mod serial_tests {
 
     #[rstest]
     #[tokio::test]
+    async fn test_start_stop_dispose_releases_resources() {
+        let config = LiveNodeConfig {
+            exec_engine: LiveExecEngineConfig {
+                reconciliation: false,
+                ..Default::default()
+            },
+            delay_post_stop: Duration::ZERO,
+            timeout_disconnection: Duration::ZERO,
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("LifecycleNode".to_string(), Some(config)).unwrap();
+        node.add_strategy(TestStrategy::new(StrategyConfig {
+            strategy_id: Some(StrategyId::from("LIFECYCLE-001")),
+            ..Default::default()
+        }))
+        .unwrap();
+        let handle = node.handle();
+
+        node.start().await.unwrap();
+        let trader_running = node.kernel().trader().borrow().is_running();
+        let running_component_count = node.kernel().trader().borrow().component_count();
+        node.stop().await.unwrap();
+        let trader_stopped = node.kernel().trader().borrow().is_stopped();
+        node.dispose();
+        node.dispose();
+
+        assert_eq!(handle.state(), NodeState::Stopped);
+        assert!(trader_running);
+        assert_eq!(running_component_count, 1);
+        assert!(trader_stopped);
+        assert!(node.kernel().trader().borrow().is_disposed());
+        assert_eq!(node.kernel().trader().borrow().component_count(), 0);
+    }
+
+    #[rstest]
+    #[tokio::test]
     async fn test_run_twice_returns_error() {
         let config = LiveNodeConfig {
             exec_engine: LiveExecEngineConfig {

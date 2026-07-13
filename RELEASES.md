@@ -117,6 +117,8 @@ releases as feedback arrives, before the final `2.0.0` release.
   remain idempotent
 - Fixed Rust and Python v2 `LiveNode` startup failures to propagate the original error, stop
   partially started trader components, and disconnect all clients before disposal
+- Fixed Rust and Python v2 `LiveNode` zero-duration connection and disconnection waits to recognize
+  already-ready engines before reporting a timeout
 - Fixed Python v2 boundary error handling to raise exceptions instead of panicking on invalid inputs
 - Fixed Python v2 DeFi comparisons to return `NotImplemented` for unsupported ordering instead of panicking
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
