@@ -104,7 +104,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed v2 interval book snapshots blocking order submission from `on_book` handlers
 - Fixed v2 position reconciliation grace to measure on the monotonic clock (#4366), thanks @folknor
 - Fixed v2 startup reconciliation reapplying retained fills to position and PnL state
-- Fixed Python v2 cached `OrderList` values to expose their read-only fields and concrete stub types
+- Fixed Python v2 cached `OrderList` fields and concrete cache return types (#4453), thanks @JiajunWan
 - Fixed Python v2 indicator handlers to delegate to Rust core semantics, including VWAP typical-price and Aroon quote, trade, and high/low bar handling (#4421), thanks for reporting @a1zb2yc3z
 - Fixed Python v2 config stub/readback drift for `DataActorConfig`, `StrategyConfig`, and `ExecutionAlgorithmConfig`
 - Fixed Python v2 migration gaps for `core.datetime`, `Clock.set_time`, and Strategy data APIs
@@ -129,6 +129,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Binance Futures external algo order materialization (#4348), thanks for reporting @linimin
 - Fixed Binance Futures algo orders to consume USD-M order-count limits (#4395), thanks for reporting @cjdsellers
 - Fixed Binance Futures inflight query falsely rejecting untriggered algo orders (#4411), thanks @reijz
+- Fixed Binance Futures historical algo order queries (#4449), thanks @KaizynX
 - Fixed Binance Spot instrument loading after the SBE schema `3:5` rollout (#4407), thanks for reporting @learnerLj
 - Fixed Blockchain HyperSync live pool-event streaming to use a durable per-DEX stream and avoid tip-window overreach
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
