@@ -187,7 +187,7 @@ Mainnet onboarding mirrors testnet against the production dashboard. Use real fu
 | Capability                     | Supported | Notes                                                                   |
 |--------------------------------|-----------|-------------------------------------------------------------------------|
 | Request instrument (REST)      | ✓         | `public/get_instrument`; loads one instrument into the local cache.     |
-| Request all instruments (REST) | ✓         | `public/get_instruments`; fetches each currency in `currencies`.        |
+| Request all instruments (REST) | ✓         | `public/get_instruments`; salvages valid rows for each currency.        |
 | Instrument subscription        | -         | *Not supported.* Use the configured REST refresh interval.              |
 | Order book deltas (L2_MBP)     | ✓         | Channel: `orderbook.{instrument}.{group}.{depth}`.                      |
 | Order book depth10 (L2_MBP)    | ✓         | Same order book channel with `depth=10`.                                |
@@ -198,13 +198,13 @@ Mainnet onboarding mirrors testnet against the production dashboard. Use real fu
 | Quote snapshot (REST)          | ✓         | One‑shot `public/get_tickers`; emits a single `QuoteTick`.              |
 | Historical quotes (REST)       | -         | *Not supported.* The venue exposes ticker snapshots only.               |
 | Trades                         | ✓         | Channel: `trades.{instrument_type}.{currency}`.                         |
-| Historical trades (REST)       | ✓         | `public/get_trade_history`; honors `start`, `end`, and `limit`.         |
-| Bars / OHLC (REST)             | ✓         | `public/get_tradingview_chart_data`; minute, hour, day, and week bars.  |
+| Historical trades (REST)       | ✓         | Chronological and deduplicated; `limit` retains the newest trades.      |
+| Bars / OHLC (REST)             | ✓         | Closed minute, hour, day, and week bars stamped at bucket close.        |
 | Bars / OHLC (WS)               | -         | *Not supported.* The venue has no candle subscription channel.          |
 | Mark price stream              | ✓         | Derived from `ticker_slim`; shares the quote subscription.              |
 | Index price stream             | ✓         | Derived from `ticker_slim`; shares the quote subscription.              |
 | Funding rate stream            | ✓         | Derived from `perp_details.funding_rate` on perp tickers.               |
-| Funding rate history (REST)    | ✓         | `public/get_funding_rate_history` for perpetuals.                       |
+| Funding rate history (REST)    | ✓         | Chronological for perpetuals; `limit` retains the newest valid rows.    |
 | Instrument status              | -         | *Not supported.* Ticker payloads include `is_active`.                   |
 | Instrument close               | -         | *Not supported.* Option settlement is REST-only.                        |
 | Option greeks                  | ✓         | Derived from `option_pricing` on option tickers.                        |
@@ -213,6 +213,15 @@ Mainnet onboarding mirrors testnet against the production dashboard. Use real fu
 `request_instrument` calls `public/get_instrument` for the requested `InstrumentId` and
 caches the returned definition before emitting the response. The cached instrument carries
 the precision and increment fields used by later quote, trade, book, and bar parsing.
+
+Instrument loading treats venue error `12001` as an empty result for the affected product type,
+so a currency without a perp, option, or spot listing does not block its other products. Invalid
+instrument rows are logged and skipped while valid rows continue to load.
+
+Historical requests use `public/get_trade_history`, `public/get_tradingview_chart_data`, and
+`public/get_funding_rate_history`. The bar `end` bound still selects buckets by their start time at
+the venue. Responses omit any bucket whose close is after the request time, including the
+still-forming bucket returned by the venue.
 
 Derive exposes book deltas and depth10 snapshots through the same
 `orderbook.{instrument}.{group}.{depth}` channel family. `subscribe_book_deltas` publishes

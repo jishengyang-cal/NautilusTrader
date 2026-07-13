@@ -505,7 +505,7 @@ impl DeriveDataClient {
             .with_context(|| format!("failed to lazy-load Derive instruments for {currency}"))?;
         let mut found = false;
 
-        for instrument in parse_instrument_definitions(definitions)? {
+        for instrument in parse_instrument_definitions(definitions) {
             if instrument.id() == instrument_id {
                 found = true;
             }
@@ -1102,7 +1102,11 @@ impl DataClient for DeriveDataClient {
         let start_nanos = datetime_to_unix_nanos(start);
         let end_nanos = datetime_to_unix_nanos(end);
         let from_timestamp = start.map(|dt| dt.timestamp_millis());
-        let to_timestamp = end.map(|dt| dt.timestamp_millis());
+        let to_timestamp = Some(match end {
+            Some(dt) => dt.timestamp_millis(),
+            None => i64::try_from(clock.get_time_ms())
+                .context("Derive current time exceeds i64 milliseconds")?,
+        });
 
         self.spawn_task("request_trades", async move {
             // Hold page_size constant across requests: the venue paginates by
@@ -1112,6 +1116,7 @@ impl DataClient for DeriveDataClient {
                 cap.min(DERIVE_TRADES_PAGE_SIZE as usize) as u32
             });
             let mut trades = Vec::new();
+            let mut seen_trade_ids = AHashSet::new();
             let mut page = 1u32;
 
             loop {
@@ -1134,14 +1139,9 @@ impl DataClient for DeriveDataClient {
                 let ts_init = clock.get_time_ns();
 
                 for trade in &result.trades {
-                    if let Some(cap) = limit
-                        && trades.len() >= cap
-                    {
-                        break;
-                    }
-
                     match parse_trade_tick(trade, price_precision, size_precision, ts_init) {
-                        Ok(tick) => trades.push(tick),
+                        Ok(tick) if seen_trade_ids.insert(tick.trade_id) => trades.push(tick),
+                        Ok(_) => {}
                         Err(e) => log::warn!(
                             "Failed to parse Derive trade {} for {instrument_id}: {e}",
                             trade.trade_id,
@@ -1159,6 +1159,13 @@ impl DataClient for DeriveDataClient {
                     break;
                 }
                 page += 1;
+            }
+
+            trades.sort_by_key(|trade| trade.ts_event);
+            if let Some(cap) = limit
+                && trades.len() > cap
+            {
+                trades.drain(..trades.len() - cap);
             }
 
             let response = DataResponse::Trades(TradesResponse::new(
@@ -1225,12 +1232,6 @@ impl DataClient for DeriveDataClient {
             let mut updates = Vec::with_capacity(result.funding_rate_history.len());
 
             for record in &result.funding_rate_history {
-                if let Some(cap) = limit
-                    && updates.len() >= cap
-                {
-                    break;
-                }
-
                 match parse_funding_rate_history_record(record, instrument_id, None, ts_init) {
                     Ok(update) => updates.push(update),
                     Err(e) => log::warn!(
@@ -1238,6 +1239,13 @@ impl DataClient for DeriveDataClient {
                         record.timestamp,
                     ),
                 }
+            }
+
+            updates.sort_by_key(|update| update.ts_event);
+            if let Some(cap) = limit
+                && updates.len() > cap
+            {
+                updates.drain(..updates.len() - cap);
             }
 
             let response = DataResponse::FundingRates(FundingRatesResponse::new(
@@ -1298,7 +1306,8 @@ impl DataClient for DeriveDataClient {
 
         // The venue requires both bounds in UNIX seconds. Default end to now
         // and start to one window of `limit` buckets (or 1000) before end.
-        let now_secs = (clock.get_time_ns().as_u64() / NANOSECONDS_IN_SECOND) as i64;
+        let request_time = clock.get_time_ns();
+        let now_secs = (request_time.as_u64() / NANOSECONDS_IN_SECOND) as i64;
         let end_ts = end.map_or(now_secs, |dt| dt.timestamp());
         let default_span = i64::from(period) * limit.unwrap_or(DERIVE_CANDLES_DEFAULT_LIMIT) as i64;
         let start_ts = start.map_or(end_ts - default_span, |dt| dt.timestamp());
@@ -1362,8 +1371,11 @@ impl DataClient for DeriveDataClient {
                         ts_init,
                     ) {
                         Ok(bar) => {
-                            page_bars.push(bar);
                             seen_timestamps.insert(bucket);
+
+                            if bar.ts_event <= request_time {
+                                page_bars.push(bar);
+                            }
                         }
                         Err(e) => log::warn!(
                             "Failed to parse Derive candle for {bar_type} at {bucket}: {e}",
@@ -1536,17 +1548,12 @@ impl DataClient for DeriveDataClient {
 
             for currency in currencies {
                 match fetch_instrument_definitions(&http_client, &currency, include_expired).await {
-                    Ok(definitions) => match parse_instrument_definitions(definitions) {
-                        Ok(instruments) => {
-                            for instrument in instruments {
-                                cache_instrument(&instruments_cache, &instrument);
-                                all_instruments.push(instrument);
-                            }
+                    Ok(definitions) => {
+                        for instrument in parse_instrument_definitions(definitions) {
+                            cache_instrument(&instruments_cache, &instrument);
+                            all_instruments.push(instrument);
                         }
-                        Err(e) => {
-                            log::error!("Failed to parse Derive instruments for {currency}: {e}");
-                        }
-                    },
+                    }
                     Err(e) => {
                         log::error!("Failed to fetch Derive instruments for {currency}: {e:?}");
                     }

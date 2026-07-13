@@ -152,6 +152,9 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
 - Fixed Derive option `scheduled_activation` parsing as UNIX seconds (was parsed as milliseconds)
 - Fixed Derive response decoding to tolerate unknown venue enum values and salvage undecodable trade rows with a log
+- Fixed Derive historical trades and funding to return the newest records in chronological order
+- Fixed Derive historical bars to use close timestamps and exclude forming buckets
+- Fixed Derive instrument loading to skip absent product types and malformed rows without panicking
 - Fixed Derive fill reconciliation dropping fills on retry after a discarded snapshot
 - Fixed Derive null cancel acknowledgements being reported as failures
 - Fixed Derive cancellation, replacement, and nonce failure lifecycle events, and rejected

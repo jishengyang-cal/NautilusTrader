@@ -938,7 +938,7 @@ pub struct DerivePublicFundingRate {
 /// `public/get_funding_rate_history` result envelope.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DerivePublicFundingRateHistoryResult {
-    /// Funding rate samples ordered oldest to newest.
+    /// Funding rate samples in venue response order (currently newest to oldest).
     pub funding_rate_history: Vec<DerivePublicFundingRate>,
 }
 

@@ -1274,6 +1274,10 @@ async fn recv_response_within(
 }
 
 fn page_trade(trade_id: &str) -> Value {
+    page_trade_at(trade_id, 1_700_000_000_000)
+}
+
+fn page_trade_at(trade_id: &str, timestamp: i64) -> Value {
     json!({
         "direction": "buy",
         "index_price": "3500",
@@ -1282,7 +1286,7 @@ fn page_trade(trade_id: &str) -> Value {
         "mark_price": "3500",
         "realized_pnl": "0",
         "subaccount_id": 1,
-        "timestamp": 1_700_000_000_000_i64,
+        "timestamp": timestamp,
         "trade_amount": "0.25",
         "trade_fee": "0.01",
         "trade_id": trade_id,
@@ -1359,6 +1363,68 @@ async fn test_request_trades_paginates_with_constant_page_size() {
         "page_size must be constant across paginated calls, was {page_sizes:?}",
     );
     assert_eq!(page_sizes[0], 25, "page_size should equal capped limit");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_request_trades_returns_newest_unique_records_in_chronological_order() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    *rest_state.trade_history_pages.lock().await = vec![
+        json!({
+            "trades": [
+                page_trade_at("newest", 1_700_000_000_300),
+                page_trade_at("duplicate", 1_700_000_000_200),
+                page_trade_at("duplicate", 1_700_000_000_200),
+            ],
+            "pagination": {"count": 5, "num_pages": 2},
+        }),
+        json!({
+            "trades": [
+                page_trade_at("duplicate", 1_700_000_000_200),
+                page_trade_at("older", 1_700_000_000_100),
+                page_trade_at("oldest", 1_700_000_000_000),
+            ],
+            "pagination": {"count": 6, "num_pages": 2},
+        }),
+    ];
+    let rest_addr = start_rest_server(rest_state.clone()).await;
+    let ws_addr = start_ws_server(ws_state).await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+    replace_data_event_sender(tx);
+
+    let client = connect_with_eth_currency(rest_addr, ws_addr).await;
+
+    client
+        .request_trades(request_trades(
+            InstrumentId::from("ETH-PERP.DERIVE"),
+            Some(3),
+        ))
+        .unwrap();
+
+    let response = recv_response(&mut rx).await;
+    let DataResponse::Trades(trades) = response else {
+        panic!("expected trades response");
+    };
+    let trade_ids: Vec<&str> = trades
+        .data
+        .iter()
+        .map(|trade| trade.trade_id.as_str())
+        .collect();
+    let calls = rest_state.trade_history_calls().await;
+    let to_timestamps: Vec<i64> = calls
+        .iter()
+        .map(|body| body["to_timestamp"].as_i64().expect("to_timestamp"))
+        .collect();
+
+    assert_eq!(trade_ids, vec!["older", "duplicate", "newest"]);
+    assert_eq!(calls.len(), 2, "duplicates must not count toward the limit");
+    assert!(
+        to_timestamps
+            .windows(2)
+            .all(|window| window[0] == window[1]),
+        "pagination must use one fixed end bound: {to_timestamps:?}",
+    );
 }
 
 #[rstest]
@@ -1478,6 +1544,56 @@ async fn test_request_funding_rates_emits_response_with_records() {
 
 #[rstest]
 #[tokio::test]
+async fn test_request_funding_rates_returns_newest_limit_in_chronological_order() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    let mut response = load_json("perps/http_public_funding_rate_history_eth.json");
+    response["funding_rate_history"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    response["funding_rate_history"]
+        .as_array_mut()
+        .unwrap()
+        .insert(
+            0,
+            json!({
+                "funding_rate": "0.00013",
+                "timestamp": -1,
+            }),
+        );
+    *rest_state.funding_rate_history_response.lock().await = response;
+    let rest_addr = start_rest_server(rest_state).await;
+    let ws_addr = start_ws_server(ws_state).await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+    replace_data_event_sender(tx);
+
+    let client = connect_with_eth_currency(rest_addr, ws_addr).await;
+
+    client
+        .request_funding_rates(request_funding_rates(
+            InstrumentId::from("ETH-PERP.DERIVE"),
+            Some(2),
+        ))
+        .unwrap();
+
+    let response = recv_response(&mut rx).await;
+    let DataResponse::FundingRates(rates) = response else {
+        panic!("expected funding rates response");
+    };
+    let timestamps: Vec<UnixNanos> = rates.data.iter().map(|rate| rate.ts_event).collect();
+
+    assert_eq!(
+        timestamps,
+        vec![
+            UnixNanos::from(1_700_003_600_000_000_000),
+            UnixNanos::from(1_700_007_200_000_000_000),
+        ],
+    );
+}
+
+#[rstest]
+#[tokio::test]
 async fn test_request_funding_rates_returns_err_for_non_perp() {
     let rest_state = RestState::default();
     let ws_state = WsState::default();
@@ -1552,11 +1668,11 @@ async fn test_request_bars_emits_response_with_records() {
     assert_eq!(bars.data[0].volume, Quantity::from("3.527"));
     assert_eq!(
         bars.data[0].ts_event,
-        UnixNanos::from(1_700_000_000_000_000_000),
+        UnixNanos::from(1_700_000_900_000_000_000),
     );
     assert_eq!(
         bars.data[2].ts_event,
-        UnixNanos::from(1_700_001_800_000_000_000),
+        UnixNanos::from(1_700_002_700_000_000_000),
     );
 
     let calls = rest_state.candles_calls().await;
@@ -1572,6 +1688,37 @@ async fn test_request_bars_emits_response_with_records() {
     let end_ts = calls[0]["end_timestamp"].as_i64().unwrap();
     assert!(start_ts < end_ts, "start_ts={start_ts} end_ts={end_ts}");
     assert_eq!(end_ts - start_ts, 900 * 1000);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_request_bars_excludes_forming_bucket() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    let period = 60;
+    let now_secs = Utc::now().timestamp();
+    *rest_state.candles_response.lock().await =
+        Value::Array(vec![candle_json(now_secs - period), candle_json(now_secs)]);
+    let rest_addr = start_rest_server(rest_state).await;
+    let ws_addr = start_ws_server(ws_state).await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+    replace_data_event_sender(tx);
+
+    let client = connect_with_eth_currency(rest_addr, ws_addr).await;
+    let bar_type = BarType::from("ETH-PERP.DERIVE-1-MINUTE-LAST-EXTERNAL");
+
+    client.request_bars(request_bars(bar_type, None)).unwrap();
+
+    let response = recv_response(&mut rx).await;
+    let DataResponse::Bars(bars) = response else {
+        panic!("expected bars response");
+    };
+
+    assert_eq!(bars.data.len(), 1);
+    assert_eq!(
+        bars.data[0].ts_event,
+        UnixNanos::from((now_secs as u64) * 1_000_000_000),
+    );
 }
 
 #[rstest]
@@ -1792,7 +1939,7 @@ async fn test_request_bars_walks_multiple_pages_to_start() {
     assert_eq!(bars.data.len(), 9);
 
     for (i, bar) in bars.data.iter().enumerate() {
-        let expected_secs = start_secs + period * i as i64;
+        let expected_secs = start_secs + period * (i as i64 + 1);
 
         assert_eq!(
             bar.ts_event,
@@ -1878,11 +2025,11 @@ async fn test_request_bars_honors_limit_across_pages() {
     // Most recent 5 bars survive after dropping the oldest from page 2.
     assert_eq!(
         bars.data[0].ts_event,
-        UnixNanos::from(((start_secs + period * 4) as u64) * 1_000_000_000),
+        UnixNanos::from(((start_secs + period * 5) as u64) * 1_000_000_000),
     );
     assert_eq!(
         bars.data[4].ts_event,
-        UnixNanos::from(((start_secs + period * 8) as u64) * 1_000_000_000),
+        UnixNanos::from(((start_secs + period * 9) as u64) * 1_000_000_000),
     );
 
     let calls = rest_state.candles_calls().await;
