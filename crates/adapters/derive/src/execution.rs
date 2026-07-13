@@ -38,11 +38,13 @@ use nautilus_common::{
     cache::ORDER_NOT_FOUND,
     clients::ExecutionClient,
     live::{get_runtime, runner::get_exec_event_sender},
-    messages::ExecutionReport,
-    messages::execution::{
-        BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
-        GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
-        ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
+    messages::{
+        ExecutionReport,
+        execution::{
+            BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateFillReports,
+            GenerateOrderStatusReport, GenerateOrderStatusReports, GeneratePositionStatusReports,
+            ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
+        },
     },
 };
 use nautilus_core::{
@@ -57,9 +59,11 @@ use nautilus_model::{
     events::{
         OrderAccepted, OrderCanceled, OrderEventAny, OrderExpired, OrderFilled, OrderRejected,
     },
-    identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId, Symbol, Venue, VenueOrderId},
+    identifiers::{
+        AccountId, ClientId, ClientOrderId, InstrumentId, StrategyId, Symbol, Venue, VenueOrderId,
+    },
     instruments::InstrumentAny,
-    orders::Order,
+    orders::{Order, OrderAny},
     reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
     types::{AccountBalance, Currency, MarginBalance, Price, Quantity},
 };
@@ -76,7 +80,10 @@ use crate::{
         },
         credential::DeriveCredential,
         enums::{DeriveInstrumentType, DeriveOrderSide},
-        parse::{derive_rejection_due_post_only, format_instrument_id, format_venue_symbol},
+        parse::{
+            derive_order_type_to_nautilus_for_order, derive_rejection_due_post_only,
+            format_instrument_id, format_venue_symbol,
+        },
         retry::{http_retry_config, is_write_outcome_ambiguous_ws},
     },
     config::DeriveExecClientConfig,
@@ -88,16 +95,17 @@ use crate::{
             parse_derive_subaccount_to_balances, parse_derive_trade_to_fill_report,
         },
         query::{
-            DeriveCancelAllParams, DeriveCancelParams, DeriveCancelTriggerOrderParams,
-            DeriveGetOpenOrdersParams, DeriveGetOrderHistoryParams, DeriveGetOrderParams,
-            DeriveGetPositionsParams, DeriveGetSubaccountParams, DeriveGetTradeHistoryParams,
-            DeriveGetTriggerOrdersParams, order_replace_to_derive_payload, order_to_derive_payload,
+            DeriveCancelAllParams, DeriveCancelByLabelParams, DeriveCancelParams,
+            DeriveCancelTriggerOrderParams, DeriveGetOpenOrdersParams, DeriveGetOrderHistoryParams,
+            DeriveGetOrderParams, DeriveGetPositionsParams, DeriveGetSubaccountParams,
+            DeriveGetTradeHistoryParams, DeriveGetTriggerOrdersParams,
+            order_replace_to_derive_payload, order_to_derive_payload,
             trigger_order_to_derive_payload,
         },
     },
     signing::{
         context::{SigningContext, resolve_signing_context},
-        nonce::NonceManager,
+        nonce::{NonceError, NonceManager},
     },
     websocket::{
         DeriveOrdersSubscriptionData, DeriveTradesSubscriptionData, DeriveWebSocketClient,
@@ -146,10 +154,13 @@ impl DeriveExecutionClient {
     /// # Errors
     ///
     /// Returns an error when:
+    /// - `max_fee_per_contract` is missing or not greater than zero.
     /// - Required credentials are not provided via config or environment.
     /// - Signing constants are still placeholders or cannot be parsed as hex.
     /// - The HTTP or WebSocket client cannot be constructed.
     pub fn new(core: ExecutionClientCore, config: DeriveExecClientConfig) -> anyhow::Result<Self> {
+        config.validate()?;
+
         let credential = DeriveCredential::resolve(
             config.wallet_address.clone(),
             config.session_key.clone(),
@@ -968,7 +979,16 @@ impl ExecutionClient for DeriveExecutionClient {
             };
 
             if is_trigger_order {
-                let nonce = nonce_manager.next_nonce(&wallet_str, signing.subaccount_id)?;
+                let nonce = match resolve_submit_nonce(
+                    nonce_manager.next_nonce(&wallet_str, signing.subaccount_id),
+                    &emitter,
+                    &dispatch_state,
+                    &order_for_task,
+                    clock,
+                ) {
+                    Some(nonce) => nonce,
+                    None => return Ok(()),
+                };
                 let expiry = trigger_order_signature_expiry(clock);
                 let payload = match trigger_order_to_derive_payload(
                     &order_for_task,
@@ -1085,7 +1105,16 @@ impl ExecutionClient for DeriveExecutionClient {
                         return Ok(());
                     }
                 };
-            let nonce = nonce_manager.next_nonce(&wallet_str, signing.subaccount_id)?;
+            let nonce = match resolve_submit_nonce(
+                nonce_manager.next_nonce(&wallet_str, signing.subaccount_id),
+                &emitter,
+                &dispatch_state,
+                &order_for_task,
+                clock,
+            ) {
+                Some(nonce) => nonce,
+                None => return Ok(()),
+            };
             let payload = match order_to_derive_payload(
                 &order_for_task,
                 &instrument,
@@ -1178,23 +1207,18 @@ impl ExecutionClient for DeriveExecutionClient {
     }
 
     fn cancel_order(&self, cmd: CancelOrder) -> anyhow::Result<()> {
-        let Some(venue_order_id) = cmd.venue_order_id else {
-            log::warn!(
-                "Derive cancel_order requires venue_order_id (client_order_id={})",
-                cmd.client_order_id,
-            );
-            return Ok(());
-        };
+        let http_client = self.http_client.clone();
         let ws_exec = self.ws_exec.clone();
         let subaccount_id = self.credential.subaccount_id();
         let venue_symbol = format_venue_symbol(&cmd.instrument_id)?.to_string();
-        let voi = venue_order_id.to_string();
         let emitter = self.emitter.clone();
         let clock = self.clock;
+        let account_id = self.core.account_id;
+        let dispatch_state = self.dispatch_state.clone();
         let strategy_id = cmd.strategy_id;
         let instrument_id = cmd.instrument_id;
         let client_order_id = cmd.client_order_id;
-        let stale_venue_order_id = venue_order_id;
+        let venue_order_id = cmd.venue_order_id;
         let is_trigger_order = self
             .core
             .cache()
@@ -1202,26 +1226,106 @@ impl ExecutionClient for DeriveExecutionClient {
             .is_some_and(|order| is_derive_trigger_order_type(order.order_type()));
 
         self.spawn_task("cancel_order", async move {
-            let outcome = if is_trigger_order {
-                ws_exec
-                    .cancel_trigger_order(&DeriveCancelTriggerOrderParams::new(
-                        subaccount_id,
-                        voi.as_str(),
-                    ))
-                    .await
-                    .map(|_| ())
-            } else {
-                ws_exec
+            let outcome = match venue_order_id {
+                Some(venue_order_id) if is_trigger_order => {
+                    ws_exec
+                        .cancel_trigger_order(&DeriveCancelTriggerOrderParams::new(
+                            subaccount_id,
+                            venue_order_id.as_str(),
+                        ))
+                        .await
+                        .map(Some)
+                }
+                Some(venue_order_id) => ws_exec
                     .cancel_order(&DeriveCancelParams::new(
                         subaccount_id,
                         venue_symbol.as_str(),
-                        voi.as_str(),
+                        venue_order_id.as_str(),
                     ))
                     .await
+                    .map(|()| None),
+                None if is_trigger_order => {
+                    let trigger_orders = match http_client
+                        .get_trigger_orders(&DeriveGetTriggerOrdersParams::new(subaccount_id))
+                        .await
+                    {
+                        Ok(result) => result.orders,
+                        Err(e) => {
+                            let reason = format!("failed to resolve trigger order by label: {e}");
+                            log::warn!("Cannot cancel trigger order {client_order_id}: {reason}");
+                            emitter.emit_order_cancel_rejected_event(
+                                strategy_id,
+                                instrument_id,
+                                client_order_id,
+                                None,
+                                &reason,
+                                clock.get_time_ns(),
+                            );
+                            return Ok(());
+                        }
+                    };
+                    let Some(trigger_order) = trigger_orders.into_iter().find(|order| {
+                        order.label.as_str() == client_order_id.as_str()
+                            && order.instrument_name.as_str() == venue_symbol
+                    }) else {
+                        let reason = "trigger order not found for client_order_id";
+                        log::warn!("Cannot cancel trigger order {client_order_id}: {reason}");
+                        emitter.emit_order_cancel_rejected_event(
+                            strategy_id,
+                            instrument_id,
+                            client_order_id,
+                            None,
+                            reason,
+                            clock.get_time_ns(),
+                        );
+                        return Ok(());
+                    };
+                    ws_exec
+                        .cancel_trigger_order(&DeriveCancelTriggerOrderParams::new(
+                            subaccount_id,
+                            trigger_order.order_id.as_str(),
+                        ))
+                        .await
+                        .map(Some)
+                }
+                None => ws_exec
+                    .cancel_by_label(&DeriveCancelByLabelParams::new(
+                        subaccount_id,
+                        client_order_id.as_str(),
+                    ))
+                    .await
+                    .map(|()| None),
             };
 
             match outcome {
-                Ok(()) => {}
+                Ok(Some(canceled_order)) => {
+                    let canceled_venue_order_id =
+                        VenueOrderId::new(canceled_order.order_id.as_str());
+                    let ts = clock.get_time_ns();
+                    ensure_canceled_emitted(
+                        &emitter,
+                        &dispatch_state,
+                        client_order_id,
+                        OrderIdentity {
+                            instrument_id,
+                            strategy_id,
+                            order_side: match canceled_order.direction {
+                                DeriveOrderSide::Buy => OrderSide::Buy,
+                                DeriveOrderSide::Sell => OrderSide::Sell,
+                            },
+                            order_type: derive_order_type_to_nautilus_for_order(
+                                canceled_order.order_type,
+                                canceled_order.trigger_type,
+                            ),
+                        },
+                        canceled_venue_order_id,
+                        account_id,
+                        ts,
+                        ts,
+                    );
+                    dispatch_state.forget(&client_order_id);
+                }
+                Ok(None) => {}
                 // See docs/integrations/derive.md "Order rejection semantics".
                 Err(e) if is_write_outcome_ambiguous_ws(&e) => {
                     log::warn!(
@@ -1236,7 +1340,7 @@ impl ExecutionClient for DeriveExecutionClient {
                         strategy_id,
                         instrument_id,
                         client_order_id,
-                        Some(stale_venue_order_id),
+                        venue_order_id,
                         &reason,
                         ts,
                     );
@@ -1486,7 +1590,18 @@ impl ExecutionClient for DeriveExecutionClient {
                     return Ok(());
                 }
             };
-            let nonce = nonce_manager.next_nonce(&wallet_str, signing.subaccount_id)?;
+            let nonce = match resolve_modify_nonce(
+                nonce_manager.next_nonce(&wallet_str, signing.subaccount_id),
+                &emitter,
+                strategy_id,
+                instrument_id,
+                client_order_id,
+                stale_venue_order_id,
+                clock,
+            ) {
+                Some(nonce) => nonce,
+                None => return Ok(()),
+            };
 
             let payload = match order_replace_to_derive_payload(
                 &order_for_task,
@@ -1525,16 +1640,34 @@ impl ExecutionClient for DeriveExecutionClient {
             // it arrives before this response.
             dispatch_state.mark_pending_modify(client_order_id, stale_venue_order_id);
 
-            match ws_exec.modify_order(&payload).await {
+            let outcome = ws_exec.modify_order(&payload).await;
+            if let Err(e) = &outcome
+                && is_write_outcome_ambiguous_ws(e)
+            {
+                dispatch_state.clear_pending_modify(&client_order_id);
+                log::warn!(
+                    "Derive modify for {client_order_id} returned ambiguous WS outcome: {e}; awaiting reconciliation",
+                );
+                return Ok(());
+            }
+
+            match outcome {
                 Ok(order) => {
                     let new_voi = VenueOrderId::new(order.order_id.as_str());
+
+                    if !dispatch_state.take_pending_modify(
+                        &client_order_id,
+                        stale_venue_order_id,
+                        Some(new_voi),
+                    ) {
+                        log::debug!(
+                            "Skipping private/replace response event for {client_order_id}: an incoming terminal frame already resolved the modify",
+                        );
+                        return Ok(());
+                    }
                     log::debug!(
                         "Order replaced: client_order_id={client_order_id}, new venue_order_id={new_voi}",
                     );
-                    // Rebind before clearing the marker so a later cancel-of-old
-                    // stays suppressed by the bound-id check.
-                    dispatch_state.record_venue_order_id(client_order_id, new_voi);
-                    dispatch_state.clear_pending_modify(&client_order_id);
                     let ts = clock.get_time_ns();
                     emitter.emit_order_updated(
                         &order_for_task,
@@ -1546,15 +1679,17 @@ impl ExecutionClient for DeriveExecutionClient {
                         ts,
                     );
                 }
-                // See docs/integrations/derive.md "Order rejection semantics".
-                Err(e) if is_write_outcome_ambiguous_ws(&e) => {
-                    dispatch_state.clear_pending_modify(&client_order_id);
-                    log::warn!(
-                        "Derive modify for {client_order_id} returned ambiguous WS outcome: {e}; awaiting reconciliation",
-                    );
-                }
                 Err(e) => {
-                    dispatch_state.clear_pending_modify(&client_order_id);
+                    if !dispatch_state.take_pending_modify(
+                        &client_order_id,
+                        stale_venue_order_id,
+                        None,
+                    ) {
+                        log::debug!(
+                            "Skipping private/replace rejection for {client_order_id}: an incoming terminal frame already resolved the modify",
+                        );
+                        return Ok(());
+                    }
                     let (reason, _) = ws_rejection_reason(&e);
                     log::debug!("Derive rejected modify for {client_order_id}: {reason}");
                     let ts = clock.get_time_ns();
@@ -2170,6 +2305,35 @@ fn ensure_accepted_emitted(
     emitter.send_order_event(OrderEventAny::Accepted(accepted));
 }
 
+#[expect(clippy::too_many_arguments)]
+fn ensure_canceled_emitted(
+    emitter: &ExecutionEventEmitter,
+    dispatch_state: &WsDispatchState,
+    client_order_id: ClientOrderId,
+    identity: OrderIdentity,
+    venue_order_id: VenueOrderId,
+    account_id: AccountId,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) {
+    if dispatch_state.mark_canceled(client_order_id) {
+        return;
+    }
+    let canceled = OrderCanceled::new(
+        emitter.trader_id(),
+        identity.strategy_id,
+        identity.instrument_id,
+        client_order_id,
+        UUID4::new(),
+        ts_event,
+        ts_init,
+        false,
+        Some(venue_order_id),
+        Some(account_id),
+    );
+    emitter.send_order_event(OrderEventAny::Canceled(canceled));
+}
+
 fn emit_tracked_order_event(
     emitter: &ExecutionEventEmitter,
     dispatch_state: &WsDispatchState,
@@ -2198,11 +2362,22 @@ fn emit_tracked_order_event(
     if let Some(bound) = dispatch_state.bound_venue_order_id(&client_order_id)
         && bound != venue_order_id
     {
-        log::debug!(
-            "Skipping stale {:?} for {client_order_id}: venue_order_id={venue_order_id} superseded by {bound}",
+        let terminal = matches!(
             report.order_status,
+            OrderStatus::Canceled | OrderStatus::Expired | OrderStatus::Rejected
         );
-        return;
+
+        if dispatch_state.bind_incoming_modify(client_order_id, venue_order_id, terminal) {
+            log::debug!(
+                "Bound incoming replacement for {client_order_id}: venue_order_id={venue_order_id}",
+            );
+        } else {
+            log::debug!(
+                "Skipping stale {:?} for {client_order_id}: venue_order_id={venue_order_id} superseded by {bound}",
+                report.order_status,
+            );
+            return;
+        }
     }
 
     match report.order_status {
@@ -2255,19 +2430,16 @@ fn emit_tracked_order_event(
                 ts_accepted,
                 ts_init,
             );
-            let canceled = OrderCanceled::new(
-                emitter.trader_id(),
-                identity.strategy_id,
-                identity.instrument_id,
+            ensure_canceled_emitted(
+                emitter,
+                dispatch_state,
                 client_order_id,
-                UUID4::new(),
+                identity,
+                venue_order_id,
+                account_id,
                 ts_event,
                 ts_init,
-                false,
-                Some(venue_order_id),
-                Some(account_id),
             );
-            emitter.send_order_event(OrderEventAny::Canceled(canceled));
             dispatch_state.forget(&client_order_id);
         }
         OrderStatus::Expired => {
@@ -2440,6 +2612,52 @@ fn trigger_order_signature_expiry(clock: &'static AtomicTime) -> i64 {
     now_secs + TRIGGER_ORDER_SIGNATURE_TTL.as_secs() as i64
 }
 
+fn resolve_submit_nonce(
+    nonce: Result<u64, NonceError>,
+    emitter: &ExecutionEventEmitter,
+    dispatch_state: &WsDispatchState,
+    order: &OrderAny,
+    clock: &'static AtomicTime,
+) -> Option<u64> {
+    match nonce {
+        Ok(nonce) => Some(nonce),
+        Err(e) => {
+            let reason = format!("nonce allocation failed: {e}");
+            log::warn!("Cannot submit order {}: {reason}", order.client_order_id());
+            dispatch_state.forget(&order.client_order_id());
+            emitter.emit_order_rejected(order, &reason, clock.get_time_ns(), false);
+            None
+        }
+    }
+}
+
+fn resolve_modify_nonce(
+    nonce: Result<u64, NonceError>,
+    emitter: &ExecutionEventEmitter,
+    strategy_id: StrategyId,
+    instrument_id: InstrumentId,
+    client_order_id: ClientOrderId,
+    venue_order_id: VenueOrderId,
+    clock: &'static AtomicTime,
+) -> Option<u64> {
+    match nonce {
+        Ok(nonce) => Some(nonce),
+        Err(e) => {
+            let reason = format!("nonce allocation failed: {e}");
+            log::warn!("Cannot modify order {client_order_id}: {reason}");
+            emitter.emit_order_modify_rejected_event(
+                strategy_id,
+                instrument_id,
+                client_order_id,
+                Some(venue_order_id),
+                &reason,
+                clock.get_time_ns(),
+            );
+            None
+        }
+    }
+}
+
 fn normal_order_signature_expiry(
     clock: &'static AtomicTime,
     signature_expiry_secs: u64,
@@ -2535,6 +2753,7 @@ mod tests {
         data::QuoteTick,
         enums::{AccountType, OmsType, TimeInForce},
         identifiers::{AccountId, ClientId, InstrumentId, StrategyId, TraderId},
+        orders::OrderTestBuilder,
         types::{Price, Quantity},
     };
     use rstest::rstest;
@@ -2575,6 +2794,7 @@ mod tests {
                 "0x1111111111111111111111111111111111111111111111111111111111111111".to_string(),
             ),
             trade_module_address: Some("0x000000000000000000000000000000000000bbbb".to_string()),
+            max_fee_per_contract: Some(dec!(1000)),
             ..DeriveExecClientConfig::default()
         }
     }
@@ -2672,6 +2892,22 @@ mod tests {
     }
 
     #[rstest]
+    #[case(None, "max_fee_per_contract is required")]
+    #[case(Some(dec!(0)), "max_fee_per_contract must be greater than zero")]
+    #[case(Some(dec!(-1)), "max_fee_per_contract must be greater than zero")]
+    fn test_new_rejects_invalid_max_fee_per_contract(
+        #[case] max_fee_per_contract: Option<Decimal>,
+        #[case] expected: &str,
+    ) {
+        let mut config = test_config();
+        config.max_fee_per_contract = max_fee_per_contract;
+
+        let err = DeriveExecutionClient::new(test_core(), config).expect_err("must reject");
+
+        assert_eq!(err.to_string(), expected);
+    }
+
+    #[rstest]
     #[case(OrderType::StopMarket, true)]
     #[case(OrderType::StopLimit, true)]
     #[case(OrderType::MarketIfTouched, true)]
@@ -2682,6 +2918,87 @@ mod tests {
     #[case(OrderType::TrailingStopMarket, false)]
     fn test_is_derive_trigger_order_type(#[case] order_type: OrderType, #[case] expected: bool) {
         assert_eq!(is_derive_trigger_order_type(order_type), expected);
+    }
+
+    #[rstest]
+    fn test_resolve_submit_nonce_emits_rejection_and_forgets_identity() {
+        let clock = get_atomic_clock_realtime();
+        let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+        let strategy_id = StrategyId::from("S-1");
+        let client_order_id = ClientOrderId::from("NONCE-SUBMIT-1");
+        let order = OrderTestBuilder::new(OrderType::Limit)
+            .trader_id(TraderId::from("TRADER-001"))
+            .strategy_id(strategy_id)
+            .instrument_id(instrument_id)
+            .client_order_id(client_order_id)
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("1.000"))
+            .price(Price::from("3500.00"))
+            .build();
+        let identity = OrderIdentity {
+            instrument_id,
+            strategy_id,
+            order_side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+        };
+        let state = WsDispatchState::new();
+        state.register_identity(client_order_id, identity);
+        let (emitter, mut rx) = test_emitter(clock);
+
+        let nonce = resolve_submit_nonce(
+            Err(NonceError::ClockBeforeEpoch),
+            &emitter,
+            &state,
+            &order,
+            clock,
+        );
+        let event = rx.try_recv().expect("OrderRejected event");
+
+        assert!(nonce.is_none());
+        assert!(state.identity(&client_order_id).is_none());
+        if let ExecutionEvent::Order(OrderEventAny::Rejected(rejected)) = event {
+            assert_eq!(rejected.client_order_id, client_order_id);
+            assert_eq!(
+                rejected.reason.as_str(),
+                "nonce allocation failed: system clock is before UNIX epoch",
+            );
+        } else {
+            panic!("expected OrderRejected, event was {event:?}");
+        }
+    }
+
+    #[rstest]
+    fn test_resolve_modify_nonce_emits_modify_rejection() {
+        let clock = get_atomic_clock_realtime();
+        let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+        let strategy_id = StrategyId::from("S-1");
+        let client_order_id = ClientOrderId::from("NONCE-MODIFY-1");
+        let venue_order_id = VenueOrderId::from("ord-nonce-modify-1");
+        let (emitter, mut rx) = test_emitter(clock);
+
+        let nonce = resolve_modify_nonce(
+            Err(NonceError::ClockBeforeEpoch),
+            &emitter,
+            strategy_id,
+            instrument_id,
+            client_order_id,
+            venue_order_id,
+            clock,
+        );
+        let event = rx.try_recv().expect("OrderModifyRejected event");
+
+        assert!(nonce.is_none());
+
+        if let ExecutionEvent::Order(OrderEventAny::ModifyRejected(rejected)) = event {
+            assert_eq!(rejected.client_order_id, client_order_id);
+            assert_eq!(rejected.venue_order_id, Some(venue_order_id));
+            assert_eq!(
+                rejected.reason.as_str(),
+                "nonce allocation failed: system clock is before UNIX epoch",
+            );
+        } else {
+            panic!("expected OrderModifyRejected, event was {event:?}");
+        }
     }
 
     #[rstest]
@@ -2806,22 +3123,9 @@ mod tests {
             None,
         );
 
-        let new_emitter = || {
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-            let mut emitter = ExecutionEventEmitter::new(
-                clock,
-                TraderId::from("TRADER-001"),
-                account_id,
-                AccountType::Margin,
-                Some(Currency::USDC()),
-            );
-            emitter.set_sender(tx);
-            (emitter, rx)
-        };
-
         // Marker targets the cancel's venue order id and no bound id is
         // recorded, so suppression can only come from the in-flight branch.
-        let (emitter, mut rx) = new_emitter();
+        let (emitter, mut rx) = test_emitter(clock);
         let state = WsDispatchState::new();
         state.mark_pending_modify(cid, stale_voi);
         emit_tracked_order_event(
@@ -2837,7 +3141,7 @@ mod tests {
 
         // A marker for a different venue order id must not suppress: the guard
         // keys on the specific id, so the cancel-of-old still terminates.
-        let (emitter, mut rx) = new_emitter();
+        let (emitter, mut rx) = test_emitter(clock);
         let state = WsDispatchState::new();
         state.mark_pending_modify(cid, VenueOrderId::from("ord-other"));
         emit_tracked_order_event(
@@ -2865,5 +3169,58 @@ mod tests {
             saw_canceled,
             "a pending-modify marker for a different venue order id must not suppress",
         );
+    }
+
+    #[rstest]
+    fn test_ensure_canceled_emitted_is_idempotent() {
+        let clock = get_atomic_clock_realtime();
+        let account_id = AccountId::from("DERIVE-001");
+        let client_order_id = ClientOrderId::from("TRIGGER-CANCEL-1");
+        let identity = OrderIdentity {
+            instrument_id: InstrumentId::from("ETH-PERP.DERIVE"),
+            strategy_id: StrategyId::from("S-1"),
+            order_side: OrderSide::Buy,
+            order_type: OrderType::StopMarket,
+        };
+        let venue_order_id = VenueOrderId::from("trigger-cancel-1");
+        let state = WsDispatchState::new();
+        let (emitter, mut rx) = test_emitter(clock);
+
+        for _ in 0..2 {
+            ensure_canceled_emitted(
+                &emitter,
+                &state,
+                client_order_id,
+                identity,
+                venue_order_id,
+                account_id,
+                UnixNanos::from(1_000),
+                UnixNanos::from(1_000),
+            );
+        }
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(ExecutionEvent::Order(OrderEventAny::Canceled(_)))
+        ));
+        assert!(rx.try_recv().is_err(), "duplicate OrderCanceled emitted");
+    }
+
+    fn test_emitter(
+        clock: &'static AtomicTime,
+    ) -> (
+        ExecutionEventEmitter,
+        tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut emitter = ExecutionEventEmitter::new(
+            clock,
+            TraderId::from("TRADER-001"),
+            AccountId::from("DERIVE-001"),
+            AccountType::Margin,
+            Some(Currency::USDC()),
+        );
+        emitter.set_sender(tx);
+        (emitter, rx)
     }
 }

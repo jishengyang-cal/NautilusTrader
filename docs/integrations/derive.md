@@ -436,7 +436,7 @@ Class/struct: `DeriveExecClientConfig`.
 | `max_retries`                      | `3`       | Retry attempts for recoverable reads and definitive non‑write paths. |
 | `retry_delay_initial_ms`           | `100`     | Initial retry delay in milliseconds. |
 | `retry_delay_max_ms`               | `5000`    | Maximum retry delay in milliseconds. |
-| `max_fee_per_contract`             | `None`    | Per‑contract USDC fee cap signed into each order. |
+| `max_fee_per_contract`             | Required  | Positive per‑contract USDC fee cap signed into each order. |
 | `domain_separator`                 | `None`    | Optional EIP-712 domain separator override. |
 | `action_typehash`                  | `None`    | Optional EIP-712 action typehash override. |
 | `trade_module_address`             | `None`    | Optional Trade module contract address override. |
@@ -540,15 +540,20 @@ use nautilus_derive::{
     common::enums::DeriveEnvironment,
     config::DeriveExecClientConfig,
 };
+use rust_decimal::Decimal;
 
 let config = DeriveExecClientConfig {
     wallet_address: Some("0x...".to_string()),
     session_key: Some("0x...".to_string()),
     subaccount_id: Some(1),
     environment: DeriveEnvironment::Testnet,
+    max_fee_per_contract: Some(Decimal::from(1000)),
     ..Default::default()
 };
 ```
+
+`max_fee_per_contract` is required and must be greater than zero. Execution-client construction
+fails before creating venue clients when the field is missing or non-positive.
 
 ## Known limitations
 

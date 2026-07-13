@@ -139,6 +139,7 @@ struct WsState {
     submitted_trigger_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
     cancelled_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
     cancelled_trigger_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
+    cancelled_labels: Arc<tokio::sync::Mutex<Vec<Value>>>,
     cancel_all_calls: Arc<tokio::sync::Mutex<Vec<Value>>>,
     replace_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
     // Injected JSON-RPC reply body (without `id`) per private method. When set,
@@ -148,7 +149,9 @@ struct WsState {
     trigger_order_reply: Arc<tokio::sync::Mutex<Option<Value>>>,
     cancel_reply: Arc<tokio::sync::Mutex<Option<Value>>>,
     cancel_trigger_reply: Arc<tokio::sync::Mutex<Option<Value>>>,
+    cancel_by_label_reply: Arc<tokio::sync::Mutex<Option<Value>>>,
     replace_reply: Arc<tokio::sync::Mutex<Option<Value>>>,
+    replace_notification_before_reply: Arc<tokio::sync::Mutex<Option<Value>>>,
     notification_tx: tokio::sync::mpsc::UnboundedSender<Value>,
     notification_rx: Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Value>>>>,
 }
@@ -167,13 +170,16 @@ impl Default for WsState {
             submitted_trigger_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancelled_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancelled_trigger_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            cancelled_labels: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancel_all_calls: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             replace_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             order_reply: Arc::new(tokio::sync::Mutex::new(None)),
             trigger_order_reply: Arc::new(tokio::sync::Mutex::new(None)),
             cancel_reply: Arc::new(tokio::sync::Mutex::new(None)),
             cancel_trigger_reply: Arc::new(tokio::sync::Mutex::new(None)),
+            cancel_by_label_reply: Arc::new(tokio::sync::Mutex::new(None)),
             replace_reply: Arc::new(tokio::sync::Mutex::new(None)),
+            replace_notification_before_reply: Arc::new(tokio::sync::Mutex::new(None)),
             notification_tx: tx,
             notification_rx: Arc::new(tokio::sync::Mutex::new(Some(rx))),
         }
@@ -260,6 +266,8 @@ async fn handle_get_trigger_orders(
     let response = state.trigger_orders_response.lock().await.clone();
     let body = if response.is_null() {
         json!({"id": 1, "result": {"orders": [], "subaccount_id": TEST_SUBACCOUNT}})
+    } else if response.get("error").is_some() {
+        response
     } else {
         json!({"id": 1, "result": response})
     };
@@ -607,12 +615,36 @@ async fn handle_ws(mut socket: WebSocket, state: WsState) {
                                 })
                                 .await
                             }
+                            "private/cancel_by_label" => {
+                                state.cancelled_labels.lock().await.push(params);
+                                ws_reply(id, &state.cancel_by_label_reply, || {
+                                    json!({"result": {"cancelled_orders": 1}})
+                                })
+                                .await
+                            }
                             "private/cancel_all" => {
                                 state.cancel_all_calls.lock().await.push(params);
                                 json!({"id": id, "result": {}})
                             }
                             _ => json!({"id": id, "result": {}}),
                         };
+
+                        if method == "private/replace"
+                            && let Some(notification) = state
+                                .replace_notification_before_reply
+                                .lock()
+                                .await
+                                .take()
+                        {
+                            if socket
+                                .send(Message::Text(notification.to_string().into()))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
 
                         if socket
                             .send(Message::Text(reply.to_string().into()))
@@ -1009,7 +1041,7 @@ fn test_config(rest: SocketAddr, ws: SocketAddr) -> DeriveExecClientConfig {
         max_retries: 1,
         retry_delay_initial_ms: 50,
         retry_delay_max_ms: 500,
-        max_fee_per_contract: None,
+        max_fee_per_contract: Some(dec!(1000)),
         transport_backend: TransportBackend::default(),
         domain_separator: Some(TEST_DOMAIN_SEPARATOR.to_string()),
         action_typehash: Some(TEST_ACTION_TYPEHASH.to_string()),
@@ -2397,6 +2429,324 @@ async fn test_cancel_trigger_order_calls_private_cancel_trigger_order() {
         ws_state.cancelled_orders.lock().await.is_empty(),
         "trigger cancel must not post private/cancel",
     );
+    drop(posts);
+
+    let event = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Canceled(_))),
+        "OrderCanceled from trigger cancel response",
+    )
+    .await;
+
+    if let ExecutionEvent::Order(OrderEventAny::Canceled(canceled)) = event {
+        assert_eq!(canceled.client_order_id, client_order_id);
+        assert_eq!(canceled.instrument_id, instrument_id);
+        assert_eq!(
+            canceled.venue_order_id.map(|id| id.to_string()),
+            Some("trig-cancel-1".to_string()),
+        );
+    } else {
+        unreachable!();
+    }
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_trigger_order_without_venue_id_resolves_label() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+    let client_order_id = ClientOrderId::from("STRAT-CXL-TRIGGER-BY-LABEL");
+    *rest_state.trigger_orders_response.lock().await = json!({
+        "orders": [trigger_order_json_with(
+            "trig-resolved-by-label",
+            client_order_id.as_str(),
+            "buy",
+            "ETH-PERP",
+            1_700_000_001_000,
+            "market",
+            "untriggered",
+            "3417",
+            "3400",
+            "mark",
+            "stoploss",
+        )],
+        "subaccount_id": TEST_SUBACCOUNT,
+    });
+    let mut tc = build_client(rest_state.clone(), ws_state.clone()).await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let order = build_stop_market_order(
+        instrument_id,
+        client_order_id,
+        OrderSide::Buy,
+        Price::from("3400.00"),
+        Quantity::from("1.000"),
+    );
+    tc.cache
+        .borrow_mut()
+        .add_order(order, None, None, false)
+        .expect("cache insert");
+    let cancel = CancelOrder::new(
+        TraderId::from("TRADER-001"),
+        Some(ClientId::from("DERIVE")),
+        StrategyId::from("S-1"),
+        instrument_id,
+        client_order_id,
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    tc.client.cancel_order(cancel).expect("cancel_order Ok");
+
+    let event = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Canceled(_))),
+        "OrderCanceled from trigger resolved by label",
+    )
+    .await;
+    let posts = ws_state.cancelled_trigger_orders.lock().await;
+
+    assert_eq!(rest_state.trigger_orders_calls.lock().await.len(), 1);
+    assert_eq!(posts.len(), 1);
+    assert_eq!(
+        posts[0]["order_id"].as_str(),
+        Some("trig-resolved-by-label")
+    );
+    assert!(ws_state.cancelled_labels.lock().await.is_empty());
+
+    if let ExecutionEvent::Order(OrderEventAny::Canceled(canceled)) = event {
+        assert_eq!(canceled.client_order_id, client_order_id);
+        assert_eq!(
+            canceled.venue_order_id.map(|id| id.to_string()),
+            Some("trig-resolved-by-label".to_string()),
+        );
+    } else {
+        unreachable!();
+    }
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[case(
+    json!({"orders": [], "subaccount_id": TEST_SUBACCOUNT}),
+    "trigger order not found for client_order_id",
+    1
+)]
+#[case(
+    json!({"id": 1, "error": {"code": -32000, "message": "trigger lookup unavailable"}}),
+    "failed to resolve trigger order by label",
+    2
+)]
+#[tokio::test]
+async fn test_cancel_trigger_order_without_venue_id_rejects_lookup_failure(
+    #[case] trigger_orders_response: Value,
+    #[case] expected_reason: &str,
+    #[case] expected_calls: usize,
+) {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    *rest_state.trigger_orders_response.lock().await = trigger_orders_response;
+    let mut tc = build_client(rest_state.clone(), ws_state.clone()).await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+    let client_order_id = ClientOrderId::from("STRAT-CXL-TRIGGER-LOOKUP-FAIL");
+    let order = build_stop_market_order(
+        instrument_id,
+        client_order_id,
+        OrderSide::Buy,
+        Price::from("3400.00"),
+        Quantity::from("1.000"),
+    );
+    tc.cache
+        .borrow_mut()
+        .add_order(order, None, None, false)
+        .expect("cache insert");
+    let cancel = CancelOrder::new(
+        TraderId::from("TRADER-001"),
+        Some(ClientId::from("DERIVE")),
+        StrategyId::from("S-1"),
+        instrument_id,
+        client_order_id,
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    tc.client.cancel_order(cancel).expect("cancel_order Ok");
+
+    let event = drain_until(
+        &mut tc.rx,
+        |event| {
+            matches!(
+                event,
+                ExecutionEvent::Order(OrderEventAny::CancelRejected(_))
+            )
+        },
+        "OrderCancelRejected from trigger lookup",
+    )
+    .await;
+    tc.client.disconnect().await.expect("disconnect");
+
+    assert_eq!(
+        rest_state.trigger_orders_calls.lock().await.len(),
+        expected_calls
+    );
+    assert!(ws_state.cancelled_trigger_orders.lock().await.is_empty());
+    assert!(ws_state.cancelled_labels.lock().await.is_empty());
+
+    if let ExecutionEvent::Order(OrderEventAny::CancelRejected(rejected)) = event {
+        assert_eq!(rejected.client_order_id, client_order_id);
+        assert!(rejected.venue_order_id.is_none());
+        assert!(rejected.reason.as_str().contains(expected_reason));
+    } else {
+        unreachable!();
+    }
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_order_without_venue_id_calls_private_cancel_by_label() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    let mut tc = build_client(rest_state, ws_state.clone()).await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+    let client_order_id = ClientOrderId::from("STRAT-CXL-BY-LABEL");
+    let order = build_limit_order(
+        instrument_id,
+        client_order_id,
+        OrderSide::Buy,
+        Price::from("3500.00"),
+        Quantity::from("1.000"),
+    );
+    tc.cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .expect("cache insert");
+    tc.client
+        .submit_order(submit_cmd(&order))
+        .expect("submit Ok");
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Submitted(_))),
+        "OrderSubmitted",
+    )
+    .await;
+
+    let cancel = CancelOrder::new(
+        TraderId::from("TRADER-001"),
+        Some(ClientId::from("DERIVE")),
+        StrategyId::from("S-1"),
+        instrument_id,
+        client_order_id,
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    tc.client.cancel_order(cancel).expect("cancel_order Ok");
+
+    wait_until(
+        || {
+            let state = ws_state.clone();
+            async move { !state.cancelled_labels.lock().await.is_empty() }
+        },
+        "private/cancel_by_label posted",
+    )
+    .await;
+
+    let posts = ws_state.cancelled_labels.lock().await;
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0]["subaccount_id"].as_u64(), Some(TEST_SUBACCOUNT));
+    assert_eq!(posts[0]["label"].as_str(), Some(client_order_id.as_str()));
+    assert!(ws_state.cancelled_orders.lock().await.is_empty());
+    drop(posts);
+
+    let orders_channel = format!("{TEST_SUBACCOUNT}.orders");
+    let canceled_frame = json!([order_json_with(
+        "ord-canceled-by-label",
+        client_order_id.as_str(),
+        "buy",
+        "ETH-PERP",
+        1_700_000_002_000_i64,
+        "cancelled",
+    )]);
+    ws_state.push_notification(make_subscription_frame(&orders_channel, &canceled_frame));
+    let event = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Canceled(_))),
+        "OrderCanceled after cancel_by_label",
+    )
+    .await;
+
+    if let ExecutionEvent::Order(OrderEventAny::Canceled(canceled)) = event {
+        assert_eq!(canceled.client_order_id, client_order_id);
+        assert_eq!(
+            canceled.venue_order_id.map(|id| id.to_string()),
+            Some("ord-canceled-by-label".to_string()),
+        );
+    } else {
+        unreachable!();
+    }
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_order_by_label_rejection_emits_cancel_rejected() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    *ws_state.cancel_by_label_reply.lock().await = Some(json!({
+        "error": {"code": -32602, "message": "No order with label"}
+    }));
+    let mut tc = build_client(rest_state, ws_state.clone()).await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let client_order_id = ClientOrderId::from("STRAT-CXL-BY-LABEL-REJECT");
+    let cancel = CancelOrder::new(
+        TraderId::from("TRADER-001"),
+        Some(ClientId::from("DERIVE")),
+        StrategyId::from("S-1"),
+        InstrumentId::from("ETH-PERP.DERIVE"),
+        client_order_id,
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    tc.client.cancel_order(cancel).expect("cancel_order Ok");
+
+    let event = drain_until(
+        &mut tc.rx,
+        |event| {
+            matches!(
+                event,
+                ExecutionEvent::Order(OrderEventAny::CancelRejected(_))
+            )
+        },
+        "OrderCancelRejected from cancel_by_label",
+    )
+    .await;
+
+    if let ExecutionEvent::Order(OrderEventAny::CancelRejected(rejected)) = event {
+        assert_eq!(rejected.client_order_id, client_order_id);
+        assert!(rejected.venue_order_id.is_none());
+        assert!(rejected.reason.as_str().contains("No order with label"));
+    } else {
+        unreachable!();
+    }
 
     tc.client.disconnect().await.expect("disconnect");
 }
@@ -2834,6 +3184,246 @@ async fn test_modify_order_suppresses_replace_cancel_leg() {
     assert!(
         canceled.is_err(),
         "the replace's cancel-of-old leg must not emit OrderCanceled",
+    );
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_modify_order_accepts_replacement_rejection_before_rpc_response() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    *ws_state.replace_reply.lock().await = Some(json!({
+        "error": {"code": 11008, "message": "Post only order cannot cross the market"}
+    }));
+    let mut tc = build_client(rest_state, ws_state.clone()).await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+    let client_order_id = ClientOrderId::from("STRAT-MOD-EARLY-REJECT");
+    let order = build_limit_order_with_time_in_force(
+        instrument_id,
+        client_order_id,
+        OrderSide::Buy,
+        Price::from("3500.00"),
+        Quantity::from("1.000"),
+        TimeInForce::Gtc,
+        true,
+    );
+    tc.cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .expect("cache insert");
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Account(_)),
+        "initial AccountState",
+    )
+    .await;
+
+    tc.client
+        .submit_order(submit_cmd(&order))
+        .expect("submit Ok");
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Submitted(_))),
+        "OrderSubmitted",
+    )
+    .await;
+
+    let orders_channel = format!("{TEST_SUBACCOUNT}.orders");
+    let open_frame = json!([order_json_with(
+        "ord-before-replace",
+        client_order_id.as_str(),
+        "buy",
+        "ETH-PERP",
+        1_700_000_001_000_i64,
+        "open",
+    )]);
+    ws_state.push_notification(make_subscription_frame(&orders_channel, &open_frame));
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Accepted(_))),
+        "OrderAccepted",
+    )
+    .await;
+
+    let mut rejected_order = order_json_with(
+        "ord-replacement-rejected",
+        client_order_id.as_str(),
+        "buy",
+        "ETH-PERP",
+        1_700_000_002_000_i64,
+        "rejected",
+    );
+    rejected_order["cancel_reason"] = json!("Post only order cannot cross the market");
+    rejected_order["time_in_force"] = json!("post_only");
+    *ws_state.replace_notification_before_reply.lock().await = Some(make_subscription_frame(
+        &orders_channel,
+        &json!([rejected_order]),
+    ));
+
+    let cmd = ModifyOrder::new(
+        TraderId::from("TRADER-001"),
+        Some(ClientId::from("DERIVE")),
+        StrategyId::from("S-1"),
+        instrument_id,
+        client_order_id,
+        Some(VenueOrderId::from("ord-before-replace")),
+        Some(Quantity::from("2.000")),
+        Some(Price::from("3505.00")),
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    tc.client.modify_order(cmd).expect("modify_order Ok");
+
+    let event = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Rejected(_))),
+        "replacement OrderRejected before private/replace response",
+    )
+    .await;
+
+    if let ExecutionEvent::Order(OrderEventAny::Rejected(rejected)) = event {
+        assert_eq!(rejected.client_order_id, client_order_id);
+        assert!(rejected.due_post_only);
+        assert_eq!(
+            rejected.reason.as_str(),
+            "Post only order cannot cross the market"
+        );
+    } else {
+        unreachable!();
+    }
+
+    let late_terminal = tokio::time::timeout(Duration::from_millis(200), async {
+        loop {
+            match tc.rx.recv().await {
+                Some(ExecutionEvent::Order(
+                    OrderEventAny::Updated(_) | OrderEventAny::ModifyRejected(_),
+                )) => return true,
+                Some(_) => {}
+                None => return false,
+            }
+        }
+    })
+    .await;
+    assert!(
+        late_terminal.is_err(),
+        "definitive replace response must not emit after a terminal replacement frame",
+    );
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_modify_order_accepts_replacement_open_before_rpc_response() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    let mut tc = build_client(rest_state, ws_state.clone()).await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+    let client_order_id = ClientOrderId::from("STRAT-O-1");
+    let order = build_limit_order(
+        instrument_id,
+        client_order_id,
+        OrderSide::Buy,
+        Price::from("3500.00"),
+        Quantity::from("1.000"),
+    );
+    tc.cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .expect("cache insert");
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Account(_)),
+        "initial AccountState",
+    )
+    .await;
+
+    tc.client
+        .submit_order(submit_cmd(&order))
+        .expect("submit Ok");
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Submitted(_))),
+        "OrderSubmitted",
+    )
+    .await;
+
+    let orders_channel = format!("{TEST_SUBACCOUNT}.orders");
+    let open_frame = json!([order_json_with(
+        "ord-before-replace",
+        client_order_id.as_str(),
+        "buy",
+        "ETH-PERP",
+        1_700_000_001_000_i64,
+        "open",
+    )]);
+    ws_state.push_notification(make_subscription_frame(&orders_channel, &open_frame));
+    let _ = drain_until(
+        &mut tc.rx,
+        |event| matches!(event, ExecutionEvent::Order(OrderEventAny::Accepted(_))),
+        "OrderAccepted",
+    )
+    .await;
+
+    let replacement_frame = json!([order_json_with(
+        "ord-replaced-1",
+        client_order_id.as_str(),
+        "buy",
+        "ETH-PERP",
+        1_700_000_002_000_i64,
+        "open",
+    )]);
+    *ws_state.replace_notification_before_reply.lock().await =
+        Some(make_subscription_frame(&orders_channel, &replacement_frame));
+    let cmd = ModifyOrder::new(
+        TraderId::from("TRADER-001"),
+        Some(ClientId::from("DERIVE")),
+        StrategyId::from("S-1"),
+        instrument_id,
+        client_order_id,
+        Some(VenueOrderId::from("ord-before-replace")),
+        Some(Quantity::from("2.000")),
+        Some(Price::from("3505.00")),
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        None,
+        None,
+    );
+    tc.client.modify_order(cmd).expect("modify_order Ok");
+
+    let mut duplicate_accepted = false;
+    let updated = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match tc.rx.recv().await {
+                Some(ExecutionEvent::Order(OrderEventAny::Accepted(_))) => {
+                    duplicate_accepted = true;
+                }
+                Some(ExecutionEvent::Order(OrderEventAny::Updated(updated))) => return updated,
+                Some(_) => {}
+                None => panic!("event channel closed before OrderUpdated"),
+            }
+        }
+    })
+    .await
+    .expect("OrderUpdated after replacement Open frame");
+
+    assert!(
+        !duplicate_accepted,
+        "replacement emitted a second OrderAccepted"
+    );
+    assert_eq!(
+        updated.venue_order_id,
+        Some(VenueOrderId::from("ord-replaced-1"))
     );
 
     tc.client.disconnect().await.expect("disconnect");

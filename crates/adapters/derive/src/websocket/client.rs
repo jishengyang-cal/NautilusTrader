@@ -74,9 +74,9 @@ use crate::{
             DeriveReplaceResult,
         },
         query::{
-            DeriveCancelAllParams, DeriveCancelParams, DeriveCancelTriggerOrderParams,
-            DeriveGetTriggerOrdersParams, DeriveOrderParams, DeriveReplaceParams,
-            DeriveTriggerOrderParams,
+            DeriveCancelAllParams, DeriveCancelByLabelParams, DeriveCancelParams,
+            DeriveCancelTriggerOrderParams, DeriveGetTriggerOrdersParams, DeriveOrderParams,
+            DeriveReplaceParams, DeriveTriggerOrderParams,
         },
     },
     signing::auth::build_ws_login,
@@ -986,6 +986,29 @@ impl DeriveWsExecutionHandle {
             self.request_timeout,
         )
         .await
+    }
+
+    /// Cancels every open order with the given label via
+    /// `private/cancel_by_label`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeriveWsError::JsonRpc`] for venue rejections and
+    /// [`DeriveWsError::Transport`] / [`DeriveWsError::Timeout`] when the
+    /// outcome is ambiguous.
+    pub async fn cancel_by_label(&self, params: &DeriveCancelByLabelParams) -> Result<()> {
+        self.require_authenticated(methods::PRIVATE_CANCEL_BY_LABEL)
+            .await?;
+        let cmd_tx = self.cmd_tx.read().await.clone();
+        let _: DeriveEmptyResult = send_request(
+            &self.rate_limiter,
+            &cmd_tx,
+            methods::PRIVATE_CANCEL_BY_LABEL,
+            params,
+            self.request_timeout,
+        )
+        .await?;
+        Ok(())
     }
 
     /// Returns currently untriggered trigger orders via

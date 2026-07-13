@@ -890,6 +890,9 @@ pub mod methods {
     /// Cancel a single trigger order. Params:
     /// [`crate::http::query::DeriveCancelTriggerOrderParams`].
     pub const PRIVATE_CANCEL_TRIGGER_ORDER: &str = "private/cancel_trigger_order";
+    /// Cancel orders by label. Params:
+    /// [`crate::http::query::DeriveCancelByLabelParams`].
+    pub const PRIVATE_CANCEL_BY_LABEL: &str = "private/cancel_by_label";
     /// List untriggered trigger orders. Params:
     /// [`crate::http::query::DeriveGetTriggerOrdersParams`].
     pub const PRIVATE_GET_TRIGGER_ORDERS: &str = "private/get_trigger_orders";
@@ -924,6 +927,7 @@ fn is_matching_method(method: &str) -> bool {
             | methods::PRIVATE_REPLACE
             | methods::PRIVATE_CANCEL
             | methods::PRIVATE_CANCEL_TRIGGER_ORDER
+            | methods::PRIVATE_CANCEL_BY_LABEL
             | methods::PRIVATE_CANCEL_ALL
     )
 }
@@ -962,6 +966,7 @@ mod tests {
     #[case(methods::PRIVATE_REPLACE, DERIVE_MATCHING_RATE_KEY)]
     #[case(methods::PRIVATE_CANCEL, DERIVE_MATCHING_RATE_KEY)]
     #[case(methods::PRIVATE_CANCEL_TRIGGER_ORDER, DERIVE_MATCHING_RATE_KEY)]
+    #[case(methods::PRIVATE_CANCEL_BY_LABEL, DERIVE_MATCHING_RATE_KEY)]
     #[case(methods::PRIVATE_CANCEL_ALL, DERIVE_MATCHING_RATE_KEY)]
     #[case(methods::PUBLIC_LOGIN, DERIVE_NON_MATCHING_RATE_KEY)]
     #[case(methods::PUBLIC_SUBSCRIBE, DERIVE_NON_MATCHING_RATE_KEY)]
