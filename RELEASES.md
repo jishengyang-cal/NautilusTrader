@@ -154,6 +154,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Derive response decoding to tolerate unknown venue enum values and salvage undecodable trade rows with a log
 - Fixed Derive fill reconciliation dropping fills on retry after a discarded snapshot
 - Fixed Derive null cancel acknowledgements being reported as failures
+- Fixed Derive shared market data channel ownership, unsubscribe races, and stale quote-cache reuse
 - Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
 - Fixed Architect AX `/transactions` requests to include the required bounded time range
 - Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas (#4402)

@@ -672,6 +672,18 @@ impl DeriveWebSocketClient {
 }
 
 impl DeriveWebSocketSubscriptionHandle {
+    pub(crate) fn has_subscription(&self, channel: &str) -> bool {
+        self.subscriptions.contains_key(channel)
+    }
+
+    pub(crate) fn forget_subscription(&self, channel: &str) {
+        self.subscriptions.remove(channel);
+    }
+
+    pub(crate) fn remember_subscription(&self, channel: &str) {
+        self.subscriptions.insert(channel.to_string(), ());
+    }
+
     /// Subscribes to `ticker_slim.{instrument_name}.{interval}`.
     ///
     /// # Errors
