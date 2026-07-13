@@ -4160,6 +4160,50 @@ async fn test_cross_source_dedup_skips_ws_trade_in_generate_fill_reports() {
 
 #[rstest]
 #[tokio::test]
+async fn test_generate_fill_reports_does_not_mark_unconsumed_trades_emitted() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    *rest_state.trade_history_response.lock().await = json!({
+        "trades": [sample_trade_json("trade-retry-1", "ord-1", "ETH-PERP")],
+        "pagination": {"count": 1, "num_pages": 1},
+        "subaccount_id": TEST_SUBACCOUNT,
+    });
+    let mut tc = build_client(rest_state, ws_state).await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let generate = || {
+        GenerateFillReports::new(
+            UUID4::new(),
+            UnixNanos::default(),
+            Some(InstrumentId::from("ETH-PERP.DERIVE")),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    };
+    let first = tc
+        .client
+        .generate_fill_reports(generate())
+        .await
+        .expect("first fill generation succeeds");
+    let retry = tc
+        .client
+        .generate_fill_reports(generate())
+        .await
+        .expect("retry fill generation succeeds");
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(retry.len(), 1);
+    assert_eq!(first[0].trade_id.as_str(), "trade-retry-1");
+    assert_eq!(retry[0].trade_id.as_str(), "trade-retry-1");
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[tokio::test]
 async fn test_ws_dispatch_tracked_order_open_emits_order_accepted_once() {
     // Submit an order so its identity is registered, then push the venue's
     // `.orders` Open notice twice (the second simulates a reconnect replay).

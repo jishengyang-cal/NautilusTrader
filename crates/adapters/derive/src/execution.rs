@@ -827,10 +827,10 @@ impl ExecutionClient for DeriveExecutionClient {
                 ts_init,
             ) {
                 Ok(Some(report)) => {
-                    // Cross-source dedup against the WS dispatch path: if the
-                    // live stream already emitted this trade, the reconciler
-                    // should not see it again.
-                    if self.dispatch_state.check_and_insert_trade(report.trade_id) {
+                    // The WS dispatch path owns insertion. Report generation
+                    // only filters fills already emitted live so a discarded
+                    // reconciliation snapshot cannot poison a later retry.
+                    if self.dispatch_state.contains_trade(&report.trade_id) {
                         log::debug!(
                             "Skipping duplicate Derive fill (trade_id={}) in generate_fill_reports",
                             report.trade_id,

@@ -904,6 +904,13 @@ mod tests {
     }
 
     #[rstest]
+    fn test_decode_envelope_accepts_null_empty_result() {
+        let resp = test_response(200, &serde_json::json!({"id": 1, "result": null}));
+        let result: DeriveEmptyResult = decode_envelope("private/cancel", 1, resp).unwrap();
+        assert_eq!(result, DeriveEmptyResult {});
+    }
+
+    #[rstest]
     fn test_decode_envelope_propagates_jsonrpc_error() {
         let resp = test_response(
             200,

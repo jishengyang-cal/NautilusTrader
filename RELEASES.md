@@ -150,6 +150,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
 - Fixed Derive option `scheduled_activation` parsing as UNIX seconds (was parsed as milliseconds)
 - Fixed Derive response decoding to tolerate unknown venue enum values and salvage undecodable trade rows with a log
+- Fixed Derive fill reconciliation dropping fills on retry after a discarded snapshot
+- Fixed Derive null cancel acknowledgements being reported as failures
 - Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
 - Fixed Architect AX `/transactions` requests to include the required bounded time range
 - Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas (#4402)
