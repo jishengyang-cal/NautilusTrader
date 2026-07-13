@@ -531,7 +531,7 @@ impl DataActor for PyExecutionAlgorithm {
 
 #[pyo3::pymethods]
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
-#[expect(
+#[allow(
     clippy::large_types_passed_by_value,
     clippy::unused_self,
     reason = "default PyO3 callbacks must remain instance methods and accept Python-owned values"
