@@ -894,7 +894,7 @@ impl Position {
         } else {
             Money::new(
                 self.quantity.as_f64() * last.as_f64() * self.multiplier.as_f64(),
-                self.quote_currency,
+                self.settlement_currency,
             )
         }
     }
@@ -1050,7 +1050,9 @@ mod tests {
         identifiers::{
             AccountId, ClientOrderId, PositionId, StrategyId, TradeId, VenueOrderId, stubs::uuid4,
         },
-        instruments::{CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny, stubs::*},
+        instruments::{
+            CryptoFuture, CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny, stubs::*,
+        },
         orders::{Order, builder::OrderTestBuilder, stubs::TestOrderEventStubs},
         position::{Position, fold_net_position},
         stubs::*,
@@ -2270,6 +2272,36 @@ mod tests {
             position.notional_value(Price::from("370.00")),
             Money::from("270.27027027 ETH")
         );
+    }
+
+    #[rstest]
+    fn test_notional_value_for_quanto_uses_settlement_currency(ethbtc_quanto: CryptoFuture) {
+        let instrument = InstrumentAny::CryptoFuture(ethbtc_quanto);
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("5"))
+            .build();
+        let price = Price::from("0.03600");
+        let fill = TestOrderEventStubs::filled(
+            &order,
+            &instrument,
+            None,
+            Some(PositionId::from("P-QUANTO-NOTIONAL")),
+            Some(price),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let position = Position::new(&instrument, fill.into());
+        let position_notional = position.notional_value(price);
+        let instrument_notional =
+            instrument.calculate_notional_value(position.quantity, price, None);
+
+        assert_eq!(position_notional, instrument_notional);
+        assert_eq!(position_notional, Money::from("0.18 USDT"));
     }
 
     #[rstest]

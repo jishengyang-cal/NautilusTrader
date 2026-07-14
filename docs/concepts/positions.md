@@ -302,14 +302,12 @@ commissions = position.commissions()
 # Returns list[Money] with aggregated commission totals per currency
 
 notional = position.notional_value(current_price)
-# Returns Money in quote currency (standard) or base currency (inverse)
+# Returns Money in quote (linear), base (inverse), or settlement currency (quanto)
 ```
 
-**Limitations:**
+**Limitation:**
 
 - Panics if inverse instrument has no `base_currency` set.
-- Does not handle quanto contracts (returns quote currency instead of settlement currency).
-- For quanto instruments, use `instrument.calculate_notional_value()` instead.
 
 ## Position properties and state
 
