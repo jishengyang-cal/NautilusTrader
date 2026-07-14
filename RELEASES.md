@@ -65,6 +65,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 
 ### Fixes
+- Fixed v2 account locked-balance and margin conversion to use the calculated amount currency
+  instead of the instrument settlement currency
 - Fixed v2 multi-currency cash equity double-counting assets already credited to account balances
 - Fixed v2 quanto position notionals using quote currency instead of settlement currency
 - Fixed v2 portfolio valuations labeling and converting cost-currency amounts as settlement currency
