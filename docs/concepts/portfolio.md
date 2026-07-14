@@ -183,12 +183,15 @@ Portfolio and Strategy API and from the Python v2 Portfolio binding.
 
 ### Missing-price tracking
 
-The tracker is a per-venue set of instrument IDs that could not be priced on the
-last `mark_values()` or `equity()` call. It has two observable behaviors:
+The tracker keeps the latest missing set for each account-filtered query scope
+and the unfiltered venue scope. `missing_price_instruments(venue)` returns their
+venue-wide union. Each observation remains authoritative until the same scope
+runs again; a filtered result does not declare an earlier unfiltered result
+resolved. It has two observable behaviors:
 
-- A warning log fires once per instrument on the transition from priced to unpriced,
-  not on every subsequent call. The next transition back to priced clears the entry
-  so a future drop re-warns.
+- A warning log fires once per instrument on the transition from no scope reporting
+  it to at least one scope reporting it, not on every subsequent call. Once every
+  reporting scope observes recovery, a future drop re-warns.
 - When a venue goes flat (no open positions), its tracker entry is cleared so stale
   instruments do not remain flagged.
 
@@ -206,10 +209,8 @@ is the most common cause of silent gaps.
 aggregation to a single account. With `account_id=None`, results aggregate
 across every account on the venue.
 
-The missing-price tracker is venue-scoped. `missing_price_instruments` takes a
-venue only, and an account-filtered `mark_values(venue, account_id)` call does
-not clear the venue entry so flags raised by other accounts on the same venue
-survive.
+An account-filtered valuation reconciles only that account's observation, so
+flags raised by other accounts on the same venue survive.
 
 ## Portfolio statistics
 

@@ -69,6 +69,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 
 ### Fixes
 - Fixed v2 portfolio snapshots dropping temporarily unpriced positions and hiding stale valuations
+- Fixed v2 account-scoped portfolio valuation clearing missing-price flags from other accounts on
+  the same venue
 - Fixed v2 account locked-balance and margin conversion to use the calculated amount currency
   instead of the instrument settlement currency
 - Fixed v2 invalid or unrepresentable notional and PnL valuations panicking or silently falling

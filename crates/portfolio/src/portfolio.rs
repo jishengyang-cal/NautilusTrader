@@ -71,7 +71,7 @@ struct PortfolioState {
     initialized: bool,
     last_account_state_log_ts: AHashMap<AccountId, u64>,
     min_account_state_logging_interval_ns: u64,
-    venues_missing_price: AHashMap<Venue, AHashSet<InstrumentId>>,
+    venues_missing_price: AHashMap<Venue, AHashMap<Option<AccountId>, AHashSet<InstrumentId>>>,
     account_open_positions: AHashMap<AccountId, usize>,
     portfolio_snapshots: AHashMap<AccountId, VecDeque<PortfolioSnapshot>>,
     pre_position_fill_events: AHashSet<UUID4>,
@@ -490,7 +490,7 @@ impl Portfolio {
         }
 
         if account_id.is_some() {
-            self.update_missing_price_state(*venue, &unpriced);
+            self.update_missing_price_state(*venue, account_id.copied(), &unpriced);
         }
 
         unrealized_pnls
@@ -849,9 +849,7 @@ impl Portfolio {
             };
 
             if instrument_ids.is_empty() {
-                if account_id.is_none() {
-                    self.inner.borrow_mut().venues_missing_price.remove(venue);
-                }
+                self.clear_missing_price_state(*venue, account_id.copied());
             } else {
                 for instrument_id in instrument_ids {
                     // The instrument-keyed cache aggregates across all accounts on
@@ -881,7 +879,7 @@ impl Portfolio {
                         }
                     }
                 }
-                self.update_missing_price_state(*venue, &unpriced);
+                self.update_missing_price_state(*venue, account_id.copied(), &unpriced);
             }
         } else if self.accumulate_mark_values(
             *venue,
@@ -890,9 +888,9 @@ impl Portfolio {
             &mut unpriced,
             MarkValueMode::Equity,
         ) {
-            self.update_missing_price_state(*venue, &unpriced);
-        } else if account_id.is_none() {
-            self.inner.borrow_mut().venues_missing_price.remove(venue);
+            self.update_missing_price_state(*venue, account_id.copied(), &unpriced);
+        } else {
+            self.clear_missing_price_state(*venue, account_id.copied());
         }
 
         decimal_map_to_money(equity)
@@ -956,7 +954,8 @@ impl Portfolio {
                     .and_modify(|total| *total = *total + money)
                     .or_insert(money);
             }
-            snapshot_unpriced.extend(self.missing_price_instruments(venue));
+            snapshot_unpriced
+                .extend(self.missing_price_instruments_for_account(*venue, *account_id));
         }
 
         for venue in &all_venues {
@@ -987,7 +986,8 @@ impl Portfolio {
                             .and_modify(|total| *total = *total + money)
                             .or_insert(money);
                     }
-                    snapshot_unpriced.extend(self.missing_price_instruments(venue));
+                    snapshot_unpriced
+                        .extend(self.missing_price_instruments_for_account(*venue, *account_id));
                 }
             }
         }
@@ -1091,7 +1091,14 @@ impl Portfolio {
             .borrow()
             .venues_missing_price
             .get(venue)
-            .map(|set| set.iter().copied().collect())
+            .map(|observations| {
+                observations
+                    .values()
+                    .flat_map(|ids| ids.iter().copied())
+                    .collect::<AHashSet<_>>()
+                    .into_iter()
+                    .collect()
+            })
             .unwrap_or_default();
         // Sort so the public Vec is deterministic even though the underlying
         // tracking set is AHash-backed.
@@ -1099,15 +1106,41 @@ impl Portfolio {
         ids
     }
 
-    fn update_missing_price_state(&self, venue: Venue, unpriced: &AHashSet<InstrumentId>) {
+    fn missing_price_instruments_for_account(
+        &self,
+        venue: Venue,
+        account_id: AccountId,
+    ) -> AHashSet<InstrumentId> {
+        self.inner
+            .borrow()
+            .venues_missing_price
+            .get(&venue)
+            .and_then(|observations| observations.get(&Some(account_id)))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn update_missing_price_state(
+        &self,
+        venue: Venue,
+        account_id: Option<AccountId>,
+        unpriced: &AHashSet<InstrumentId>,
+    ) {
         let mut inner = self.inner.borrow_mut();
-        let tracked = inner.venues_missing_price.entry(venue).or_default();
+        let tracked: AHashSet<InstrumentId> = inner
+            .venues_missing_price
+            .get(&venue)
+            .into_iter()
+            .flat_map(|observations| observations.values())
+            .flatten()
+            .copied()
+            .collect();
 
         // Sort first so the warn-log sequence is deterministic across runs.
         let mut ids: Vec<InstrumentId> = unpriced.iter().copied().collect();
         ids.sort();
         for instrument_id in ids {
-            if tracked.insert(instrument_id) {
+            if !tracked.contains(&instrument_id) {
                 log::warn!(
                     "Cannot value open position {instrument_id}; ensure its notional inputs are \
                     valid and subscribe to quotes, trades or bars for continuous mark-to-market \
@@ -1116,8 +1149,37 @@ impl Portfolio {
             }
         }
 
-        // Instruments that are now priced should be removed so a future price drop re-warns
-        tracked.retain(|id| unpriced.contains(id));
+        let remove_venue = {
+            let observations = inner.venues_missing_price.entry(venue).or_default();
+            if unpriced.is_empty() {
+                observations.remove(&account_id);
+            } else {
+                observations.insert(account_id, unpriced.clone());
+            }
+            observations.is_empty()
+        };
+
+        if remove_venue {
+            inner.venues_missing_price.remove(&venue);
+        }
+    }
+
+    fn clear_missing_price_state(&self, venue: Venue, account_id: Option<AccountId>) {
+        let mut inner = self.inner.borrow_mut();
+        let Some(account_id) = account_id else {
+            inner.venues_missing_price.remove(&venue);
+            return;
+        };
+        let remove_venue = if let Some(observations) = inner.venues_missing_price.get_mut(&venue) {
+            observations.remove(&Some(account_id));
+            observations.is_empty()
+        } else {
+            false
+        };
+
+        if remove_venue {
+            inner.venues_missing_price.remove(&venue);
+        }
     }
 
     fn mark_values_with_mode(
@@ -1130,11 +1192,9 @@ impl Portfolio {
         let mut unpriced: AHashSet<InstrumentId> = AHashSet::new();
 
         if self.accumulate_mark_values(venue, account_id, &mut values, &mut unpriced, mode) {
-            self.update_missing_price_state(venue, &unpriced);
-        } else if account_id.is_none() {
-            // Only clear the tracker on an unfiltered sweep; otherwise we could
-            // wipe another account's flags on the same venue.
-            self.inner.borrow_mut().venues_missing_price.remove(&venue);
+            self.update_missing_price_state(venue, account_id.copied(), &unpriced);
+        } else {
+            self.clear_missing_price_state(venue, account_id.copied());
         }
 
         decimal_map_to_money(values)

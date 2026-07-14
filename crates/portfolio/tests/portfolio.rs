@@ -5611,6 +5611,133 @@ fn test_missing_price_tracked_for_unpriced_margin_position(
 }
 
 #[rstest]
+fn test_account_scoped_query_preserves_other_account_missing_price(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+    instrument_gbpusd: InstrumentAny,
+) {
+    let account_a = AccountId::new("SIM-001");
+    let account_b = AccountId::new("SIM-002");
+    portfolio.update_account(&AccountState::new(
+        account_a,
+        AccountType::Cash,
+        vec![AccountBalance::new(
+            Money::from("1000.00 EUR"),
+            Money::zero(Currency::EUR()),
+            Money::from("1000.00 EUR"),
+        )],
+        vec![],
+        true,
+        uuid4(),
+        0.into(),
+        0.into(),
+        Some(Currency::EUR()),
+    ));
+    portfolio.update_account(&AccountState::new(
+        account_b,
+        AccountType::Cash,
+        vec![AccountBalance::new(
+            Money::from("500.00 USD"),
+            Money::zero(Currency::USD()),
+            Money::from("500.00 USD"),
+        )],
+        vec![],
+        true,
+        uuid4(),
+        0.into(),
+        0.into(),
+        None,
+    ));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(get_quote_tick(&instrument_audusd, 100.0, 101.0, 1.0, 1.0))
+        .unwrap();
+
+    let mut account_a_position = None;
+
+    for (account_id, position_id) in [
+        (account_a, PositionId::new("P-MISSING-XRATE")),
+        (account_b, PositionId::new("P-NATIVE-CURRENCY")),
+    ] {
+        let fill = make_fill_for_account(
+            &instrument_audusd,
+            account_id,
+            OrderSide::Buy,
+            Quantity::from("1"),
+            Price::new(100.0, 0),
+            position_id,
+        );
+        let position = Position::new(&instrument_audusd, fill);
+        portfolio
+            .cache()
+            .borrow_mut()
+            .add_position(&position, OmsType::Hedging)
+            .unwrap();
+
+        if account_id == account_a {
+            account_a_position = Some(position);
+        }
+    }
+
+    let venue = instrument_audusd.id().venue;
+    assert!(portfolio.mark_values(&venue, Some(&account_a)).is_empty());
+    assert_eq!(
+        portfolio.missing_price_instruments(&venue),
+        vec![instrument_audusd.id()]
+    );
+
+    assert!(!portfolio.mark_values(&venue, Some(&account_b)).is_empty());
+    assert_eq!(
+        portfolio.missing_price_instruments(&venue),
+        vec![instrument_audusd.id()]
+    );
+
+    let snapshot = portfolio.build_snapshot(&account_b).unwrap();
+    assert!(!snapshot.is_stale);
+    assert!(snapshot.unpriced_instruments.is_empty());
+    assert_eq!(
+        portfolio.missing_price_instruments(&venue),
+        vec![instrument_audusd.id()]
+    );
+
+    let fill = make_fill_for_account(
+        &instrument_gbpusd,
+        account_b,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-OTHER-MISSING-PRICE"),
+    );
+    let position = Position::new(&instrument_gbpusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+    let _ = portfolio.mark_values(&venue, Some(&account_b));
+    let mut expected = vec![instrument_audusd.id(), instrument_gbpusd.id()];
+    expected.sort();
+    assert_eq!(portfolio.missing_price_instruments(&venue), expected);
+
+    let closed = Position {
+        side: PositionSide::Flat,
+        ts_closed: Some(UnixNanos::from(1)),
+        ..account_a_position.unwrap()
+    };
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_position(&closed)
+        .unwrap();
+    let _ = portfolio.mark_values(&venue, Some(&account_a));
+    assert_eq!(
+        portfolio.missing_price_instruments(&venue),
+        vec![instrument_gbpusd.id()]
+    );
+}
+
+#[rstest]
 fn test_missing_price_instruments_returned_sorted(mut portfolio: Portfolio) {
     // Open three unpriced positions on the SIM venue across instruments whose
     // InstrumentIds are intentionally not registered in sorted order. The
