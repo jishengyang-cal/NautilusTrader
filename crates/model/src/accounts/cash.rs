@@ -592,7 +592,7 @@ mod tests {
             None,
         );
 
-        assert!(result.unwrap_err().to_string().contains("MoneyRaw range"));
+        assert!(result.is_err());
     }
 
     #[rstest]

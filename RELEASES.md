@@ -33,7 +33,6 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Ulcer Index, Omega Ratio, VaR, and Expected Shortfall portfolio statistics (#4352), thanks @Martingale42
 - Added Tail Ratio portfolio statistic (#4341), thanks @Martingale42
 - Added v2 `info` fill metadata to `OrderFilled`
-- Added Python v2 Portfolio snapshot access with base-currency equity and stale/unpriced metadata
 - Added v2 `activation_price` to `OrderInitialized` and `OrderSnapshot` so trailing-stop activation survives event and dict reconstruction
 - Added v2 `activation_price` to `OrderStatusReport`, populated from OKX and Binance Futures trailing-stop execution reports so activation survives execution reconciliation
 - Added v2 support for trailing-stop orders with no trigger or activation price, which activate at market and materialize the trigger (and trailing-stop-limit price) from the trailing offset on the first update
@@ -46,6 +45,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Python v2 `FeeModel` and `FillModel` subclass support for custom backtest models
 - Added Python v2 `Strategy.shutdown_system()` and `LiveNode.dispose()` bindings
 - Added Python v2 `ExecTesterConfig` controls for UUID order IDs, quote quantity, and stop-time cancels
+- Added Python v2 Portfolio snapshot access with base-currency equity and stale/unpriced metadata
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
 - Added Hyperliquid fast-cancel payloads for non-trigger order cancels (#4414), thanks for reporting @magnified103
 - Added Hyperliquid market data stream health warnings for stalled Deltas, Depth10, and Quote subscriptions (#4298)
@@ -56,8 +56,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Tardis MEXC spot and futures market data support
 
 ### Breaking Changes
-- Changed v2 `PortfolioConfig.use_mark_prices` to default to `true`, preferring cached venue marks
-  before quote, trade, and bar fallbacks; set it to `false` to retain the prior behavior
+- Changed v2 `PortfolioConfig.use_mark_prices` to prefer marks by default; set `false` to skip marks
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
@@ -68,17 +67,12 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 
 ### Fixes
-- Fixed v2 realized PnL reporting zero when exchange rate data was missing and reporting zero or
-  panicking when converted results exceeded supported numeric bounds
+- Fixed v2 realized PnL returning zero for missing rates or range errors and panicking on overflow
 - Fixed v2 portfolio snapshots retaining stale-price flags after the affected position side closed
 - Fixed v2 portfolio snapshots dropping temporarily unpriced positions and hiding stale valuations
-- Fixed v2 account-scoped portfolio valuation clearing missing-price flags from other accounts on
-  the same venue
-- Fixed v2 account locked-balance and margin conversion to use the calculated amount currency
-  instead of the instrument settlement currency
-- Fixed v2 invalid or unrepresentable notional and PnL valuations panicking or silently falling
-  back to zero in account, portfolio, risk, funding, fee, and Python paths; these now fail closed
-  with an explicit error or unpriced state
+- Fixed v2 account-scoped valuations clearing other accounts' missing-price flags on shared venues
+- Fixed v2 account locks and margins using settlement currency instead of each calculated currency
+- Fixed v2 invalid or out-of-range notional and PnL valuations panicking or falling back to zero
 - Fixed v2 multi-currency cash equity double-counting assets already credited to account balances
 - Fixed v2 quanto position notionals using quote currency instead of settlement currency
 - Fixed v2 portfolio valuations labeling and converting cost-currency amounts as settlement currency
