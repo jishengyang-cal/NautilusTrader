@@ -119,6 +119,8 @@ releases as feedback arrives, before the final `2.0.0` release.
   partially started trader components, and disconnect all clients before disposal
 - Fixed Rust and Python v2 `LiveNode` zero-duration connection and disconnection waits to recognize
   already-ready engines before reporting a timeout
+- Fixed Rust v2 `LiveNode` startup to restore attached cache databases before reconciliation and
+  honor `flush_on_start`
 - Fixed Python v2 boundary error handling to raise exceptions instead of panicking on invalid inputs
 - Fixed Python v2 DeFi comparisons to return `NotImplemented` for unsupported ordering instead of panicking
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin

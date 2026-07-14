@@ -939,6 +939,40 @@ mod serial_tests {
 
     #[rstest]
     #[tokio::test]
+    async fn test_start_without_cache_backing_preserves_staged_cache() {
+        let config = LiveNodeConfig {
+            exec_engine: LiveExecEngineConfig {
+                reconciliation: false,
+                ..Default::default()
+            },
+            delay_post_stop: Duration::ZERO,
+            timeout_disconnection: Duration::ZERO,
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("NoBackingNode".to_string(), Some(config)).unwrap();
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
+        let instrument_id = instrument.id();
+        node.kernel()
+            .cache()
+            .borrow_mut()
+            .add_instrument(instrument)
+            .unwrap();
+
+        node.start().await.unwrap();
+        let retained = node
+            .kernel()
+            .cache()
+            .borrow()
+            .instrument(&instrument_id)
+            .is_some();
+        node.stop().await.unwrap();
+        node.dispose();
+
+        assert!(retained);
+    }
+
+    #[rstest]
+    #[tokio::test]
     async fn test_run_twice_returns_error() {
         let config = LiveNodeConfig {
             exec_engine: LiveExecEngineConfig {

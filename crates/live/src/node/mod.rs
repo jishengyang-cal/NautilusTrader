@@ -367,6 +367,8 @@ impl LiveNode {
             anyhow::bail!("Already running");
         }
 
+        self.prepare_cache().await?;
+
         if let Some(runner) = self.runner.as_ref() {
             runner.bind_senders();
         }
@@ -753,6 +755,12 @@ impl LiveNode {
         if self.state().is_running() {
             anyhow::bail!("Already running");
         }
+
+        if self.runner.is_none() {
+            anyhow::bail!("Runner already consumed - run() called twice");
+        }
+
+        self.prepare_cache().await?;
 
         let Some(runner) = self.runner.take() else {
             anyhow::bail!("Runner already consumed - run() called twice");
@@ -1381,6 +1389,38 @@ impl LiveNode {
         );
 
         log::info!("Event loop stopped");
+
+        Ok(())
+    }
+
+    #[expect(
+        clippy::await_holding_refcell_ref,
+        reason = "cache loading is serialized before the single-threaded live node starts"
+    )]
+    async fn prepare_cache(&self) -> anyhow::Result<()> {
+        let cache = self.kernel.cache();
+        if !cache.borrow().has_backing() {
+            return Ok(());
+        }
+
+        if self
+            .config
+            .cache
+            .as_ref()
+            .is_some_and(|config| config.flush_on_start)
+        {
+            cache.borrow_mut().flush_db();
+            return Ok(());
+        }
+
+        if self.config.exec_engine.load_cache {
+            self.kernel
+                .exec_engine()
+                .borrow_mut()
+                .load_cache()
+                .await
+                .context("Failed to load persistent cache")?;
+        }
 
         Ok(())
     }
