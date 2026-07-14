@@ -51,7 +51,7 @@ use nautilus_model::{
     orders::{Order, OrderAny, OrderTestBuilder},
     position::Position,
     stubs::TestDefault,
-    types::{AccountBalance, Currency, Money, Price, Quantity},
+    types::{AccountBalance, Currency, Money, Price, Quantity, money::MONEY_MAX},
 };
 use nautilus_portfolio::{Portfolio, config::PortfolioConfig};
 use rstest::{fixture, rstest};
@@ -3505,7 +3505,7 @@ fn test_several_positions_with_different_instruments_updates_portfolio(
 }
 
 #[rstest]
-fn test_realized_pnl_with_missing_exchange_rate_returns_zero_instead_of_panic(
+fn test_realized_pnl_with_missing_exchange_rate_returns_none(
     mut portfolio: Portfolio,
     instrument_audusd: InstrumentAny,
 ) {
@@ -3556,17 +3556,223 @@ fn test_realized_pnl_with_missing_exchange_rate_returns_zero_instead_of_panic(
 
     let result = portfolio.realized_pnl(&instrument_audusd.id());
 
-    assert!(result.is_some());
+    assert_eq!(result, None);
+    assert_eq!(portfolio.realized_pnl(&instrument_audusd.id()), None);
 
-    let pnl = result.unwrap();
-    assert_eq!(pnl.currency, Currency::EUR());
-    assert_eq!(pnl.as_decimal(), Decimal::ZERO);
+    let instrument_usdeur = InstrumentAny::CurrencyPair(default_fx_ccy(
+        Symbol::from("USD/EUR"),
+        Some(Venue::test_default()),
+    ));
+    let quote = get_quote_tick(&instrument_usdeur, 0.9, 0.9, 1.0, 1.0);
+    {
+        let mut cache = portfolio.cache().borrow_mut();
+        cache.add_instrument(instrument_usdeur).unwrap();
+        cache.add_quote(quote).unwrap();
+    }
 
-    let safe_calculation = pnl.as_decimal() * dec!(1.5);
-    assert_eq!(safe_calculation, Decimal::ZERO);
+    assert_eq!(
+        portfolio.realized_pnl(&instrument_audusd.id()),
+        Some(Money::zero(Currency::EUR()))
+    );
+}
 
-    let result2 = portfolio.realized_pnl(&instrument_audusd.id());
-    assert_eq!(result2, result);
+#[rstest]
+fn test_realized_pnl_with_missing_exchange_rate_for_closed_snapshot_returns_none(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&AccountState::new(
+        account_id,
+        AccountType::Cash,
+        vec![AccountBalance::new(
+            Money::from("100000.00 EUR"),
+            Money::zero(Currency::EUR()),
+            Money::from("100000.00 EUR"),
+        )],
+        vec![],
+        true,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        Some(Currency::EUR()),
+    ));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::from("1.00"),
+        PositionId::new("P-MISSING-CLOSED-XRATE"),
+    );
+    let mut position = Position::new(&instrument_audusd, fill);
+    position.side = PositionSide::Flat;
+    position.ts_closed = Some(UnixNanos::from(1));
+    position.realized_pnl = Some(Money::from("10.00 USD"));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .snapshot_position(&position)
+        .unwrap();
+    let active_fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::from("1.00"),
+        PositionId::new("P-ACTIVE-NETTING-XRATE"),
+    );
+    let active_position = Position::new(&instrument_audusd, active_fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&active_position, OmsType::Netting)
+        .unwrap();
+
+    let result = portfolio.realized_pnl(&instrument_audusd.id());
+
+    assert_eq!(result, None);
+}
+
+#[rstest]
+fn test_realized_pnl_outside_money_bounds_returns_none(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+
+    for (side, position_id) in [
+        (OrderSide::Buy, PositionId::new("P-REALIZED-MAX-1")),
+        (OrderSide::Sell, PositionId::new("P-REALIZED-MAX-2")),
+    ] {
+        let fill = make_fill_for_account(
+            &instrument_audusd,
+            account_id,
+            side,
+            Quantity::from("1"),
+            Price::from("1.00"),
+            position_id,
+        );
+        let mut position = Position::new(&instrument_audusd, fill);
+        position.realized_pnl = Some(Money::new(MONEY_MAX, Currency::USD()));
+        portfolio
+            .cache()
+            .borrow_mut()
+            .add_position(&position, OmsType::Hedging)
+            .unwrap();
+    }
+
+    let result = portfolio.realized_pnl(&instrument_audusd.id());
+
+    assert_eq!(result, None);
+}
+
+#[rstest]
+fn test_realized_pnl_cache_clears_when_recalculation_fails(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::from("1.00"),
+        PositionId::new("P-CACHED-REALIZED-XRATE"),
+    );
+    let mut position = Position::new(&instrument_audusd, fill);
+    position.realized_pnl = Some(Money::from("10.00 USD"));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+    assert_eq!(
+        portfolio.realized_pnl(&instrument_audusd.id()),
+        Some(Money::from("10.00 USD"))
+    );
+
+    position.realized_pnl = Some(Money::new(MONEY_MAX, Currency::USD()));
+    let second_fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Sell,
+        Quantity::from("1"),
+        Price::from("1.00"),
+        PositionId::new("P-CACHED-REALIZED-MAX-2"),
+    );
+    let mut second_position = Position::new(&instrument_audusd, second_fill);
+    second_position.realized_pnl = Some(Money::new(MONEY_MAX, Currency::USD()));
+    {
+        let mut cache = portfolio.cache().borrow_mut();
+        cache.update_position(&position).unwrap();
+        cache
+            .add_position(&second_position, OmsType::Hedging)
+            .unwrap();
+    }
+    portfolio.update_position(&PositionEvent::PositionChanged(get_changed_position(
+        &position,
+    )));
+
+    assert_eq!(portfolio.realized_pnl(&instrument_audusd.id()), None);
+}
+
+#[rstest]
+fn test_realized_pnl_currency_conversion_overflow_returns_none(
+    mut simple_cache: Cache,
+    clock: TestClock,
+    instrument_audusd: InstrumentAny,
+) {
+    simple_cache
+        .add_instrument(instrument_audusd.clone())
+        .unwrap();
+    let config = PortfolioConfig::builder()
+        .use_mark_xrates(true)
+        .build()
+        .unwrap();
+    let mut portfolio = Portfolio::new(
+        Rc::new(RefCell::new(clock)),
+        Rc::new(RefCell::new(simple_cache)),
+        Some(config),
+    );
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&AccountState::new(
+        account_id,
+        AccountType::Cash,
+        vec![AccountBalance::new(
+            Money::from("100000.00 EUR"),
+            Money::zero(Currency::EUR()),
+            Money::from("100000.00 EUR"),
+        )],
+        vec![],
+        true,
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        Some(Currency::EUR()),
+    ));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::from("1.00"),
+        PositionId::new("P-REALIZED-XRATE-OVERFLOW"),
+    );
+    let mut position = Position::new(&instrument_audusd, fill);
+    position.realized_pnl = Some(Money::new(MONEY_MAX, Currency::USD()));
+    {
+        let mut cache = portfolio.cache().borrow_mut();
+        cache.add_position(&position, OmsType::Netting).unwrap();
+        cache.set_mark_xrate(Currency::USD(), Currency::EUR(), 1e20);
+    }
+
+    let result = portfolio.realized_pnl(&instrument_audusd.id());
+
+    assert_eq!(result, None);
 }
 
 #[rstest]

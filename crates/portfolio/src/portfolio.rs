@@ -2230,13 +2230,19 @@ impl Portfolio {
                                     base_currency
                                 );
                                 self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
-                                return Some(Money::zero(currency));
+                                return None;
                             };
 
-                            pnl = (pnl * xrate).round_dp(u32::from(currency.precision));
+                            pnl = self.checked_convert_realized_pnl(
+                                pnl,
+                                xrate,
+                                currency,
+                                *instrument_id,
+                            )?;
                         }
 
-                        total_pnl += pnl;
+                        total_pnl =
+                            self.checked_add_realized_pnl(total_pnl, pnl, *instrument_id)?;
                     }
                 } else {
                     // Case 3: Closed position - use sum of all snapshot PnLs
@@ -2263,7 +2269,12 @@ impl Portfolio {
                             );
 
                             if let Some(xrate) = xrate {
-                                pnl = (pnl * xrate).round_dp(u32::from(currency.precision));
+                                pnl = self.checked_convert_realized_pnl(
+                                    pnl,
+                                    xrate,
+                                    currency,
+                                    *instrument_id,
+                                )?;
                             } else {
                                 log::warn!(
                                     "Cannot calculate realized PnL: insufficient exchange rate data for {}/{}, marking as pending calculation",
@@ -2271,11 +2282,12 @@ impl Portfolio {
                                     base_currency
                                 );
                                 self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
-                                return Some(Money::zero(currency));
+                                return None;
                             }
                         }
 
-                        total_pnl += pnl;
+                        total_pnl =
+                            self.checked_add_realized_pnl(total_pnl, pnl, *instrument_id)?;
                     }
                 }
             }
@@ -2306,13 +2318,18 @@ impl Portfolio {
                                 base_currency
                             );
                             self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
-                            return Some(Money::zero(currency));
+                            return None;
                         };
 
-                        pnl = (pnl * xrate).round_dp(u32::from(currency.precision));
+                        pnl = self.checked_convert_realized_pnl(
+                            pnl,
+                            xrate,
+                            currency,
+                            *instrument_id,
+                        )?;
                     }
 
-                    total_pnl += pnl;
+                    total_pnl = self.checked_add_realized_pnl(total_pnl, pnl, *instrument_id)?;
                 }
             }
         } else {
@@ -2341,7 +2358,12 @@ impl Portfolio {
                         );
 
                         if let Some(xrate) = xrate {
-                            pnl = (pnl * xrate).round_dp(u32::from(currency.precision));
+                            pnl = self.checked_convert_realized_pnl(
+                                pnl,
+                                xrate,
+                                currency,
+                                *instrument_id,
+                            )?;
                         } else {
                             log::warn!(
                                 "Cannot calculate realized PnL: insufficient exchange rate data for {}/{}, marking as pending calculation",
@@ -2349,11 +2371,11 @@ impl Portfolio {
                                 base_currency
                             );
                             self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
-                            return Some(Money::zero(currency));
+                            return None;
                         }
                     }
 
-                    total_pnl += pnl;
+                    total_pnl = self.checked_add_realized_pnl(total_pnl, pnl, *instrument_id)?;
                 }
             }
 
@@ -2383,13 +2405,18 @@ impl Portfolio {
                                 base_currency
                             );
                             self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
-                            return Some(Money::zero(currency));
+                            return None;
                         };
 
-                        pnl = (pnl * xrate).round_dp(u32::from(currency.precision));
+                        pnl = self.checked_convert_realized_pnl(
+                            pnl,
+                            xrate,
+                            currency,
+                            *instrument_id,
+                        )?;
                     }
 
-                    total_pnl += pnl;
+                    total_pnl = self.checked_add_realized_pnl(total_pnl, pnl, *instrument_id)?;
                 }
             }
         }
@@ -2398,9 +2425,38 @@ impl Portfolio {
             Ok(money) => Some(money),
             Err(e) => {
                 log::error!("Cannot calculate realized PnL: {e}");
-                Some(Money::zero(currency))
+                None
             }
         }
+    }
+
+    fn checked_convert_realized_pnl(
+        &self,
+        pnl: Decimal,
+        xrate: Decimal,
+        currency: Currency,
+        instrument_id: InstrumentId,
+    ) -> Option<Decimal> {
+        let Some(converted) = pnl.checked_mul(xrate) else {
+            log::error!("Cannot calculate realized PnL: currency conversion overflow");
+            self.inner.borrow_mut().pending_calcs.insert(instrument_id);
+            return None;
+        };
+        Some(converted.round_dp(u32::from(currency.precision)))
+    }
+
+    fn checked_add_realized_pnl(
+        &self,
+        total: Decimal,
+        pnl: Decimal,
+        instrument_id: InstrumentId,
+    ) -> Option<Decimal> {
+        let Some(total) = total.checked_add(pnl) else {
+            log::error!("Cannot calculate realized PnL: total overflow");
+            self.inner.borrow_mut().pending_calcs.insert(instrument_id);
+            return None;
+        };
+        Some(total)
     }
 
     fn get_price(&self, position: &Position) -> Option<Price> {
@@ -2960,6 +3016,10 @@ fn update_position(
             .realized_pnls
             .insert(event.instrument_id(), calculated_realized_pnl);
     } else {
+        inner
+            .borrow_mut()
+            .realized_pnls
+            .shift_remove(&event.instrument_id());
         log::warn!(
             "Failed to calculate realized PnL for {}, marking as pending",
             event.instrument_id()
