@@ -40,6 +40,7 @@ from nautilus_trader.model import OrderSubmitted
 from nautilus_trader.model import OrderTriggered
 from nautilus_trader.model import OrderType
 from nautilus_trader.model import OrderUpdated
+from nautilus_trader.model import PortfolioSnapshot
 from nautilus_trader.model import Price
 from nautilus_trader.model import Quantity
 from nautilus_trader.model import TradeId
@@ -107,6 +108,34 @@ def test_account_state_to_dict_and_from_dict_roundtrip(account_id, uuid):
     restored = AccountState.from_dict(d)
 
     assert restored == state
+
+
+def test_portfolio_snapshot_valuation_metadata(account_id, audusd_id, uuid):
+    usd = Currency.from_str("USD")
+    snapshot = PortfolioSnapshot(
+        account_id=account_id,
+        account_type=AccountType.CASH,
+        balances=[],
+        margins=[],
+        unrealized_pnls=[],
+        realized_pnls=[],
+        total_equity=[Money.from_str("1_100 USD")],
+        event_id=uuid,
+        ts_event=1,
+        ts_init=2,
+        base_currency=usd,
+        base_currency_equity=Money.from_str("1_100 USD"),
+        is_stale=True,
+        stale_instruments=[audusd_id],
+        stale_currencies=[Currency.from_str("AUD")],
+        unpriced_instruments=[],
+    )
+
+    assert snapshot.base_currency_equity == Money.from_str("1_100 USD")
+    assert snapshot.is_stale is True
+    assert snapshot.stale_instruments == [audusd_id]
+    assert snapshot.stale_currencies == [Currency.from_str("AUD")]
+    assert snapshot.unpriced_instruments == []
 
 
 def test_order_denied(trader_id, strategy_id, audusd_id, client_order_id, uuid):

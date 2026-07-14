@@ -33,6 +33,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Ulcer Index, Omega Ratio, VaR, and Expected Shortfall portfolio statistics (#4352), thanks @Martingale42
 - Added Tail Ratio portfolio statistic (#4341), thanks @Martingale42
 - Added v2 `info` fill metadata to `OrderFilled`
+- Added Python v2 Portfolio snapshot access with base-currency equity and stale/unpriced metadata
 - Added v2 `activation_price` to `OrderInitialized` and `OrderSnapshot` so trailing-stop activation survives event and dict reconstruction
 - Added v2 `activation_price` to `OrderStatusReport`, populated from OKX and Binance Futures trailing-stop execution reports so activation survives execution reconciliation
 - Added v2 support for trailing-stop orders with no trigger or activation price, which activate at market and materialize the trigger (and trailing-stop-limit price) from the trailing offset on the first update
@@ -67,6 +68,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 
 ### Fixes
+- Fixed v2 portfolio snapshots dropping temporarily unpriced positions and hiding stale valuations
 - Fixed v2 account locked-balance and margin conversion to use the calculated amount currency
   instead of the instrument settlement currency
 - Fixed v2 invalid or unrepresentable notional and PnL valuations panicking or silently falling

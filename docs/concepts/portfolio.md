@@ -94,15 +94,17 @@ If `use_mark_xrates` is enabled in the portfolio configuration, `MARK` prices re
 
 ## Equity and mark-to-market
 
-The Portfolio exposes three pull-style queries for continuous portfolio valuation.
-Each returns per-currency results keyed by the relevant account base currency or
-native cost currency.
+The Portfolio exposes pull-style queries for continuous portfolio valuation and
+recorded snapshots. Per-currency results use the relevant account base currency
+or native cost currency.
 
-| Method                                   | Returns                                                          |
-|------------------------------------------|------------------------------------------------------------------|
-| `mark_values(venue, account_id)`         | Signed MTM totals for open positions.                            |
-| `equity(venue, account_id)`              | Total equity combining balance and position valuation.           |
-| `missing_price_instruments(venue)`       | Instruments currently flagged as unpriceable.                    |
+| Method                             | Returns                                                |
+|------------------------------------|--------------------------------------------------------|
+| `mark_values(venue, account_id)`   | Signed MTM totals for open positions.                  |
+| `equity(venue, account_id)`        | Total equity combining balance and position valuation. |
+| `build_snapshot(account_id)`       | Account‑wide MTM totals and valuation metadata.        |
+| `snapshots(account_id)`            | Recorded account snapshots in emission order.          |
+| `missing_price_instruments(venue)` | Instruments currently flagged as unpriceable.          |
 
 Longs contribute positive notional, shorts contribute negative notional. Flat
 positions are skipped.
@@ -137,8 +139,10 @@ Valuation asks `Cache` for a price in this order, stopping at the first match:
 
 In v2, set `use_mark_prices=false` to skip the mark tier and begin with the side-appropriate quote.
 
-If none of the four yield a price, the position goes into the missing-price tracker
-and is skipped in the sum.
+If none of the four yield a current price, the Portfolio carries the last valid price
+for that instrument and position side. The next snapshot lists the instrument in
+`stale_instruments`. If the position has never had a valid price, it goes into the
+missing-price tracker, is listed in `unpriced_instruments`, and is excluded from the sum.
 
 ### Base currency conversion
 
@@ -152,9 +156,30 @@ When `convert_to_account_base_currency=false`, or the account has no `base_curre
 results are keyed by each position's native cost currency and no xrate
 conversion is applied.
 
-If xrate data is unavailable for a required conversion, that position is treated
-as unpriceable and flagged via the missing-price tracker rather than silently
-valued at a 1.0 rate.
+If no current xrate is available for a required conversion, the Portfolio carries the
+last valid rate and lists its source currency in `stale_currencies`. If no valid rate
+has ever been available, the position is treated as unpriceable and flagged through
+the missing-price tracker rather than silently valued at a 1.0 rate.
+
+### Snapshot valuation metadata
+
+`PortfolioSnapshot.total_equity` always provides the per-currency MTM breakdown.
+When base-currency conversion is enabled and the account has a base currency,
+`base_currency_equity` provides the headline scalar in that currency. It is `None`
+when conversion is disabled or the account has no base currency.
+
+`is_stale` is true when the snapshot uses a carried price or xrate, or excludes a
+position that has never had all required valuation inputs. The related fields identify
+the cause:
+
+- `stale_instruments`: Instruments valued with carried prices.
+- `stale_currencies`: Source currencies converted with carried xrates.
+- `unpriced_instruments`: Instruments excluded because no complete valid valuation has
+  ever been available.
+
+Call `build_snapshot(account_id)` for an on-demand sample. Call `snapshots(account_id)`
+to read the bounded recorded sequence. The methods are available from the Rust
+Portfolio and Strategy API and from the Python v2 Portfolio binding.
 
 ### Missing-price tracking
 

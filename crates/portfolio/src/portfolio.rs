@@ -64,6 +64,10 @@ struct PortfolioState {
     net_positions: IndexMap<InstrumentId, Decimal>,
     pending_calcs: AHashSet<InstrumentId>,
     bar_close_prices: AHashMap<InstrumentId, Price>,
+    last_prices: AHashMap<(InstrumentId, PositionSide), Price>,
+    last_xrates: AHashMap<(Venue, Currency, Currency), Decimal>,
+    stale_prices: AHashSet<(InstrumentId, PositionSide)>,
+    stale_xrates: AHashSet<(Venue, Currency, Currency)>,
     initialized: bool,
     last_account_state_log_ts: AHashMap<AccountId, u64>,
     min_account_state_logging_interval_ns: u64,
@@ -109,6 +113,10 @@ impl PortfolioState {
             net_positions: IndexMap::new(),
             pending_calcs: AHashSet::new(),
             bar_close_prices: AHashMap::new(),
+            last_prices: AHashMap::new(),
+            last_xrates: AHashMap::new(),
+            stale_prices: AHashSet::new(),
+            stale_xrates: AHashSet::new(),
             initialized: false,
             last_account_state_log_ts: AHashMap::new(),
             min_account_state_logging_interval_ns,
@@ -132,6 +140,10 @@ impl PortfolioState {
         self.snapshot_account_ids.clear();
         self.pending_calcs.clear();
         self.bar_close_prices.clear();
+        self.last_prices.clear();
+        self.last_xrates.clear();
+        self.stale_prices.clear();
+        self.stale_xrates.clear();
         self.last_account_state_log_ts.clear();
         self.venues_missing_price.clear();
         self.account_open_positions.clear();
@@ -452,6 +464,7 @@ impl Portfolio {
         };
 
         let mut unrealized_pnls: IndexMap<Currency, Money> = IndexMap::new();
+        let mut unpriced: AHashSet<InstrumentId> = AHashSet::new();
 
         for instrument_id in instrument_ids {
             // The instrument-keyed cache aggregates across all accounts on the
@@ -471,7 +484,13 @@ impl Portfolio {
                     .entry(pnl.currency)
                     .and_modify(|total| *total = *total + pnl)
                     .or_insert(pnl);
+            } else {
+                unpriced.insert(instrument_id);
             }
+        }
+
+        if account_id.is_some() {
+            self.update_missing_price_state(*venue, &unpriced);
         }
 
         unrealized_pnls
@@ -905,13 +924,19 @@ impl Portfolio {
         // unrealized PnL and mark-value sums; `all_venues` extends to closed
         // positions so realized PnL on a venue with no open exposure (a
         // multi-venue account where one venue is now flat) still rolls up.
-        let open_venues: AHashSet<Venue> = self
-            .cache
-            .borrow()
-            .positions_open(None, None, None, Some(account_id), None)
-            .iter()
-            .map(|p| p.instrument_id.venue)
-            .collect();
+        let (open_venues, open_instrument_ids) = {
+            let cache = self.cache.borrow();
+            let positions = cache.positions_open(None, None, None, Some(account_id), None);
+            let venues: AHashSet<Venue> = positions
+                .iter()
+                .map(|position| position.instrument_id.venue)
+                .collect();
+            let instrument_ids: AHashSet<InstrumentId> = positions
+                .iter()
+                .map(|position| position.instrument_id)
+                .collect();
+            (venues, instrument_ids)
+        };
         let all_venues: AHashSet<Venue> = self
             .cache
             .borrow()
@@ -919,10 +944,10 @@ impl Portfolio {
             .iter()
             .map(|p| p.instrument_id.venue)
             .collect();
-
         let mut unrealized: IndexMap<Currency, Money> = IndexMap::new();
         let mut realized: IndexMap<Currency, Money> = IndexMap::new();
         let mut equity: IndexMap<Currency, Money> = account.balances_total().into_iter().collect();
+        let mut snapshot_unpriced = AHashSet::new();
 
         for venue in &open_venues {
             for (currency, money) in self.unrealized_pnls(venue, Some(account_id)) {
@@ -931,6 +956,7 @@ impl Portfolio {
                     .and_modify(|total| *total = *total + money)
                     .or_insert(money);
             }
+            snapshot_unpriced.extend(self.missing_price_instruments(venue));
         }
 
         for venue in &all_venues {
@@ -961,9 +987,55 @@ impl Portfolio {
                             .and_modify(|total| *total = *total + money)
                             .or_insert(money);
                     }
+                    snapshot_unpriced.extend(self.missing_price_instruments(venue));
                 }
             }
         }
+
+        let base_currency_equity = if self.config.convert_to_account_base_currency {
+            account
+                .base_currency()
+                .and_then(|currency| equity.get(&currency).copied())
+        } else {
+            None
+        };
+        let (mut stale_instruments, mut stale_currencies, mut unpriced_instruments) = {
+            let inner = self.inner.borrow();
+            let stale_instruments = inner
+                .stale_prices
+                .iter()
+                .map(|(instrument_id, _)| *instrument_id)
+                .filter(|instrument_id| open_instrument_ids.contains(instrument_id))
+                .collect::<AHashSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            let stale_currencies = account
+                .base_currency()
+                .map_or_else(Vec::new, |base_currency| {
+                    inner
+                        .stale_xrates
+                        .iter()
+                        .filter(|(venue, _, target)| {
+                            open_venues.contains(venue) && *target == base_currency
+                        })
+                        .map(|(_, source, _)| *source)
+                        .collect::<AHashSet<_>>()
+                        .into_iter()
+                        .collect()
+                });
+            let unpriced_instruments: Vec<InstrumentId> = snapshot_unpriced
+                .iter()
+                .filter(|instrument_id| open_instrument_ids.contains(instrument_id))
+                .copied()
+                .collect();
+            (stale_instruments, stale_currencies, unpriced_instruments)
+        };
+        stale_instruments.sort_unstable();
+        stale_currencies.sort_unstable_by_key(|currency| currency.code);
+        unpriced_instruments.sort_unstable();
+        let is_stale = !stale_instruments.is_empty()
+            || !stale_currencies.is_empty()
+            || !unpriced_instruments.is_empty();
 
         let unrealized_pnls: Vec<Money> = unrealized.into_values().collect();
         let realized_pnls: Vec<Money> = realized.into_values().collect();
@@ -980,6 +1052,11 @@ impl Portfolio {
             unrealized_pnls,
             realized_pnls,
             total_equity,
+            base_currency_equity,
+            is_stale,
+            stale_instruments,
+            stale_currencies,
+            unpriced_instruments,
             UUID4::new(),
             ts_now,
             ts_now,
@@ -2266,30 +2343,44 @@ impl Portfolio {
         let cache = self.cache.borrow();
         let instrument_id = &position.instrument_id;
 
-        // Check for mark price first if configured
-        if self.config.use_mark_prices
-            && let Some(mark_price) = cache.mark_price(instrument_id)
-        {
-            return Some(mark_price.value);
-        }
-
-        // Fall back to bid/ask based on position side
         let price_type = match position.side {
             PositionSide::Long => PriceType::Bid,
             PositionSide::Short => PriceType::Ask,
             _ => panic!("invalid `PositionSide`, was {}", position.side),
         };
-
-        cache
-            .price(instrument_id, price_type)
-            .or_else(|| cache.price(instrument_id, PriceType::Last))
+        let is_valid = |price: &Price| price.as_decimal() > Decimal::ZERO;
+        let mark_price = if self.config.use_mark_prices {
+            cache.mark_price(instrument_id).map(|mark| mark.value)
+        } else {
+            None
+        };
+        let current = mark_price
+            .filter(is_valid)
+            .or_else(|| cache.price(instrument_id, price_type).filter(is_valid))
+            .or_else(|| cache.price(instrument_id, PriceType::Last).filter(is_valid))
             .or_else(|| {
                 self.inner
                     .borrow()
                     .bar_close_prices
                     .get(instrument_id)
+                    .filter(|price| is_valid(price))
                     .copied()
-            })
+            });
+        drop(cache);
+
+        let key = (*instrument_id, position.side);
+        let mut inner = self.inner.borrow_mut();
+        if let Some(price) = current {
+            inner.last_prices.insert(key, price);
+            inner.stale_prices.remove(&key);
+            Some(price)
+        } else if let Some(price) = inner.last_prices.get(&key).copied() {
+            inner.stale_prices.insert(key);
+            Some(price)
+        } else {
+            inner.stale_prices.remove(&key);
+            None
+        }
     }
 
     fn calculate_xrate_to_base(
@@ -2307,21 +2398,37 @@ impl Portfolio {
             None => return Some(Decimal::ONE),
         };
 
+        let venue = instrument.id().venue;
         let cache = self.cache.borrow();
+        let mark_xrate = if self.config.use_mark_xrates {
+            cache
+                .get_mark_xrate(source_currency, base_currency)
+                .and_then(|xrate| Decimal::try_from(xrate).ok())
+        } else {
+            None
+        };
+        let current = mark_xrate
+            .filter(|xrate| *xrate > Decimal::ZERO)
+            .or_else(|| {
+                cache
+                    .get_xrate(venue, source_currency, base_currency, PriceType::Mid)
+                    .filter(|xrate| *xrate > Decimal::ZERO)
+            });
+        drop(cache);
 
-        if self.config.use_mark_xrates
-            && let Some(xrate) = cache.get_mark_xrate(source_currency, base_currency)
-        {
-            // Mark exchange rates are stored as f64 in the cache; convert at the boundary
-            return Decimal::try_from(xrate).ok();
+        let key = (venue, source_currency, base_currency);
+        let mut inner = self.inner.borrow_mut();
+        if let Some(xrate) = current {
+            inner.last_xrates.insert(key, xrate);
+            inner.stale_xrates.remove(&key);
+            Some(xrate)
+        } else if let Some(xrate) = inner.last_xrates.get(&key).copied() {
+            inner.stale_xrates.insert(key);
+            Some(xrate)
+        } else {
+            inner.stale_xrates.remove(&key);
+            None
         }
-
-        cache.get_xrate(
-            instrument.id().venue,
-            source_currency,
-            base_currency,
-            PriceType::Mid,
-        )
     }
 }
 
@@ -3151,6 +3258,11 @@ mod tests {
             None,
             Vec::new(),
             Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            false,
             Vec::new(),
             Vec::new(),
             Vec::new(),

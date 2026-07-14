@@ -4911,6 +4911,322 @@ fn test_build_snapshot_produces_equity_and_balances(
         .find(|b| b.currency == Currency::USD())
         .expect("USD balance");
     assert_eq!(usd_balance.total.as_decimal(), dec!(10.0));
+    assert_eq!(snapshot.base_currency_equity, None);
+    assert!(!snapshot.is_stale);
+    assert!(snapshot.stale_instruments.is_empty());
+    assert!(snapshot.stale_currencies.is_empty());
+    assert!(snapshot.unpriced_instruments.is_empty());
+}
+
+#[rstest]
+fn test_build_snapshot_carries_last_valid_mark(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+
+    let mark = MarkPriceUpdate::new(
+        instrument_audusd.id(),
+        Price::new(120.0, 0),
+        0.into(),
+        0.into(),
+    );
+    portfolio.cache().borrow_mut().add_mark_price(mark).unwrap();
+
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-STALE-MARK"),
+    );
+    let position = Position::new(&instrument_audusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+
+    let current = portfolio.build_snapshot(&account_id).unwrap();
+
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_mark_price(MarkPriceUpdate::new(
+            instrument_audusd.id(),
+            Price::zero(0),
+            1.into(),
+            1.into(),
+        ))
+        .unwrap();
+    let carried = portfolio.build_snapshot(&account_id).unwrap();
+    let usd_equity = |snapshot: &PortfolioSnapshot| {
+        snapshot
+            .total_equity
+            .iter()
+            .find(|money| money.currency == Currency::USD())
+            .unwrap()
+            .as_decimal()
+    };
+
+    assert_eq!(usd_equity(&current), dec!(130));
+    assert_eq!(usd_equity(&carried), dec!(130));
+    assert_eq!(current.base_currency_equity, None);
+    assert!(!current.is_stale);
+    assert_eq!(carried.base_currency_equity, None);
+    assert!(carried.is_stale);
+    assert_eq!(carried.stale_instruments, vec![instrument_audusd.id()]);
+    assert!(carried.stale_currencies.is_empty());
+    assert!(carried.unpriced_instruments.is_empty());
+
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_mark_price(MarkPriceUpdate::new(
+            instrument_audusd.id(),
+            Price::new(125.0, 0),
+            2.into(),
+            2.into(),
+        ))
+        .unwrap();
+    let recovered = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert_eq!(usd_equity(&recovered), dec!(135));
+    assert!(!recovered.is_stale);
+    assert!(recovered.stale_instruments.is_empty());
+}
+
+#[rstest]
+fn test_build_snapshot_keeps_stale_flag_when_opposite_side_is_current(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(get_quote_tick(&instrument_audusd, 100.0, 101.0, 1.0, 1.0))
+        .unwrap();
+
+    for (side, position_id) in [
+        (OrderSide::Sell, PositionId::new("P-STALE-ASK")),
+        (OrderSide::Buy, PositionId::new("P-CURRENT-BID")),
+    ] {
+        let fill = make_fill_for_account(
+            &instrument_audusd,
+            account_id,
+            side,
+            Quantity::from("1"),
+            Price::new(100.0, 0),
+            position_id,
+        );
+        let position = Position::new(&instrument_audusd, fill);
+        portfolio
+            .cache()
+            .borrow_mut()
+            .add_position(&position, OmsType::Hedging)
+            .unwrap();
+    }
+    assert!(!portfolio.build_snapshot(&account_id).unwrap().is_stale);
+
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(get_quote_tick(&instrument_audusd, 125.0, 0.0, 1.0, 1.0))
+        .unwrap();
+    let carried = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert!(carried.is_stale);
+    assert_eq!(carried.stale_instruments, vec![instrument_audusd.id()]);
+    assert!(carried.unpriced_instruments.is_empty());
+
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(get_quote_tick(&instrument_audusd, 126.0, 127.0, 1.0, 1.0))
+        .unwrap();
+    let recovered = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert!(!recovered.is_stale);
+    assert!(recovered.stale_instruments.is_empty());
+}
+
+#[rstest]
+fn test_build_snapshot_flags_never_priced_position(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-NEVER-PRICED"),
+    );
+    let position = Position::new(&instrument_audusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+
+    let snapshot = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert_eq!(snapshot.base_currency_equity, None);
+    assert!(snapshot.is_stale);
+    assert!(snapshot.stale_instruments.is_empty());
+    assert!(snapshot.stale_currencies.is_empty());
+    assert_eq!(snapshot.unpriced_instruments, vec![instrument_audusd.id()]);
+}
+
+#[rstest]
+fn test_build_snapshot_keeps_unpriced_flag_for_credited_cash_asset(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&AccountState::new(
+        account_id,
+        AccountType::Cash,
+        vec![
+            AccountBalance::new(
+                Money::from("1 AUD"),
+                Money::zero(Currency::AUD()),
+                Money::from("1 AUD"),
+            ),
+            AccountBalance::new(
+                Money::from("900.00 USD"),
+                Money::zero(Currency::USD()),
+                Money::from("900.00 USD"),
+            ),
+        ],
+        vec![],
+        true,
+        uuid4(),
+        0.into(),
+        0.into(),
+        None,
+    ));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-UNPRICED-CREDITED-ASSET"),
+    );
+    let position = Position::new(&instrument_audusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+
+    let snapshot = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert!(snapshot.is_stale);
+    assert!(snapshot.stale_instruments.is_empty());
+    assert!(snapshot.stale_currencies.is_empty());
+    assert_eq!(snapshot.unpriced_instruments, vec![instrument_audusd.id()]);
+    assert_eq!(snapshot.total_equity.len(), 2);
+    assert!(snapshot.total_equity.contains(&Money::from("1 AUD")));
+    assert!(snapshot.total_equity.contains(&Money::from("900.00 USD")));
+}
+
+#[rstest]
+fn test_build_snapshot_carries_last_valid_xrate(
+    mut simple_cache: Cache,
+    clock: TestClock,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    simple_cache
+        .add_instrument(instrument_audusd.clone())
+        .unwrap();
+    simple_cache.set_mark_xrate(Currency::USD(), Currency::EUR(), 0.9);
+    simple_cache
+        .add_mark_price(MarkPriceUpdate::new(
+            instrument_audusd.id(),
+            Price::new(100.0, 0),
+            0.into(),
+            0.into(),
+        ))
+        .unwrap();
+    let config = PortfolioConfig::builder()
+        .use_mark_xrates(true)
+        .build()
+        .unwrap();
+    let mut portfolio = Portfolio::new(
+        Rc::new(RefCell::new(clock)),
+        Rc::new(RefCell::new(simple_cache)),
+        Some(config),
+    );
+    portfolio.update_account(&AccountState::new(
+        account_id,
+        AccountType::Cash,
+        vec![AccountBalance::new(
+            Money::from("1000.00 EUR"),
+            Money::zero(Currency::EUR()),
+            Money::from("1000.00 EUR"),
+        )],
+        vec![],
+        true,
+        uuid4(),
+        0.into(),
+        0.into(),
+        Some(Currency::EUR()),
+    ));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-STALE-XRATE"),
+    );
+    let position = Position::new(&instrument_audusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+
+    let current = portfolio.build_snapshot(&account_id).unwrap();
+    portfolio.cache().borrow_mut().clear_mark_xrates();
+    let carried = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert_eq!(
+        current.base_currency_equity,
+        Some(Money::from("1090.00 EUR"))
+    );
+    assert!(!current.is_stale);
+    assert_eq!(
+        carried.base_currency_equity,
+        Some(Money::from("1090.00 EUR"))
+    );
+    assert!(carried.is_stale);
+    assert!(carried.stale_instruments.is_empty());
+    assert_eq!(carried.stale_currencies, vec![Currency::USD()]);
+    assert!(carried.unpriced_instruments.is_empty());
+
+    portfolio
+        .cache()
+        .borrow_mut()
+        .set_mark_xrate(Currency::USD(), Currency::EUR(), 0.8);
+    let recovered = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert_eq!(
+        recovered.base_currency_equity,
+        Some(Money::from("1080.00 EUR"))
+    );
+    assert!(!recovered.is_stale);
+    assert!(recovered.stale_currencies.is_empty());
 }
 
 #[rstest]
@@ -5262,12 +5578,13 @@ fn test_missing_price_tracked_for_unpriced_margin_position(
     // so the portfolio's unrealized_pnls cache stays empty. With no quote/trade/bar
     // either, equity() must fail to price the position and surface it via the
     // missing-price tracker, mirroring the cash/betting path.
-    let state = get_margin_account(Some("SIM-001"));
+    let account_id = AccountId::new("SIM-001");
+    let state = get_margin_account(Some(account_id.as_str()));
     portfolio.update_account(&state);
 
     let fill = make_fill_for_account(
         &instrument_audusd,
-        AccountId::new("SIM-001"),
+        account_id,
         OrderSide::Buy,
         Quantity::from("1"),
         Price::new(100.0, 0),
@@ -5280,12 +5597,17 @@ fn test_missing_price_tracked_for_unpriced_margin_position(
         .add_position(&position, OmsType::Hedging)
         .unwrap();
 
-    let _ = portfolio.equity(&Venue::test_default(), None);
+    let snapshot = portfolio.build_snapshot(&account_id).unwrap();
+
     assert_eq!(
         portfolio.missing_price_instruments(&Venue::test_default()),
         vec![instrument_audusd.id()],
-        "margin equity path must track unpriced open positions"
+        "margin snapshot path must track unpriced open positions"
     );
+    assert!(snapshot.is_stale);
+    assert!(snapshot.stale_instruments.is_empty());
+    assert!(snapshot.stale_currencies.is_empty());
+    assert_eq!(snapshot.unpriced_instruments, vec![instrument_audusd.id()]);
 }
 
 #[rstest]
@@ -5616,8 +5938,9 @@ fn test_missing_xrate_flags_instrument(
         Some(config),
     );
 
+    let account_id = AccountId::new("SIM-001");
     let state = AccountState::new(
-        AccountId::new("SIM-001"),
+        account_id,
         AccountType::Cash,
         vec![AccountBalance::new(
             Money::new(1_000.0, Currency::EUR()),
@@ -5639,7 +5962,7 @@ fn test_missing_xrate_flags_instrument(
 
     let fill = make_fill_for_account(
         &instrument_audusd,
-        AccountId::new("SIM-001"),
+        account_id,
         OrderSide::Buy,
         Quantity::from("1"),
         Price::new(100.0, 0),
@@ -5660,6 +5983,79 @@ fn test_missing_xrate_flags_instrument(
         portfolio.missing_price_instruments(&Venue::test_default()),
         vec![instrument_audusd.id()],
     );
+    let snapshot = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert_eq!(
+        snapshot.base_currency_equity,
+        Some(Money::from("1000.00 EUR"))
+    );
+    assert!(snapshot.is_stale);
+    assert!(snapshot.stale_instruments.is_empty());
+    assert!(snapshot.stale_currencies.is_empty());
+    assert_eq!(snapshot.unpriced_instruments, vec![instrument_audusd.id()]);
+}
+
+#[rstest]
+fn test_build_snapshot_conversion_opt_out_has_no_headline_or_staleness(
+    mut simple_cache: Cache,
+    clock: TestClock,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    simple_cache
+        .add_instrument(instrument_audusd.clone())
+        .unwrap();
+    simple_cache
+        .add_quote(get_quote_tick(&instrument_audusd, 100.0, 101.0, 1.0, 1.0))
+        .unwrap();
+    let config = PortfolioConfig::builder()
+        .convert_to_account_base_currency(false)
+        .build()
+        .unwrap();
+    let mut portfolio = Portfolio::new(
+        Rc::new(RefCell::new(clock)),
+        Rc::new(RefCell::new(simple_cache)),
+        Some(config),
+    );
+    portfolio.update_account(&AccountState::new(
+        account_id,
+        AccountType::Cash,
+        vec![AccountBalance::new(
+            Money::from("1000.00 EUR"),
+            Money::zero(Currency::EUR()),
+            Money::from("1000.00 EUR"),
+        )],
+        vec![],
+        true,
+        uuid4(),
+        0.into(),
+        0.into(),
+        Some(Currency::EUR()),
+    ));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-NATIVE-SNAPSHOT"),
+    );
+    let position = Position::new(&instrument_audusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+
+    let snapshot = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert_eq!(snapshot.base_currency_equity, None);
+    assert!(!snapshot.is_stale);
+    assert!(snapshot.stale_instruments.is_empty());
+    assert!(snapshot.stale_currencies.is_empty());
+    assert!(snapshot.unpriced_instruments.is_empty());
+    assert!(snapshot.total_equity.contains(&Money::from("1000.00 EUR")));
+    assert!(snapshot.total_equity.contains(&Money::from("100.00 USD")));
 }
 
 #[rstest]
