@@ -112,11 +112,19 @@ positions are skipped.
 Equity combines the account balance with open-position valuation, using a different
 second term depending on account type:
 
-- **Cash and betting accounts**: `balances_total + Σ mark_value(open positions)`.
+- **Cash accounts without a base currency**: Start with `balances_total`. For positions
+  owned by that account, do not add a base-asset mark value when the balance already holds
+  that asset and the instrument's cost currency differs from its base currency. Add mark
+  values for inverse instruments and positions not represented by a credited balance asset.
+- **Cash accounts with a base currency and betting accounts**:
+  `balances_total + Σ mark_value(open positions)`.
 - **Margin accounts**: `balances_total + Σ unrealized_pnl(open positions)`.
 
-The cash and betting path uses `mark_values()` internally. The margin path uses
-the same cached unrealized PnL pipeline that powers `unrealized_pnls()`.
+`mark_values()` always returns gross open-position values, including assets already
+present in a multi-currency cash balance. The value-once rule means `equity()` and equity
+snapshots count each non-inverse base asset either as a balance or a mark value, not both.
+The margin path uses the same cached unrealized PnL pipeline that powers
+`unrealized_pnls()`.
 
 ### Price fallback
 

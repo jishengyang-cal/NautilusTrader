@@ -78,6 +78,12 @@ enum OrderUpdateSource {
     Topic,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MarkValueMode {
+    Gross,
+    Equity,
+}
+
 impl PortfolioState {
     fn new(
         clock: Rc<RefCell<dyn Clock>>,
@@ -748,18 +754,7 @@ impl Portfolio {
         venue: &Venue,
         account_id: Option<&AccountId>,
     ) -> IndexMap<Currency, Money> {
-        let mut values: IndexMap<Currency, Decimal> = IndexMap::new();
-        let mut unpriced: AHashSet<InstrumentId> = AHashSet::new();
-
-        if self.accumulate_mark_values(*venue, account_id, &mut values, &mut unpriced) {
-            self.update_missing_price_state(*venue, &unpriced);
-        } else if account_id.is_none() {
-            // Only clear the tracker on an unfiltered sweep; otherwise we could
-            // wipe another account's flags on the same venue.
-            self.inner.borrow_mut().venues_missing_price.remove(venue);
-        }
-
-        decimal_map_to_money(values)
+        self.mark_values_with_mode(*venue, account_id, MarkValueMode::Gross)
     }
 
     /// Returns the per-currency total equity for the given venue.
@@ -845,7 +840,13 @@ impl Portfolio {
                 }
                 self.update_missing_price_state(*venue, &unpriced);
             }
-        } else if self.accumulate_mark_values(*venue, account_id, &mut equity, &mut unpriced) {
+        } else if self.accumulate_mark_values(
+            *venue,
+            account_id,
+            &mut equity,
+            &mut unpriced,
+            MarkValueMode::Equity,
+        ) {
             self.update_missing_price_state(*venue, &unpriced);
         } else if account_id.is_none() {
             self.inner.borrow_mut().venues_missing_price.remove(venue);
@@ -928,7 +929,9 @@ impl Portfolio {
             }
             AccountAny::Cash(_) | AccountAny::Betting(_) => {
                 for venue in &open_venues {
-                    for (currency, money) in self.mark_values(venue, Some(account_id)) {
+                    for (currency, money) in
+                        self.mark_values_with_mode(*venue, Some(account_id), MarkValueMode::Equity)
+                    {
                         equity
                             .entry(currency)
                             .and_modify(|total| *total = *total + money)
@@ -1015,6 +1018,26 @@ impl Portfolio {
         tracked.retain(|id| unpriced.contains(id));
     }
 
+    fn mark_values_with_mode(
+        &self,
+        venue: Venue,
+        account_id: Option<&AccountId>,
+        mode: MarkValueMode,
+    ) -> IndexMap<Currency, Money> {
+        let mut values: IndexMap<Currency, Decimal> = IndexMap::new();
+        let mut unpriced: AHashSet<InstrumentId> = AHashSet::new();
+
+        if self.accumulate_mark_values(venue, account_id, &mut values, &mut unpriced, mode) {
+            self.update_missing_price_state(venue, &unpriced);
+        } else if account_id.is_none() {
+            // Only clear the tracker on an unfiltered sweep; otherwise we could
+            // wipe another account's flags on the same venue.
+            self.inner.borrow_mut().venues_missing_price.remove(&venue);
+        }
+
+        decimal_map_to_money(values)
+    }
+
     // Returns `true` if at least one open position was seen (priced or not),
     // `false` if the venue is flat. Unpriced instruments are written to
     // `unpriced` for the caller to flow into `update_missing_price_state`.
@@ -1024,6 +1047,7 @@ impl Portfolio {
         account_id: Option<&AccountId>,
         values: &mut IndexMap<Currency, Decimal>,
         unpriced: &mut AHashSet<InstrumentId>,
+        mode: MarkValueMode,
     ) -> bool {
         let cache = self.cache.borrow();
         let positions = cache.positions_open(Some(&venue), None, None, account_id, None);
@@ -1032,7 +1056,14 @@ impl Portfolio {
             return false;
         }
 
-        let account = match account_id {
+        let equity_account_id = if mode == MarkValueMode::Equity {
+            account_id
+                .copied()
+                .or_else(|| cache.account_id(&venue).copied())
+        } else {
+            None
+        };
+        let valuation_account = match account_id {
             Some(id) => cache.account(id),
             None => cache.account_for_venue(&venue),
         };
@@ -1053,6 +1084,22 @@ impl Portfolio {
                 }
             };
 
+            let position_account = cache.account(&position.account_id);
+            let base_currency_is_credited = mode == MarkValueMode::Equity
+                && equity_account_id == Some(position.account_id)
+                && position_account.as_ref().is_some_and(|account| {
+                    matches!(&**account, AccountAny::Cash(_))
+                        && account.base_currency().is_none()
+                        && instrument.base_currency().is_some_and(|base| {
+                            instrument.cost_currency() != base
+                                && account.balances().contains_key(&base)
+                        })
+                });
+
+            if base_currency_is_credited {
+                continue;
+            }
+
             let price = match self.get_price(&position) {
                 Some(p) => p,
                 None => {
@@ -1063,7 +1110,7 @@ impl Portfolio {
 
             let settlement = instrument.settlement_currency();
             let (xrate, currency) = if self.config.convert_to_account_base_currency
-                && let Some(account) = account.as_ref()
+                && let Some(account) = valuation_account.as_ref()
                 && let Some(base_currency) = account.base_currency()
             {
                 let xrate_opt = *xrate_cache
