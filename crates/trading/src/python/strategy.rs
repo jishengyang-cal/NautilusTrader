@@ -1397,8 +1397,11 @@ impl PyStrategy {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[allow(
     clippy::large_types_passed_by_value,
+    reason = "PyO3 callbacks accept Python-owned event values"
+)]
+#[expect(
     clippy::unused_self,
-    reason = "default PyO3 callbacks must remain instance methods and accept Python-owned event values"
+    reason = "default PyO3 callbacks must remain instance methods"
 )]
 impl PyStrategy {
     /// Creates a new [`PyStrategy`] instance.
