@@ -1067,9 +1067,9 @@ flow is:
    `HandlerCommand::Subscribe`. The WebSocket client stores the exact
    `(channel, auth)` pair in `subscription_args` for reconnect replay.
 3. **Schedule refresh**: After the execution WebSocket consumer starts, the
-   execution client spawns a refresh task on `get_runtime()`. The task sleeps
-   for `AUTH_TOKEN_REFRESH_INTERVAL` (6 hours), mints a new token, and re-issues
-   `subscribe_account(...)` for every account channel.
+   execution client spawns a refresh task on `get_runtime()`. The task waits for
+   `AUTH_TOKEN_REFRESH_INTERVAL` (6 hours) or a reconnect notification, mints a
+   new token, and re-issues `subscribe_account(...)` for every account channel.
 4. **Stop on disconnect**: The refresh task observes the execution client's
    cancellation token and exits when the client stops or disconnects.
 
@@ -1084,6 +1084,7 @@ fn spawn_auth_token_refresh(&self, credential: Credential) {
     let ws_client = self.ws_client.clone();
     let cancellation_token = self.cancellation_token.clone();
     let account_index = credential.account_index();
+    let refresh_notify = Arc::clone(&self.auth_refresh_notify);
     let channels = [
         LighterWsChannel::AccountAllOrders(account_index),
         LighterWsChannel::AccountAllTrades(account_index),
@@ -1095,14 +1096,15 @@ fn spawn_auth_token_refresh(&self, credential: Credential) {
         loop {
             tokio::select! {
                 () = cancellation_token.cancelled() => break,
-                () = tokio::time::sleep(AUTH_TOKEN_REFRESH_INTERVAL) => {
-                    if let Ok(token) = build_auth_token_for(&credential) {
-                        for channel in channels.clone() {
-                            let _ = ws_client
-                                .subscribe_account(channel, token.clone())
-                                .await;
-                        }
-                    }
+                () = refresh_notify.notified() => {},
+                () = tokio::time::sleep(AUTH_TOKEN_REFRESH_INTERVAL) => {},
+            }
+
+            if let Ok(token) = build_auth_token_for(&credential) {
+                for channel in channels.clone() {
+                    let _ = ws_client
+                        .subscribe_account(channel, token.clone())
+                        .await;
                 }
             }
         }
@@ -1113,9 +1115,9 @@ fn spawn_auth_token_refresh(&self, credential: Credential) {
 **Reconnect interaction**
 
 On `Reconnected`, the Lighter WebSocket client replays the tracked
-`subscription_args` through `HandlerCommand::Subscribe`. It does not mint a
-fresh token on reconnect; fresh account-channel tokens come from the scheduled
-execution-client refresh task.
+`subscription_args` through `HandlerCommand::Subscribe`, then forwards the reconnect event.
+The execution client notifies the refresh task, which immediately mints a fresh token and
+re-subscribes every account channel. The fresh subscriptions replace the stored replay tokens.
 
 **Failure handling**
 

@@ -169,11 +169,18 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Interactive Brokers v2 tracked fills to emit `OrderFilled` after `OrderAccepted`, emit `OrderRejected` on gateway submission failure, and retain fill identity across terminal callbacks
 - Fixed Interactive Brokers `IneligibilityReason` serialization (#4380), thanks @xxxxxx-oss
 - Fixed Interactive Brokers Docker gateway startup to ignore the active Docker context
+- Fixed Lighter batch orders to use correlated sequential WebSocket transactions
+- Fixed Lighter reconciliation cursor loops, fill deduplication, and trailing fill identity
+- Fixed Lighter instrument parsing, gap candle filtering, and spot quote currencies
+- Fixed Lighter modify validation, conditional order acknowledgements, approval nonce recovery,
+  auth refresh, and WebSocket timeouts
+- Fixed Lighter ambiguous send outcomes, hashless response attribution, historical order identity, order-index collisions, and GTD expiry validation
 
 ### Internal Improvements
 - Improved core decimal deserialization to round fractional scales above 28 digits instead of erroring
 - Improved live reconciliation recency tracking with `RecencyMap` (#4386), thanks @folknor
 - Improved portfolio statistics test coverage with canonical worked examples
+- Improved Lighter signing and execution coverage for conditional, IOC, cancel-all, and leverage transactions
 - Made portfolio reference-count clones explicit (#4364), thanks @ChrisAB
 - Upgraded Binance Spot SBE REST and WebSocket API requests to schema `3:5` (Rust)
 - Upgraded Rust (MSRV) to 1.97.0
@@ -187,6 +194,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 ### Documentation Updates
 - Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
 - Updated Architect AX integration docs for current market-data, REST schema, and funding-rate behavior
+- Updated Lighter integration docs for sequential order fanout and reconciliation limits
 - Updated Polymarket v2 examples and integration docs for current markets, order modes, and configuration
 - Added SinoPac Securities community adapter listing (#4324), thanks @Martingale42
 - Added canonical references and doc comments for portfolio statistics
