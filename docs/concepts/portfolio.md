@@ -130,10 +130,12 @@ The margin path uses the same cached unrealized PnL pipeline that powers
 
 Valuation asks `Cache` for a price in this order, stopping at the first match:
 
-1. Mark price, if `use_mark_prices=true` in `PortfolioConfig` and a mark price is cached.
+1. Mark price, if `use_mark_prices=true` (the v2 default) in `PortfolioConfig` and a mark price is cached.
 2. Side-appropriate quote: `BID` for longs, `ASK` for shorts.
 3. Last trade price.
 4. Most recent cached bar close (populated when `bar_updates=true`).
+
+In v2, set `use_mark_prices=false` to skip the mark tier and begin with the side-appropriate quote.
 
 If none of the four yield a price, the position goes into the missing-price tracker
 and is skipped in the sum.

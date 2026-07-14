@@ -23,7 +23,7 @@ use nautilus_common::{
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     accounts::{Account, AccountAny},
-    data::{Bar, BarType, QuoteTick},
+    data::{Bar, BarType, MarkPriceUpdate, QuoteTick},
     enums::{AccountType, LiquiditySide, OmsType, OrderSide, OrderType, PositionSide},
     events::{
         AccountState, OrderAccepted, OrderEventAny, OrderFilled, OrderSubmitted, PortfolioSnapshot,
@@ -4282,6 +4282,66 @@ fn test_equity_cash_account_long_position(
         equity.get(&Currency::USD()).unwrap().as_decimal(),
         dec!(110.0)
     );
+}
+
+#[rstest]
+#[case(true, dec!(120))]
+#[case(false, dec!(100))]
+fn test_mark_values_follow_mark_price_policy(
+    #[case] use_default: bool,
+    #[case] expected: Decimal,
+    mut simple_cache: Cache,
+    clock: TestClock,
+    instrument_audusd: InstrumentAny,
+) {
+    simple_cache
+        .add_instrument(instrument_audusd.clone())
+        .unwrap();
+    let config = (!use_default).then(|| {
+        PortfolioConfig::builder()
+            .use_mark_prices(false)
+            .build()
+            .unwrap()
+    });
+    let mut portfolio = Portfolio::new(
+        Rc::new(RefCell::new(clock)),
+        Rc::new(RefCell::new(simple_cache)),
+        config,
+    );
+    portfolio.update_account(&get_cash_account(Some("SIM-001")));
+
+    let quote = get_quote_tick(&instrument_audusd, 100.0, 101.0, 1.0, 1.0);
+    let mark = MarkPriceUpdate::new(
+        instrument_audusd.id(),
+        Price::new(120.0, 0),
+        0.into(),
+        0.into(),
+    );
+    {
+        let mut cache = portfolio.cache().borrow_mut();
+        cache.add_quote(quote).unwrap();
+        cache.add_mark_price(mark).unwrap();
+    }
+    portfolio.update_quote_tick(&quote);
+
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        AccountId::new("SIM-001"),
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new(format!("P-MARK-POLICY-{use_default}")),
+    );
+    let position = Position::new(&instrument_audusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+
+    let mark_values = portfolio.mark_values(&Venue::test_default(), None);
+
+    assert_eq!(mark_values[&Currency::USD()].as_decimal(), expected);
 }
 
 #[rstest]

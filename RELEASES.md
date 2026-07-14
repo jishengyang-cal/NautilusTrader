@@ -55,6 +55,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Tardis MEXC spot and futures market data support
 
 ### Breaking Changes
+- Changed v2 `PortfolioConfig.use_mark_prices` to default to `true`, preferring cached venue marks
+  before quote, trade, and bar fallbacks; set it to `false` to retain the prior behavior
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
