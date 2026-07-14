@@ -575,7 +575,16 @@ impl Portfolio {
             }
 
             let price = self.get_price(&position)?;
-            let notional = position.notional_value(price);
+            let notional = match position.try_notional_value(price) {
+                Ok(notional) => notional,
+                Err(e) => {
+                    log::error!(
+                        "Cannot calculate net exposures: invalid notional value for {}: {e}",
+                        position.instrument_id
+                    );
+                    return None;
+                }
+            };
             let xrate = if let Some(xrate) =
                 self.calculate_xrate_to_base(instrument, &account, notional.currency)
             {
@@ -704,7 +713,13 @@ impl Portfolio {
             return None;
         }
 
-        Some(realized + unrealized)
+        match realized.checked_add(unrealized) {
+            Some(total) => Some(total),
+            None => {
+                log::error!("Cannot calculate total PnL: total exceeds Money bounds");
+                None
+            }
+        }
     }
 
     /// Returns the total PnLs for the given venue.
@@ -731,7 +746,14 @@ impl Portfolio {
         for (currency, unrealized) in unrealized_pnls {
             match total_pnls.get_mut(&currency) {
                 Some(total) => {
-                    *total = *total + unrealized;
+                    if let Some(sum) = total.checked_add(unrealized) {
+                        *total = sum;
+                    } else {
+                        log::error!(
+                            "Cannot calculate total PnL for {currency}: total exceeds Money bounds"
+                        );
+                        total_pnls.shift_remove(&currency);
+                    }
                 }
                 None => {
                     total_pnls.insert(currency, unrealized);
@@ -980,11 +1002,11 @@ impl Portfolio {
             .unwrap_or_default()
     }
 
-    /// Returns the instruments currently flagged as unpriced for the given venue.
+    /// Returns the instruments currently flagged as unpriceable for the given venue.
     ///
-    /// An entry is added the first time [`Portfolio::mark_values`] cannot source a
-    /// price for an open position (after also emitting a warn log), and removed
-    /// once the instrument is priced again so a subsequent drop re-warns.
+    /// An entry is added the first time [`Portfolio::mark_values`] cannot value an open position
+    /// because its price is missing or its notional is invalid (after also emitting a warn log),
+    /// and removed once the instrument can be valued again so a subsequent drop re-warns.
     #[must_use]
     pub fn missing_price_instruments(&self, venue: &Venue) -> Vec<InstrumentId> {
         let mut ids: Vec<InstrumentId> = self
@@ -1010,8 +1032,9 @@ impl Portfolio {
         for instrument_id in ids {
             if tracked.insert(instrument_id) {
                 log::warn!(
-                    "No price available for open position {instrument_id}; \
-                    subscribe to quotes, trades or bars for continuous mark-to-market equity"
+                    "Cannot value open position {instrument_id}; ensure its notional inputs are \
+                    valid and subscribe to quotes, trades or bars for continuous mark-to-market \
+                    equity"
                 );
             }
         }
@@ -1110,7 +1133,17 @@ impl Portfolio {
                 }
             };
 
-            let notional = position.notional_value(price);
+            let notional = match position.try_notional_value(price) {
+                Ok(notional) => notional,
+                Err(e) => {
+                    log::error!(
+                        "Cannot calculate mark value: invalid notional value for {}: {e}",
+                        position.instrument_id
+                    );
+                    unpriced.insert(position.instrument_id);
+                    continue;
+                }
+            };
             let cost_currency = notional.currency;
             let (xrate, currency) = if self.config.convert_to_account_base_currency
                 && let Some(account) = valuation_account.as_ref()
@@ -1193,7 +1226,16 @@ impl Portfolio {
             }
 
             let price = self.get_price(position)?;
-            let notional_value = position.notional_value(price);
+            let notional_value = match position.try_notional_value(price) {
+                Ok(notional) => notional,
+                Err(e) => {
+                    log::error!(
+                        "Cannot calculate net exposure: invalid notional value for {}: {e}",
+                        position.instrument_id
+                    );
+                    return None;
+                }
+            };
             let source_currency = notional_value.currency;
 
             if account.base_currency().is_none() {
@@ -1659,7 +1701,17 @@ impl Portfolio {
                 return None; // Cannot calculate
             };
 
-            let position_pnl = position.unrealized_pnl(price);
+            let position_pnl = match position.try_unrealized_pnl(price) {
+                Ok(pnl) => pnl,
+                Err(e) => {
+                    log::error!(
+                        "Cannot calculate unrealized PnL for {}: {e}",
+                        position.instrument_id
+                    );
+                    self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
+                    return None;
+                }
+            };
             let source_currency = position_pnl.currency;
             let currency = account.base_currency().unwrap_or(source_currency);
             match output_currency {
@@ -1690,10 +1742,20 @@ impl Portfolio {
                     return None; // Cannot calculate
                 };
 
-                pnl = (pnl * xrate).round_dp(u32::from(currency.precision));
+                let Some(converted) = pnl.checked_mul(xrate) else {
+                    log::error!("Cannot calculate unrealized PnL: currency conversion overflow");
+                    self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
+                    return None;
+                };
+                pnl = converted.round_dp(u32::from(currency.precision));
             }
 
-            total_pnl += pnl;
+            let Some(updated_total) = total_pnl.checked_add(pnl) else {
+                log::error!("Cannot calculate unrealized PnL: total overflow");
+                self.inner.borrow_mut().pending_calcs.insert(*instrument_id);
+                return None;
+            };
+            total_pnl = updated_total;
         }
 
         let currency = output_currency.unwrap_or_else(|| instrument.cost_currency());

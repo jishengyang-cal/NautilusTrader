@@ -705,16 +705,15 @@ impl Position {
         // Epsilon at the limit of IEEE f64 precision before rounding errors (f64::EPSILON ≈ 2.22e-16)
         const EPSILON: f64 = 1e-15;
 
-        // Invalid state: zero or near-zero prices should never occur in valid market data
-        if avg_px_open.abs() < EPSILON {
+        if avg_px_open <= 0.0 || avg_px_open.abs() < EPSILON {
             anyhow::bail!(
-                "Cannot calculate inverse points: open price is zero or too small ({avg_px_open})"
+                "Cannot calculate inverse points: open price is not positive or is too small ({avg_px_open})"
             );
         }
 
-        if avg_px_close.abs() < EPSILON {
+        if avg_px_close <= 0.0 || avg_px_close.abs() < EPSILON {
             anyhow::bail!(
-                "Cannot calculate inverse points: close price is zero or too small ({avg_px_close})"
+                "Cannot calculate inverse points: close price is not positive or is too small ({avg_px_close})"
             );
         }
 
@@ -746,6 +745,11 @@ impl Position {
     ) -> anyhow::Result<f64> {
         let quantity = quantity.min(self.signed_qty.abs());
         let result = if self.is_inverse {
+            anyhow::ensure!(
+                self.base_currency.is_some(),
+                "inverse position {} has no base currency",
+                self.instrument_id
+            );
             let points = self.calculate_points_inverse(avg_px_open, avg_px_close)?;
             quantity * self.multiplier.as_f64() * points
         } else {
@@ -755,44 +759,86 @@ impl Position {
     }
 
     /// Calculates profit and loss from the given prices and quantity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if inverse P&L cannot be calculated or the result cannot be represented as
+    /// [`Money`].
+    pub fn try_calculate_pnl(
+        &self,
+        avg_px_open: f64,
+        avg_px_close: f64,
+        quantity: Quantity,
+    ) -> anyhow::Result<Money> {
+        let pnl_raw = self.calculate_pnl_raw(avg_px_open, avg_px_close, quantity.as_f64())?;
+        Money::new_checked(pnl_raw, self.settlement_currency).map_err(Into::into)
+    }
+
+    /// Calculates profit and loss from the given prices and quantity.
     #[must_use]
     pub fn calculate_pnl(&self, avg_px_open: f64, avg_px_close: f64, quantity: Quantity) -> Money {
-        let pnl_raw = self
-            .calculate_pnl_raw(avg_px_open, avg_px_close, quantity.as_f64())
+        self.try_calculate_pnl(avg_px_open, avg_px_close, quantity)
             .unwrap_or_else(|e| {
                 log::error!("Error calculating PnL: {e}");
-                0.0
-            });
-        Money::new(pnl_raw, self.settlement_currency)
+                Money::zero(self.settlement_currency)
+            })
+    }
+
+    /// Returns total P&L (realized + unrealized) based on the last price.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unrealized P&L cannot be calculated, the realized and unrealized
+    /// currencies differ, or the total cannot be represented as [`Money`].
+    pub fn try_total_pnl(&self, last: Price) -> anyhow::Result<Money> {
+        let unrealized = self.try_unrealized_pnl(last)?;
+
+        match self.realized_pnl {
+            Some(realized) => {
+                anyhow::ensure!(
+                    realized.currency == unrealized.currency,
+                    "realized and unrealized PnL currencies differ"
+                );
+                realized
+                    .checked_add(unrealized)
+                    .ok_or_else(|| anyhow::anyhow!("total PnL overflow"))
+            }
+            None => Ok(unrealized),
+        }
     }
 
     /// Returns total P&L (realized + unrealized) based on the last price.
     #[must_use]
     pub fn total_pnl(&self, last: Price) -> Money {
-        let unrealized = self.unrealized_pnl(last);
-        match self.realized_pnl {
-            Some(realized) => realized + unrealized,
-            None => unrealized,
+        self.try_total_pnl(last).unwrap_or_else(|e| {
+            log::error!("Error calculating total PnL: {e}");
+            Money::zero(self.settlement_currency)
+        })
+    }
+
+    /// Returns unrealized P&L based on the last price.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if inverse P&L cannot be calculated or the result cannot be represented as
+    /// [`Money`].
+    pub fn try_unrealized_pnl(&self, last: Price) -> anyhow::Result<Money> {
+        if self.side == PositionSide::Flat {
+            Ok(Money::zero(self.settlement_currency))
+        } else {
+            let pnl =
+                self.calculate_pnl_raw(self.avg_px_open, last.as_f64(), self.quantity.as_f64())?;
+            Money::new_checked(pnl, self.settlement_currency).map_err(Into::into)
         }
     }
 
     /// Returns unrealized P&L based on the last price.
     #[must_use]
     pub fn unrealized_pnl(&self, last: Price) -> Money {
-        if self.side == PositionSide::Flat {
+        self.try_unrealized_pnl(last).unwrap_or_else(|e| {
+            log::error!("Error calculating unrealized PnL: {e}");
             Money::zero(self.settlement_currency)
-        } else {
-            let avg_px_open = self.avg_px_open;
-            let avg_px_close = last.as_f64();
-            let quantity = self.quantity.as_f64();
-            let pnl = self
-                .calculate_pnl_raw(avg_px_open, avg_px_close, quantity)
-                .unwrap_or_else(|e| {
-                    log::error!("Error calculating unrealized PnL: {e}");
-                    0.0
-                });
-            Money::new(pnl, self.settlement_currency)
-        }
+        })
     }
 
     /// Returns the order side required to close this position.
@@ -875,28 +921,41 @@ impl Position {
 
     /// Calculates the notional value based on the last price.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if this is an inverse position without a base currency, the price is not
+    /// positive for inverse valuation, or the result cannot be represented as [`Money`].
+    pub fn try_notional_value(&self, last: Price) -> anyhow::Result<Money> {
+        let currency = if self.is_inverse {
+            self.base_currency.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "inverse position {} has no base currency",
+                    self.instrument_id
+                )
+            })?
+        } else {
+            self.settlement_currency
+        };
+
+        crate::instruments::try_notional_value(
+            self.quantity,
+            last,
+            self.multiplier,
+            self.is_inverse,
+            false,
+            currency,
+        )
+    }
+
+    /// Calculates the notional value based on the last price.
+    ///
     /// # Panics
     ///
-    /// Panics if `self.base_currency` is `None`, or if `last` is not a positive price for
-    /// inverse instruments.
+    /// Panics if [`Position::try_notional_value`] returns an error.
     #[must_use]
     pub fn notional_value(&self, last: Price) -> Money {
-        if self.is_inverse {
-            check_predicate_true(
-                last.is_positive(),
-                "last price must be positive for inverse instrument",
-            )
-            .expect(FAILED);
-            Money::new(
-                self.quantity.as_f64() * self.multiplier.as_f64() * (1.0 / last.as_f64()),
-                self.base_currency.unwrap(),
-            )
-        } else {
-            Money::new(
-                self.quantity.as_f64() * last.as_f64() * self.multiplier.as_f64(),
-                self.settlement_currency,
-            )
-        }
+        self.try_notional_value(last)
+            .expect("invalid notional value")
     }
 
     /// Returns the last `OrderFilled` event for the position (if any after purging).
@@ -2234,6 +2293,55 @@ mod tests {
             position.notional_value(Price::from("11000.0")),
             Money::from("9.09090909 BTC")
         );
+    }
+
+    #[rstest]
+    fn test_try_notional_value_for_inverse_zero_price_returns_error(
+        xbtusd_bitmex: CryptoPerpetual,
+    ) {
+        let xbtusd_bitmex = InstrumentAny::CryptoPerpetual(xbtusd_bitmex);
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(xbtusd_bitmex.id())
+            .side(OrderSide::Sell)
+            .quantity(Quantity::from("100000"))
+            .build();
+        let fill = TestOrderEventStubs::filled(
+            &order,
+            &xbtusd_bitmex,
+            None,
+            Some(PositionId::from("P-ZERO-PRICE")),
+            Some(Price::from("10000.0")),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let mut position = Position::new(&xbtusd_bitmex, fill.into());
+
+        let result = position.try_notional_value(Price::new(0.0, 1));
+
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "price must be positive for inverse notional valuation"
+        );
+        assert!(
+            position
+                .try_calculate_pnl(10_000.0, 0.0, position.quantity)
+                .is_err()
+        );
+        assert!(position.try_unrealized_pnl(Price::new(0.0, 1)).is_err());
+        assert!(position.try_total_pnl(Price::new(0.0, 1)).is_err());
+        assert!(position.try_unrealized_pnl(Price::new(-1.0, 1)).is_err());
+
+        position.base_currency = None;
+        let result = position.try_notional_value(Price::from("10000.0"));
+
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "inverse position BTCUSDT.BITMEX has no base currency"
+        );
+        assert!(position.try_unrealized_pnl(Price::from("10000.0")).is_err());
     }
 
     #[rstest]

@@ -68,6 +68,7 @@ impl AccountsManager {
         instrument: &InstrumentAny,
         fill: &OrderFilled,
     ) -> (AccountAny, AccountState) {
+        let original_account = account.clone();
         let position_id = if let Some(position_id) = fill.position_id {
             position_id
         } else {
@@ -87,28 +88,37 @@ impl AccountsManager {
 
         let position = self.cache.borrow().position_owned(&position_id);
 
-        let pnls = account.calculate_pnls(instrument, fill, position);
+        let pnls = match account.calculate_pnls(instrument, fill, position) {
+            Ok(pnls) => pnls,
+            Err(e) => {
+                log::error!(
+                    "Cannot update balances for fill {}: failed to calculate PnL: {e}",
+                    fill.trade_id
+                );
+                let state = self.generate_account_state(&account, fill.ts_event);
+                return (account, state);
+            }
+        };
 
         // Calculate final PnL including commissions
-        match account.base_currency() {
+        let updated = match account.base_currency() {
             Some(base_currency) => {
-                let pnl = pnls.map_or_else(
-                    |_| Money::zero(base_currency),
-                    |pnl_list| {
-                        pnl_list
-                            .first()
-                            .copied()
-                            .unwrap_or_else(|| Money::zero(base_currency))
-                    },
-                );
+                let pnl = pnls
+                    .first()
+                    .copied()
+                    .unwrap_or_else(|| Money::zero(base_currency));
 
-                self.update_balance_single_currency(&mut account, fill, pnl);
+                self.update_balance_single_currency(&mut account, fill, pnl)
             }
             None => {
-                if let Ok(mut pnl_list) = pnls {
-                    self.update_balance_multi_currency(&mut account, fill, &mut pnl_list);
-                }
+                let mut pnl_list = pnls;
+                self.update_balance_multi_currency(&mut account, fill, &mut pnl_list)
             }
+        };
+
+        if !updated {
+            let state = self.generate_account_state(&original_account, fill.ts_event);
+            return (original_account, state);
         }
 
         let state = self.generate_account_state(&account, fill.ts_event);
@@ -715,12 +725,12 @@ impl AccountsManager {
         account: &mut AccountAny,
         fill: &OrderFilled,
         mut pnl: Money,
-    ) {
+    ) -> bool {
         let base_currency = if let Some(currency) = account.base_currency() {
             currency
         } else {
             log::error!("Account has no base currency set");
-            return;
+            return false;
         };
 
         let mut balances = Vec::new();
@@ -741,11 +751,15 @@ impl AccountsManager {
             );
 
             if let Some(xrate) = xrate {
-                *comm = match Money::from_decimal(comm.as_decimal() * xrate, base_currency) {
+                let Some(converted) = comm.as_decimal().checked_mul(xrate) else {
+                    log::error!("Cannot calculate account state: commission conversion overflow");
+                    return false;
+                };
+                *comm = match Money::from_decimal(converted, base_currency) {
                     Ok(money) => money,
                     Err(e) => {
                         log::error!("Cannot calculate account state: {e}");
-                        return;
+                        return false;
                     }
                 };
             } else {
@@ -754,7 +768,7 @@ impl AccountsManager {
                     comm.currency,
                     base_currency
                 );
-                return;
+                return false;
             }
         }
 
@@ -771,11 +785,15 @@ impl AccountsManager {
             );
 
             if let Some(xrate) = xrate {
-                pnl = match Money::from_decimal(pnl.as_decimal() * xrate, base_currency) {
+                let Some(converted) = pnl.as_decimal().checked_mul(xrate) else {
+                    log::error!("Cannot calculate account state: PnL conversion overflow");
+                    return false;
+                };
+                pnl = match Money::from_decimal(converted, base_currency) {
                     Ok(money) => money,
                     Err(e) => {
                         log::error!("Cannot calculate account state: {e}");
-                        return;
+                        return false;
                     }
                 };
             } else {
@@ -784,16 +802,20 @@ impl AccountsManager {
                     pnl.currency,
                     base_currency
                 );
-                return;
+                return false;
             }
         }
 
         if let Some(comm) = commission {
-            pnl = pnl - comm;
+            let Some(net_pnl) = pnl.checked_sub(comm) else {
+                log::error!("Cannot calculate account state: net PnL exceeds Money bounds");
+                return false;
+            };
+            pnl = net_pnl;
         }
 
         if pnl.is_zero() {
-            return;
+            return true;
         }
 
         let existing_balances = account.balances();
@@ -804,10 +826,13 @@ impl AccountsManager {
                 "Cannot complete transaction: no balance for {}",
                 pnl.currency
             );
-            return;
+            return false;
         };
 
-        let new_total = balance.total.as_decimal() + pnl.as_decimal();
+        let Some(new_total) = balance.total.as_decimal().checked_add(pnl.as_decimal()) else {
+            log::error!("Cannot update {} balance: total overflow", pnl.currency);
+            return false;
+        };
 
         let new_balance = match AccountBalance::from_total_and_locked(
             new_total,
@@ -817,7 +842,7 @@ impl AccountsManager {
             Ok(new_balance) => new_balance,
             Err(e) => {
                 log::error!("Cannot update {} balance: {e}", pnl.currency);
-                return;
+                return false;
             }
         };
 
@@ -827,31 +852,41 @@ impl AccountsManager {
             AccountAny::Margin(margin) => {
                 margin.update_balances(&balances);
 
-                if let Some(comm) = commission {
-                    margin.update_commissions(comm);
+                if let Some(comm) = commission
+                    && let Err(e) = margin.try_update_commissions(comm)
+                {
+                    log::error!("Cannot update margin account commissions: {e}");
+                    return false;
                 }
             }
             AccountAny::Cash(cash) => {
                 if let Err(e) = cash.update_balances(&balances) {
                     log::error!("Cannot update cash account balance: {e}");
-                    return;
+                    return false;
                 }
 
-                if let Some(comm) = commission {
-                    cash.update_commissions(comm);
+                if let Some(comm) = commission
+                    && let Err(e) = cash.try_update_commissions(comm)
+                {
+                    log::error!("Cannot update cash account commissions: {e}");
+                    return false;
                 }
             }
             AccountAny::Betting(betting) => {
                 if let Err(e) = betting.update_balances(&balances) {
                     log::error!("Cannot update betting account balance: {e}");
-                    return;
+                    return false;
                 }
 
-                if let Some(comm) = commission {
-                    betting.update_commissions(comm);
+                if let Some(comm) = commission
+                    && let Err(e) = betting.try_update_commissions(comm)
+                {
+                    log::error!("Cannot update betting account commissions: {e}");
+                    return false;
                 }
             }
         }
+        true
     }
 
     fn update_balance_multi_currency(
@@ -859,14 +894,18 @@ impl AccountsManager {
         account: &mut AccountAny,
         fill: &OrderFilled,
         pnls: &mut [Money],
-    ) {
+    ) -> bool {
         let mut new_balances = Vec::new();
         let commission = fill.commission;
         let mut apply_commission = commission.is_some_and(|c| !c.is_zero());
 
         for pnl in pnls.iter_mut() {
             if apply_commission && pnl.currency == commission.unwrap().currency {
-                *pnl = *pnl - commission.unwrap();
+                let Some(net_pnl) = pnl.checked_sub(commission.unwrap()) else {
+                    log::error!("Cannot calculate account state: net PnL exceeds Money bounds");
+                    return false;
+                };
+                *pnl = net_pnl;
                 apply_commission = false;
             }
 
@@ -878,14 +917,22 @@ impl AccountsManager {
             let balances = account.balances();
 
             let new_balance = if let Some(balance) = balances.get(&currency) {
-                let new_total = balance.total.as_decimal() + pnl.as_decimal();
+                let Some(new_total) = balance.total.as_decimal().checked_add(pnl.as_decimal())
+                else {
+                    log::error!("Cannot update {currency} balance: total overflow");
+                    return false;
+                };
                 let mut new_locked = balance.locked.as_decimal();
 
                 if pnl.as_decimal() < Decimal::ZERO
                     && fill.order_type != OrderType::Market
                     && !self.is_sports_betting_fill(fill.instrument_id)
                 {
-                    new_locked += pnl.as_decimal();
+                    let Some(updated_locked) = new_locked.checked_add(pnl.as_decimal()) else {
+                        log::error!("Cannot update {currency} balance: locked amount overflow");
+                        return false;
+                    };
+                    new_locked = updated_locked;
 
                     if new_locked < Decimal::ZERO {
                         new_locked = Decimal::ZERO;
@@ -896,7 +943,7 @@ impl AccountsManager {
                     Ok(new_balance) => new_balance,
                     Err(e) => {
                         log::error!("Cannot update {currency} balance: {e}");
-                        return;
+                        return false;
                     }
                 }
             } else {
@@ -911,7 +958,7 @@ impl AccountsManager {
                     log::error!(
                         "Cannot complete transaction: no {currency} to deduct a {pnl} realized PnL from"
                     );
-                    return;
+                    return false;
                 }
                 AccountBalance::new(*pnl, Money::zero(currency), *pnl)
             };
@@ -925,7 +972,14 @@ impl AccountsManager {
             let balances = account.balances();
 
             let commission_balance = if let Some(balance) = balances.get(&currency) {
-                let new_total = balance.total.as_decimal() - commission.as_decimal();
+                let Some(new_total) = balance
+                    .total
+                    .as_decimal()
+                    .checked_sub(commission.as_decimal())
+                else {
+                    log::error!("Cannot deduct {currency} commission: total overflow");
+                    return false;
+                };
 
                 match AccountBalance::from_total_and_locked(
                     new_total,
@@ -935,7 +989,7 @@ impl AccountsManager {
                     Ok(commission_balance) => commission_balance,
                     Err(e) => {
                         log::error!("Cannot deduct {currency} commission: {e}");
-                        return;
+                        return false;
                     }
                 }
             } else {
@@ -943,14 +997,14 @@ impl AccountsManager {
                     log::error!(
                         "Cannot complete transaction: no {currency} balance to deduct a {commission} commission from"
                     );
-                    return;
+                    return false;
                 }
                 let rebate = -commission.as_decimal();
                 match AccountBalance::from_total_and_locked(rebate, Decimal::ZERO, currency) {
                     Ok(commission_balance) => commission_balance,
                     Err(e) => {
                         log::error!("Cannot credit {currency} commission rebate: {e}");
-                        return;
+                        return false;
                     }
                 }
             };
@@ -958,38 +1012,48 @@ impl AccountsManager {
         }
 
         if new_balances.is_empty() {
-            return;
+            return true;
         }
 
         match account {
             AccountAny::Margin(margin) => {
                 margin.update_balances(&new_balances);
 
-                if let Some(commission) = commission {
-                    margin.update_commissions(commission);
+                if let Some(commission) = commission
+                    && let Err(e) = margin.try_update_commissions(commission)
+                {
+                    log::error!("Cannot update margin account commissions: {e}");
+                    return false;
                 }
             }
             AccountAny::Cash(cash) => {
                 if let Err(e) = cash.update_balances(&new_balances) {
                     log::error!("Cannot update cash account balance: {e}");
-                    return;
+                    return false;
                 }
 
-                if let Some(commission) = commission {
-                    cash.update_commissions(commission);
+                if let Some(commission) = commission
+                    && let Err(e) = cash.try_update_commissions(commission)
+                {
+                    log::error!("Cannot update cash account commissions: {e}");
+                    return false;
                 }
             }
             AccountAny::Betting(betting) => {
                 if let Err(e) = betting.update_balances(&new_balances) {
                     log::error!("Cannot update betting account balance: {e}");
-                    return;
+                    return false;
                 }
 
-                if let Some(commission) = commission {
-                    betting.update_commissions(commission);
+                if let Some(commission) = commission
+                    && let Err(e) = betting.try_update_commissions(commission)
+                {
+                    log::error!("Cannot update betting account commissions: {e}");
+                    return false;
                 }
             }
         }
+        true
     }
 
     fn is_sports_betting_fill(&self, instrument_id: InstrumentId) -> bool {
@@ -2518,6 +2582,64 @@ mod tests {
         assert_eq!(state.balances[0].currency, usd);
         assert_eq!(state.balances[0].total, expected);
         assert_eq!(state.balances[0].free, expected);
+    }
+
+    #[rstest]
+    fn test_update_balances_notional_error_preserves_cash_balance_and_commission() {
+        let usd = Currency::USD();
+        let account_state = AccountState::new(
+            AccountId::new("SIM-001"),
+            AccountType::Cash,
+            vec![AccountBalance::new(
+                Money::new(1_000_000.0, usd),
+                Money::zero(usd),
+                Money::new(1_000_000.0, usd),
+            )],
+            Vec::new(),
+            true,
+            UUID4::new(),
+            UnixNanos::default(),
+            UnixNanos::default(),
+            Some(usd),
+        );
+        let account = CashAccount::new(account_state, true, false);
+        let clock = Rc::new(RefCell::new(TestClock::new()));
+        let cache = Rc::new(RefCell::new(Cache::new(None, None)));
+        let manager = AccountsManager::new(clock, cache.clone());
+        let instrument = audusd_sim();
+        let fill = OrderFilledSpec::builder()
+            .instrument_id(instrument.id())
+            .last_qty(Quantity::from("100000000"))
+            .last_px(Price::from("100000000"))
+            .ts_event(UnixNanos::from(1))
+            .ts_init(UnixNanos::from(1))
+            .position_id(PositionId::new("P-NOTIONAL-ERROR"))
+            .commission(Money::new(20.0, usd))
+            .build();
+        let position = Position::new(
+            &InstrumentAny::CurrencyPair(instrument.clone()),
+            fill.clone(),
+        );
+        cache
+            .borrow_mut()
+            .add_position(&position, OmsType::Netting)
+            .unwrap();
+
+        let (updated, state) = manager.update_balances(
+            AccountAny::Cash(account),
+            &InstrumentAny::CurrencyPair(instrument),
+            &fill,
+        );
+
+        let AccountAny::Cash(cash) = updated else {
+            panic!("Expected CashAccount");
+        };
+        assert_eq!(
+            cash.balance_total(Some(usd)),
+            Some(Money::new(1_000_000.0, usd))
+        );
+        assert!(cash.commissions().is_empty());
+        assert_eq!(state.balances[0].total, Money::new(1_000_000.0, usd));
     }
 
     fn multi_currency_cash_account(allow_borrowing: bool) -> CashAccount {

@@ -4414,6 +4414,51 @@ fn test_equity_multi_currency_cash_retains_inverse_mark(mut portfolio: Portfolio
 }
 
 #[rstest]
+fn test_equity_marks_inverse_zero_price_unpriced(mut portfolio: Portfolio) {
+    let instrument = InstrumentAny::CryptoPerpetual(xbtusd_bitmex());
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_instrument(instrument.clone())
+        .unwrap();
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+
+    let quote = get_quote_tick(&instrument, 0.0, 0.0, 1.0, 1.0);
+    portfolio.cache().borrow_mut().add_quote(quote).unwrap();
+    portfolio.update_quote_tick(&quote);
+
+    let fill = make_fill_for_account(
+        &instrument,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("100000"),
+        Price::new(10_000.0, instrument.price_precision()),
+        PositionId::new("P-INVERSE-ZERO-PRICE"),
+    );
+    let position = Position::new(&instrument, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+    portfolio.update_position(&PositionEvent::PositionOpened(get_open_position(&position)));
+
+    let venue = instrument.id().venue;
+    let mark_values = portfolio.mark_values(&venue, Some(&account_id));
+    let net_exposure = portfolio.net_exposure(&instrument.id(), Some(&account_id));
+    let net_exposures = portfolio.net_exposures(&venue, Some(&account_id));
+
+    assert!(mark_values.is_empty());
+    assert_eq!(net_exposure, None);
+    assert_eq!(net_exposures, None);
+    assert_eq!(
+        portfolio.missing_price_instruments(&venue),
+        vec![instrument.id()]
+    );
+}
+
+#[rstest]
 fn test_unfiltered_equity_does_not_skip_marks_for_non_balance_account(
     mut portfolio: Portfolio,
     instrument_audusd: InstrumentAny,
@@ -4976,6 +5021,49 @@ fn test_equity_margin_account_with_unrealized_pnl(
     assert_eq!(
         equity.get(&Currency::USD()).unwrap().as_decimal(),
         dec!(20.0)
+    );
+}
+
+#[rstest]
+fn test_equity_margin_account_marks_inverse_zero_price_unpriced(mut portfolio: Portfolio) {
+    let instrument = InstrumentAny::CryptoPerpetual(xbtusd_bitmex());
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_instrument(instrument.clone())
+        .unwrap();
+    let account_id = AccountId::new("BITMEX-001");
+    portfolio.update_account(&get_margin_account(Some(account_id.as_str())));
+
+    let quote = get_quote_tick(&instrument, 0.0, 0.0, 1.0, 1.0);
+    portfolio.cache().borrow_mut().add_quote(quote).unwrap();
+    portfolio.update_quote_tick(&quote);
+
+    let fill = make_fill_for_account(
+        &instrument,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("100000"),
+        Price::new(10_000.0, instrument.price_precision()),
+        PositionId::new("P-INV-MARGIN-ZERO"),
+    );
+    let position = Position::new(&instrument, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+    portfolio.update_position(&PositionEvent::PositionOpened(get_open_position(&position)));
+
+    let venue = instrument.id().venue;
+    let unrealized = portfolio.unrealized_pnl(&instrument.id());
+    let equity = portfolio.equity(&venue, Some(&account_id));
+
+    assert_eq!(unrealized, None);
+    assert_eq!(equity[&Currency::USD()], Money::from("10 USD"));
+    assert_eq!(
+        portfolio.missing_price_instruments(&venue),
+        vec![instrument.id()]
     );
 }
 
