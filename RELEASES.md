@@ -67,6 +67,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 ### Fixes
 - Fixed v2 multi-currency cash equity double-counting assets already credited to account balances
 - Fixed v2 quanto position notionals using quote currency instead of settlement currency
+- Fixed v2 portfolio valuations labeling and converting cost-currency amounts as settlement currency
 - Fixed v2 composite bar aggregation (`@` source) to deliver aggregated bars to subscribed actors and strategies
 - Fixed v2 tick, tick-imbalance, and tick-runs aggregators to emit bars with the standard bar type for composite subscriptions, matching all other aggregators
 - Fixed v2 volume-runs and value-runs aggregators dropping leftover volume when a trade spanned a bar boundary and the next trade continued the same side

@@ -42,7 +42,7 @@ use nautilus_model::{
         stubs::{account_id, uuid4},
     },
     instruments::{
-        CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny,
+        CryptoFuture, CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny,
         stubs::{
             audusd_sim, currency_pair_btcusdt, default_fx_ccy, ethusdt_bitmex, futures_spread_es,
             xbtusd_bitmex,
@@ -133,6 +133,33 @@ fn instrument_btcusdt(currency_pair_btcusdt: CurrencyPair) -> InstrumentAny {
 #[fixture]
 fn instrument_ethusdt(ethusdt_bitmex: CryptoPerpetual) -> InstrumentAny {
     InstrumentAny::CryptoPerpetual(ethusdt_bitmex)
+}
+
+#[fixture]
+fn instrument_usd_usdt_future() -> InstrumentAny {
+    usd_usdt_future(Currency::USD())
+}
+
+fn usd_usdt_future(quote_currency: Currency) -> InstrumentAny {
+    InstrumentAny::CryptoFuture(
+        CryptoFuture::builder()
+            .instrument_id(InstrumentId::from("ETHUSD-123.SIM"))
+            .raw_symbol(Symbol::from("ETHUSD-123"))
+            .underlying(Currency::ETH())
+            .quote_currency(quote_currency)
+            .settlement_currency(Currency::USDT())
+            .is_inverse(false)
+            .activation_ns(0.into())
+            .expiration_ns(0.into())
+            .price_precision(2)
+            .size_precision(0)
+            .price_increment(Price::from("0.01"))
+            .size_increment(Quantity::from("1"))
+            .ts_event(0.into())
+            .ts_init(0.into())
+            .build()
+            .unwrap(),
+    )
 }
 
 #[fixture]
@@ -3791,6 +3818,48 @@ fn test_portfolio_realized_pnl_with_multiple_snapshots_netting_oms(
     assert_eq!(pnl, Money::from("15.00 USD"));
 }
 
+#[rstest]
+fn test_realized_pnl_rejects_mixed_currency_snapshots(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_margin_account(Some(account_id.as_str())));
+    let fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::from("1.00"),
+        PositionId::new("P-MIXED-SNAPSHOT-CURRENCY"),
+    );
+    let mut position = Position::new(&instrument_audusd, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Netting)
+        .unwrap();
+    position.realized_pnl = Some(Money::from("10.00 USD"));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .snapshot_position(&position)
+        .unwrap();
+    let initial_realized_pnl = portfolio.realized_pnl(&instrument_audusd.id());
+    position.settlement_currency = Currency::EUR();
+    position.realized_pnl = Some(Money::from("10.00 EUR"));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .snapshot_position(&position)
+        .unwrap();
+
+    let mixed_realized_pnl = portfolio.realized_pnl(&instrument_audusd.id());
+
+    assert_eq!(initial_realized_pnl, Some(Money::from("10.00 USD")));
+    assert_eq!(mixed_realized_pnl, None);
+}
+
 fn make_fill_for_account(
     instrument: &InstrumentAny,
     account_id: AccountId,
@@ -4475,6 +4544,216 @@ fn test_unfiltered_mark_values_preserve_venue_account_conversion(
 
     assert_eq!(mark_values.len(), 1);
     assert_eq!(mark_values[&Currency::GBP()].as_decimal(), dec!(100));
+}
+
+#[rstest]
+fn test_portfolio_valuation_uses_instrument_cost_currency(
+    mut portfolio: Portfolio,
+    instrument_usd_usdt_future: InstrumentAny,
+) {
+    let instrument = instrument_usd_usdt_future;
+    let account_id = AccountId::new("SIM-001");
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_instrument(instrument.clone())
+        .unwrap();
+    portfolio.update_account(&get_margin_account(Some(account_id.as_str())));
+
+    let mut position = open_cost_currency_position(
+        &mut portfolio,
+        &instrument,
+        account_id,
+        PositionId::new("P-USD-USDT-COST-CURRENCY"),
+    );
+
+    let venue = instrument.id().venue;
+    let mark_values = portfolio.mark_values(&venue, Some(&account_id));
+    let net_exposures = portfolio.net_exposures(&venue, Some(&account_id)).unwrap();
+    let net_exposure = portfolio
+        .net_exposure(&instrument.id(), Some(&account_id))
+        .unwrap();
+    let unrealized_pnl = portfolio
+        .unrealized_pnl_for_account(&instrument.id(), Some(&account_id))
+        .unwrap();
+
+    assert!(!instrument.is_quanto());
+    assert_eq!(instrument.cost_currency(), Currency::USD());
+    assert_eq!(instrument.settlement_currency(), Currency::USDT());
+    assert_eq!(
+        mark_values,
+        IndexMap::from([(Currency::USD(), Money::from("220.00 USD"))])
+    );
+    assert_eq!(
+        net_exposures,
+        IndexMap::from([(Currency::USD(), Money::from("220.00 USD"))])
+    );
+    assert_eq!(net_exposure, Money::from("220.00 USD"));
+    assert_eq!(unrealized_pnl, Money::from("20.00 USD"));
+
+    let closing_fill = make_fill_for_account(
+        &instrument,
+        account_id,
+        OrderSide::Sell,
+        Quantity::from("2"),
+        Price::from("120.00"),
+        position.id,
+    );
+    position.apply(&closing_fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_position(&position)
+        .unwrap();
+    portfolio.update_position(&PositionEvent::PositionClosed(get_close_position(
+        &position,
+    )));
+    let realized_pnl = portfolio
+        .realized_pnl_for_account(&instrument.id(), Some(&account_id))
+        .unwrap();
+
+    assert_eq!(realized_pnl, Money::from("40.00 USD"));
+}
+
+#[rstest]
+fn test_portfolio_valuation_converts_from_instrument_cost_currency(
+    mut simple_cache: Cache,
+    clock: TestClock,
+    instrument_usd_usdt_future: InstrumentAny,
+) {
+    let instrument = instrument_usd_usdt_future;
+    let account_id = AccountId::new("SIM-001");
+    simple_cache.add_instrument(instrument.clone()).unwrap();
+    simple_cache.set_mark_xrate(Currency::USD(), Currency::EUR(), 0.9);
+    let config = PortfolioConfig::builder()
+        .use_mark_xrates(true)
+        .build()
+        .unwrap();
+    let mut portfolio = Portfolio::new(
+        Rc::new(RefCell::new(clock)),
+        Rc::new(RefCell::new(simple_cache)),
+        Some(config),
+    );
+    let state = AccountState::new(
+        account_id,
+        AccountType::Margin,
+        vec![AccountBalance::new(
+            Money::new(1_000.0, Currency::EUR()),
+            Money::zero(Currency::EUR()),
+            Money::new(1_000.0, Currency::EUR()),
+        )],
+        vec![],
+        true,
+        uuid4(),
+        0.into(),
+        0.into(),
+        Some(Currency::EUR()),
+    );
+    portfolio.update_account(&state);
+
+    let mut position = open_cost_currency_position(
+        &mut portfolio,
+        &instrument,
+        account_id,
+        PositionId::new("P-USD-USDT-XRATE"),
+    );
+
+    let venue = instrument.id().venue;
+    let mark_values = portfolio.mark_values(&venue, Some(&account_id));
+    let net_exposures = portfolio.net_exposures(&venue, Some(&account_id)).unwrap();
+    let net_exposure = portfolio
+        .net_exposure(&instrument.id(), Some(&account_id))
+        .unwrap();
+    let unrealized_pnl = portfolio
+        .unrealized_pnl_for_account(&instrument.id(), Some(&account_id))
+        .unwrap();
+
+    assert_eq!(
+        mark_values,
+        IndexMap::from([(Currency::EUR(), Money::from("198.00 EUR"))])
+    );
+    assert_eq!(
+        net_exposures,
+        IndexMap::from([(Currency::EUR(), Money::from("198.00 EUR"))])
+    );
+    assert_eq!(net_exposure, Money::from("198.00 EUR"));
+    assert_eq!(unrealized_pnl, Money::from("18.00 EUR"));
+
+    let replacement = usd_usdt_future(Currency::USDC());
+    {
+        let mut cache = portfolio.cache().borrow_mut();
+        cache.add_instrument(replacement).unwrap();
+        cache.set_mark_xrate(Currency::USDC(), Currency::EUR(), 1.2);
+    }
+    let replacement_mark_values = portfolio.mark_values(&venue, Some(&account_id));
+    let replacement_net_exposures = portfolio.net_exposures(&venue, Some(&account_id)).unwrap();
+    let replacement_net_exposure = portfolio
+        .net_exposure(&instrument.id(), Some(&account_id))
+        .unwrap();
+    let replacement_unrealized_pnl = portfolio
+        .unrealized_pnl_for_account(&instrument.id(), Some(&account_id))
+        .unwrap();
+
+    assert_eq!(
+        replacement_mark_values,
+        IndexMap::from([(Currency::EUR(), Money::from("198.00 EUR"))])
+    );
+    assert_eq!(
+        replacement_net_exposures,
+        IndexMap::from([(Currency::EUR(), Money::from("198.00 EUR"))])
+    );
+    assert_eq!(replacement_net_exposure, Money::from("198.00 EUR"));
+    assert_eq!(replacement_unrealized_pnl, Money::from("18.00 EUR"));
+
+    let closing_fill = make_fill_for_account(
+        &instrument,
+        account_id,
+        OrderSide::Sell,
+        Quantity::from("2"),
+        Price::from("120.00"),
+        position.id,
+    );
+    position.apply(&closing_fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_position(&position)
+        .unwrap();
+    portfolio.update_position(&PositionEvent::PositionClosed(get_close_position(
+        &position,
+    )));
+    let realized_pnl = portfolio
+        .realized_pnl_for_account(&instrument.id(), Some(&account_id))
+        .unwrap();
+
+    assert_eq!(realized_pnl, Money::from("36.00 EUR"));
+}
+
+fn open_cost_currency_position(
+    portfolio: &mut Portfolio,
+    instrument: &InstrumentAny,
+    account_id: AccountId,
+    position_id: PositionId,
+) -> Position {
+    let quote = get_quote_tick(instrument, 110.0, 111.0, 1.0, 1.0);
+    portfolio.cache().borrow_mut().add_quote(quote).unwrap();
+    portfolio.update_quote_tick(&quote);
+    let fill = make_fill_for_account(
+        instrument,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("2"),
+        Price::from("100.00"),
+        position_id,
+    );
+    let position = Position::new(instrument, fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Hedging)
+        .unwrap();
+    portfolio.update_position(&PositionEvent::PositionOpened(get_open_position(&position)));
+    position
 }
 
 #[rstest]

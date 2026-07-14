@@ -7,7 +7,7 @@ It consolidates position data from multiple instruments, providing a unified vie
 
 The Portfolio supports automatic currency conversion for PnL and exposure calculations,
 allowing you to view results in your preferred currency. This is particularly useful when
-trading across multiple instruments with different settlement currencies or managing multiple
+trading across multiple instruments with different cost currencies or managing multiple
 accounts with different base currencies.
 
 ### Supported conversions
@@ -96,7 +96,7 @@ If `use_mark_xrates` is enabled in the portfolio configuration, `MARK` prices re
 
 The Portfolio exposes three pull-style queries for continuous portfolio valuation.
 Each returns per-currency results keyed by the relevant account base currency or
-native settlement currency.
+native cost currency.
 
 | Method                                   | Returns                                                          |
 |------------------------------------------|------------------------------------------------------------------|
@@ -141,13 +141,13 @@ and is skipped in the sum.
 ### Base currency conversion
 
 When `convert_to_account_base_currency=true` (the default) and the account has a
-`base_currency` set, settlement-currency values are converted to the base currency
+`base_currency` set, cost-currency values are converted to the base currency
 using `MID` xrates from `Cache.get_xrate()`. With `use_mark_xrates=true`, the cached
 mark xrate from `Cache.get_mark_xrate()` is used first and falls back to `MID` if
 unavailable. The output dictionary then has a single key matching the base currency.
 
 When `convert_to_account_base_currency=false`, or the account has no `base_currency`,
-results are keyed by each position's native settlement currency and no xrate
+results are keyed by each position's native cost currency and no xrate
 conversion is applied.
 
 If xrate data is unavailable for a required conversion, that position is treated
