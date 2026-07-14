@@ -160,6 +160,8 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Derive cancellation, replacement, and nonce failure lifecycle events, and rejected
   execution configs without a positive `max_fee_per_contract`
 - Fixed Derive shared market data channel ownership, unsubscribe races, and stale quote-cache reuse
+- Fixed Derive HTTP and WebSocket request pacing, signed-write expiry, null-id error handling, and
+  handler blocking during reconnects
 - Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
 - Fixed Architect AX `/transactions` requests to include the required bounded time range
 - Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas (#4402)

@@ -30,7 +30,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
@@ -136,6 +136,7 @@ struct WsState {
     // the `params` object of a captured `private/*` frame so assertions read
     // the signed body fields directly (`body["instrument_name"]`, etc.).
     submitted_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
+    submitted_order_received_at_ms: Arc<tokio::sync::Mutex<Vec<u64>>>,
     submitted_trigger_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
     cancelled_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
     cancelled_trigger_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
@@ -167,6 +168,7 @@ impl Default for WsState {
             login_failures_after_first: Arc::new(AtomicUsize::new(0)),
             disconnect_after_subscribe: Arc::new(AtomicBool::new(false)),
             submitted_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            submitted_order_received_at_ms: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             submitted_trigger_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancelled_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancelled_trigger_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -500,7 +502,16 @@ async fn handle_ws(mut socket: WebSocket, state: WsState) {
                                 }
                             }
                             "private/order" => {
+                                let received_at_ms = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .expect("system time is after unix epoch")
+                                    .as_millis() as u64;
                                 state.submitted_orders.lock().await.push(params);
+                                state
+                                    .submitted_order_received_at_ms
+                                    .lock()
+                                    .await
+                                    .push(received_at_ms);
                                 ws_reply(id, &state.order_reply, || {
                                     json!({"result": {"order": sample_order_json()}})
                                 })
@@ -1544,6 +1555,76 @@ async fn test_submit_order_accepts_signature_ttl_above_minimum() {
         "signature expiry must use the configured TTL above the minimum, was {expiry}",
     );
     assert_eq!(body["label"].as_str(), Some("STRAT-OK-TTL-1"));
+
+    tc.client.disconnect().await.expect("disconnect");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_deeply_paced_submit_builds_signature_after_matching_quota_wait() {
+    let rest_state = RestState::default();
+    let ws_state = WsState::default();
+    let mut tc = build_client_with_config(rest_state, ws_state.clone(), |mut config| {
+        config.signature_expiry_secs = MIN_SIGNATURE_TTL.as_secs() + 1;
+        config.max_matching_requests_per_second = Some(1);
+        config
+    })
+    .await;
+    tc.client.connect().await.expect("connect succeeds");
+
+    let instrument_id = InstrumentId::from("ETH-PERP.DERIVE");
+    let started = std::time::Instant::now();
+
+    for sequence in 0..7 {
+        let order = build_limit_order(
+            instrument_id,
+            ClientOrderId::from(format!("STRAT-PACED-{sequence}")),
+            OrderSide::Buy,
+            Price::from("3500.00"),
+            Quantity::from("1.000"),
+        );
+        tc.cache
+            .borrow_mut()
+            .add_order(order.clone(), None, None, false)
+            .expect("cache insert");
+        tc.client
+            .submit_order(submit_cmd(&order))
+            .expect("submit Ok");
+    }
+
+    wait_until(
+        || {
+            let state = ws_state.clone();
+            async move { state.submitted_orders.lock().await.len() == 7 }
+        },
+        "seven private/order requests posted",
+    )
+    .await;
+    let elapsed = started.elapsed();
+    let posts = ws_state.submitted_orders.lock().await;
+    let received_at_ms = ws_state.submitted_order_received_at_ms.lock().await;
+
+    assert_eq!(posts.len(), 7);
+    assert_eq!(received_at_ms.len(), 7);
+    assert!(
+        elapsed >= Duration::from_millis(1_500),
+        "seven writes must exhaust the five-request burst, elapsed {elapsed:?}",
+    );
+
+    for (body, received_at_ms) in posts.iter().zip(received_at_ms.iter()) {
+        let expiry_ms = body["signature_expiry_sec"]
+            .as_i64()
+            .expect("payload has signature expiry") as i128
+            * 1_000;
+        let remaining_ms = expiry_ms - i128::from(*received_at_ms);
+        assert!(
+            remaining_ms > MIN_SIGNATURE_TTL.as_millis() as i128,
+            "signature for {} must retain more than the venue minimum after pacing, remaining {remaining_ms} ms",
+            body["label"],
+        );
+    }
+    drop(received_at_ms);
+    drop(posts);
 
     tc.client.disconnect().await.expect("disconnect");
 }

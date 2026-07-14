@@ -978,6 +978,33 @@ impl ExecutionClient for DeriveExecutionClient {
                 None
             };
 
+            let matching_reservation = match ws_exec
+                .reserve_matching_request(if is_trigger_order {
+                    "private/trigger_order"
+                } else {
+                    "private/order"
+                })
+                .await
+            {
+                Ok(reservation) => reservation,
+                Err(e) => {
+                    let (reason, due_post_only) = ws_rejection_reason(&e);
+                    log::warn!(
+                        "Cannot reserve Derive order quota for {}: {reason}",
+                        order_for_task.client_order_id(),
+                    );
+                    dispatch_state.forget(&order_for_task.client_order_id());
+                    let ts = clock.get_time_ns();
+                    emitter.emit_order_rejected(
+                        &order_for_task,
+                        &reason,
+                        ts,
+                        due_post_only,
+                    );
+                    return Ok(());
+                }
+            };
+
             if is_trigger_order {
                 let nonce = match resolve_submit_nonce(
                     nonce_manager.next_nonce(&wallet_str, signing.subaccount_id),
@@ -1038,7 +1065,10 @@ impl ExecutionClient for DeriveExecutionClient {
                     payload.order.trigger_type,
                 );
 
-                match ws_exec.submit_trigger_order(&payload).await {
+                match ws_exec
+                    .submit_trigger_order_after_rate_limit(&payload, matching_reservation)
+                    .await
+                {
                     Ok(order) => {
                         let venue_order_id = VenueOrderId::new(order.order_id.as_str());
                         dispatch_state.record_venue_order_id(
@@ -1159,7 +1189,10 @@ impl ExecutionClient for DeriveExecutionClient {
 
             // Discard the result (and any `trades` it carries): fills arrive on
             // the `.trades` channel and are deduped by trade id.
-            match ws_exec.submit_order(&payload).await {
+            match ws_exec
+                .submit_order_after_rate_limit(&payload, matching_reservation)
+                .await
+            {
                 Ok(_) => {
                     log::debug!(
                         "Order submitted: client_order_id={}",
@@ -1573,6 +1606,27 @@ impl ExecutionClient for DeriveExecutionClient {
                 }
             };
 
+            let matching_reservation = match ws_exec
+                .reserve_matching_request("private/replace")
+                .await
+            {
+                Ok(reservation) => reservation,
+                Err(e) => {
+                    let (reason, _) = ws_rejection_reason(&e);
+                    log::warn!("Cannot reserve Derive replace quota for {client_order_id}: {reason}");
+                    let ts = clock.get_time_ns();
+                    emitter.emit_order_modify_rejected_event(
+                        strategy_id,
+                        instrument_id,
+                        client_order_id,
+                        Some(stale_venue_order_id),
+                        &reason,
+                        ts,
+                    );
+                    return Ok(());
+                }
+            };
+
             let expiry = match normal_order_signature_expiry(clock, signing.signature_expiry_secs) {
                 Ok(expiry) => expiry,
                 Err(e) => {
@@ -1640,7 +1694,10 @@ impl ExecutionClient for DeriveExecutionClient {
             // it arrives before this response.
             dispatch_state.mark_pending_modify(client_order_id, stale_venue_order_id);
 
-            let outcome = ws_exec.modify_order(&payload).await;
+            let outcome = ws_exec
+                .modify_order_after_rate_limit(&payload, matching_reservation)
+                .await;
+
             if let Err(e) = &outcome
                 && is_write_outcome_ambiguous_ws(e)
             {
