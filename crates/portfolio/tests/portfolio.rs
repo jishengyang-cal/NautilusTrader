@@ -5055,6 +5055,74 @@ fn test_build_snapshot_keeps_stale_flag_when_opposite_side_is_current(
 }
 
 #[rstest]
+fn test_build_snapshot_clears_stale_flag_after_stale_side_closes(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = AccountId::new("SIM-001");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(get_quote_tick(&instrument_audusd, 100.0, 101.0, 1.0, 1.0))
+        .unwrap();
+
+    let long_fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Buy,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-STALE-CLOSED-BID"),
+    );
+    let long_position = Position::new(&instrument_audusd, long_fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&long_position, OmsType::Hedging)
+        .unwrap();
+
+    let short_fill = make_fill_for_account(
+        &instrument_audusd,
+        account_id,
+        OrderSide::Sell,
+        Quantity::from("1"),
+        Price::new(100.0, 0),
+        PositionId::new("P-CURRENT-OPEN-ASK"),
+    );
+    let short_position = Position::new(&instrument_audusd, short_fill);
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&short_position, OmsType::Hedging)
+        .unwrap();
+
+    assert!(!portfolio.build_snapshot(&account_id).unwrap().is_stale);
+
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_quote(get_quote_tick(&instrument_audusd, 0.0, 125.0, 1.0, 1.0))
+        .unwrap();
+    assert!(portfolio.build_snapshot(&account_id).unwrap().is_stale);
+
+    let closed_long = Position {
+        side: PositionSide::Flat,
+        ts_closed: Some(UnixNanos::from(1)),
+        ..long_position
+    };
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_position(&closed_long)
+        .unwrap();
+    let recovered = portfolio.build_snapshot(&account_id).unwrap();
+
+    assert!(!recovered.is_stale);
+    assert!(recovered.stale_instruments.is_empty());
+}
+
+#[rstest]
 fn test_build_snapshot_flags_never_priced_position(
     mut portfolio: Portfolio,
     instrument_audusd: InstrumentAny,

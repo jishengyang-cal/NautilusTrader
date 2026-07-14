@@ -922,7 +922,7 @@ impl Portfolio {
         // unrealized PnL and mark-value sums; `all_venues` extends to closed
         // positions so realized PnL on a venue with no open exposure (a
         // multi-venue account where one venue is now flat) still rolls up.
-        let (open_venues, open_instrument_ids) = {
+        let (open_venues, open_instrument_ids, open_price_keys) = {
             let cache = self.cache.borrow();
             let positions = cache.positions_open(None, None, None, Some(account_id), None);
             let venues: AHashSet<Venue> = positions
@@ -933,7 +933,11 @@ impl Portfolio {
                 .iter()
                 .map(|position| position.instrument_id)
                 .collect();
-            (venues, instrument_ids)
+            let price_keys: AHashSet<(InstrumentId, PositionSide)> = positions
+                .iter()
+                .map(|position| (position.instrument_id, position.side))
+                .collect();
+            (venues, instrument_ids, price_keys)
         };
         let all_venues: AHashSet<Venue> = self
             .cache
@@ -1004,8 +1008,8 @@ impl Portfolio {
             let stale_instruments = inner
                 .stale_prices
                 .iter()
+                .filter(|key| open_price_keys.contains(key))
                 .map(|(instrument_id, _)| *instrument_id)
-                .filter(|instrument_id| open_instrument_ids.contains(instrument_id))
                 .collect::<AHashSet<_>>()
                 .into_iter()
                 .collect::<Vec<_>>();
