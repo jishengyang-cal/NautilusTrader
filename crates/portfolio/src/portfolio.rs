@@ -2771,7 +2771,8 @@ fn update_order(
             | OrderEventAny::Expired(_)
             | OrderEventAny::Rejected(_)
             | OrderEventAny::Updated(_)
-            | OrderEventAny::Filled(_) => {}
+            | OrderEventAny::Filled(_)
+            | OrderEventAny::FillVoided(_) => {}
             _ => {
                 return;
             }
@@ -2867,6 +2868,49 @@ fn update_order(
             .borrow_mut()
             .take_account(&account_id)
             .expect("account restored before unrealized PnL calculation");
+    } else if let OrderEventAny::FillVoided(fill_voided) = event {
+        cache.borrow_mut().cache_account_owned(working_account);
+
+        let portfolio = Portfolio {
+            clock: Rc::clone(clock),
+            cache: Rc::clone(cache),
+            inner: Rc::clone(inner),
+            config,
+        };
+        {
+            let cache_ref = cache.borrow();
+            let positions =
+                cache_ref.positions_open(None, Some(&fill_voided.instrument_id), None, None, None);
+            let positions: Vec<&Position> = positions.iter().map(|position| &**position).collect();
+            portfolio.update_net_position(&fill_voided.instrument_id, &positions);
+        }
+
+        if let Some(pnl) = portfolio.calculate_unrealized_pnl(&fill_voided.instrument_id, None) {
+            inner
+                .borrow_mut()
+                .unrealized_pnls
+                .insert(fill_voided.instrument_id, pnl);
+        } else {
+            inner
+                .borrow_mut()
+                .unrealized_pnls
+                .shift_remove(&fill_voided.instrument_id);
+        }
+
+        if let Some(pnl) = portfolio.calculate_realized_pnl(&fill_voided.instrument_id, None) {
+            inner
+                .borrow_mut()
+                .realized_pnls
+                .insert(fill_voided.instrument_id, pnl);
+        } else {
+            inner
+                .borrow_mut()
+                .realized_pnls
+                .shift_remove(&fill_voided.instrument_id);
+        }
+
+        log::debug!("Updated {event}");
+        return;
     }
 
     let orders_open_refs: Vec<&OrderAny> = orders_open.iter().collect();

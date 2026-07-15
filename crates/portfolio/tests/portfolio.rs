@@ -30,7 +30,7 @@ use nautilus_model::{
         PositionChanged, PositionClosed, PositionEvent, PositionOpened,
         account::stubs::cash_account_state,
         order::{
-            spec::OrderFilledSpec,
+            spec::{OrderFillVoidedSpec, OrderFilledSpec},
             stubs::{
                 order_accepted, order_filled, order_rejected_insufficient_margin, order_submitted,
             },
@@ -1692,6 +1692,107 @@ fn test_update_order_filled_spread_instrument_skips_balance_update(
     portfolio.update_order(&OrderEventAny::Filled(filled));
 
     assert_eq!(usd_balance_total(&portfolio, account_id), starting_usd);
+}
+
+#[rstest]
+fn test_update_order_fill_void_refreshes_net_position(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    let account_id = account_id();
+    portfolio.update_account(&get_margin_account(None));
+    portfolio
+        .cache()
+        .borrow_mut()
+        .account_mut(&account_id)
+        .unwrap()
+        .set_calculate_account_state(true);
+
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_audusd.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("100"))
+        .build();
+    order
+        .apply(OrderEventAny::Accepted(accept_order(&order)))
+        .unwrap();
+    let position_id = PositionId::new("P-FILL-VOID");
+    let fill = build_order_filled(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        order.venue_order_id().unwrap(),
+        account_id,
+        TradeId::new("T-FILL-VOID"),
+        order.order_side(),
+        order.order_type(),
+        order.quantity(),
+        Price::from("1.00000"),
+        Currency::USD(),
+        LiquiditySide::Maker,
+        Some(position_id),
+        Some(Money::from("2 USD")),
+    );
+    order.apply(OrderEventAny::Filled(fill.clone())).unwrap();
+    let position = Position::new(&instrument_audusd, fill.clone());
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_order(order, None, None, true)
+        .unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_position(&position, OmsType::Netting)
+        .unwrap();
+    portfolio.update_position(&PositionEvent::PositionOpened(get_open_position(&position)));
+
+    let fill_voided = OrderFillVoidedSpec::builder()
+        .trader_id(fill.trader_id)
+        .strategy_id(fill.strategy_id)
+        .instrument_id(fill.instrument_id)
+        .client_order_id(fill.client_order_id)
+        .venue_order_id(fill.venue_order_id)
+        .account_id(fill.account_id)
+        .trade_id(fill.trade_id)
+        .voided_qty(Quantity::from("50"))
+        .commission_voided(Money::from("1 USD"))
+        .order_side(fill.order_side)
+        .order_type(fill.order_type)
+        .last_px(fill.last_px)
+        .currency(fill.currency)
+        .liquidity_side(fill.liquidity_side)
+        .position_id(position_id)
+        .build();
+    let event = OrderEventAny::FillVoided(fill_voided.clone());
+    portfolio.cache().borrow_mut().update_order(&event).unwrap();
+    let mut corrected = position;
+    corrected
+        .apply_fill_void(
+            fill_voided,
+            Quantity::from("50"),
+            Some(Money::from("1 USD")),
+        )
+        .unwrap();
+    portfolio
+        .cache()
+        .borrow_mut()
+        .update_position(&corrected)
+        .unwrap();
+
+    portfolio.update_order(&event);
+
+    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(50));
+    assert_eq!(
+        portfolio
+            .cache()
+            .borrow()
+            .position(&position_id)
+            .unwrap()
+            .quantity,
+        Quantity::from("50")
+    );
 }
 
 #[rstest]

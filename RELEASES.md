@@ -52,8 +52,10 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
 - Added Interactive Brokers PyO3 type stub annotations (#4350), thanks @dfjmax
 - Added PancakeSwap V3 protocol-fee replay accounting; run `make init-db` for schema changes
+- Added Polymarket v2 fills at `MATCHED` with corrections for failed settlement
 - Added Polymarket v2 WS `hash` and `transaction_hash` field decoding (#4377), thanks for reporting @SebastianPartarrieu
 - Added Tardis MEXC spot and futures market data support
+- Added v2 `OrderFillVoided`, `OrderStatus.VOIDED`, and strategy and algorithm callbacks
 
 ### Breaking Changes
 - Changed v2 `PortfolioConfig.use_mark_prices` to prefer marks by default; set `false` to skip marks
@@ -143,6 +145,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed `Clock.timer_exists` to exclude expired timers like `timer_names`/`timer_count` (#4400), thanks @folknor
 - Fixed Redis message bus startup with Python v2 configs (#4356), thanks for reporting @davidgreyme
 - Fixed Rust Binance Futures hedge-mode position tracking with configurable `oms_type` (#4422), thanks for reporting @luckykefu
+- Fixed Betfair v2 voids without reversing unapplied exposure from reconnect snapshots
 - Fixed Binance Futures algo order reports omitting fill quantity and average price from `actualQty`/`actualPrice`
 - Fixed Binance Futures filled market order reconciliation to use venue average prices (#4441), thanks @KaizynX
 - Fixed Binance Futures order reports omitting external limit order prices (#4346), thanks for reporting @linimin

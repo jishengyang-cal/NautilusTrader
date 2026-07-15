@@ -381,6 +381,8 @@ cdef extern from "../includes/model.h":
         PARTIALLY_FILLED # = 13,
         # The order has been completely filled on a trading venue (closed/done).
         FILLED # = 14,
+        # The order is terminal after an authoritative venue void or fill correction.
+        VOIDED # = 15,
 
     # The type of order.
     cpdef enum OrderType:

@@ -41,6 +41,8 @@ impl Position {
     ///
     /// The position ID may be assigned at the trading venue, or can be system
     /// generated depending on a strategies OMS (Order Management System) settings.
+    /// Replay events and cumulative fill corrections preserve derived state across close and reopen
+    /// cycles.
     #[new]
     fn py_new(py: Python, instrument: Py<PyAny>, fill: OrderFilled) -> PyResult<Self> {
         let instrument_any = pyobject_to_instrument_any(py, instrument)?;

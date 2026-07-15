@@ -1442,6 +1442,8 @@ pub enum OrderStatus {
     PartiallyFilled = 13,
     /// The order has been completely filled on a trading venue (closed/done).
     Filled = 14,
+    /// The order is terminal after an authoritative venue void or fill correction.
+    Voided = 15,
 }
 
 impl OrderStatus {
@@ -1464,7 +1466,12 @@ impl OrderStatus {
     pub const fn is_closed(self) -> bool {
         matches!(
             self,
-            Self::Denied | Self::Rejected | Self::Canceled | Self::Expired | Self::Filled
+            Self::Denied
+                | Self::Rejected
+                | Self::Canceled
+                | Self::Expired
+                | Self::Filled
+                | Self::Voided
         )
     }
 
