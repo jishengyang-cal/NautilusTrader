@@ -93,12 +93,15 @@ adapter set. The following limits remain deferred:
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
 - Changed v2 order-event serialization to carry `activation_price` on `OrderInitialized`/`OrderSnapshot` and `info` on `OrderFilled`; catalog data written before this change cannot be read
+- Changed v2 `BettingInstrument`, `BinaryOption`, `FuturesContract`, and `OptionContract` Arrow schemas to carry every instrument constraint in the standard column order; catalog data written before this change cannot be read
 - Changed v2 `TrailingStopMarketOrder`/`TrailingStopLimitOrder`, `OrderInitialized`, and `OrderFilled` Python and PyO3 constructors to accept `activation_price`/`info` parameters
 - Changed v2 `OrderPendingUpdate` and `OrderPendingCancel` `account_id` to optional (`AccountId | None`), matching v1
 - Changed index option settlement to require `IndexPriceUpdate` for underlying levels (#4430, #4431), thanks @taozle
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 
 ### Fixes
+- Fixed v2 `BettingInstrument` catalog round trips deriving `raw_symbol` from the instrument ID and rebuilding `price_increment`/`size_increment` from precision, corrupting their values
+- Fixed v2 `FuturesContract`, `OptionContract`, `BinaryOption`, and `BettingInstrument` catalog round trips dropping quantity, price, and notional constraints, margins, and fees
 - Fixed v2 realized PnL returning zero for missing rates or range errors and panicking on overflow
 - Fixed v2 portfolio snapshots retaining stale-price flags after the affected position side closed
 - Fixed v2 portfolio snapshots dropping temporarily unpriced positions and hiding stale valuations
