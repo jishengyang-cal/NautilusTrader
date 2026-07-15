@@ -643,6 +643,7 @@ typedef enum OtoTriggerMode {
  *  - `CANCELED`
  *  - `EXPIRED`
  *  - `FILLED`
+ *  - `VOIDED`
  */
 typedef enum OrderStatus {
     /**

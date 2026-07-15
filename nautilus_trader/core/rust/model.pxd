@@ -352,6 +352,7 @@ cdef extern from "../includes/model.h":
     #  - `CANCELED`
     #  - `EXPIRED`
     #  - `FILLED`
+    #  - `VOIDED`
     cpdef enum OrderStatus:
         # The order is initialized (instantiated) within the Nautilus system.
         INITIALIZED # = 1,

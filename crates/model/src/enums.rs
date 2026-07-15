@@ -1380,6 +1380,7 @@ impl OrderSideSpecified {
 ///  - `CANCELED`
 ///  - `EXPIRED`
 ///  - `FILLED`
+///  - `VOIDED`
 #[repr(C)]
 #[derive(
     Copy,
