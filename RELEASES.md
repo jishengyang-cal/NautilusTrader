@@ -214,8 +214,9 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Upgraded Cython to v3.2.8
 - Upgraded Cap'n Proto to v1.5.0
 - Upgraded `capnp` to v0.26.2
-- Upgraded `databento` crate to v0.54.0
-- Upgraded `redis` crate to v1.3.0
+- Upgraded `databento` crate to v0.55.0
+- Upgraded `redis` crate to v1.4.0
+- Upgraded `tokio-tungstenite` crate to v0.30.0
 - Upgraded `pyarrow` to v25.0.0
 
 ### Documentation Updates
