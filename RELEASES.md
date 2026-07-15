@@ -23,6 +23,36 @@ The `2.0.0rc1` wheels are already available on PyPI for community testing with n
 installation. Follow-up `2.0.0rcN` wheels are likely to ship at a higher cadence than normal
 releases as feedback arrives, before the final `2.0.0` release.
 
+#### Migration contracts
+
+The v2 cutover makes the Rust + PyO3 package the primary path for new installs and source builds.
+In the current checkout it lives under `python/` and uses `python/.venv`; the root package and root
+`.venv` still provide the legacy v1 Cython environment. Both packages import as
+`nautilus_trader`, so test the migration in a separate virtual environment. See
+[Migrate from v1 to v2](MIGRATION_V2.md) for the current imports and build commands.
+
+The accepted v2 contract differences are native `CustomData` without v1 wrapper semantics,
+`OptionGreeks` cache writes, no Python `Bar.is_revision`, and a cross-zero `Position.apply` entry
+price that resets to the flipping fill. V2 also prefers mark prices by default. Catalog order-event
+data written before `activation_price` and `OrderFilled.info` were added is not readable with the new
+schema and must be regenerated or migrated before an in-place upgrade.
+
+#### Cutover limits
+
+The supported cutover workflows cover Python strategies, actors, backtests, live nodes, core risk
+and execution, portfolio/accounting, data catalogs, reports, tearsheets, and the current Rust-backed
+adapter set. The following limits remain deferred:
+
+- Python request callback, join, and pending-request convenience semantics.
+- Direct Python `LiveNode` injection for Redis cache databases and external message-bus backing.
+- SQL cache position and synthetic loads, state persistence, and heartbeat.
+- External message-bus publication of serialized order and position snapshots.
+- V1 `StreamingConfig` and `DataCatalogConfig` iterator wiring on the v2 `BacktestNode`.
+- Common adapter support for v1 instrument-provider filter dictionaries. Hyperliquid v2 loads the
+  configured universe and does not accept the v1 `instrument_provider` field.
+- Published quickstart and backtesting tutorials still use v1 imports and configuration while the
+  generated v2 stubs and `python/examples/` provide the current API.
+
 ### Enhancements
 - Added opt-in `mimalloc` allocator feature, enabled by default for Python wheels (#4358), thanks @ivannp
 - Added `LiveNode` metrics for Rust live runner metrics
