@@ -23,12 +23,12 @@ use super::{
         BINANCE_FUTURES_USD_DEMO_HTTP_URL, BINANCE_FUTURES_USD_DEMO_WS_URL,
         BINANCE_FUTURES_USD_HTTP_URL, BINANCE_FUTURES_USD_TESTNET_HTTP_URL,
         BINANCE_FUTURES_USD_TESTNET_WS_URL, BINANCE_FUTURES_USD_WS_PRIVATE_URL,
-        BINANCE_FUTURES_USD_WS_PUBLIC_URL, BINANCE_FUTURES_USD_WS_URL, BINANCE_OPTIONS_HTTP_URL,
-        BINANCE_OPTIONS_TESTNET_HTTP_URL, BINANCE_OPTIONS_TESTNET_WS_PRIVATE_URL,
-        BINANCE_OPTIONS_TESTNET_WS_PUBLIC_URL, BINANCE_OPTIONS_TESTNET_WS_URL,
-        BINANCE_OPTIONS_WS_URL, BINANCE_SPOT_DEMO_HTTP_URL, BINANCE_SPOT_DEMO_WS_URL,
-        BINANCE_SPOT_HTTP_URL, BINANCE_SPOT_TESTNET_HTTP_URL, BINANCE_SPOT_TESTNET_WS_URL,
-        BINANCE_SPOT_WS_URL,
+        BINANCE_FUTURES_USD_WS_PUBLIC_URL, BINANCE_FUTURES_USD_WS_URL,
+        BINANCE_MARGIN_SAPI_HTTP_URL, BINANCE_OPTIONS_HTTP_URL, BINANCE_OPTIONS_TESTNET_HTTP_URL,
+        BINANCE_OPTIONS_TESTNET_WS_PRIVATE_URL, BINANCE_OPTIONS_TESTNET_WS_PUBLIC_URL,
+        BINANCE_OPTIONS_TESTNET_WS_URL, BINANCE_OPTIONS_WS_URL, BINANCE_SPOT_DEMO_HTTP_URL,
+        BINANCE_SPOT_DEMO_WS_URL, BINANCE_SPOT_HTTP_URL, BINANCE_SPOT_TESTNET_HTTP_URL,
+        BINANCE_SPOT_TESTNET_WS_URL, BINANCE_SPOT_WS_URL,
     },
     enums::{BinanceEnvironment, BinanceProductType},
 };
@@ -70,6 +70,18 @@ pub fn get_http_base_url(
         (BinanceProductType::CoinM, BinanceEnvironment::Demo) => BINANCE_FUTURES_COIN_DEMO_HTTP_URL,
         (BinanceProductType::Options, BinanceEnvironment::Demo) => BINANCE_OPTIONS_TESTNET_HTTP_URL,
     }
+}
+
+/// Returns the SAPI base URL for margin account management endpoints.
+///
+/// Margin SAPI endpoints (`/sapi/v1/margin/...`) always use `api.binance.com`
+/// regardless of environment - Binance does not provide a SAPI testnet.
+#[must_use]
+pub fn get_sapi_base_url(
+    _product_type: BinanceProductType,
+    _environment: BinanceEnvironment,
+) -> &'static str {
+    BINANCE_MARGIN_SAPI_HTTP_URL
 }
 
 /// Returns the WebSocket base URL for the given product type and environment.
@@ -421,5 +433,17 @@ mod tests {
     ) {
         let url = get_usdm_ws_route_base_url(base_url, route);
         assert_eq!(url, base_url);
+    }
+
+    #[rstest]
+    fn test_sapi_url_margin_live() {
+        let url = get_sapi_base_url(BinanceProductType::Margin, BinanceEnvironment::Live);
+        assert_eq!(url, "https://api.binance.com");
+    }
+
+    #[rstest]
+    fn test_sapi_url_margin_testnet() {
+        let url = get_sapi_base_url(BinanceProductType::Margin, BinanceEnvironment::Testnet);
+        assert_eq!(url, "https://api.binance.com");
     }
 }
