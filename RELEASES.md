@@ -191,10 +191,8 @@ adapter set. The following limits remain deferred:
 - Fixed Blockchain RPC pool snapshots panicking on incomplete tick and position topology
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
 - Fixed Databento MBO fill/no-action decoding and replay gating (#4446), thanks @taozle
-- Fixed Deribit live execution routing tracked fills and amendments through order events while
-  preserving reports for external orders
-- Fixed Derive execution WebSocket connect and reconnect handling to reject failed private
-  subscriptions, retry authentication, refresh balances, and reconcile execution state
+- Fixed Deribit live execution routing tracked fills and amendments through order events while preserving reports for external orders
+- Fixed Derive execution WebSocket connect and reconnect handling
 - Fixed Derive perpetual quote and settlement currency to USDC (venue reports quote as `USD`)
 - Fixed Derive option `scheduled_activation` parsing as UNIX seconds (was parsed as milliseconds)
 - Fixed Derive response decoding to tolerate unknown venue enum values and salvage undecodable trade rows with a log
@@ -203,11 +201,9 @@ adapter set. The following limits remain deferred:
 - Fixed Derive instrument loading to skip absent product types and malformed rows without panicking
 - Fixed Derive fill reconciliation dropping fills on retry after a discarded snapshot
 - Fixed Derive null cancel acknowledgements being reported as failures
-- Fixed Derive cancellation, replacement, and nonce failure lifecycle events, and rejected
-  execution configs without a positive `max_fee_per_contract`
+- Fixed Derive cancellation, replacement, and nonce failure lifecycle events, and rejected execution configs without a positive `max_fee_per_contract`
 - Fixed Derive shared market data channel ownership, unsubscribe races, and stale quote-cache reuse
-- Fixed Derive HTTP and WebSocket request pacing, signed-write expiry, null-id error handling, and
-  handler blocking during reconnects
+- Fixed Derive HTTP and WebSocket request pacing, signed-write expiry, null-id error handling, and handler blocking during reconnects
 - Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
 - Fixed Architect AX `/transactions` requests to include the required bounded time range
 - Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas (#4402)
@@ -216,6 +212,7 @@ adapter set. The following limits remain deferred:
 - Fixed Polymarket v2 order cancellation during shutdown so accepted venue orders are not left open
 - Fixed Polymarket v2 book delta atomicity and local limit-price range validation
 - Fixed Polymarket v2 execution races, ambiguous submissions, trade finality, fill IDs, and proxy funder validation
+- Fixed Polymarket market SELL sizing, terminal IOC remainders, and sub-cent reconciliation that created synthetic position fills
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
 - Fixed Hyperliquid `l2Book` resubscribe options and shared stream teardown (#4298)
@@ -230,8 +227,7 @@ adapter set. The following limits remain deferred:
 - Fixed Lighter batch orders to use correlated sequential WebSocket transactions
 - Fixed Lighter reconciliation cursor loops, fill deduplication, and trailing fill identity
 - Fixed Lighter instrument parsing, gap candle filtering, and spot quote currencies
-- Fixed Lighter modify validation, conditional order acknowledgements, approval nonce recovery,
-  auth refresh, and WebSocket timeouts
+- Fixed Lighter modify validation, conditional order acknowledgements, approval nonce recovery, auth refresh, and WebSocket timeouts
 - Fixed Lighter ambiguous send outcomes, hashless response attribution, historical order identity, order-index collisions, and GTD expiry validation
 
 ### Internal Improvements
