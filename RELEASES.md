@@ -157,6 +157,7 @@ releases as feedback arrives, before the final `2.0.0` release.
 - Fixed Binance Spot startup reconciliation omitting and truncating venue fill history
 - Fixed Binance Spot instrument loading after the SBE schema `3:5` rollout (#4407), thanks for reporting @learnerLj
 - Fixed Blockchain HyperSync live pool-event streaming to use a durable per-DEX stream and avoid tip-window overreach
+- Fixed Blockchain RPC pool snapshots panicking on incomplete tick and position topology
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
 - Fixed Databento MBO fill/no-action decoding and replay gating (#4446), thanks @taozle
 - Fixed Deribit live execution routing tracked fills and amendments through order events while
