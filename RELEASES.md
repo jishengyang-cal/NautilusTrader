@@ -102,6 +102,7 @@ adapter set. The following limits remain deferred:
 ### Fixes
 - Fixed v2 `BettingInstrument` catalog round trips deriving `raw_symbol` from the instrument ID and rebuilding `price_increment`/`size_increment` from precision, corrupting their values
 - Fixed v2 `FuturesContract`, `OptionContract`, `BinaryOption`, and `BettingInstrument` catalog round trips dropping quantity, price, and notional constraints, margins, and fees
+- Fixed `OrderFactory.bracket` `tp_post_only` docs (#4437), thanks for reporting @jh171717 and for the patch @chang-pro
 - Fixed v2 realized PnL returning zero for missing rates or range errors and panicking on overflow
 - Fixed v2 portfolio snapshots retaining stale-price flags after the affected position side closed
 - Fixed v2 portfolio snapshots dropping temporarily unpriced positions and hiding stale valuations
