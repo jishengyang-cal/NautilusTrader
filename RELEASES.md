@@ -231,6 +231,7 @@ adapter set. The following limits remain deferred:
 - Fixed Interactive Brokers v2 tracked fills to emit `OrderFilled` after `OrderAccepted`, emit `OrderRejected` on gateway submission failure, and retain fill identity across terminal callbacks
 - Fixed Interactive Brokers `IneligibilityReason` serialization (#4380), thanks @xxxxxx-oss
 - Fixed Interactive Brokers Docker gateway startup to ignore the active Docker context
+- Fixed Kraken Futures batch order `order_tag` serialization (#4459), thanks for reporting @Andreas197510
 - Fixed Lighter batch orders to use correlated sequential WebSocket transactions
 - Fixed Lighter reconciliation cursor loops, fill deduplication, and trailing fill identity
 - Fixed Lighter instrument parsing, gap candle filtering, and spot quote currencies
