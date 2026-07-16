@@ -188,6 +188,7 @@ adapter set. The following limits remain deferred:
 - Fixed Binance Futures algo orders to consume USD-M order-count limits (#4395), thanks for reporting @cjdsellers
 - Fixed Binance Futures inflight query falsely rejecting untriggered algo orders (#4411), thanks @reijz
 - Fixed Binance Futures historical algo order queries (#4449), thanks @KaizynX
+- Fixed Polymarket v1 and v2 allowance commands to approve the current Neg Risk adapter
 - Fixed Binance Futures startup reconciliation omitting and truncating venue fill history
 - Fixed Binance Spot startup reconciliation omitting and truncating venue fill history
 - Fixed Binance Spot instrument loading after the SBE schema `3:5` rollout (#4407), thanks for reporting @learnerLj

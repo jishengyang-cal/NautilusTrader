@@ -122,7 +122,18 @@ You can do this by running the provided script located at `nautilus_trader/adapt
 This script is adapted from a [gist](https://gist.github.com/poly-rodr/44313920481de58d5a3f6d1f8226bd5e) created by @poly-rodr.
 
 :::note
-You only need to run this script **once** per EOA wallet that you intend to use for trading on Polymarket.
+Run the relevant allowance command once per EOA wallet, then rerun it when Polymarket changes
+the required contracts.
+:::
+
+:::warning
+[Polymarket retires the CLOB v1 Neg Risk Adapter](https://docs.polymarket.com/changelog)
+on July 17, 2026 at 00:00 UTC (10:00 AEST).
+Existing wallets do not approve its v2 replacement automatically. For every existing wallet,
+run the Python script or Rust binary used by your deployment before the deadline. These commands
+do not revoke the old v1 approvals;
+handle revocation as a separate on-chain operation after reviewing any remaining legacy flows.
+Run only one allowance command at a time for a given wallet.
 :::
 
 This script automates the process of approving the necessary allowances for the Polymarket contracts.
@@ -139,11 +150,11 @@ Before running the script, ensure the following prerequisites are met:
 
 Once you have these in place, the script will:
 
-- Approve the maximum possible amount of pUSD (using the `MAX_INT` value) for the Polymarket collateral token contract.
+- Approve the maximum possible amount of pUSD (using the `MAX_UINT256` value) for the Polymarket collateral token contract.
 - Set the approval for the CTF contract, allowing it to interact with your account for trading purposes.
 
 :::note
-You can also adjust the approval amount in the script instead of using `MAX_INT`,
+You can also adjust the approval amount in the script instead of using `MAX_UINT256`,
 with the amount specified in *fractional units* of **pUSD**, though this has not been tested.
 :::
 
@@ -161,14 +172,24 @@ Run the script using:
 python nautilus_trader/adapters/polymarket/scripts/set_allowances.py
 ```
 
+For the Rust v2 adapter, set `POLYMARKET_PK` and run:
+
+```bash
+cargo run -p nautilus-polymarket --bin polymarket-set-allowances
+```
+
+Both commands approve the current Neg Risk Adapter at
+`0xadA2005600Dec949baf300f4C6120000bDB6eAab`. Both commands use
+`https://polygon.drpc.org` by default; set `POLYGON_RPC_URL` to use another Polygon RPC endpoint.
+
 ### Script breakdown
 
 The script performs the following actions:
 
-- Connects to the Polygon network via an RPC URL (<https://polygon-rpc.com/>).
+- Connects to the Polygon network via an RPC URL (<https://polygon.drpc.org>).
 - Signs and sends a transaction to approve the maximum pUSD allowance for Polymarket contracts.
 - Sets approval for the CTF contract to manage Conditional Tokens on your behalf.
-- Repeats the approval process for specific addresses like the Polymarket CLOB Exchange and Neg Risk adapter.
+- Repeats the approval process for the Polymarket CLOB Exchange, Neg Risk CTF Exchange, and current Neg Risk adapter.
 
 This allows Polymarket to interact with your funds when executing trades and ensures smooth integration with the CLOB Exchange.
 
