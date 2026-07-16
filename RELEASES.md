@@ -240,6 +240,7 @@ adapter set. The following limits remain deferred:
 - Improved core decimal deserialization to round fractional scales above 28 digits instead of erroring
 - Improved live reconciliation recency tracking with `RecencyMap` (#4386), thanks @folknor
 - Improved portfolio statistics test coverage with canonical worked examples
+- Improved Lighter signing latency through faster quintic field multiplication and squaring
 - Improved Lighter signing and execution coverage for conditional, IOC, cancel-all, and leverage transactions
 - Made portfolio reference-count clones explicit (#4364), thanks @ChrisAB
 - Upgraded Binance Spot SBE REST and WebSocket API requests to schema `3:5` (Rust)
