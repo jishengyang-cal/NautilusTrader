@@ -222,6 +222,7 @@ adapter set. The following limits remain deferred:
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
 - Fixed Hyperliquid `l2Book` resubscribe options and shared stream teardown (#4298)
 - Fixed Hyperliquid PyO3 order book depth subscriptions (#4381), thanks @graceyangfan
+- Fixed Hyperliquid Rust public trade responses dropping instrument identifiers
 - Fixed Hyperliquid order modification to use cached CLOID targets when safe, with a numeric OID fallback
 - Fixed Hyperliquid rapid chained order modifications to preserve each in-flight cancel-replace, so a later modify no longer drops an earlier one's cancel-suppression and a failed modify no longer clears newer queued modifications
 - Fixed Interactive Brokers execution timestamp parsing for non-UTC time zones (#4396), thanks for reporting @dfjmax

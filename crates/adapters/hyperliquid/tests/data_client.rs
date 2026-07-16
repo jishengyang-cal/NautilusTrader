@@ -2005,11 +2005,16 @@ async fn test_data_client_request_public_trades() {
     while rx.try_recv().is_ok() {}
 
     let instrument_id = InstrumentId::from("BTC-USD-PERP.HYPERLIQUID");
-    let data_type = public_trade_data_type(instrument_id);
+    let mut metadata = Params::new();
+    metadata.insert(
+        "instrument_id".to_string(),
+        serde_json::Value::String(instrument_id.to_string()),
+    );
+    let data_type = DataType::new("HyperliquidPublicTrade", Some(metadata), None);
     client
         .request_data(RequestCustomData::new(
             *HYPERLIQUID_CLIENT_ID,
-            data_type,
+            data_type.clone(),
             None,
             None,
             None,
@@ -2032,12 +2037,32 @@ async fn test_data_client_request_public_trades() {
         .as_ref()
         .downcast_ref::<Vec<CustomData>>()
         .expect("expected Vec<CustomData> payload");
-    assert_eq!(trades.len(), 3);
-    let trade = trades[0]
+    let trade = trades
+        .first()
+        .expect("expected public trade")
         .data
         .as_any()
         .downcast_ref::<HyperliquidPublicTrade>()
         .expect("expected HyperliquidPublicTrade");
+    let expected_identifier = instrument_id.to_string();
+
+    assert_eq!(data_type.identifier(), None);
+    assert_eq!(response.data_type.type_name(), data_type.type_name());
+    assert_eq!(response.data_type.metadata(), data_type.metadata());
+    assert_eq!(
+        response.data_type.identifier(),
+        Some(expected_identifier.as_str()),
+    );
+
+    for custom in trades {
+        assert_eq!(custom.data_type.type_name(), data_type.type_name());
+        assert_eq!(custom.data_type.metadata(), data_type.metadata());
+        assert_eq!(
+            custom.data_type.identifier(),
+            Some(expected_identifier.as_str()),
+        );
+    }
+    assert_eq!(trades.len(), 3);
     assert_eq!(trade.trade_id, "300001");
     assert_eq!(trade.buyer, "0xbuyer1");
     assert_eq!(trade.seller, "0xseller1");

@@ -1265,9 +1265,13 @@ impl DataClient for HyperliquidDataClient {
             return Ok(());
         }
 
-        let data_type = request.data_type.clone();
-        let instrument_id = Self::custom_instrument_id(&data_type)?
+        let instrument_id = Self::custom_instrument_id(&request.data_type)?
             .context("HyperliquidPublicTrade requests require metadata['instrument_id']")?;
+        let data_type = DataType::new(
+            request.data_type.type_name(),
+            request.data_type.metadata().cloned(),
+            Some(instrument_id.to_string()),
+        );
         let http = self.http_client.clone();
         let sender = self.data_sender.clone();
         let request_id = request.request_id;
