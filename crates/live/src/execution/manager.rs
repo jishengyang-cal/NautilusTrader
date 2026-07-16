@@ -360,8 +360,10 @@ impl ExecutionManager {
     /// Order events are collected, sorted globally by `ts_event`, then processed through
     /// the execution engine to ensure chronological ordering across all orders.
     /// Position events are processed after all order events to ensure fills are applied first.
+    #[allow(unknown_lints, reason = "Clippy lint is unavailable on Rust 1.97")]
     #[expect(
         clippy::unused_async,
+        clippy::unused_async_trait_impl,
         reason = "public reconciliation API stays async; live node and test callers await it"
     )]
     pub async fn reconcile_execution_mass_status(
