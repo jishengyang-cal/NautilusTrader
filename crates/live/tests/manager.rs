@@ -18,7 +18,11 @@
 //! These tests focus on observable behavior through the public API.
 //! Internal state tests are in the in-module tests in manager.rs.
 
-use std::{cell::RefCell, collections::HashSet, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashSet,
+    rc::Rc,
+};
 
 use async_trait::async_trait;
 use indexmap::IndexSet;
@@ -30,9 +34,9 @@ use nautilus_common::{
     messages::{
         ExecutionReport,
         execution::{
-            BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateOrderStatusReports,
-            GeneratePositionStatusReports, ModifyOrder, QueryAccount, QueryOrder, SubmitOrder,
-            SubmitOrderList, TradingCommand,
+            BatchCancelOrders, CancelAllOrders, CancelOrder, GenerateOrderStatusReport,
+            GenerateOrderStatusReports, GeneratePositionStatusReports, ModifyOrder, QueryAccount,
+            QueryOrder, SubmitOrder, SubmitOrderList, TradingCommand,
         },
     },
     msgbus::{
@@ -8033,8 +8037,12 @@ struct MockExecutionClient {
     account_id: AccountId,
     venue: Venue,
     handled_venues: Option<IndexSet<Venue>>,
+    order_report: RefCell<Option<OrderStatusReport>>,
     order_reports: RefCell<Vec<OrderStatusReport>>,
+    order_report_query_count: Cell<usize>,
+    fail_order_report: bool,
     fail_order_reports: bool,
+    on_order_report_query: RefCell<Option<Box<dyn FnOnce()>>>,
     on_order_reports_query: RefCell<Option<Box<dyn FnOnce()>>>,
 }
 
@@ -8045,8 +8053,12 @@ impl MockExecutionClient {
             account_id: test_account_id(),
             venue: test_venue(),
             handled_venues: None,
+            order_report: RefCell::new(None),
             order_reports: RefCell::new(order_reports),
+            order_report_query_count: Cell::new(0),
+            fail_order_report: false,
             fail_order_reports: false,
+            on_order_report_query: RefCell::new(None),
             on_order_reports_query: RefCell::new(None),
         }
     }
@@ -8057,8 +8069,12 @@ impl MockExecutionClient {
             account_id: test_account_id(),
             venue,
             handled_venues: None,
+            order_report: RefCell::new(None),
             order_reports: RefCell::new(order_reports),
+            order_report_query_count: Cell::new(0),
+            fail_order_report: false,
             fail_order_reports: false,
+            on_order_report_query: RefCell::new(None),
             on_order_reports_query: RefCell::new(None),
         }
     }
@@ -8069,8 +8085,12 @@ impl MockExecutionClient {
             account_id: test_account_id(),
             venue,
             handled_venues: None,
+            order_report: RefCell::new(None),
             order_reports: RefCell::new(Vec::new()),
+            order_report_query_count: Cell::new(0),
+            fail_order_report: false,
             fail_order_reports: true,
+            on_order_report_query: RefCell::new(None),
             on_order_reports_query: RefCell::new(None),
         }
     }
@@ -8082,6 +8102,21 @@ impl MockExecutionClient {
 
     fn with_handled_venues(mut self, handled_venues: IndexSet<Venue>) -> Self {
         self.handled_venues = Some(handled_venues);
+        self
+    }
+
+    fn with_order_report(self, report: OrderStatusReport) -> Self {
+        *self.order_report.borrow_mut() = Some(report);
+        self
+    }
+
+    fn with_failed_order_report(mut self) -> Self {
+        self.fail_order_report = true;
+        self
+    }
+
+    fn with_on_order_report_query(self, callback: Box<dyn FnOnce()>) -> Self {
+        *self.on_order_report_query.borrow_mut() = Some(callback);
         self
     }
 
@@ -8171,6 +8206,24 @@ impl ExecutionClient for MockExecutionClient {
 
     fn query_order(&self, _cmd: QueryOrder) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    async fn generate_order_status_report(
+        &self,
+        _cmd: &GenerateOrderStatusReport,
+    ) -> anyhow::Result<Option<OrderStatusReport>> {
+        self.order_report_query_count
+            .set(self.order_report_query_count.get() + 1);
+
+        if let Some(callback) = self.on_order_report_query.borrow_mut().take() {
+            callback();
+        }
+
+        if self.fail_order_report {
+            anyhow::bail!("order report unavailable");
+        }
+
+        Ok(self.order_report.borrow().clone())
     }
 
     async fn generate_order_status_reports(
@@ -8745,6 +8798,255 @@ async fn test_check_open_orders_submitted_missing_at_venue_generates_rejected() 
     } else {
         panic!("Expected OrderRejected event, was {:?}", events[0]);
     }
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_check_open_orders_targeted_query_prevents_false_rejection() {
+    let config = ExecutionManagerConfig {
+        open_check_threshold_ns: 0,
+        open_check_missing_retries: 1,
+        open_check_open_only: false,
+        single_order_query_delay_ms: 0,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    let client_order_id = ClientOrderId::from("O-TARGETED-FOUND");
+    let venue_order_id = VenueOrderId::from("V-TARGETED-FOUND");
+    insert_accepted_limit_order(&ctx, client_order_id, venue_order_id, test_client_id());
+
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        test_instrument_id(),
+        OrderStatus::Accepted,
+        Quantity::from("10.0"),
+        Quantity::zero(1),
+    )
+    .with_price(Price::from("100.0"));
+    let mock_client = MockExecutionClient::new(Vec::new()).with_order_report(report);
+    let clients: Vec<&dyn ExecutionClient> = vec![&mock_client];
+
+    let events = ctx.manager.check_open_orders(&clients).await;
+
+    assert!(events.is_empty());
+    assert_eq!(mock_client.order_report_query_count.get(), 1);
+    assert_eq!(ctx.manager.recon_check_retry_count(&client_order_id), 0);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_check_open_orders_targeted_query_error_defers_resolution() {
+    let config = ExecutionManagerConfig {
+        open_check_threshold_ns: 0,
+        open_check_missing_retries: 1,
+        open_check_open_only: false,
+        single_order_query_delay_ms: 0,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    let client_order_id = ClientOrderId::from("O-TARGETED-ERROR");
+    let venue_order_id = VenueOrderId::from("V-TARGETED-ERROR");
+    insert_accepted_limit_order(&ctx, client_order_id, venue_order_id, test_client_id());
+
+    let mock_client = MockExecutionClient::new(Vec::new()).with_failed_order_report();
+    let clients: Vec<&dyn ExecutionClient> = vec![&mock_client];
+
+    let events = ctx.manager.check_open_orders(&clients).await;
+
+    assert!(events.is_empty());
+    assert_eq!(mock_client.order_report_query_count.get(), 1);
+    assert_eq!(ctx.manager.recon_check_retry_count(&client_order_id), 1);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_check_open_orders_mismatched_targeted_report_defers_resolution() {
+    let config = ExecutionManagerConfig {
+        open_check_threshold_ns: 0,
+        open_check_missing_retries: 1,
+        open_check_open_only: false,
+        single_order_query_delay_ms: 0,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    let client_order_id = ClientOrderId::from("O-TARGETED-MISMATCH");
+    let venue_order_id = VenueOrderId::from("V-TARGETED-MISMATCH");
+    insert_accepted_limit_order(&ctx, client_order_id, venue_order_id, test_client_id());
+
+    let report = create_order_status_report(
+        Some(ClientOrderId::from("O-OTHER")),
+        VenueOrderId::from("V-OTHER"),
+        test_instrument_id(),
+        OrderStatus::Accepted,
+        Quantity::from("10.0"),
+        Quantity::zero(1),
+    )
+    .with_price(Price::from("100.0"));
+    let mock_client = MockExecutionClient::new(Vec::new()).with_order_report(report);
+    let clients: Vec<&dyn ExecutionClient> = vec![&mock_client];
+
+    let events = ctx.manager.check_open_orders(&clients).await;
+
+    assert!(events.is_empty());
+    assert_eq!(mock_client.order_report_query_count.get(), 1);
+    assert_eq!(ctx.manager.recon_check_retry_count(&client_order_id), 1);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_check_open_orders_caps_targeted_queries_per_cycle() {
+    let config = ExecutionManagerConfig {
+        open_check_threshold_ns: 0,
+        open_check_missing_retries: 1,
+        open_check_open_only: false,
+        max_single_order_queries_per_cycle: 1,
+        single_order_query_delay_ms: 0,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    let client_a = ClientId::from("CLIENT-A");
+    let client_b = ClientId::from("CLIENT-B");
+    insert_accepted_limit_order(
+        &ctx,
+        ClientOrderId::from("O-TARGETED-A"),
+        VenueOrderId::from("V-TARGETED-A"),
+        client_a,
+    );
+    insert_accepted_limit_order(
+        &ctx,
+        ClientOrderId::from("O-TARGETED-B"),
+        VenueOrderId::from("V-TARGETED-B"),
+        client_b,
+    );
+
+    let mock_a = MockExecutionClient::for_venue(client_a, test_venue(), Vec::new());
+    let mock_b = MockExecutionClient::for_venue(client_b, test_venue(), Vec::new());
+    let clients: Vec<&dyn ExecutionClient> = vec![&mock_a, &mock_b];
+
+    let events = ctx.manager.check_open_orders(&clients).await;
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(mock_a.order_report_query_count.get(), 1);
+    assert_eq!(mock_b.order_report_query_count.get(), 0);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_check_open_orders_queries_oversized_responsible_client_group() {
+    let config = ExecutionManagerConfig {
+        open_check_threshold_ns: 0,
+        open_check_missing_retries: 1,
+        open_check_open_only: false,
+        max_single_order_queries_per_cycle: 1,
+        single_order_query_delay_ms: 0,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    let client_order_id = ClientOrderId::from("O-TARGETED-MULTI");
+    let venue_order_id = VenueOrderId::from("V-TARGETED-MULTI");
+    let order = OrderTestBuilder::new(OrderType::Limit)
+        .client_order_id(client_order_id)
+        .instrument_id(test_instrument_id())
+        .quantity(Quantity::from("10.0"))
+        .price(Price::from("100.0"))
+        .build();
+    let submitted = TestOrderEventStubs::submitted(&order, test_account_id());
+    ctx.add_order(order);
+    let order = ctx.cache.borrow_mut().update_order(&submitted).unwrap();
+    let accepted = TestOrderEventStubs::accepted(&order, test_account_id(), venue_order_id);
+    ctx.cache.borrow_mut().update_order(&accepted).unwrap();
+
+    let report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        test_instrument_id(),
+        OrderStatus::Accepted,
+        Quantity::from("10.0"),
+        Quantity::zero(1),
+    )
+    .with_price(Price::from("100.0"));
+    let mock_a =
+        MockExecutionClient::for_venue(ClientId::from("CLIENT-A"), test_venue(), Vec::new());
+    let mock_b =
+        MockExecutionClient::for_venue(ClientId::from("CLIENT-B"), test_venue(), Vec::new())
+            .with_order_report(report);
+    let clients: Vec<&dyn ExecutionClient> = vec![&mock_a, &mock_b];
+
+    let events = ctx.manager.check_open_orders(&clients).await;
+
+    assert!(events.is_empty());
+    assert_eq!(
+        (
+            mock_a.order_report_query_count.get(),
+            mock_b.order_report_query_count.get(),
+            ctx.manager.recon_check_retry_count(&client_order_id),
+        ),
+        (1, 1, 0),
+    );
+}
+
+#[cfg_attr(
+    not(all(feature = "simulation", madsim)),
+    tokio::test(start_paused = true)
+)]
+#[cfg_attr(all(feature = "simulation", madsim), madsim::test)]
+async fn test_check_open_orders_spaces_targeted_queries() {
+    let config = ExecutionManagerConfig {
+        open_check_threshold_ns: 0,
+        open_check_missing_retries: 1,
+        open_check_open_only: false,
+        max_single_order_queries_per_cycle: 2,
+        single_order_query_delay_ms: 100,
+        ..Default::default()
+    };
+    let mut ctx = TestContext::with_config(config);
+    ctx.add_instrument(test_instrument());
+
+    let client_a = ClientId::from("CLIENT-A");
+    let client_b = ClientId::from("CLIENT-B");
+    insert_accepted_limit_order(
+        &ctx,
+        ClientOrderId::from("O-TARGETED-A"),
+        VenueOrderId::from("V-TARGETED-A"),
+        client_a,
+    );
+    insert_accepted_limit_order(
+        &ctx,
+        ClientOrderId::from("O-TARGETED-B"),
+        VenueOrderId::from("V-TARGETED-B"),
+        client_b,
+    );
+
+    let query_times = Rc::new(RefCell::new(Vec::new()));
+    let mock_a = MockExecutionClient::for_venue(client_a, test_venue(), Vec::new())
+        .with_on_order_report_query(Box::new({
+            let query_times = query_times.clone();
+            move || query_times.borrow_mut().push(dst::time::Instant::now())
+        }));
+    let mock_b = MockExecutionClient::for_venue(client_b, test_venue(), Vec::new())
+        .with_on_order_report_query(Box::new({
+            let query_times = query_times.clone();
+            move || query_times.borrow_mut().push(dst::time::Instant::now())
+        }));
+    let clients: Vec<&dyn ExecutionClient> = vec![&mock_a, &mock_b];
+
+    let events = ctx.manager.check_open_orders(&clients).await;
+    let query_times = query_times.borrow();
+
+    assert_eq!(events.len(), 2);
+    assert_eq!(query_times.len(), 2);
+    assert!(query_times[1].duration_since(query_times[0]) >= dst::time::Duration::from_millis(100));
 }
 
 #[cfg_attr(

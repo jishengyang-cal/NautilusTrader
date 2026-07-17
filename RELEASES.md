@@ -154,6 +154,7 @@ adapter set. The following limits remain deferred:
 - Fixed v2 own order book sizes to track remaining quantity after partial fills
 - Fixed v2 interval book snapshots blocking order submission from `on_book` handlers
 - Fixed v2 position reconciliation grace to measure on the monotonic clock (#4366), thanks @folknor
+- Fixed v2 missing-order resolution and failed-report handling in live reconciliation (#4479), thanks @folknor
 - Fixed v2 startup reconciliation reapplying retained fills to position and PnL state
 - Fixed Python v2 cached `OrderList` fields and concrete cache return types (#4453), thanks @JiajunWan
 - Fixed live fill deduplication dropping valid fills when trade IDs collide across accounts or instruments
