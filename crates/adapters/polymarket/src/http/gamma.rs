@@ -15,15 +15,13 @@
 
 //! Provides the HTTP client for the Polymarket Gamma API.
 //!
-//! Gamma `/markets` server-side constraints honored by the paginator and
-//! `load_ids` chunker:
+//! Gamma keyset constraints honored by the paginators and `load_ids` chunker:
 //!
-//! - `limit` is silently capped at 100 items per page, so a larger requested
-//!   `limit` makes the "last page" check (`page_len < page_size`) trip after
-//!   page one.
-//! - `offset > 10000` is rejected with HTTP 422, so a paginator cannot walk
-//!   the full universe; callers fetching many markets must use
-//!   `condition_ids=` filtering.
+//! - `/markets/keyset` accepts at most 100 items per page.
+//! - `/events/keyset` accepts at most 500 items per page.
+//! - Keyset endpoints reject `offset`; the paginators apply a requested initial
+//!   offset locally for compatibility.
+//! - `next_cursor` is absent on the final page.
 //! - `condition_ids=` accepts at most 100 IDs per request, so `load_ids` for
 //!   larger sets chunks the request and unions the responses.
 
@@ -39,7 +37,7 @@ use nautilus_network::{
     http::{HttpClient, HttpClientError, HttpResponse, Method, USER_AGENT},
     retry::{RetryConfig, RetryManager},
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::{
@@ -52,6 +50,9 @@ use crate::{
         rate_limits::POLYMARKET_GAMMA_REST_QUOTA,
     },
 };
+
+const GAMMA_MARKETS_KEYSET_PAGE_LIMIT: u32 = 100;
+const GAMMA_EVENTS_KEYSET_PAGE_LIMIT: u32 = 500;
 
 /// Provides a raw HTTP client for the Polymarket Gamma API.
 ///
@@ -154,6 +155,20 @@ impl PolymarketGammaRawHttpClient {
         serde_json::from_value(array).map_err(Error::Serde)
     }
 
+    async fn get_gamma_markets_keyset(
+        &self,
+        mut params: GetGammaMarketsParams,
+        after_cursor: Option<&str>,
+    ) -> Result<GammaMarketsKeysetResponse> {
+        params.offset = None;
+        let mut query_params = gamma_markets_query_params(params)?;
+        if let Some(after_cursor) = after_cursor {
+            query_params.insert("after_cursor".to_string(), vec![after_cursor.to_string()]);
+        }
+        self.send_get_query_map("/markets/keyset", Some(&query_params))
+            .await
+    }
+
     /// Fetches a single market by ID from the Gamma API.
     pub async fn get_gamma_market(&self, market_id: &str) -> Result<GammaMarket> {
         let path = format!("/markets/{market_id}");
@@ -175,6 +190,19 @@ impl PolymarketGammaRawHttpClient {
         self.send_get("/events", Some(&params)).await
     }
 
+    async fn get_gamma_events_keyset(
+        &self,
+        mut params: GetGammaEventsParams,
+        after_cursor: Option<&str>,
+    ) -> Result<GammaEventsKeysetResponse> {
+        params.offset = None;
+        let query = GammaEventsKeysetParams {
+            params,
+            after_cursor,
+        };
+        self.send_get("/events/keyset", Some(&query)).await
+    }
+
     /// Fetches available tags from the Gamma API `GET /tags`.
     pub async fn get_gamma_tags(&self) -> Result<Vec<GammaTag>> {
         self.send_get::<(), _>("/tags", None::<&()>).await
@@ -184,6 +212,26 @@ impl PolymarketGammaRawHttpClient {
     pub async fn get_public_search(&self, params: GetSearchParams) -> Result<SearchResponse> {
         self.send_get("/public-search", Some(&params)).await
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct GammaMarketsKeysetResponse {
+    markets: Vec<GammaMarket>,
+    next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GammaEventsKeysetResponse {
+    events: Vec<GammaEvent>,
+    next_cursor: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GammaEventsKeysetParams<'a> {
+    #[serde(flatten)]
+    params: GetGammaEventsParams,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    after_cursor: Option<&'a str>,
 }
 
 fn decode_response<T: DeserializeOwned>(response: &HttpResponse) -> Result<T> {
@@ -366,24 +414,32 @@ impl PolymarketGammaHttpClient {
         &self,
         base_params: GetGammaMarketsParams,
     ) -> anyhow::Result<Vec<GammaMarket>> {
-        const PAGE_LIMIT: u32 = 100;
-        let page_size = base_params.limit.unwrap_or(PAGE_LIMIT);
+        let page_size = base_params
+            .limit
+            .unwrap_or(GAMMA_MARKETS_KEYSET_PAGE_LIMIT)
+            .min(GAMMA_MARKETS_KEYSET_PAGE_LIMIT);
         let max_markets = base_params.max_markets;
         let mut all_markets = Vec::new();
-        let mut offset: u32 = base_params.offset.unwrap_or(0);
+        let mut remaining_offset = base_params.offset.unwrap_or(0);
+        let mut after_cursor = None;
         let mut page_num = 0u32;
 
         loop {
             let params = GetGammaMarketsParams {
                 limit: Some(page_size),
-                offset: Some(offset),
+                offset: None,
                 ..base_params.clone()
             };
 
-            let page = self.inner.get_gamma_markets(params).await?;
-            let page_len = page.len() as u32;
+            let response = self
+                .inner
+                .get_gamma_markets_keyset(params, after_cursor.as_deref())
+                .await?;
+            let page_len = response.markets.len() as u32;
+            let skipped = remaining_offset.min(page_len) as usize;
+            remaining_offset -= skipped as u32;
             page_num += 1;
-            all_markets.extend(page);
+            all_markets.extend(response.markets.into_iter().skip(skipped));
 
             log::debug!(
                 "Fetched markets page {page_num}: {page_len} markets (total: {})",
@@ -397,11 +453,11 @@ impl PolymarketGammaHttpClient {
                 break;
             }
 
-            if page_len < page_size {
+            let Some(next_cursor) = response.next_cursor else {
                 break;
-            }
+            };
 
-            offset += page_size;
+            after_cursor = Some(next_cursor);
         }
 
         Ok(all_markets)
@@ -724,25 +780,33 @@ impl PolymarketGammaHttpClient {
         &self,
         base_params: GetGammaEventsParams,
     ) -> anyhow::Result<Vec<GammaEvent>> {
-        const PAGE_LIMIT: u32 = 100;
-        let page_size = base_params.limit.unwrap_or(PAGE_LIMIT);
+        let page_size = base_params
+            .limit
+            .unwrap_or(GAMMA_EVENTS_KEYSET_PAGE_LIMIT)
+            .min(GAMMA_EVENTS_KEYSET_PAGE_LIMIT);
         let max_events = base_params.max_events;
         let mut all_events = Vec::new();
-        let mut offset: u32 = base_params.offset.unwrap_or(0);
+        let mut remaining_offset = base_params.offset.unwrap_or(0);
+        let mut after_cursor = None;
         let mut page_num = 0u32;
 
         loop {
             let params = GetGammaEventsParams {
                 limit: Some(page_size),
-                offset: Some(offset),
+                offset: None,
                 ..base_params.clone()
             };
 
-            let page = self.inner.get_gamma_events(params).await?;
-            let page_len = page.len() as u32;
+            let response = self
+                .inner
+                .get_gamma_events_keyset(params, after_cursor.as_deref())
+                .await?;
+            let page_len = response.events.len() as u32;
+            let skipped = remaining_offset.min(page_len) as usize;
+            remaining_offset -= skipped as u32;
             page_num += 1;
-            let market_count: usize = page.iter().map(|e| e.markets.len()).sum();
-            all_events.extend(page);
+            let market_count: usize = response.events.iter().map(|e| e.markets.len()).sum();
+            all_events.extend(response.events.into_iter().skip(skipped));
 
             log::debug!(
                 "Fetched events page {page_num}: {page_len} events, {market_count} markets (total events: {})",
@@ -756,11 +820,11 @@ impl PolymarketGammaHttpClient {
                 break;
             }
 
-            if page_len < page_size {
+            let Some(next_cursor) = response.next_cursor else {
                 break;
-            }
+            };
 
-            offset += page_size;
+            after_cursor = Some(next_cursor);
         }
 
         Ok(all_events)

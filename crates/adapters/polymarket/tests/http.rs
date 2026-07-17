@@ -84,6 +84,8 @@ struct TestServerState {
     gamma_force_error: Arc<std::sync::atomic::AtomicBool>,
     gamma_event_slug_responses: Arc<tokio::sync::Mutex<AHashMap<String, Value>>>,
     gamma_events_response: Arc<tokio::sync::Mutex<Option<Value>>>,
+    gamma_events_pages: Arc<tokio::sync::Mutex<VecDeque<Value>>>,
+    gamma_events_query_log: Arc<tokio::sync::Mutex<Vec<HashMap<String, String>>>>,
     gamma_tags_response: Arc<tokio::sync::Mutex<Option<Value>>>,
     gamma_search_response: Arc<tokio::sync::Mutex<Option<Value>>>,
     gamma_clob_token_responses: Arc<tokio::sync::Mutex<AHashMap<String, Value>>>,
@@ -108,6 +110,8 @@ impl Default for TestServerState {
             gamma_force_error: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             gamma_event_slug_responses: Arc::new(tokio::sync::Mutex::new(AHashMap::new())),
             gamma_events_response: Arc::new(tokio::sync::Mutex::new(None)),
+            gamma_events_pages: Arc::new(tokio::sync::Mutex::new(VecDeque::new())),
+            gamma_events_query_log: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             gamma_tags_response: Arc::new(tokio::sync::Mutex::new(None)),
             gamma_search_response: Arc::new(tokio::sync::Mutex::new(None)),
             gamma_clob_token_responses: Arc::new(tokio::sync::Mutex::new(AHashMap::new())),
@@ -362,6 +366,31 @@ async fn handle_gamma_markets(
     }
 }
 
+async fn handle_gamma_markets_keyset(
+    State(state): State<TestServerState>,
+    uri: Uri,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Response {
+    state.gamma_markets_query_log.lock().await.push(params);
+    state
+        .gamma_markets_query_pair_log
+        .lock()
+        .await
+        .push(query_pairs(&uri));
+
+    if let Some(page) = state.gamma_markets_pages.lock().await.pop_front() {
+        return Json(page).into_response();
+    }
+
+    let response = state
+        .gamma_response
+        .lock()
+        .await
+        .clone()
+        .unwrap_or_else(|| json!([]));
+    Json(json!({"markets": response})).into_response()
+}
+
 fn query_pairs(uri: &Uri) -> Vec<(String, String)> {
     uri.query()
         .map(|query| {
@@ -406,6 +435,25 @@ async fn handle_gamma_events(
     }
 
     Json(json!([])).into_response()
+}
+
+async fn handle_gamma_events_keyset(
+    State(state): State<TestServerState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Response {
+    state.gamma_events_query_log.lock().await.push(params);
+
+    if let Some(page) = state.gamma_events_pages.lock().await.pop_front() {
+        return Json(page).into_response();
+    }
+
+    let events = state
+        .gamma_events_response
+        .lock()
+        .await
+        .clone()
+        .unwrap_or_else(|| json!([]));
+    Json(json!({"events": events})).into_response()
 }
 
 async fn handle_gamma_tags(State(state): State<TestServerState>) -> Response {
@@ -477,7 +525,9 @@ fn create_test_router(state: TestServerState) -> Router {
         .route("/cancel-all", delete(handle_cancel_all))
         .route("/cancel-market-orders", delete(handle_cancel_market))
         .route("/markets", get(handle_gamma_markets))
+        .route("/markets/keyset", get(handle_gamma_markets_keyset))
         .route("/events", get(handle_gamma_events))
+        .route("/events/keyset", get(handle_gamma_events_keyset))
         .route("/tags", get(handle_gamma_tags))
         .route("/public-search", get(handle_public_search))
         .route("/trades", get(handle_data_api_trades))
@@ -1811,30 +1861,102 @@ async fn test_fetch_gamma_markets_paginated_uses_100_per_page() {
     };
     {
         let mut pages = state.gamma_markets_pages.lock().await;
-        pages.push_back(make_page('a', 100));
-        pages.push_back(make_page('b', 100));
-        pages.push_back(make_page('c', 37));
+        pages.push_back(json!({"markets": make_page('a', 100), "next_cursor": "cursor-1"}));
+        pages.push_back(json!({"markets": make_page('b', 100), "next_cursor": "cursor-2"}));
+        pages.push_back(json!({"markets": make_page('c', 37)}));
     }
 
     let addr = start_mock_server(state.clone()).await;
-    let http_client = create_gamma_domain_client(&addr);
-    let mut provider = PolymarketInstrumentProvider::new(http_client, None);
-
-    provider.load_all(None).await.unwrap();
+    let client = create_gamma_domain_client(&addr);
+    let instruments = client
+        .request_instruments_by_params(GetGammaMarketsParams {
+            limit: Some(500),
+            offset: Some(150),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
 
     let log = state.gamma_markets_query_log.lock().await;
-    assert_eq!(log.len(), 3, "expected 3 paginated /markets requests");
-    let offsets: Vec<&str> = log
+    assert_eq!(
+        log.len(),
+        3,
+        "expected 3 paginated /markets/keyset requests"
+    );
+    let cursors: Vec<&str> = log
         .iter()
-        .map(|entry| entry.get("offset").map_or("", String::as_str))
+        .map(|entry| entry.get("after_cursor").map_or("", String::as_str))
         .collect();
-    assert_eq!(offsets, vec!["0", "100", "200"]);
+    assert_eq!(cursors, vec!["", "cursor-1", "cursor-2"]);
     for entry in log.iter() {
         assert_eq!(entry.get("limit").map(String::as_str), Some("100"));
+        assert!(!entry.contains_key("offset"));
     }
 
-    // 237 markets x 2 tokens each = 474 instruments
-    assert_eq!(provider.store().count(), 474);
+    // The local offset spans two pages: 87 markets x 2 tokens each
+    assert_eq!(instruments.len(), 174);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_fetch_gamma_events_paginated_uses_next_cursor_and_500_limit() {
+    let state = TestServerState::default();
+    let market_a = gamma_market_with_slug(
+        "event-page-a-market",
+        "0xcondition_event_page_a",
+        ["97000000000000000001", "97000000000000000002"],
+    );
+    let market_b = gamma_market_with_slug(
+        "event-page-b-market",
+        "0xcondition_event_page_b",
+        ["98000000000000000001", "98000000000000000002"],
+    );
+    let market_c = gamma_market_with_slug(
+        "event-page-c-market",
+        "0xcondition_event_page_c",
+        ["99000000000000000001", "99000000000000000002"],
+    );
+    {
+        let mut pages = state.gamma_events_pages.lock().await;
+        pages.push_back(json!({
+            "events": [gamma_event_with_markets("event-page-a", &[market_a])],
+            "next_cursor": "event-cursor-1",
+        }));
+        pages.push_back(json!({
+            "events": [gamma_event_with_markets("event-page-b", &[market_b])],
+            "next_cursor": "event-cursor-2",
+        }));
+        pages.push_back(json!({
+            "events": [gamma_event_with_markets("event-page-c", &[market_c])],
+        }));
+    }
+
+    let addr = start_mock_server(state.clone()).await;
+    let client = create_gamma_domain_client(&addr);
+
+    let instruments = client
+        .request_instruments_by_event_params(GetGammaEventsParams {
+            limit: Some(1_000),
+            offset: Some(2),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let log = state.gamma_events_query_log.lock().await;
+    assert_eq!(log.len(), 3);
+    assert_eq!(log[0].get("limit").map(String::as_str), Some("500"));
+    assert!(!log[0].contains_key("after_cursor"));
+    assert!(!log[0].contains_key("offset"));
+    assert_eq!(
+        log[1].get("after_cursor").map(String::as_str),
+        Some("event-cursor-1")
+    );
+    assert_eq!(
+        log[2].get("after_cursor").map(String::as_str),
+        Some("event-cursor-2")
+    );
+    assert_eq!(instruments.len(), 2);
 }
 
 #[rstest]
