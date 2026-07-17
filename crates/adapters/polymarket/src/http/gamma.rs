@@ -160,6 +160,7 @@ impl PolymarketGammaRawHttpClient {
         mut params: GetGammaMarketsParams,
         after_cursor: Option<&str>,
     ) -> Result<GammaMarketsKeysetResponse> {
+        params.validate_keyset().map_err(Error::decode)?;
         params.offset = None;
         let mut query_params = gamma_markets_query_params(params)?;
         if let Some(after_cursor) = after_cursor {
@@ -187,7 +188,9 @@ impl PolymarketGammaRawHttpClient {
 
     /// Fetches events from the Gamma API `GET /events` with full query params.
     pub async fn get_gamma_events(&self, params: GetGammaEventsParams) -> Result<Vec<GammaEvent>> {
-        self.send_get("/events", Some(&params)).await
+        let query_params = gamma_events_query_params(params)?;
+        self.send_get_query_map("/events", Some(&query_params))
+            .await
     }
 
     async fn get_gamma_events_keyset(
@@ -195,12 +198,14 @@ impl PolymarketGammaRawHttpClient {
         mut params: GetGammaEventsParams,
         after_cursor: Option<&str>,
     ) -> Result<GammaEventsKeysetResponse> {
+        params.validate_keyset().map_err(Error::decode)?;
         params.offset = None;
-        let query = GammaEventsKeysetParams {
-            params,
-            after_cursor,
-        };
-        self.send_get("/events/keyset", Some(&query)).await
+        let mut query_params = gamma_events_query_params(params)?;
+        if let Some(after_cursor) = after_cursor {
+            query_params.insert("after_cursor".to_string(), vec![after_cursor.to_string()]);
+        }
+        self.send_get_query_map("/events/keyset", Some(&query_params))
+            .await
     }
 
     /// Fetches available tags from the Gamma API `GET /tags`.
@@ -226,14 +231,6 @@ struct GammaEventsKeysetResponse {
     next_cursor: Option<String>,
 }
 
-#[derive(Serialize)]
-struct GammaEventsKeysetParams<'a> {
-    #[serde(flatten)]
-    params: GetGammaEventsParams,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    after_cursor: Option<&'a str>,
-}
-
 fn decode_response<T: DeserializeOwned>(response: &HttpResponse) -> Result<T> {
     if response.status.is_success() {
         serde_json::from_slice(&response.body).map_err(Error::Serde)
@@ -249,9 +246,14 @@ fn gamma_markets_query_params(
     params: GetGammaMarketsParams,
 ) -> Result<HashMap<String, Vec<String>>> {
     let mut scalar_params = params;
+    let id = scalar_params.id.take();
+    let slug = scalar_params.slug.take();
     let clob_token_ids = scalar_params.clob_token_ids.take();
     let condition_ids = scalar_params.condition_ids.take();
     let question_ids = scalar_params.question_ids.take();
+    let market_maker_address = scalar_params.market_maker_address.take();
+    let tag_id = scalar_params.tag_id.take();
+    let sports_market_types = scalar_params.sports_market_types.take();
     let value = serde_json::to_value(&scalar_params).map_err(Error::Serde)?;
     let fields = value
         .as_object()
@@ -259,47 +261,81 @@ fn gamma_markets_query_params(
     let mut params = HashMap::with_capacity(fields.len());
 
     for (key, value) in fields {
-        if let Some(value) = gamma_markets_query_value(value)? {
+        if let Some(value) = gamma_query_value(value)? {
             params.insert(key.clone(), vec![value]);
         }
     }
 
-    insert_repeated_csv_param(&mut params, "clob_token_ids", clob_token_ids);
-    insert_repeated_csv_param(&mut params, "condition_ids", condition_ids);
-    insert_repeated_csv_param(&mut params, "question_ids", question_ids);
+    insert_repeated_param(&mut params, "id", id);
+    insert_repeated_param(&mut params, "slug", slug);
+    insert_repeated_param(&mut params, "clob_token_ids", clob_token_ids);
+    insert_repeated_param(&mut params, "condition_ids", condition_ids);
+    insert_repeated_param(&mut params, "question_ids", question_ids);
+    insert_repeated_param(&mut params, "market_maker_address", market_maker_address);
+    insert_repeated_param(&mut params, "tag_id", tag_id);
+    insert_repeated_param(&mut params, "sports_market_types", sports_market_types);
 
     Ok(params)
 }
 
-fn insert_repeated_csv_param(
+fn gamma_events_query_params(params: GetGammaEventsParams) -> Result<HashMap<String, Vec<String>>> {
+    let mut scalar_params = params;
+    let id = scalar_params.id.take();
+    let slug = scalar_params.slug.take();
+    let tag_id = scalar_params.tag_id.take();
+    let exclude_tag_id = scalar_params.exclude_tag_id.take();
+    let series_id = scalar_params.series_id.take();
+    let game_id = scalar_params.game_id.take();
+    let created_by = scalar_params.created_by.take();
+    let value = serde_json::to_value(&scalar_params).map_err(Error::Serde)?;
+    let fields = value
+        .as_object()
+        .ok_or_else(|| Error::decode("Gamma events params must encode to an object"))?;
+    let mut params = HashMap::with_capacity(fields.len());
+
+    for (key, value) in fields {
+        if let Some(value) = gamma_query_value(value)? {
+            params.insert(key.clone(), vec![value]);
+        }
+    }
+
+    insert_repeated_param(&mut params, "id", id);
+    insert_repeated_param(&mut params, "slug", slug);
+    insert_repeated_param(&mut params, "tag_id", tag_id);
+    insert_repeated_param(&mut params, "exclude_tag_id", exclude_tag_id);
+    insert_repeated_param(&mut params, "series_id", series_id);
+    insert_repeated_param(&mut params, "game_id", game_id);
+    insert_repeated_param(&mut params, "created_by", created_by);
+
+    Ok(params)
+}
+
+fn insert_repeated_param<T: ToString>(
     params: &mut HashMap<String, Vec<String>>,
     key: &str,
-    value: Option<String>,
+    values: Option<Vec<T>>,
 ) {
-    let Some(value) = value else {
+    let Some(values) = values else {
         return;
     };
 
-    let values: Vec<String> = value
-        .split(',')
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-        .map(str::to_string)
-        .collect();
-
-    if !values.is_empty() {
-        params.insert(key.to_string(), values);
-    }
+    params.insert(
+        key.to_string(),
+        values
+            .into_iter()
+            .map(|value| value.to_string().trim().to_string())
+            .collect(),
+    );
 }
 
-fn gamma_markets_query_value(value: &Value) -> Result<Option<String>> {
+fn gamma_query_value(value: &Value) -> Result<Option<String>> {
     match value {
         Value::Null => Ok(None),
         Value::String(value) => Ok(Some(value.clone())),
         Value::Bool(value) => Ok(Some(value.to_string())),
         Value::Number(value) => Ok(Some(value.to_string())),
         other => Err(Error::decode(format!(
-            "Unsupported Gamma markets query value: {other}"
+            "Unsupported Gamma query value: {other}"
         ))),
     }
 }
@@ -505,7 +541,7 @@ impl PolymarketGammaHttpClient {
             let inner = Arc::clone(&self.inner);
             async move {
                 let params = GetGammaMarketsParams {
-                    slug: Some(slug.clone()),
+                    slug: Some(vec![slug.clone()]),
                     ..Default::default()
                 };
 
@@ -566,7 +602,7 @@ impl PolymarketGammaHttpClient {
                             let inner = Arc::clone(&inner);
                             async move {
                                 let params = GetGammaMarketsParams {
-                                    slug: Some(slug.clone()),
+                                    slug: Some(vec![slug.clone()]),
                                     ..Default::default()
                                 };
                                 inner

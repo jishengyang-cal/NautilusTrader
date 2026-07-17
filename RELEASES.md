@@ -218,6 +218,7 @@ adapter set. The following limits remain deferred:
 - Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas (#4402)
 - Fixed OKX price-limit metadata parsing and public limit-price requests (#4413)
 - Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
+- Fixed Polymarket Gamma market and event keyset filters, validation, and repeated query encoding
 - Fixed Polymarket Gamma discovery to use keyset pagination beyond the legacy offset cap
 - Fixed Polymarket v2 order cancellation during shutdown so accepted venue orders are not left open
 - Fixed Polymarket v2 book delta atomicity and local limit-price range validation

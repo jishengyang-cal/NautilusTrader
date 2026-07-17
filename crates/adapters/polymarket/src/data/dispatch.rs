@@ -542,7 +542,7 @@ fn handle_market_message(message: MarketWsMessage, ctx: &WsMessageContext) {
 
                     loop {
                         let params = GetGammaMarketsParams {
-                            condition_ids: Some(condition_id.clone()),
+                            condition_ids: Some(vec![condition_id.clone()]),
                             ..Default::default()
                         };
                         let fetch =
