@@ -29,7 +29,10 @@ use nautilus_common::{
     msgbus::{self, MessagingSwitchboard, TypedHandler, TypedIntoHandler},
     timer::{TimeEvent, TimeEventCallback},
 };
-use nautilus_core::{UUID4, UnixNanos, WeakCell, datetime::NANOSECONDS_IN_MILLISECOND};
+use nautilus_core::{
+    UUID4, UnixNanos, WeakCell,
+    datetime::{NANOSECONDS_IN_DAY, NANOSECONDS_IN_MILLISECOND},
+};
 use nautilus_model::{
     accounts::{Account, AccountAny},
     data::{Bar, MarkPriceUpdate, QuoteTick},
@@ -73,6 +76,8 @@ struct PortfolioState {
     min_account_state_logging_interval_ns: u64,
     venues_missing_price: AHashMap<Venue, AHashMap<Option<AccountId>, AHashSet<InstrumentId>>>,
     account_open_positions: AHashMap<AccountId, usize>,
+    equity_curve_accounts: AHashSet<AccountId>,
+    equity_curve_finalized: bool,
     portfolio_snapshots: AHashMap<AccountId, VecDeque<PortfolioSnapshot>>,
     pre_position_fill_events: AHashSet<UUID4>,
 }
@@ -122,6 +127,8 @@ impl PortfolioState {
             min_account_state_logging_interval_ns,
             venues_missing_price: AHashMap::new(),
             account_open_positions: AHashMap::new(),
+            equity_curve_accounts: AHashSet::new(),
+            equity_curve_finalized: false,
             portfolio_snapshots: AHashMap::new(),
             pre_position_fill_events: AHashSet::new(),
         }
@@ -147,6 +154,8 @@ impl PortfolioState {
         self.last_account_state_log_ts.clear();
         self.venues_missing_price.clear();
         self.account_open_positions.clear();
+        self.equity_curve_accounts.clear();
+        self.equity_curve_finalized = false;
         self.portfolio_snapshots.clear();
         self.pre_position_fill_events.clear();
         self.analyzer.reset();
@@ -216,11 +225,13 @@ impl Portfolio {
         // Typed handlers for subscriptions
         let update_account_handler = {
             let cache = Rc::clone(cache);
+            let clock = Rc::clone(clock);
             let inner = WeakCell::clone(&inner_weak);
+
             TypedHandler::from(move |event: &AccountState| {
                 if let Some(inner_rc) = inner.upgrade() {
                     let inner_rc: Rc<RefCell<PortfolioState>> = inner_rc.into();
-                    update_account(&cache, &inner_rc, event);
+                    update_account(&clock, &cache, &inner_rc, config, event);
                 }
             })
         };
@@ -344,18 +355,32 @@ impl Portfolio {
 
     pub fn reset(&mut self) {
         log::debug!("RESETTING");
-        let account_ids: Vec<AccountId> = self
-            .inner
-            .borrow()
-            .account_open_positions
-            .keys()
-            .copied()
-            .collect();
+        let (snapshot_accounts, equity_curve_accounts) = {
+            let inner = self.inner.borrow();
+            (
+                inner
+                    .account_open_positions
+                    .keys()
+                    .copied()
+                    .collect::<Vec<_>>(),
+                inner
+                    .equity_curve_accounts
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>(),
+            )
+        };
 
-        for account_id in account_ids {
+        for account_id in snapshot_accounts {
             self.clock
                 .borrow_mut()
                 .cancel_timer(&snapshot_timer_name(account_id));
+        }
+
+        for account_id in equity_curve_accounts {
+            self.clock
+                .borrow_mut()
+                .cancel_timer(&equity_curve_timer_name(account_id));
         }
         self.inner.borrow_mut().reset();
         log::debug!("READY");
@@ -1075,10 +1100,11 @@ impl Portfolio {
 
     /// Returns the recorded portfolio snapshots for the given account, in order of emission.
     ///
-    /// Snapshots accumulate whenever `snapshot_interval_ms` is set and the account
-    /// holds at least one open position. The ring is bounded; long-lived live
-    /// deployments should consume snapshots via the message bus instead of relying
-    /// on this buffer. Cleared on [`Portfolio::reset`].
+    /// With `equity_curve` enabled, snapshots are recorded at account registration, every
+    /// UTC midnight including while flat, and shutdown. Setting `snapshot_interval_ms` adds
+    /// fine-grained samples while the account holds an open position. The ring is bounded;
+    /// long-lived live deployments should consume snapshots via the message bus instead of
+    /// relying on this buffer. Cleared on [`Portfolio::reset`].
     #[must_use]
     pub fn snapshots(&self, account_id: &AccountId) -> Vec<PortfolioSnapshot> {
         self.inner
@@ -1087,6 +1113,44 @@ impl Portfolio {
             .get(account_id)
             .map(|ring| ring.iter().cloned().collect())
             .unwrap_or_default()
+    }
+
+    /// Records one final equity-curve sample for every registered account and stops its timer.
+    ///
+    /// Has no effect when `equity_curve` is disabled. Calling this method more than once
+    /// before [`Portfolio::reset`] has no effect.
+    pub fn finalize_equity_curve(&mut self) {
+        if !self.config.equity_curve {
+            return;
+        }
+
+        let account_ids = {
+            let mut inner = self.inner.borrow_mut();
+            if inner.equity_curve_finalized {
+                return;
+            }
+            inner.equity_curve_finalized = true;
+            inner
+                .equity_curve_accounts
+                .iter()
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        let ts_event = self.clock.borrow().timestamp_ns();
+
+        for account_id in account_ids {
+            emit_snapshot(
+                &self.cache,
+                &self.clock,
+                &self.inner,
+                self.config,
+                account_id,
+                ts_event,
+            );
+            self.clock
+                .borrow_mut()
+                .cancel_timer(&equity_curve_timer_name(account_id));
+        }
     }
 
     /// Returns the instruments currently flagged as unpriceable for the given venue.
@@ -1737,7 +1801,7 @@ impl Portfolio {
 
     /// Updates portfolio with a new account state event.
     pub fn update_account(&mut self, event: &AccountState) {
-        update_account(&self.cache, &self.inner, event);
+        update_account(&self.clock, &self.cache, &self.inner, self.config, event);
     }
 
     /// Updates portfolio calculations based on an order event.
@@ -1780,8 +1844,21 @@ impl Portfolio {
         for position in &positions {
             snapshots.extend(cache.position_snapshots(Some(&position.id), None));
         }
-        let recorded = self.inner.borrow().analyzer.recorded_realized_pnls.clone();
-        PortfolioAnalyzer::from_accounts(&accounts, &positions, &snapshots, recorded).statistics()
+        let inner = self.inner.borrow();
+        let recorded = inner.analyzer.recorded_realized_pnls.clone();
+        let portfolio_snapshots = inner
+            .portfolio_snapshots
+            .values()
+            .flat_map(|ring| ring.iter())
+            .collect::<Vec<_>>();
+        PortfolioAnalyzer::from_accounts_with_snapshots(
+            &accounts,
+            &positions,
+            &snapshots,
+            portfolio_snapshots,
+            recorded,
+        )
+        .statistics()
     }
 
     /// Updates portfolio calculations based on a position event.
@@ -3307,8 +3384,10 @@ fn converted_realized_pnl(
 }
 
 fn update_account(
+    clock: &Rc<RefCell<dyn Clock>>,
     cache: &Rc<RefCell<Cache>>,
     inner: &Rc<RefCell<PortfolioState>>,
+    config: PortfolioConfig,
     event: &AccountState,
 ) {
     let already_applied = {
@@ -3349,6 +3428,87 @@ fn update_account(
 
     if should_log {
         log::info!("Updated {event}");
+    }
+    drop(inner_ref);
+
+    register_equity_curve_account(clock, cache, inner, config, event.account_id);
+}
+
+fn equity_curve_timer_name(account_id: AccountId) -> String {
+    format!("portfolio_equity_curve.{account_id}")
+}
+
+fn register_equity_curve_account(
+    clock: &Rc<RefCell<dyn Clock>>,
+    cache: &Rc<RefCell<Cache>>,
+    inner: &Rc<RefCell<PortfolioState>>,
+    config: PortfolioConfig,
+    account_id: AccountId,
+) {
+    if !config.equity_curve {
+        return;
+    }
+
+    let is_new = {
+        let mut inner = inner.borrow_mut();
+        if inner.equity_curve_finalized {
+            return;
+        }
+        inner.equity_curve_accounts.insert(account_id)
+    };
+
+    if !is_new {
+        return;
+    }
+
+    arm_equity_curve_timer(clock, cache, inner, config, account_id);
+    let ts_event = clock.borrow().timestamp_ns();
+    emit_snapshot(cache, clock, inner, config, account_id, ts_event);
+}
+
+fn arm_equity_curve_timer(
+    clock: &Rc<RefCell<dyn Clock>>,
+    cache: &Rc<RefCell<Cache>>,
+    inner: &Rc<RefCell<PortfolioState>>,
+    config: PortfolioConfig,
+    account_id: AccountId,
+) {
+    let ts_now = clock.borrow().timestamp_ns().as_u64();
+    let Some(next_day) = (ts_now / NANOSECONDS_IN_DAY)
+        .checked_add(1)
+        .and_then(|day| day.checked_mul(NANOSECONDS_IN_DAY))
+    else {
+        log::error!("Failed to calculate next equity curve sample for {account_id}");
+        return;
+    };
+    let timer_name = equity_curve_timer_name(account_id);
+    let cache_weak = Rc::downgrade(cache);
+    let clock_weak = Rc::downgrade(clock);
+    let inner_weak = Rc::downgrade(inner);
+
+    let callback: Rc<dyn Fn(TimeEvent)> = Rc::new(move |event| {
+        let Some(cache) = cache_weak.upgrade() else {
+            return;
+        };
+        let Some(clock) = clock_weak.upgrade() else {
+            return;
+        };
+        let Some(inner) = inner_weak.upgrade() else {
+            return;
+        };
+        emit_snapshot(&cache, &clock, &inner, config, account_id, event.ts_event);
+    });
+
+    if let Err(e) = clock.borrow_mut().set_timer_ns(
+        &timer_name,
+        NANOSECONDS_IN_DAY,
+        Some(UnixNanos::from(next_day)),
+        None,
+        Some(TimeEventCallback::from(callback)),
+        Some(false),
+        Some(true),
+    ) {
+        log::error!("Failed to arm portfolio equity curve timer for {account_id}: {e}");
     }
 }
 

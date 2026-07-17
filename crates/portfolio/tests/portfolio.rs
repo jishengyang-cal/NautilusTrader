@@ -20,7 +20,7 @@ use nautilus_common::{
     clock::{Clock, TestClock},
     msgbus::{self, MessageBus, MessagingSwitchboard, TypedHandler},
 };
-use nautilus_core::{UUID4, UnixNanos};
+use nautilus_core::{UUID4, UnixNanos, approx_eq};
 use nautilus_model::{
     accounts::{Account, AccountAny},
     data::{Bar, BarType, MarkPriceUpdate, QuoteTick},
@@ -6177,6 +6177,171 @@ fn test_snapshot_timer_not_armed_without_config(
 }
 
 #[rstest]
+fn test_default_equity_curve_samples_daily_while_flat(simple_cache: Cache, clock: TestClock) {
+    use nautilus_common::timer::TimeEventCallback;
+    use nautilus_core::datetime::NANOSECONDS_IN_DAY;
+
+    let test_clock = Rc::new(RefCell::new(clock));
+    let clock: Rc<RefCell<dyn Clock>> = test_clock.clone();
+    let mut portfolio = Portfolio::new(clock, Rc::new(RefCell::new(simple_cache)), None);
+    let account_id = AccountId::new("SIM-001");
+
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+
+    let timer_name = format!("portfolio_equity_curve.{account_id}");
+    assert_eq!(portfolio.snapshots(&account_id).len(), 1);
+    assert_eq!(
+        portfolio.clock().borrow().next_time_ns(&timer_name),
+        Some(UnixNanos::from(NANOSECONDS_IN_DAY)),
+    );
+
+    let events = test_clock
+        .borrow_mut()
+        .advance_time(UnixNanos::from(NANOSECONDS_IN_DAY), true);
+    let handlers = test_clock.borrow().match_handlers(events);
+    assert_eq!(handlers.len(), 1);
+    for handler in handlers {
+        match handler.callback {
+            TimeEventCallback::RustLocal(callback) => callback(handler.event),
+            _ => panic!("expected RustLocal callback"),
+        }
+    }
+
+    let snapshots = portfolio.snapshots(&account_id);
+    assert_eq!(snapshots.len(), 2);
+    assert_eq!(snapshots[1].ts_event, UnixNanos::from(NANOSECONDS_IN_DAY));
+    assert!(
+        portfolio
+            .cache()
+            .borrow()
+            .positions_open(None, None, None, Some(&account_id), None)
+            .is_empty(),
+    );
+}
+
+#[rstest]
+fn test_portfolio_statistics_use_daily_equity_curve(simple_cache: Cache, clock: TestClock) {
+    use nautilus_common::timer::TimeEventCallback;
+    use nautilus_core::datetime::NANOSECONDS_IN_DAY;
+
+    let mut clock = clock;
+    let start_ns = NANOSECONDS_IN_DAY + NANOSECONDS_IN_DAY / 2;
+    let _ = clock.advance_time(UnixNanos::from(start_ns), true);
+    let test_clock = Rc::new(RefCell::new(clock));
+    let clock: Rc<RefCell<dyn Clock>> = test_clock.clone();
+    let mut portfolio = Portfolio::new(clock, Rc::new(RefCell::new(simple_cache)), None);
+    let account_id = AccountId::new("SIM-001");
+    let account_state = |total: &str, ts_event: u64| {
+        AccountState::new(
+            account_id,
+            AccountType::Cash,
+            vec![AccountBalance::new(
+                Money::from(total),
+                Money::zero(Currency::USD()),
+                Money::from(total),
+            )],
+            vec![],
+            true,
+            UUID4::new(),
+            UnixNanos::from(ts_event),
+            UnixNanos::from(ts_event),
+            Some(Currency::USD()),
+        )
+    };
+
+    portfolio.update_account(&account_state("100.00 USD", start_ns));
+    portfolio.update_account(&account_state("120.00 USD", 2 * NANOSECONDS_IN_DAY));
+
+    let events = test_clock
+        .borrow_mut()
+        .advance_time(UnixNanos::from(2 * NANOSECONDS_IN_DAY), true);
+    let handlers = test_clock.borrow().match_handlers(events);
+    for handler in handlers {
+        match handler.callback {
+            TimeEventCallback::RustLocal(callback) => callback(handler.event),
+            _ => panic!("expected RustLocal callback"),
+        }
+    }
+    portfolio.update_account(&account_state("132.00 USD", 3 * NANOSECONDS_IN_DAY));
+    let events = test_clock
+        .borrow_mut()
+        .advance_time(UnixNanos::from(3 * NANOSECONDS_IN_DAY), true);
+    let handlers = test_clock.borrow().match_handlers(events);
+    for handler in handlers {
+        match handler.callback {
+            TimeEventCallback::RustLocal(callback) => callback(handler.event),
+            _ => panic!("expected RustLocal callback"),
+        }
+    }
+
+    let statistics = portfolio.statistics();
+
+    assert_eq!(portfolio.snapshots(&account_id).len(), 3);
+    assert!(approx_eq!(
+        f64,
+        statistics.returns["Average (Return)"],
+        0.15,
+        epsilon = 1e-12
+    ));
+}
+
+#[rstest]
+fn test_equity_curve_can_be_disabled(simple_cache: Cache, clock: TestClock) {
+    let config = PortfolioConfig::builder()
+        .equity_curve(false)
+        .build()
+        .unwrap();
+    let mut portfolio = Portfolio::new(
+        Rc::new(RefCell::new(clock)),
+        Rc::new(RefCell::new(simple_cache)),
+        Some(config),
+    );
+    let account_id = AccountId::new("SIM-001");
+
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+
+    assert!(portfolio.snapshots(&account_id).is_empty());
+    assert!(
+        !portfolio
+            .clock()
+            .borrow()
+            .timer_names()
+            .contains(&format!("portfolio_equity_curve.{account_id}").as_str()),
+    );
+}
+
+#[rstest]
+fn test_finalize_equity_curve_samples_once_and_cancels_timer(
+    simple_cache: Cache,
+    clock: TestClock,
+) {
+    let mut portfolio = Portfolio::new(
+        Rc::new(RefCell::new(clock)),
+        Rc::new(RefCell::new(simple_cache)),
+        None,
+    );
+    let account_id = AccountId::new("SIM-001");
+    let timer_name = format!("portfolio_equity_curve.{account_id}");
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+
+    portfolio.finalize_equity_curve();
+    portfolio.finalize_equity_curve();
+    let late_account_id = AccountId::new("SIM-002");
+    portfolio.update_account(&get_cash_account(Some(late_account_id.as_str())));
+    portfolio.finalize_equity_curve();
+
+    assert_eq!(portfolio.snapshots(&account_id).len(), 2);
+    assert!(portfolio.snapshots(&late_account_id).is_empty());
+    assert!(
+        !portfolio
+            .clock()
+            .borrow()
+            .timer_names()
+            .contains(&timer_name.as_str())
+    );
+}
+
+#[rstest]
 fn test_snapshot_timer_arms_and_disarms_on_position_lifecycle(
     mut simple_cache: Cache,
     clock: TestClock,
@@ -7356,6 +7521,7 @@ fn test_emit_snapshot_publishes_and_appends_to_ring(instrument_audusd: Instrumen
     let clock: Rc<RefCell<dyn Clock>> = test_clock.clone();
 
     let config = PortfolioConfig::builder()
+        .equity_curve(false)
         .snapshot_interval_ms(1_000)
         .build()
         .unwrap();
@@ -7467,26 +7633,42 @@ fn test_reset_cancels_snapshot_timers(
         .unwrap();
     portfolio.update_position(&PositionEvent::PositionOpened(get_open_position(&position)));
 
-    let expected_name = format!("portfolio_snapshot.{}", AccountId::new("SIM-001"));
+    let account_id = AccountId::new("SIM-001");
+    let snapshot_timer_name = format!("portfolio_snapshot.{account_id}");
+    let equity_curve_timer_name = format!("portfolio_equity_curve.{account_id}");
+    for timer_name in [&snapshot_timer_name, &equity_curve_timer_name] {
+        assert!(
+            portfolio
+                .clock()
+                .borrow()
+                .timer_names()
+                .contains(&timer_name.as_str())
+        );
+    }
+
+    portfolio.reset();
+
+    for timer_name in [&snapshot_timer_name, &equity_curve_timer_name] {
+        assert!(
+            !portfolio
+                .clock()
+                .borrow()
+                .timer_names()
+                .contains(&timer_name.as_str()),
+            "reset() should cancel {timer_name}"
+        );
+    }
+    assert!(portfolio.snapshots(&account_id).is_empty());
+
+    portfolio.update_account(&get_cash_account(Some(account_id.as_str())));
+
+    assert_eq!(portfolio.snapshots(&account_id).len(), 1);
     assert!(
         portfolio
             .clock()
             .borrow()
             .timer_names()
-            .iter()
-            .any(|n| *n == expected_name),
-    );
-
-    portfolio.reset();
-
-    assert!(
-        !portfolio
-            .clock()
-            .borrow()
-            .timer_names()
-            .iter()
-            .any(|n| *n == expected_name),
-        "reset() should cancel any armed portfolio snapshot timer"
+            .contains(&equity_curve_timer_name.as_str())
     );
 }
 

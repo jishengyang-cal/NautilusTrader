@@ -1724,8 +1724,9 @@ impl SimulatedExchange {
             .collect();
 
         if let Some(exec_client) = &self.exec_client {
+            let ts_event = self.clock.borrow().timestamp_ns();
             exec_client
-                .generate_account_state(balances, vec![], true, self.clock.borrow().timestamp_ns())
+                .generate_account_state(balances, vec![], true, ts_event)
                 .unwrap();
         }
 

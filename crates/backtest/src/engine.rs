@@ -906,6 +906,8 @@ impl BacktestEngine {
 
         self.settle_venues(ts_now);
 
+        self.kernel.portfolio.borrow_mut().finalize_equity_curve();
+
         // Stop engines
         self.kernel.data_engine.borrow_mut().stop();
         self.kernel.risk_engine.borrow_mut().stop();
@@ -1723,7 +1725,18 @@ impl BacktestEngine {
             snapshots.extend(cache.position_snapshots(Some(&position.id), None));
         }
         let recorded = self.kernel.portfolio.borrow().recorded_realized_pnls();
-        let analyzer = PortfolioAnalyzer::from_accounts(&accounts, &positions, &snapshots, recorded);
+        let portfolio = self.kernel.portfolio.borrow();
+        let portfolio_snapshots = accounts
+            .iter()
+            .flat_map(|account| portfolio.snapshots(&account.id()))
+            .collect::<Vec<_>>();
+        let analyzer = PortfolioAnalyzer::from_accounts_with_snapshots(
+            &accounts,
+            &positions,
+            &snapshots,
+            &portfolio_snapshots,
+            recorded,
+        );
         log_portfolio_performance(&analyzer);
     }
 
