@@ -740,12 +740,13 @@ fn test_initialize_orders_splits_initial_margin_by_account_when_broker_routed(
 }
 
 #[rstest]
-fn test_pending_tick_recovery_splits_margin_by_account_when_broker_routed(
+fn test_pending_tick_recovery_preserves_account_margins_when_broker_routed(
     mut simple_cache: Cache,
     clock: TestClock,
 ) {
     let account_a = AccountId::new("IB-DUN433229");
     let account_b = AccountId::new("IB-DUN558814");
+    let eur = Currency::EUR();
     let instrument = InstrumentAny::CurrencyPair(default_fx_ccy(
         Symbol::from("EUR/USD"),
         Some(Venue::new("IBIS")),
@@ -758,10 +759,30 @@ fn test_pending_tick_recovery_splits_margin_by_account_when_broker_routed(
         Rc::new(RefCell::new(simple_cache)),
         None,
     );
-    portfolio.update_account(&get_margin_account(Some(account_a.as_str())));
-    portfolio.update_account(&get_margin_account(Some(account_b.as_str())));
+    let account_state = |account_id| {
+        AccountState::new(
+            account_id,
+            AccountType::Margin,
+            vec![AccountBalance::new(
+                Money::from("1000000 EUR"),
+                Money::zero(eur),
+                Money::from("1000000 EUR"),
+            )],
+            vec![],
+            true,
+            uuid4(),
+            0.into(),
+            0.into(),
+            Some(eur),
+        )
+    };
+    portfolio.update_account(&account_state(account_a));
+    portfolio.update_account(&account_state(account_b));
 
-    for (account_id, position_id) in [(account_a, "P-PT-A"), (account_b, "P-PT-B")] {
+    for (account_id, position_id, order_id, venue_order_id) in [
+        (account_a, "P-PT-A", "O-PT-A", "V-PT-A"),
+        (account_b, "P-PT-B", "O-PT-B", "V-PT-B"),
+    ] {
         let fill = make_fill_for_account(
             &instrument,
             account_id,
@@ -776,28 +797,79 @@ fn test_pending_tick_recovery_splits_margin_by_account_when_broker_routed(
             .borrow_mut()
             .add_position(&position, OmsType::Hedging)
             .unwrap();
+
+        let order = OrderTestBuilder::new(OrderType::Limit)
+            .client_order_id(ClientOrderId::new(order_id))
+            .instrument_id(instrument_id)
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("100000"))
+            .price(Price::from("1.00000"))
+            .build();
+        portfolio
+            .cache()
+            .borrow_mut()
+            .add_order(order.clone(), None, None, false)
+            .unwrap();
+        let submitted = order_submitted(
+            order.trader_id(),
+            order.strategy_id(),
+            order.instrument_id(),
+            order.client_order_id(),
+            account_id,
+            uuid4(),
+        );
+        portfolio
+            .cache()
+            .borrow_mut()
+            .update_order(&OrderEventAny::Submitted(submitted))
+            .unwrap();
+        let accepted = order_accepted(
+            order.trader_id(),
+            order.strategy_id(),
+            order.instrument_id(),
+            order.client_order_id(),
+            account_id,
+            VenueOrderId::new(venue_order_id),
+            uuid4(),
+        );
+        portfolio
+            .cache()
+            .borrow_mut()
+            .update_order(&OrderEventAny::Accepted(accepted))
+            .unwrap();
     }
 
-    // No price yet: the PnL calc fails and the instrument goes pending.
+    portfolio.initialize_orders();
     portfolio.initialize_positions();
+    assert!(!portfolio.is_initialized());
 
     let quote = get_quote_tick(&instrument, 1.0010, 1.0011, 1.0, 1.0);
     portfolio.cache().borrow_mut().add_quote(quote).unwrap();
     portfolio.update_quote_tick(&quote);
 
-    let has_margin = |account_id: &AccountId| {
-        matches!(
-            portfolio.cache().borrow().account_owned(account_id),
-            Some(AccountAny::Margin(m)) if m.margins.contains_key(&instrument_id)
-        )
-    };
+    let margins = [account_a, account_b].map(|account_id| {
+        let account = portfolio
+            .cache()
+            .borrow()
+            .account_owned(&account_id)
+            .unwrap();
+        let AccountAny::Margin(account) = account else {
+            panic!("expected margin account");
+        };
+        let margin = account.margin(&instrument_id).unwrap();
+        (margin.initial, margin.maintenance)
+    });
+
+    assert!(portfolio.is_initialized());
     assert!(
-        has_margin(&account_a),
-        "account A should carry its own maintenance margin after tick recovery"
+        margins
+            .iter()
+            .all(|(initial, _)| initial.as_decimal() > Decimal::ZERO)
     );
     assert!(
-        has_margin(&account_b),
-        "account B should carry its own maintenance margin after tick recovery"
+        margins
+            .iter()
+            .all(|(_, maintenance)| maintenance.as_decimal() > Decimal::ZERO)
     );
 }
 

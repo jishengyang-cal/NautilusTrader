@@ -2717,41 +2717,45 @@ fn update_instrument_id(
     let mut any_margin = false;
 
     for (account_id, (orders, positions)) in by_account {
-        let Some(account) = cache.borrow().account(&account_id).map(|a| a.cloned()) else {
+        let Some(mut account) = cache.borrow().account(&account_id).map(|a| a.cloned()) else {
             log::error!("Cannot update tick: no account registered for {account_id}");
             ok = false;
             continue;
         };
 
         let orders_refs: Vec<&OrderAny> = orders.iter().collect();
+        let mut account_updated = inner
+            .borrow()
+            .accounts
+            .update_orders_in_place(&mut account, &instrument, &orders_refs, ts_event)
+            .is_some();
 
-        if let Some((updated_account, _)) =
-            inner
-                .borrow()
-                .accounts
-                .update_orders(&account, &instrument, &orders_refs, ts_event)
-        {
-            cache.borrow_mut().update_account(&updated_account).unwrap();
-        } else {
+        if !account_updated {
             ok = false;
         }
 
-        if let AccountAny::Margin(margin_account) = &account {
+        if let AccountAny::Margin(margin_account) = &mut account {
             any_margin = true;
 
-            if let Some((updated_account, _)) = inner.borrow().accounts.update_positions(
-                margin_account,
-                &instrument,
-                positions.iter().collect(),
-                ts_event,
-            ) {
-                cache
-                    .borrow_mut()
-                    .update_account(&AccountAny::Margin(updated_account))
-                    .unwrap();
+            if inner
+                .borrow()
+                .accounts
+                .update_positions_in_place(
+                    margin_account,
+                    &instrument,
+                    positions.iter().collect(),
+                    ts_event,
+                )
+                .is_some()
+            {
+                account_updated = true;
             } else {
                 ok = false;
             }
+        }
+
+        if account_updated {
+            cache.borrow_mut().update_account(&account).unwrap();
         }
     }
 
