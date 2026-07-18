@@ -44,7 +44,7 @@ COPY Cargo.lock ./
 COPY crates ./crates
 COPY patches ./patches
 COPY examples/tutorials ./examples/tutorials
-RUN cargo build --lib --release --all-features
+RUN cargo build --package nautilus-pyo3 --lib --release --all-features
 
 COPY nautilus_trader ./nautilus_trader
 COPY README.md ./
