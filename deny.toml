@@ -206,6 +206,10 @@ skip = [
   { crate = "petgraph" },
   { crate = "socket2" },
 
+  # Signature traits - v2 via cosmrs/tendermint, v3 via ed25519-dalek
+  { crate = "ed25519" },
+  { crate = "signature" },
+
   # Perfect hash function crates - transitive
   { crate = "phf" },
   { crate = "phf_shared" },

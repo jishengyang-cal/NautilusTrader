@@ -510,7 +510,7 @@ mod tests {
     ];
 
     #[rstest]
-    fn test_ed25519_accepts_pkcs8_wrapped_key() {
+    fn test_ed25519_matches_rfc_8032_vector() {
         let key_b64 = base64::Engine::encode(
             &base64::engine::general_purpose::STANDARD,
             ED25519_PKCS8_TEST_VECTOR,
@@ -518,8 +518,12 @@ mod tests {
 
         let cred = Ed25519Credential::new("test_key".to_string(), &key_b64).unwrap();
 
-        let signature = cred.sign(b"hello");
-        assert!(!signature.is_empty());
+        let signature = cred.sign(b"");
+
+        assert_eq!(
+            signature,
+            "5VZDAMNgrHKQhuLMgG6CioSHfx645dl02HPgZSJJAVVfuIIVkKM7rMYeOXAc+bRr0lv18FlbviRlUUFDjnoQCw=="
+        );
     }
 
     #[rstest]
