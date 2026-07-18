@@ -1,8 +1,7 @@
 {
   "rid": 3,
-  "res": {
-    "orders": [
-      {
+  "res": [
+    {
       "oid": "O-01ARZ3NDEKTSV4RRFFQ69G5FAV",
       "u": "550e8400-e29b-41d4-a716-446655440000",
       "s": "EURUSD-PERP",
@@ -15,7 +14,6 @@
       "tif": "GTC",
       "ts": 1609459200,
       "tn": 0
-      }
-    ]
-  }
+    }
+  ]
 }

@@ -382,7 +382,7 @@ impl AxOrdersWsFeedHandler {
                 Some(vec![AxOrdersWsMessage::CancelOrderResponse(msg)])
             }
             AxWsOrderResponse::OpenOrders(msg) => {
-                log::debug!("Open orders response: {} orders", msg.res.len());
+                log::debug!("Open orders response: {} orders", msg.res.orders.len());
                 Some(vec![AxOrdersWsMessage::OpenOrdersResponse(msg)])
             }
             AxWsOrderResponse::List(msg) => {

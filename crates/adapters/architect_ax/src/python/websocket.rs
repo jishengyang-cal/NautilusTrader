@@ -35,7 +35,7 @@ use nautilus_core::{
 };
 use nautilus_model::{
     data::{BarType, Data, InstrumentStatus, MarkPriceUpdate, OrderBookDeltas_API},
-    enums::{MarketStatusAction, OrderSide, OrderType, TimeInForce},
+    enums::{MarketStatusAction, OrderSide, TimeInForce},
     events::OrderCancelRejected,
     identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId},
     instruments::{Instrument, InstrumentAny},
@@ -53,7 +53,8 @@ use crate::{
     },
     execution::{
         cleanup_terminal_order_tracking, create_order_accepted, create_order_canceled,
-        create_order_expired, create_order_filled, create_order_rejected,
+        create_order_expired, create_order_filled, create_order_rejected, create_order_updated,
+        replacement_venue_order_id,
     },
     http::models::AxOrderRejectReason,
     websocket::{
@@ -94,14 +95,20 @@ impl Debug for PyAxMdWebSocketClient {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 impl PyAxMdWebSocketClient {
     #[new]
-    #[pyo3(signature = (url, auth_token, heartbeat=30, proxy_url=None))]
-    fn py_new(url: String, auth_token: String, heartbeat: u64, proxy_url: Option<String>) -> Self {
+    #[pyo3(signature = (url, auth_token, heartbeat=30, proxy_url=None, transport_backend=None))]
+    fn py_new(
+        url: String,
+        auth_token: String,
+        heartbeat: u64,
+        proxy_url: Option<String>,
+        transport_backend: Option<TransportBackend>,
+    ) -> Self {
         Self {
             inner: AxMdWebSocketClient::new(
                 url,
                 auth_token,
                 heartbeat,
-                TransportBackend::default(),
+                transport_backend.unwrap_or_default(),
                 proxy_url,
             ),
             instruments_cache: Arc::new(AtomicMap::new()),
@@ -110,13 +117,18 @@ impl PyAxMdWebSocketClient {
 
     #[staticmethod]
     #[pyo3(name = "without_auth")]
-    #[pyo3(signature = (url, heartbeat=30, proxy_url=None))]
-    fn py_without_auth(url: String, heartbeat: u64, proxy_url: Option<String>) -> Self {
+    #[pyo3(signature = (url, heartbeat=30, proxy_url=None, transport_backend=None))]
+    fn py_without_auth(
+        url: String,
+        heartbeat: u64,
+        proxy_url: Option<String>,
+        transport_backend: Option<TransportBackend>,
+    ) -> Self {
         Self {
             inner: AxMdWebSocketClient::without_auth(
                 url,
                 heartbeat,
-                TransportBackend::default(),
+                transport_backend.unwrap_or_default(),
                 proxy_url,
             ),
             instruments_cache: Arc::new(AtomicMap::new()),
@@ -483,13 +495,14 @@ impl Debug for PyAxOrdersWebSocketClient {
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 impl PyAxOrdersWebSocketClient {
     #[new]
-    #[pyo3(signature = (url, account_id, trader_id, heartbeat=30, proxy_url=None))]
+    #[pyo3(signature = (url, account_id, trader_id, heartbeat=30, proxy_url=None, transport_backend=None))]
     fn py_new(
         url: String,
         account_id: AccountId,
         trader_id: TraderId,
         heartbeat: u64,
         proxy_url: Option<String>,
+        transport_backend: Option<TransportBackend>,
     ) -> Self {
         Self {
             inner: AxOrdersWebSocketClient::new(
@@ -497,7 +510,7 @@ impl PyAxOrdersWebSocketClient {
                 account_id,
                 trader_id,
                 heartbeat,
-                TransportBackend::default(),
+                transport_backend.unwrap_or_default(),
                 proxy_url,
             ),
         }
@@ -612,7 +625,7 @@ impl PyAxOrdersWebSocketClient {
                             log::debug!(
                                 "Open orders response: rid={}, count={}",
                                 resp.rid,
-                                resp.res.len()
+                                resp.res.orders.len()
                             );
                         }
                         AxOrdersWsMessage::Error(err) => {
@@ -644,11 +657,9 @@ impl PyAxOrdersWebSocketClient {
         instrument_id,
         client_order_id,
         order_side,
-        order_type,
         quantity,
         time_in_force,
-        price=None,
-        trigger_price=None,
+        price,
         post_only=false,
     ))]
     #[expect(clippy::too_many_arguments)]
@@ -660,11 +671,9 @@ impl PyAxOrdersWebSocketClient {
         instrument_id: InstrumentId,
         client_order_id: ClientOrderId,
         order_side: OrderSide,
-        order_type: OrderType,
         quantity: Quantity,
         time_in_force: TimeInForce,
-        price: Option<Price>,
-        trigger_price: Option<Price>,
+        price: Price,
         post_only: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let client = self.inner.clone();
@@ -677,11 +686,9 @@ impl PyAxOrdersWebSocketClient {
                     instrument_id,
                     client_order_id,
                     order_side,
-                    order_type,
                     quantity,
                     time_in_force,
                     price,
-                    trigger_price,
                     post_only,
                 )
                 .await
@@ -1000,14 +1007,23 @@ fn handle_order_event(
             }
         }
         AxWsOrderEvent::Replaced(msg) => {
-            let Some(order) = msg.updated_order() else {
-                log::warn!("Received AX replace event without order details");
-                return;
+            let replacement_venue_order_id = match replacement_venue_order_id(&msg) {
+                Ok(venue_order_id) => venue_order_id,
+                Err(e) => {
+                    log::warn!("Invalid AX replace event, awaiting reconciliation: {e}");
+                    return;
+                }
             };
 
-            if let Some(event) =
-                create_order_accepted(order, msg.ts, msg.tn, caches, account_id, clock)
-            {
+            if let Some(event) = create_order_updated(
+                &msg.no,
+                &msg.ro,
+                replacement_venue_order_id,
+                (msg.ts, msg.tn),
+                caches,
+                account_id,
+                clock,
+            ) {
                 call_python_with_event(call_soon, callback, move |py| event.into_py_any(py));
             }
         }

@@ -75,6 +75,7 @@ adapter set. The following limits remain deferred:
 - Added Python v2 Portfolio snapshot access with base-currency equity and stale/unpriced metadata
 - Added Binance Futures and OKX trailing-stop activation prices to v2 execution reports
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
+- Added Architect AX dated futures parsing and configurable WebSocket heartbeat and disconnect cancellation
 - Added Hyperliquid fast-cancel payloads for non-trigger order cancels (#4414), thanks for reporting @magnified103
 - Added Hyperliquid market data stream health warnings for stalled Deltas, Depth10, and Quote subscriptions (#4298)
 - Added Hyperliquid opt-in stale stream recovery with targeted resubscribe and reconnect escalation (#4298)
@@ -97,6 +98,7 @@ adapter set. The following limits remain deferred:
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
+- Changed Architect AX request models and low-level submission APIs to match current venue schemas; venue-native stop-limit orders are rejected after sandbox testing could not confirm conditional execution semantics
 
 ### Security
 - Fixed underflow and currency-mismatch panics from out-of-order fill events (#4483), thanks @folknor
@@ -213,6 +215,24 @@ adapter set. The following limits remain deferred:
 - Fixed Derive cancel, replace, nonce failures, and non-positive `max_fee_per_contract` configs
 - Fixed Derive shared channel ownership, unsubscribe races, and stale quote caches
 - Fixed Derive request pacing, write expiry, null IDs, and handler blocking during reconnects
+- Fixed Architect AX market data subscriptions to use trade-only streams and suppress unrequested trade/ticker events
+- Fixed Architect AX `/transactions` requests to include the required bounded time range
+- Fixed Architect AX REST models and query params for current ticker, order, and transaction schemas (#4402)
+- Fixed Architect AX instrument, risk, fill, order routing, and pagination for current REST schemas
+- Fixed Architect AX Python instrument-list and order-book snapshot data requests
+- Fixed Architect AX quote delivery with depth subscriptions and reconciliation of regular fills with optional classification
+- Fixed Architect AX to deny reduce-only, quote-quantity, and display-quantity orders instead of submitting them without the requested semantics
+- Fixed Architect AX local modify rejections, replacement ID races, and Python reconciliation identity
+- Fixed OKX price-limit metadata parsing and public limit-price requests (#4413)
+- Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
+- Fixed Polymarket Gamma market and event keyset filters, validation, and repeated query encoding
+- Fixed Polymarket Gamma discovery to use keyset pagination beyond the legacy offset cap
+- Fixed Polymarket v2 order cancellation during shutdown so accepted venue orders are not left open
+- Fixed Polymarket v2 book delta atomicity and local limit-price range validation
+- Fixed Polymarket v2 execution races, ambiguous submissions, trade finality, fill IDs, and proxy funder validation
+- Fixed Polymarket market SELL sizing, terminal IOC remainders, and sub-cent reconciliation that created synthetic position fills
+- Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
+- Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
 - Fixed Hyperliquid `l2Book` resubscribe options and shared stream teardown (#4298)
 - Fixed Hyperliquid PyO3 order book depth subscriptions (#4381), thanks @graceyangfan
 - Fixed Hyperliquid Rust public trade responses dropping instrument identifiers

@@ -114,6 +114,9 @@ class AxHttpClient:
         start: datetime.datetime | None = None,
         end: datetime.datetime | None = None,
     ) -> typing.Any: ...
+    def request_book_snapshot(
+        self, instrument_id: model.InstrumentId, depth: int | None = None
+    ) -> typing.Any: ...
     def request_funding_rates(
         self,
         instrument_id: model.InstrumentId,
@@ -131,7 +134,11 @@ class AxHttpClient:
         client_order_id: model.ClientOrderId | None = None,
         venue_order_id: model.VenueOrderId | None = None,
     ) -> typing.Any: ...
-    def request_order_status_reports(self, account_id: model.AccountId) -> typing.Any: ...
+    def request_order_status_reports(
+        self,
+        account_id: model.AccountId,
+        client_order_ids: typing.Sequence[model.ClientOrderId] | None = None,
+    ) -> typing.Any: ...
     def request_fill_reports(self, account_id: model.AccountId) -> typing.Any: ...
     def request_position_reports(self, account_id: model.AccountId) -> typing.Any: ...
     def preview_aggressive_limit_order(
@@ -141,11 +148,19 @@ class AxHttpClient:
 @typing.final
 class AxMdWebSocketClient:
     def __init__(
-        self, url: str, auth_token: str, heartbeat: int = 30, proxy_url: str | None = None
+        self,
+        url: str,
+        auth_token: str,
+        heartbeat: int = 30,
+        proxy_url: str | None = None,
+        transport_backend: network.TransportBackend | None = None,
     ) -> None: ...
     @staticmethod
     def without_auth(
-        url: str, heartbeat: int = 30, proxy_url: str | None = None
+        url: str,
+        heartbeat: int = 30,
+        proxy_url: str | None = None,
+        transport_backend: network.TransportBackend | None = None,
     ) -> AxMdWebSocketClient: ...
     @property
     def url(self) -> str: ...
@@ -182,6 +197,7 @@ class AxOrdersWebSocketClient:
         trader_id: model.TraderId,
         heartbeat: int = 30,
         proxy_url: str | None = None,
+        transport_backend: network.TransportBackend | None = None,
     ) -> None: ...
     @property
     def url(self) -> str: ...
@@ -206,11 +222,9 @@ class AxOrdersWebSocketClient:
         instrument_id: model.InstrumentId,
         client_order_id: model.ClientOrderId,
         order_side: model.OrderSide,
-        order_type: model.OrderType,
         quantity: model.Quantity,
         time_in_force: model.TimeInForce,
-        price: model.Price | None = None,
-        trigger_price: model.Price | None = None,
+        price: model.Price,
         post_only: bool = False,
     ) -> typing.Any: ...
     def cancel_order(

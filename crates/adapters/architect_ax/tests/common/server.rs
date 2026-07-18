@@ -29,13 +29,16 @@ use std::{
 use axum::{
     Json, Router,
     extract::{
-        State,
+        Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use nautilus_architect_ax::common::consts::AX_VENUE;
+use nautilus_architect_ax::{
+    common::consts::AX_VENUE,
+    http::query::{GetFillsParams, GetOpenOrdersParams},
+};
 use nautilus_common::testing::wait_until_async;
 use nautilus_model::{
     enums::AssetClass,
@@ -61,10 +64,12 @@ pub(crate) struct TestServerState {
     pub messages_received: Arc<tokio::sync::Mutex<Vec<serde_json::Value>>>,
     pub cancel_all_count: Arc<AtomicUsize>,
     pub cancel_all_fail: Arc<AtomicBool>,
+    pub preview_count: Arc<AtomicUsize>,
     pub preview_empty: Arc<AtomicBool>,
     pub preview_partial: Arc<AtomicBool>,
     pub replace_order_fail: Arc<AtomicBool>,
     pub replace_order_count: Arc<AtomicUsize>,
+    pub replace_order_oid: Arc<tokio::sync::Mutex<Option<String>>>,
     pub open_orders_payload: Arc<tokio::sync::Mutex<Option<serde_json::Value>>>,
     pub fills_payload: Arc<tokio::sync::Mutex<Option<serde_json::Value>>>,
     pub positions_payload: Arc<tokio::sync::Mutex<Option<serde_json::Value>>>,
@@ -85,10 +90,12 @@ impl Default for TestServerState {
             messages_received: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancel_all_count: Arc::new(AtomicUsize::new(0)),
             cancel_all_fail: Arc::new(AtomicBool::new(false)),
+            preview_count: Arc::new(AtomicUsize::new(0)),
             preview_empty: Arc::new(AtomicBool::new(false)),
             preview_partial: Arc::new(AtomicBool::new(false)),
             replace_order_fail: Arc::new(AtomicBool::new(false)),
             replace_order_count: Arc::new(AtomicUsize::new(0)),
+            replace_order_oid: Arc::new(tokio::sync::Mutex::new(None)),
             open_orders_payload: Arc::new(tokio::sync::Mutex::new(None)),
             fills_payload: Arc::new(tokio::sync::Mutex::new(None)),
             positions_payload: Arc::new(tokio::sync::Mutex::new(None)),
@@ -475,6 +482,7 @@ async fn handle_cancel_all_orders(
 async fn handle_preview_aggressive_limit_order(
     State(state): State<TestServerState>,
 ) -> Json<serde_json::Value> {
+    state.preview_count.fetch_add(1, Ordering::Relaxed);
     if state.preview_empty.load(Ordering::Relaxed) {
         return Json(json!({
             "filled_quantity": 0,
@@ -516,24 +524,81 @@ async fn handle_replace_order(
         .get("oid")
         .and_then(|v| v.as_str())
         .unwrap_or("OLD-OID");
-    let new_oid = format!("{old_oid}-REPL");
+    let new_oid = state
+        .replace_order_oid
+        .lock()
+        .await
+        .clone()
+        .unwrap_or_else(|| format!("{old_oid}-REPL"));
     Json(json!({ "oid": new_oid })).into_response()
 }
 
-async fn handle_open_orders(State(state): State<TestServerState>) -> Json<serde_json::Value> {
+async fn handle_open_orders(
+    State(state): State<TestServerState>,
+    Query(params): Query<GetOpenOrdersParams>,
+) -> Json<serde_json::Value> {
     let guard = state.open_orders_payload.lock().await;
-    if let Some(v) = guard.as_ref() {
-        return Json(v.clone());
-    }
-    Json(load_test_data("http_get_open_orders.json"))
+    let payload = guard
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| load_test_data("http_get_open_orders.json"));
+    let orders = payload
+        .get("orders")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total_count = orders.len();
+    let offset = params.offset.unwrap_or(0).max(0) as usize;
+    let limit = params.limit.unwrap_or(100).max(0) as usize;
+    let page = orders
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect::<Vec<_>>();
+
+    Json(json!({
+        "orders": page,
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
+    }))
 }
 
-async fn handle_fills(State(state): State<TestServerState>) -> Json<serde_json::Value> {
+async fn handle_fills(
+    State(state): State<TestServerState>,
+    Query(params): Query<GetFillsParams>,
+) -> Json<serde_json::Value> {
     let guard = state.fills_payload.lock().await;
-    if let Some(v) = guard.as_ref() {
-        return Json(v.clone());
-    }
-    Json(load_test_data("http_get_fills.json"))
+    let payload = guard
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|| load_test_data("http_get_fills.json"));
+    let fills = payload
+        .get("fills")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total_count = fills.len();
+    let offset = params
+        .cursor
+        .as_deref()
+        .and_then(|cursor| cursor.parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = params.limit.unwrap_or(100).max(0) as usize;
+    let page = fills
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect::<Vec<_>>();
+    let next_offset = offset + page.len();
+    let next_cursor = (next_offset < total_count).then(|| next_offset.to_string());
+
+    Json(json!({
+        "fills": page,
+        "total_count": total_count,
+        "limit": limit,
+        "next_cursor": next_cursor,
+    }))
 }
 
 async fn handle_positions(State(state): State<TestServerState>) -> Json<serde_json::Value> {

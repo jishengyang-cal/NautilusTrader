@@ -6770,6 +6770,11 @@ class AxHttpClient:
         start: dt.datetime | None = None,
         end: dt.datetime | None = None,
     ) -> list[Bar]: ...
+    async def request_book_snapshot(
+        self,
+        instrument_id: InstrumentId,
+        depth: int | None = None,
+    ) -> OrderBook: ...
     async def request_account_state(
         self,
         account_id: AccountId,
@@ -6787,6 +6792,7 @@ class AxHttpClient:
     async def request_order_status_reports(
         self,
         account_id: AccountId,
+        client_order_ids: list[ClientOrderId] | None = None,
     ) -> list[OrderStatusReport]: ...
     async def request_fill_reports(
         self,
@@ -6816,12 +6822,14 @@ class AxMdWebSocketClient:
         auth_token: str,
         heartbeat: int = 30,
         proxy_url: str | None = None,
+        transport_backend: Any | None = None,
     ) -> None: ...
     @staticmethod
     def without_auth(
         url: str,
         heartbeat: int = 30,
         proxy_url: str | None = None,
+        transport_backend: Any | None = None,
     ) -> AxMdWebSocketClient: ...
     @property
     def url(self) -> str: ...
@@ -6857,6 +6865,7 @@ class AxOrdersWebSocketClient:
         trader_id: TraderId,
         heartbeat: int = 30,
         proxy_url: str | None = None,
+        transport_backend: Any | None = None,
     ) -> None: ...
     @property
     def url(self) -> str: ...
@@ -6886,11 +6895,9 @@ class AxOrdersWebSocketClient:
         instrument_id: InstrumentId,
         client_order_id: ClientOrderId,
         order_side: OrderSide,
-        order_type: OrderType,
         quantity: Quantity,
         time_in_force: TimeInForce,
-        price: Price | None = None,
-        trigger_price: Price | None = None,
+        price: Price,
         post_only: bool = False,
     ) -> None: ...
     async def cancel_order(

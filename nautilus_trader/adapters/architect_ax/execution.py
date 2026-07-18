@@ -26,11 +26,11 @@ import contextlib
 from typing import Any
 
 from nautilus_trader.adapters.architect_ax.config import AxExecClientConfig
+from nautilus_trader.adapters.architect_ax.constants import AX_ADAPTER_SUPPORTED_ORDER_TYPES
 from nautilus_trader.adapters.architect_ax.constants import AX_AUTH_TOKEN_REFRESH_INTERVAL_SECS
 from nautilus_trader.adapters.architect_ax.constants import AX_AUTH_TOKEN_REFRESH_RETRY_SECS
 from nautilus_trader.adapters.architect_ax.constants import AX_AUTH_TOKEN_REQUEST_TIMEOUT_SECS
 from nautilus_trader.adapters.architect_ax.constants import AX_AUTH_TOKEN_TTL_SECS
-from nautilus_trader.adapters.architect_ax.constants import AX_SUPPORTED_ORDER_TYPES
 from nautilus_trader.adapters.architect_ax.constants import AX_VENUE
 from nautilus_trader.adapters.architect_ax.constants import AX_WS_ORDERS_PRODUCTION_URL
 from nautilus_trader.adapters.architect_ax.constants import AX_WS_ORDERS_SANDBOX_URL
@@ -60,6 +60,7 @@ from nautilus_trader.model.enums import AccountType
 from nautilus_trader.model.enums import OmsType
 from nautilus_trader.model.enums import OrderStatus
 from nautilus_trader.model.enums import OrderType
+from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import position_side_to_str
 from nautilus_trader.model.events import AccountState
 from nautilus_trader.model.events import OrderAccepted
@@ -68,6 +69,7 @@ from nautilus_trader.model.events import OrderCancelRejected
 from nautilus_trader.model.events import OrderExpired
 from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.model.events import OrderRejected
+from nautilus_trader.model.events import OrderUpdated
 from nautilus_trader.model.functions import order_side_to_pyo3
 from nautilus_trader.model.functions import order_type_to_pyo3
 from nautilus_trader.model.functions import time_in_force_to_pyo3
@@ -75,6 +77,7 @@ from nautilus_trader.model.identifiers import AccountId
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.orders import LimitOrder
 from nautilus_trader.model.orders import Order
 
 
@@ -150,6 +153,10 @@ class AxExecutionClient(LiveExecutionClient):
         else:
             self._ws_orders_url = AX_WS_ORDERS_PRODUCTION_URL
 
+        if config.cancel_on_disconnect:
+            separator = "&" if "?" in self._ws_orders_url else "?"
+            self._ws_orders_url += f"{separator}cancel_on_disconnect=true"
+
     async def _connect(self) -> None:
         await self._stop_auth_refresh()
         self._has_credentials = False
@@ -168,8 +175,9 @@ class AxExecutionClient(LiveExecutionClient):
                 url=self._ws_orders_url,
                 account_id=self.pyo3_account_id,
                 trader_id=self.pyo3_trader_id,
-                heartbeat=30,
+                heartbeat=self._config.heartbeat_interval_secs,
                 proxy_url=self._config.proxy_url,
+                transport_backend=self._config.transport_backend,
             )
 
             # Cache instruments for proper precision handling
@@ -312,12 +320,20 @@ class AxExecutionClient(LiveExecutionClient):
         reports: list[OrderStatusReport] = []
 
         try:
+            open_client_order_ids = [
+                nautilus_pyo3.ClientOrderId(order.client_order_id.value)
+                for order in self._cache.orders_open(venue=self.venue)
+            ]
             pyo3_reports = await self._http_client.request_order_status_reports(
                 self.pyo3_account_id,
+                open_client_order_ids,
             )
 
             for pyo3_report in pyo3_reports:
                 report = OrderStatusReport.from_pyo3(pyo3_report)
+                cached_client_order_id = self._cache.client_order_id(report.venue_order_id)
+                if cached_client_order_id is not None:
+                    report.client_order_id = cached_client_order_id
                 self._log.debug(f"Received {report}", LogColor.MAGENTA)
                 reports.append(report)
         except (asyncio.CancelledError, Exception) as e:
@@ -402,13 +418,13 @@ class AxExecutionClient(LiveExecutionClient):
             )
             return
 
-        if order.order_type not in AX_SUPPORTED_ORDER_TYPES:
+        local_denial_reason = _local_submit_denial_reason(order)
+        if local_denial_reason is not None:
             self.generate_order_denied(
                 strategy_id=order.strategy_id,
                 instrument_id=order.instrument_id,
                 client_order_id=order.client_order_id,
-                reason=f"Unsupported order type: {order.order_type.name}. "
-                "AX supports MARKET, LIMIT and STOP_LIMIT.",
+                reason=local_denial_reason,
                 ts_event=self._clock.timestamp_ns(),
             )
             return
@@ -441,20 +457,28 @@ class AxExecutionClient(LiveExecutionClient):
                     ts_event=self._clock.timestamp_ns(),
                 )
                 return
-
-        pyo3_trigger_price = None
-
-        if order.has_trigger_price:
-            pyo3_trigger_price = nautilus_pyo3.Price.from_str(str(order.trigger_price))
+        else:
+            self.generate_order_denied(
+                strategy_id=order.strategy_id,
+                instrument_id=order.instrument_id,
+                client_order_id=order.client_order_id,
+                reason="AX limit order requires a price",
+                ts_event=self._clock.timestamp_ns(),
+            )
+            return
 
         pyo3_trader_id = nautilus_pyo3.TraderId(order.trader_id.value)
         pyo3_strategy_id = nautilus_pyo3.StrategyId(order.strategy_id.value)
         pyo3_instrument_id = nautilus_pyo3.InstrumentId.from_str(order.instrument_id.value)
         pyo3_client_order_id = nautilus_pyo3.ClientOrderId(order.client_order_id.value)
         pyo3_order_side = order_side_to_pyo3(order.side)
-        pyo3_order_type = order_type_to_pyo3(order.order_type)
         pyo3_quantity = nautilus_pyo3.Quantity.from_str(str(order.quantity))
-        pyo3_time_in_force = time_in_force_to_pyo3(order.time_in_force)
+        if order.order_type == OrderType.MARKET:
+            pyo3_time_in_force = time_in_force_to_pyo3(TimeInForce.IOC)
+            post_only = False
+        else:
+            pyo3_time_in_force = time_in_force_to_pyo3(order.time_in_force)
+            post_only = order.is_post_only
 
         try:
             await self._ws_orders_client.submit_order(
@@ -463,12 +487,10 @@ class AxExecutionClient(LiveExecutionClient):
                 instrument_id=pyo3_instrument_id,
                 client_order_id=pyo3_client_order_id,
                 order_side=pyo3_order_side,
-                order_type=pyo3_order_type,
                 quantity=pyo3_quantity,
                 time_in_force=pyo3_time_in_force,
                 price=pyo3_price,
-                trigger_price=pyo3_trigger_price,
-                post_only=order.is_post_only,
+                post_only=post_only,
             )
         except Exception as e:
             self.generate_order_rejected(
@@ -618,6 +640,8 @@ class AxExecutionClient(LiveExecutionClient):
             self._handle_order_expired(msg)
         elif isinstance(msg, nautilus_pyo3.OrderRejected):
             self._handle_order_rejected(msg)
+        elif isinstance(msg, nautilus_pyo3.OrderUpdated):
+            self._handle_order_updated(msg)
         elif isinstance(msg, nautilus_pyo3.OrderCancelRejected):
             self._handle_order_cancel_rejected(msg)
         elif isinstance(msg, nautilus_pyo3.OrderStatusReport):
@@ -643,6 +667,10 @@ class AxExecutionClient(LiveExecutionClient):
             venue_order_id=event.venue_order_id,
             ts_event=event.ts_event,
         )
+
+    def _handle_order_updated(self, msg: nautilus_pyo3.OrderUpdated) -> None:
+        event = OrderUpdated.from_dict(msg.to_dict())
+        self._send_order_event(event)
 
     def _handle_order_filled(self, msg: nautilus_pyo3.OrderFilled) -> None:
         client_order_id = ClientOrderId(msg.client_order_id.value)
@@ -835,3 +863,22 @@ class AxExecutionClient(LiveExecutionClient):
             liquidity_side=report.liquidity_side,
             ts_event=report.ts_event,
         )
+
+
+def _local_submit_denial_reason(order: Order) -> str | None:
+    if order.order_type not in AX_ADAPTER_SUPPORTED_ORDER_TYPES:
+        return (
+            f"Unsupported order type: {order.order_type.name}. "
+            "The Architect AX adapter accepts Nautilus MARKET and LIMIT orders."
+        )
+
+    if order.is_reduce_only:
+        return "AX does not support reduce-only orders"
+
+    if order.is_quote_quantity:
+        return "Architect AX adapter cannot encode quote_quantity; submit a base quantity instead"
+
+    if isinstance(order, LimitOrder) and order.display_qty is not None:
+        return "Architect AX adapter cannot encode display_qty iceberg instructions"
+
+    return None

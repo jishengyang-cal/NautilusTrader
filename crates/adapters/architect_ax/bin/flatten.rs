@@ -132,8 +132,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             s: pos.symbol,
             tif: AxTimeInForce::Ioc,
             tag: None,
-            order_type: None,
-            trigger_price: None,
         };
 
         let resp = client.place_order(&request).await?;

@@ -34,7 +34,7 @@ use nautilus_core::{
     time::{AtomicTime, get_atomic_clock_realtime},
 };
 use nautilus_model::{
-    enums::{OrderSide, OrderType, TimeInForce},
+    enums::{OrderSide, TimeInForce},
     identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId},
     instruments::{Instrument, InstrumentAny},
     types::{Price, Quantity},
@@ -54,7 +54,7 @@ use super::handler::{AxOrdersWsFeedHandler, HandlerCommand, WsOrderInfo};
 use crate::{
     common::{
         consts::AX_NAUTILUS_TAG,
-        enums::{AxOrderRequestType, AxOrderSide, AxOrderType, AxTimeInForce},
+        enums::{AxOrderRequestType, AxOrderSide, AxTimeInForce},
         parse::{client_order_id_to_cid, quantity_to_contracts},
     },
     websocket::messages::{AxOrdersWsMessage, AxWsPlaceOrder, OrderMetadata},
@@ -359,7 +359,6 @@ impl AxOrdersWebSocketClient {
             size_precision: instrument.size_precision(),
             price_precision: instrument.price_precision(),
             quote_currency: instrument.quote_currency(),
-            pending_trigger_price: None,
         };
 
         self.caches
@@ -541,7 +540,7 @@ impl AxOrdersWebSocketClient {
         Ok(())
     }
 
-    /// Submits an order using Nautilus domain types.
+    /// Submits the AX priced order shape using Nautilus domain types.
     ///
     /// This method handles conversion from Nautilus domain types to AX-specific
     /// types and stores order metadata for event correlation.
@@ -549,11 +548,8 @@ impl AxOrdersWebSocketClient {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The order type is not supported (only MARKET (simulated), LIMIT and STOP_LIMIT).
     /// - The time-in-force is not supported.
     /// - The instrument is not found in the cache.
-    /// - A limit order is missing a price.
-    /// - A stop-loss order is missing a trigger price.
     /// - The order command cannot be sent.
     #[expect(clippy::too_many_arguments)]
     pub async fn submit_order(
@@ -563,22 +559,11 @@ impl AxOrdersWebSocketClient {
         instrument_id: InstrumentId,
         client_order_id: ClientOrderId,
         order_side: OrderSide,
-        order_type: OrderType,
         quantity: Quantity,
         time_in_force: TimeInForce,
-        price: Option<Price>,
-        trigger_price: Option<Price>,
+        price: Price,
         post_only: bool,
     ) -> AxOrdersWsResult<i64> {
-        if !matches!(
-            order_type,
-            OrderType::Market | OrderType::Limit | OrderType::StopLimit
-        ) {
-            return Err(AxOrdersWsClientError::ClientError(format!(
-                "Unsupported order type: {order_type:?}. AX supports MARKET, LIMIT and STOP_LIMIT."
-            )));
-        }
-
         // Get instrument from cache for precision
         let symbol = instrument_id.symbol.inner();
         let instrument = self.get_cached_instrument(&symbol).ok_or_else(|| {
@@ -592,58 +577,8 @@ impl AxOrdersWebSocketClient {
         let qty_contracts = quantity_to_contracts(quantity)
             .map_err(|e| AxOrdersWsClientError::ClientError(e.to_string()))?;
 
-        // Market orders are simulated as IOC limit orders with aggressive pricing
-        // because Architect does not support native market orders
         let request_id = self.next_request_id();
-
-        let (ax_price, ax_tif, ax_post_only, ax_order_type, ax_trigger_price) = match order_type {
-            OrderType::Market => {
-                let market_price = price.ok_or_else(|| {
-                    AxOrdersWsClientError::ClientError(
-                        "Market order requires price (calculated from quote)".to_string(),
-                    )
-                })?;
-                (
-                    market_price.as_decimal(),
-                    AxTimeInForce::Ioc,
-                    false,
-                    None,
-                    None,
-                )
-            }
-            OrderType::Limit => {
-                let ax_tif = AxTimeInForce::try_from(time_in_force)?;
-                let limit_price = price.ok_or_else(|| {
-                    AxOrdersWsClientError::ClientError("Limit order requires price".to_string())
-                })?;
-                (limit_price.as_decimal(), ax_tif, post_only, None, None)
-            }
-            OrderType::StopLimit => {
-                let ax_tif = AxTimeInForce::try_from(time_in_force)?;
-                let limit_price = price.ok_or_else(|| {
-                    AxOrdersWsClientError::ClientError(
-                        "Stop-limit order requires price".to_string(),
-                    )
-                })?;
-                let stop_price = trigger_price.ok_or_else(|| {
-                    AxOrdersWsClientError::ClientError(
-                        "Stop-limit order requires trigger price".to_string(),
-                    )
-                })?;
-                (
-                    limit_price.as_decimal(),
-                    ax_tif,
-                    false,
-                    Some(AxOrderType::StopLossLimit),
-                    Some(stop_price.as_decimal()),
-                )
-            }
-            _ => {
-                return Err(AxOrdersWsClientError::ClientError(format!(
-                    "Unsupported order type: {order_type:?}"
-                )));
-            }
-        };
+        let ax_tif = AxTimeInForce::try_from(time_in_force)?;
 
         // Store order metadata for event correlation (after validation to avoid stale entries)
         let metadata = OrderMetadata {
@@ -656,7 +591,6 @@ impl AxOrdersWebSocketClient {
             size_precision: instrument.size_precision(),
             price_precision: instrument.price_precision(),
             quote_currency: instrument.quote_currency(),
-            pending_trigger_price: None,
         };
         self.caches
             .orders_metadata
@@ -674,13 +608,11 @@ impl AxOrdersWebSocketClient {
             s: symbol,
             d: ax_side,
             q: qty_contracts,
-            p: ax_price,
+            p: price.as_decimal(),
             tif: ax_tif,
-            po: ax_post_only,
+            po: post_only,
             tag: Some(AX_NAUTILUS_TAG.to_string()),
             cid: Some(cid),
-            order_type: ax_order_type,
-            trigger_price: ax_trigger_price,
         };
 
         let order_info = WsOrderInfo {
