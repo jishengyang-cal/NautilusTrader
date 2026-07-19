@@ -802,6 +802,9 @@ class AxExecutionClient(LiveExecutionClient):
             return
 
         if report.order_status == OrderStatus.ACCEPTED:
+            if order.status != OrderStatus.SUBMITTED:
+                return
+
             self.generate_order_accepted(
                 strategy_id=order.strategy_id,
                 instrument_id=report.instrument_id,

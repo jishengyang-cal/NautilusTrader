@@ -31,6 +31,7 @@ from nautilus_trader.execution.messages import GeneratePositionStatusReports
 from nautilus_trader.execution.messages import ModifyOrder
 from nautilus_trader.execution.messages import SubmitOrder
 from nautilus_trader.model.enums import OrderSide
+from nautilus_trader.model.enums import OrderStatus
 from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.events import OrderUpdated
 from nautilus_trader.model.identifiers import ClientOrderId
@@ -104,6 +105,35 @@ def exec_client_builder(
         return client, ws_orders, mock_http_client, mock_instrument_provider
 
     return builder
+
+
+@pytest.fixture
+def submitted_order(instrument, cache):
+    order = LimitOrder(
+        trader_id=TestIdStubs.trader_id(),
+        strategy_id=TestIdStubs.strategy_id(),
+        instrument_id=instrument.id,
+        client_order_id=ClientOrderId("O-ACCEPTED-ONCE"),
+        order_side=OrderSide.BUY,
+        quantity=Quantity.from_int(2),
+        price=Price.from_str("6.4000"),
+        init_id=TestIdStubs.uuid(),
+        ts_init=0,
+    )
+    order.apply(TestEventStubs.order_submitted(order))
+    cache.add_order(order, None)
+    return order
+
+
+@pytest.fixture
+def accepted_order_status_report(submitted_order):
+    return MagicMock(
+        client_order_id=submitted_order.client_order_id,
+        instrument_id=submitted_order.instrument_id,
+        venue_order_id=VenueOrderId("O-AX-ACCEPTED"),
+        order_status=OrderStatus.ACCEPTED,
+        ts_last=1,
+    )
 
 
 def test_exec_factory_routes_orders_requests_to_separate_base_url(monkeypatch):
@@ -430,6 +460,85 @@ async def test_generate_order_status_reports_handles_failure(exec_client_builder
 
     # Assert
     assert reports == []
+
+
+def test_handle_order_status_report_accepts_submitted_order_once(
+    exec_client_builder,
+    monkeypatch,
+    submitted_order,
+    accepted_order_status_report,
+    cache,
+):
+    client, _, _, _ = exec_client_builder(monkeypatch)
+    monkeypatch.setattr(
+        "nautilus_trader.adapters.architect_ax.execution.OrderStatusReport.from_pyo3",
+        lambda _: accepted_order_status_report,
+    )
+    client.generate_order_accepted = MagicMock()
+
+    client._handle_order_status_report(MagicMock())
+    submitted_order.apply(
+        TestEventStubs.order_accepted(
+            submitted_order,
+            venue_order_id=accepted_order_status_report.venue_order_id,
+        ),
+    )
+    cache.update_order(submitted_order)
+    client._handle_order_status_report(MagicMock())
+
+    assert submitted_order.status == OrderStatus.ACCEPTED
+    client.generate_order_accepted.assert_called_once_with(
+        strategy_id=submitted_order.strategy_id,
+        instrument_id=submitted_order.instrument_id,
+        client_order_id=submitted_order.client_order_id,
+        venue_order_id=accepted_order_status_report.venue_order_id,
+        ts_event=1,
+    )
+
+
+@pytest.mark.parametrize(
+    "local_status",
+    [OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING_CANCEL],
+    ids=["partially_filled", "pending_cancel"],
+)
+def test_handle_order_status_report_does_not_regress_open_order_state(
+    exec_client_builder,
+    monkeypatch,
+    instrument,
+    submitted_order,
+    accepted_order_status_report,
+    cache,
+    local_status,
+):
+    client, _, _, _ = exec_client_builder(monkeypatch)
+    submitted_order.apply(
+        TestEventStubs.order_accepted(
+            submitted_order,
+            venue_order_id=accepted_order_status_report.venue_order_id,
+        ),
+    )
+
+    if local_status == OrderStatus.PARTIALLY_FILLED:
+        submitted_order.apply(
+            TestEventStubs.order_filled(
+                submitted_order,
+                instrument,
+                last_qty=Quantity.from_int(1),
+            ),
+        )
+    else:
+        submitted_order.apply(TestEventStubs.order_pending_cancel(submitted_order))
+    cache.update_order(submitted_order)
+    monkeypatch.setattr(
+        "nautilus_trader.adapters.architect_ax.execution.OrderStatusReport.from_pyo3",
+        lambda _: accepted_order_status_report,
+    )
+    client.generate_order_accepted = MagicMock()
+
+    client._handle_order_status_report(MagicMock())
+
+    assert submitted_order.status == local_status
+    client.generate_order_accepted.assert_not_called()
 
 
 def test_handle_order_updated_promotes_replacement_venue_id(
