@@ -159,6 +159,22 @@ repos:
           )$
         pass_filenames: false
 
+      - id: check-miri-toolchain
+        name: check Miri toolchain
+        description: Ensures the pinned Miri compiler supports the workspace Rust version
+        entry: bash scripts/ci/test-check-miri-toolchain.bash
+        language: system
+        files: >-
+          (?x)^(
+            \.github/workflows/nightly-miri\.yml|
+            Cargo\.toml|
+            Makefile|
+            tools\.toml|
+            scripts/tool-version\.sh|
+            scripts/ci/(check-miri-toolchain|test-check-miri-toolchain)\.bash
+          )$
+        pass_filenames: false
+
       - id: check-copyright-year
         name: check copyright year
         description: Ensures copyright headers have current year

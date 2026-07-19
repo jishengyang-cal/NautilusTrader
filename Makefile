@@ -891,12 +891,12 @@ cargo-test-coverage-crate-html-%:  #-- Run coverage for specific crate with HTML
 # -----------------------------------------------------------------------------
 
 # Override these on the command line if needed, e.g.:
-#   make cargo-miri-core MIRI_TOOLCHAIN=nightly-2026-04-16
+#   make cargo-miri-core MIRI_TOOLCHAIN=nightly
 #   make cargo-miri-core MIRI_CORE_FILTER=...
 #   make cargo-miri-core MIRI_CORE_ARC_SWAP_FILTER=...
 #   make cargo-miri-plugin MIRI_PLUGIN_FILTER=...
 #   make cargo-miri-plugin MIRI_PLUGIN_MANIFEST_FILTER=...
-MIRI_TOOLCHAIN ?= nightly
+MIRI_TOOLCHAIN ?= $(shell bash scripts/tool-version.sh miri)
 MIRI_FLAGS ?= -Zmiri-disable-isolation -Zmiri-strict-provenance
 MIRI_CORE_ARC_SWAP_FLAGS ?= -Zmiri-disable-isolation -Zmiri-permissive-provenance
 MIRI_PLUGIN_MANIFEST_FLAGS ?= $(MIRI_FLAGS) -Zmiri-ignore-leaks
@@ -922,8 +922,12 @@ MIRI_MODEL_FILTER ?= -E 'test(/^(types::|identifiers::|orderbook::)/) and not te
 MIRI_PLUGIN_FILTER ?= -E 'test(/^(boundary|panic)::/)'
 MIRI_PLUGIN_MANIFEST_FILTER ?= -E 'test(/^manifest::/)'
 
+.PHONY: check-miri-toolchain
+check-miri-toolchain:
+	$(Q)bash scripts/ci/check-miri-toolchain.bash
+
 .PHONY: check-miri-installed
-check-miri-installed:
+check-miri-installed: check-miri-toolchain
 	@if ! cargo +$(MIRI_TOOLCHAIN) miri --version >/dev/null 2>&1; then \
 		echo "cargo-miri is not installed for toolchain $(MIRI_TOOLCHAIN)"; \
 		echo "Install with: rustup toolchain install $(MIRI_TOOLCHAIN) --component miri"; \
