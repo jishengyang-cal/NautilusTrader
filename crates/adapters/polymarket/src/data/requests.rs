@@ -409,6 +409,8 @@ pub(super) fn request_trades(
                 &token_id,
                 price_precision,
                 size_precision,
+                start_nanos,
+                end_nanos,
                 limit,
             )
             .await
@@ -430,7 +432,24 @@ pub(super) fn request_trades(
                     log::error!("Failed to send trades response: {e}");
                 }
             }
-            Err(e) => log::error!("Trade request failed for {instrument_id}: {e:?}"),
+            Err(e) => {
+                log::error!("Trade request failed for {instrument_id}: {e:?}");
+
+                let response = DataResponse::Trades(TradesResponse::new(
+                    request_id,
+                    client_id,
+                    instrument_id,
+                    Vec::new(),
+                    start_nanos,
+                    end_nanos,
+                    clock.get_time_ns(),
+                    params,
+                ));
+
+                if let Err(e) = sender.send(DataEvent::Response(response)) {
+                    log::error!("Failed to send empty trades response: {e}");
+                }
+            }
         }
     });
 

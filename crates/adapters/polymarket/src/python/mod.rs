@@ -15,9 +15,8 @@
 
 //! Python bindings from `pyo3`.
 //!
-//! The Python v2 Polymarket boundary is configuration and factory registration.
-//! Provider, data, and execution operations stay in Rust. Add Python here only
-//! to expose Rust adapter types or register factories, not to run adapter logic.
+//! The Python v2 Polymarket boundary exposes configuration, factory registration,
+//! and a thin discovery and historical-data facade backed by Rust clients.
 
 #![expect(
     clippy::missing_errors_doc,
@@ -26,6 +25,7 @@
 
 pub mod config;
 pub mod factories;
+pub mod loader;
 pub mod sort;
 
 use nautilus_common::factories::{ClientConfig, DataClientFactory, ExecutionClientFactory};
@@ -139,7 +139,7 @@ fn py_filter_value_to_string(value: &Bound<'_, PyAny>) -> PyResult<String> {
     ))
 }
 
-fn extract_string_map(
+pub(super) fn extract_string_map(
     value: &Bound<'_, PyAny>,
 ) -> PyResult<std::collections::HashMap<String, String>> {
     let dict = value.cast::<PyDict>()?;
@@ -431,6 +431,7 @@ pub fn polymarket(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PolymarketExecClientConfig>()?;
     m.add_class::<PolymarketDataClientFactory>()?;
     m.add_class::<PolymarketExecutionClientFactory>()?;
+    m.add_class::<loader::PyPolymarketDataLoader>()?;
     m.add_class::<PolymarketRtdsCryptoPrice>()?;
     m.add_class::<PolymarketRtdsEquityPrice>()?;
     m.add_function(pyo3::wrap_pyfunction!(

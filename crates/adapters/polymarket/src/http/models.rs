@@ -145,7 +145,7 @@ pub struct PolymarketTradeReport {
 /// A market response from the Gamma API `GET /markets`.
 ///
 /// References: <https://docs.polymarket.com/developers/gamma-markets-api/get-markets>
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GammaMarket {
     /// Internal Gamma market ID.
@@ -173,6 +173,12 @@ pub struct GammaMarket {
     pub active: Option<bool>,
     /// Whether market is closed.
     pub closed: Option<bool>,
+    /// Time when the market closed.
+    pub closed_time: Option<String>,
+    /// UMA resolution state reported by Gamma.
+    pub uma_resolution_status: Option<String>,
+    /// Source used to resolve the market.
+    pub resolution_source: Option<String>,
     /// Whether CLOB is accepting orders.
     pub accepting_orders: Option<bool>,
     /// Whether order book trading is enabled.
@@ -257,7 +263,7 @@ pub struct FeeSchedule {
 /// Events are parent containers grouping related markets (e.g., an election
 /// event contains multiple outcome markets). Each event's `markets` array
 /// contains full [`GammaMarket`] objects.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GammaEvent {
     pub id: String,
@@ -297,7 +303,7 @@ pub struct GammaEvent {
 }
 
 /// A tag from the Gamma API `GET /tags`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GammaTag {
     /// Tag identifier.
     pub id: String,
@@ -308,7 +314,7 @@ pub struct GammaTag {
 }
 
 /// Response from the Gamma API `GET /public-search`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SearchResponse {
     /// Matching markets.
     #[serde(default)]
@@ -353,7 +359,7 @@ pub struct ClobBookResponse {
 }
 
 /// A single outcome token in a CLOB market response.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ClobMarketToken {
     pub token_id: String,
     pub outcome: String,
@@ -361,7 +367,7 @@ pub struct ClobMarketToken {
 }
 
 /// Response from CLOB `GET /markets/{condition_id}`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ClobMarketResponse {
     pub condition_id: String,
     pub closed: bool,

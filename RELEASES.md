@@ -84,6 +84,7 @@ adapter set. The following limits remain deferred:
 - Added Polymarket v2 fill `info` metadata carrying the raw venue trade fields
 - Added Polymarket v2 fills at `MATCHED` with corrections for failed settlement
 - Added Polymarket v2 WS `hash` and `transaction_hash` field decoding (#4377), thanks for reporting @SebastianPartarrieu
+- Added Polymarket v2 `PolymarketDataLoader` v2 for public discovery and historical trades
 - Added Tardis MEXC spot and futures market data support
 
 ### Breaking Changes

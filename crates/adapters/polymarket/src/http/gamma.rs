@@ -176,6 +176,12 @@ impl PolymarketGammaRawHttpClient {
         self.send_get::<(), _>(&path, None::<&()>).await
     }
 
+    /// Fetches a market from the Gamma API `GET /markets/slug/{slug}`.
+    pub async fn get_gamma_market_by_slug(&self, slug: &str) -> Result<GammaMarket> {
+        let path = format!("/markets/slug/{slug}");
+        self.send_get::<(), _>(&path, None::<&()>).await
+    }
+
     /// Fetches events from the Gamma API `GET /events?slug=`.
     pub async fn get_gamma_events_by_slug(&self, slug: &str) -> Result<Vec<GammaEvent>> {
         #[derive(Serialize)]
@@ -882,6 +888,14 @@ impl PolymarketGammaHttpClient {
             instruments.len(),
         );
         Ok(instruments)
+    }
+
+    /// Fetches raw Gamma events using arbitrary query params with auto-pagination.
+    pub async fn request_events_by_params(
+        &self,
+        params: GetGammaEventsParams,
+    ) -> anyhow::Result<Vec<GammaEvent>> {
+        self.fetch_gamma_events_paginated(params).await
     }
 
     /// Searches for instruments via the Gamma public search endpoint.

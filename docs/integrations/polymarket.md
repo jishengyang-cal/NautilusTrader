@@ -872,22 +872,6 @@ using sliding windows rather than rejected immediately, but sustained overshoot 
 result in HTTP 429 responses or temporary blocking.
 :::
 
-### Legacy V1 loader rate limiting
-
-The Python `PolymarketDataLoader` described below belongs to the legacy V1 adapter and is not part
-of the V2 integration. This material remains only as a migration reference.
-
-The `PolymarketDataLoader` includes built-in rate limiting when using the default HTTP client.
-Requests are automatically throttled to 100 requests per minute by default.
-That is a NautilusTrader default, not Polymarket's current published limit.
-The current Rust HTTP clients also ship with conservative 100 requests per minute quotas.
-
-When fetching large date ranges across multiple markets:
-
-- Multiple loaders sharing the same `http_client` instance will coordinate rate limiting automatically.
-- For higher throughput, pass a custom `http_client` with adjusted quotas.
-- The loader does not implement automatic retry on 429 errors, so implement backoff if needed.
-
 :::info
 For the latest rate limit details, see the official Polymarket documentation:
 <https://docs.polymarket.com/api-reference/rate-limits>
@@ -1052,273 +1036,117 @@ For custom event patterns, pass explicit `event_slugs`, pass direct `market_slug
 filter or builder. The Rust v2 adapter rejects Python callable `event_slug_builder` values so adapter
 operations do not cross into Python during live trading.
 
-## Legacy V1 historical data loading
+## Python v2 discovery and historical data
 
-:::warning
-The following `PolymarketDataLoader` API, scripts, and backtest examples belong to the legacy V1
-Python adapter. They are outside the V2 integration's supported scope and have not been validated
-by the V2 adapter tests. Their imported symbols are not exported by the V2 PyO3 package, so these
-examples cannot run in a V2-only installation.
-:::
+The Python v2 package exports a Rust-backed `PolymarketDataLoader` for public discovery,
+instrument construction, and historical trades. It uses the Rust Gamma, CLOB, and Data API clients,
+so it does not require trading credentials or run networking in Python.
 
-The `PolymarketDataLoader` provides methods for fetching and parsing historical market data
-for research and backtesting purposes. The loader integrates with multiple Polymarket APIs to provide the required data.
-
-:::note
-All data fetching methods are **asynchronous** and must be called with `await`. The loader can optionally accept an `http_client` parameter for dependency injection (useful for testing).
-:::
-
-### Data sources
-
-The loader fetches data from three primary sources:
-
-1. **Polymarket Gamma API** - Market metadata, instrument details, and active market listings.
-2. **Polymarket CLOB API** - Market details for instrument construction.
-3. **Polymarket Data API** - Historical trades and current user positions.
-
-The current loader does **not** expose helpers for CLOB price history timeseries or order book
-history snapshots.
-
-### Method naming conventions
-
-The loader provides two ways to access the Polymarket APIs:
-
-| Prefix    | Type             | Use case                                                               |
-|-----------|------------------|------------------------------------------------------------------------|
-| `query_*` | Static methods   | API exploration without an instrument. No loader instance needed.      |
-| `fetch_*` | Instance methods | Data fetching with a configured loader. Uses the loader's HTTP client. |
-
-**Use `query_*` when** you want to explore markets, discover events, or fetch metadata
-before committing to a specific instrument:
+All network methods are asynchronous. Build a loader from a market slug and select its outcome token
+by index:
 
 ```python
-# No loader needed: query the API directly
-market = await PolymarketDataLoader.query_market_by_slug("some-market")
-event = await PolymarketDataLoader.query_event_by_slug("some-event")
-```
-
-**Use `fetch_*` when** you have a loader instance and want to fetch data using its
-configured HTTP client (for coordinated rate limiting across multiple calls):
-
-```python
-loader = await PolymarketDataLoader.from_market_slug("some-market")
-
-# All fetch calls share the loader's HTTP client
-markets = await loader.fetch_markets(active=True, limit=100)
-events = await loader.fetch_events(active=True)
-details = await loader.fetch_market_details(condition_id)
-```
-
-### Finding markets
-
-Use the provided utility scripts to discover active markets:
-
-```bash
-# List all active markets
-python nautilus_trader/adapters/polymarket/scripts/active_markets.py
-
-# List BTC and ETH UpDown markets specifically
-python nautilus_trader/adapters/polymarket/scripts/list_updown_markets.py
-```
-
-### Basic usage
-
-The recommended way to create a loader is using the factory classmethods, which handle
-all the API calls and instrument creation automatically:
-
-```python
-import asyncio
-
 from nautilus_trader.adapters.polymarket import PolymarketDataLoader
 
-async def main():
-    # Create loader from market slug (recommended)
-    loader = await PolymarketDataLoader.from_market_slug("gta-vi-released-before-june-2026")
-
-    # Loader is ready to use with instrument and token_id set
-    print(loader.instrument)
-    print(loader.token_id)
-
-asyncio.run(main())
-```
-
-For events with multiple markets (e.g., temperature buckets), use `from_event_slug`:
-
-```python
-# Returns a list of loaders, one per market in the event
-loaders = await PolymarketDataLoader.from_event_slug("highest-temperature-in-nyc-on-january-26")
-```
-
-#### Look-ahead protection for resolved markets
-
-When constructing a loader for a market that has already resolved at backtest
-build time, the venue payload includes the answer (`closed`, `closedTime`,
-`umaResolutionStatus`, per-token `winner`). A strategy that reads
-`cache.instrument(...).info` from `on_start` can therefore see the outcome
-before the simulation runs.
-
-Pass `sanitize_info=True` to either factory to redact those fields from
-`instrument.info` before the instrument is constructed. The redacted slice is
-stashed on the loader as `resolution_metadata` for post-hoc analytics
-(settlement PnL, Brier scoring) without leaking it into the simulation:
-
-```python
 loader = await PolymarketDataLoader.from_market_slug(
-    "some-resolved-market",
-    sanitize_info=True,
+    "gta-vi-released-before-june-2026",
+    token_index=0,
 )
 
-assert "closed" not in loader.instrument.info
-assert loader.resolution_metadata["closed"] is True
+instrument = loader.instrument
+token_id = loader.token_id
+condition_id = loader.condition_id
 ```
 
-### Discovering markets and events
-
-Use `fetch_markets()` and `fetch_events()` to discover available markets programmatically:
+`instrument` is a normalized `BinaryOption`. Resolution-bearing fields never enter
+`instrument.info`. Read them separately after a backtest or simulation:
 
 ```python
-loader = await PolymarketDataLoader.from_market_slug("any-market")
-
-# List active markets
-markets = await loader.fetch_markets(active=True, closed=False, limit=100)
-for market in markets:
-    print(f"{market['slug']}: {market['question']}")
-
-# List active events
-events = await loader.fetch_events(active=True, limit=50)
-for event in events:
-    print(f"{event['slug']}: {event['title']}")
-
-# Get all markets within a specific event
-event_markets = await loader.get_event_markets("highest-temperature-in-nyc-on-january-26")
+metadata = loader.resolution_metadata
+winner = next(
+    (token["outcome"] for token in metadata["tokens"] if token["winner"]),
+    None,
+)
 ```
 
-For quick exploration without creating a loader, use the static `query_*` methods
-(see [Method naming conventions](#method-naming-conventions) above).
-
-### Fetching trade history
-
-The `load_trades()` convenience method fetches and parses historical trades in one step:
+An event factory returns one loader for each market in the event:
 
 ```python
-import pandas as pd
+loaders = await PolymarketDataLoader.from_event_slug(
+    "highest-temperature-in-nyc-on-january-26",
+    token_index=1,
+)
+```
 
-# Load all available trades
-trades = await loader.load_trades()
+A negative token index or an index outside a market's token list raises `ValueError`. Construction
+also fails clearly when Gamma has no matching slug or CLOB has not populated usable token IDs.
 
-# Or filter by time range (client-side filtering)
-end = pd.Timestamp.now(tz="UTC")
-start = end - pd.Timedelta(hours=24)
+### Public discovery
+
+Static query methods return stable Python mappings and lists while Rust owns validation and
+pagination:
+
+```python
+market = await PolymarketDataLoader.query_market_by_slug("some-market")
+details = await PolymarketDataLoader.query_market_details(market["conditionId"])
+event = await PolymarketDataLoader.query_event_by_slug("some-event")
+
+markets = await PolymarketDataLoader.query_markets(
+    filters={
+        "is_active": True,
+        "tag_id": [21, 42],
+        "order": "volume",
+        "max_markets": 200,
+    },
+)
+events = await PolymarketDataLoader.query_events(
+    filters={
+        "active": True,
+        "closed": False,
+        "max_events": 100,
+    },
+)
+tags = await PolymarketDataLoader.query_tags()
+results = await PolymarketDataLoader.query_search(
+    "bitcoin",
+    events_status="active",
+    limit_per_type=20,
+)
+```
+
+Market and event filter dictionaries use the fields listed under
+[Gamma query filters](#gamma-query-filters). The provider config accepts only the market fields,
+while `query_events` accepts the event fields. Unknown or malformed filters raise `ValueError`
+before any request.
+
+### Historical trades
+
+`load_trades` returns normalized `TradeTick` objects in chronological order:
+
+```python
+from datetime import UTC, datetime, timedelta
+
+end = datetime.now(UTC)
+start = end - timedelta(days=1)
 
 trades = await loader.load_trades(
     start=start,
     end=end,
+    limit=1_000,
 )
 ```
 
-Alternatively, you can fetch and parse separately using the lower-level methods:
+The window is inclusive. The Data API records trade timestamps in whole seconds, so Rust keeps all
+trades in the `start` and `end` boundary seconds. With `start`, `limit` keeps the earliest matching
+trades in the window. Without `start`, it keeps the most recent matching trades. The public API caps
+offset-based pagination at 10,000; if that ceiling is reached, an unanchored request returns the
+available partial result and logs a warning. A start-anchored request raises an error at the ceiling
+because Rust cannot guarantee complete results from the requested start; narrow the time window and
+retry.
 
-```python
-condition_id = loader.condition_id
-
-# Fetch raw trades from the Polymarket Data API
-raw_trades = await loader.fetch_trades(condition_id=condition_id)
-
-# Parse to NautilusTrader TradeTicks
-trades = loader.parse_trades(raw_trades)
-```
-
-Trade data is sourced from the [Polymarket Data API](https://data-api.polymarket.com/trades),
-which provides real execution data including price, size, side, and on-chain transaction hash.
-
-:::note
-The public Data API caps offset-based pagination on high-activity markets. When
-this ceiling is hit the loader emits a `RuntimeWarning` and returns the trades
-fetched up to the cap rather than aborting the load. Use another historical
-data source if you need full coverage of a heavily traded market.
-:::
-
-### Complete backtest example
-
-See `examples/backtest/polymarket_simple_quoter.py` for a full example:
-
-```python
-import asyncio
-from decimal import Decimal
-
-from nautilus_trader.adapters.polymarket import POLYMARKET_VENUE
-from nautilus_trader.adapters.polymarket import PolymarketDataLoader
-from nautilus_trader.backtest.config import BacktestEngineConfig
-from nautilus_trader.backtest.engine import BacktestEngine
-from nautilus_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnly
-from nautilus_trader.examples.strategies.ema_cross_long_only import EMACrossLongOnlyConfig
-from nautilus_trader.model.currencies import pUSD
-from nautilus_trader.model.data import BarType
-from nautilus_trader.model.enums import AccountType
-from nautilus_trader.model.enums import OmsType
-from nautilus_trader.model.identifiers import TraderId
-from nautilus_trader.model.objects import Money
-
-async def run_backtest():
-    # Initialize loader and fetch market data
-    loader = await PolymarketDataLoader.from_market_slug("gta-vi-released-before-june-2026")
-    instrument = loader.instrument
-
-    # Load historical trades from the Polymarket Data API
-    trades = await loader.load_trades()
-
-    # Configure and run backtest
-    config = BacktestEngineConfig(trader_id=TraderId("BACKTESTER-001"))
-    engine = BacktestEngine(config=config)
-
-    engine.add_venue(
-        venue=POLYMARKET_VENUE,
-        oms_type=OmsType.NETTING,
-        account_type=AccountType.CASH,
-        base_currency=pUSD,
-        starting_balances=[Money(10_000, pUSD)],
-    )
-
-    engine.add_instrument(instrument)
-    engine.add_data(trades)
-
-    bar_type = BarType.from_str(f"{instrument.id}-100-TICK-LAST-INTERNAL")
-    strategy_config = EMACrossLongOnlyConfig(
-        instrument_id=instrument.id,
-        bar_type=bar_type,
-        trade_size=Decimal("20"),
-    )
-
-    strategy = EMACrossLongOnly(config=strategy_config)
-    engine.add_strategy(strategy=strategy)
-    engine.run()
-
-    # Display results
-    print(engine.trader.generate_account_report(POLYMARKET_VENUE))
-
-# Run the backtest
-asyncio.run(run_backtest())
-```
-
-**Run the complete example**:
-
-```bash
-python examples/backtest/polymarket_simple_quoter.py
-```
-
-### Helper functions
-
-The adapter provides utility functions for working with Polymarket identifiers:
-
-```python
-from nautilus_trader.adapters.polymarket import get_polymarket_instrument_id
-
-# Create NautilusTrader InstrumentId from Polymarket identifiers
-instrument_id = get_polymarket_instrument_id(
-    condition_id="0xcccb7e7613a087c132b69cbf3a02bece3fdcb824c1da54ae79acc8d4a562d902",
-    token_id="8441400852834915183759801017793514978104486628517653995211751018945988243154"
-)
-```
+The legacy v1 loader also exposes lower-level raw fetch and parse methods, Python HTTP injection,
+and convenience scripts. Those v1-only APIs remain under the top-level legacy package and are not
+part of the Python v2 facade.
 
 ## Contributing
 

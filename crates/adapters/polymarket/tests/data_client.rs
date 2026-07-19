@@ -578,6 +578,67 @@ async fn test_request_trades_returns_trades_response() {
 
 #[rstest]
 #[tokio::test]
+async fn test_request_trades_returns_empty_response_at_offset_ceiling() {
+    let first_timestamp = (Utc::now() - ChronoDuration::days(100)).timestamp();
+    let trades = (0..10_000)
+        .map(|index| {
+            serde_json::json!({
+                "asset": TEST_TOKEN_ID_YES,
+                "conditionId": TEST_CONDITION_ID,
+                "side": "BUY",
+                "price": 0.55,
+                "size": 1.0,
+                "timestamp": first_timestamp + index,
+                "transactionHash": format!("0x{index:064x}"),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let state = TestServerState::default();
+    *state.gamma_response.lock().await = Some(serde_json::json!([gamma_market_request_fixture()]));
+    *state.trades_response.lock().await = Some(Value::Array(trades));
+    let addr = start_mock_server(state).await;
+    let (client, mut rx) = create_test_data_client(addr);
+    let instrument_id = yes_instrument_id();
+
+    client
+        .request_instrument(RequestInstrument::new(
+            instrument_id,
+            None,
+            None,
+            None,
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+        ))
+        .expect("prime cache");
+    let _prime_events = drain_data_events(&mut rx, Duration::from_secs(5)).await;
+
+    client
+        .request_trades(RequestTrades::new(
+            instrument_id,
+            Some(Utc::now() - ChronoDuration::days(365)),
+            None,
+            None,
+            Some(*POLYMARKET_CLIENT_ID),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+        ))
+        .expect("request_trades");
+
+    let events = drain_data_events(&mut rx, Duration::from_secs(5)).await;
+    let trades_response = events.iter().find_map(|event| match event {
+        DataEvent::Response(DataResponse::Trades(response)) => Some(response),
+        _ => None,
+    });
+
+    assert!(trades_response.is_some());
+    assert!(trades_response.unwrap().data.is_empty());
+}
+
+#[rstest]
+#[tokio::test]
 async fn test_reset_reconnect_does_not_replay_stale_market_subscriptions() {
     let state = TestServerState::default();
     *state.gamma_response.lock().await = Some(serde_json::json!([gamma_market_request_fixture()]));
