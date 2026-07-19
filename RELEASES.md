@@ -197,6 +197,7 @@ adapter set. The following limits remain deferred:
 - Fixed Binance Futures external algo order materialization (#4348), thanks for reporting @linimin
 - Fixed Binance Futures algo orders missing USD-M order-count limits (#4395), thanks for reporting @cjdsellers
 - Fixed Binance Futures COIN-M quotas and shared USD-M/COIN-M REST rate-limit state (#4301)
+- Fixed Binance Futures COIN-M private user stream URL routing in Rust and Python
 - Fixed Binance Futures inflight queries rejecting untriggered algo orders (#4411), thanks @reijz
 - Fixed Binance Futures historical algo order queries (#4449), thanks @KaizynX
 - Fixed Binance Futures startup reconciliation omitting and truncating fill history
