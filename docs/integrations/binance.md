@@ -1277,11 +1277,17 @@ All-market array streams (`!ticker@arr`, `!miniTicker@arr`, `!bookTicker`,
 
 #### Rate-limit pools
 
-UM and CM share a single rate-limit pool per IP (2400 weight/min,
-1200 orders/min, 300 orders/10s). The adapter creates separate HTTP client
-instances for UM and CM, each with its own rate limiter. If a node drives both
-UM and CM clients simultaneously, the combined traffic may exceed the shared
-server-side budget.
+UM and CM share Binance rate-limit pools: 2400 weight/min per IP, plus
+1200 orders/min and 300 orders/10s per account. Rust futures HTTP clients in the
+same process share request-weight state across UM and CM for the same environment
+or custom endpoint scope and configured egress path. They share order-count state
+across UM and CM when authenticated with the same API key, regardless of egress
+path.
+
+Live, testnet, demo, and unrelated custom endpoint scopes remain isolated.
+Different configured egress paths have separate request-weight state, while
+different API keys have separate order-count state. Separate processes and
+multiple API keys for one Binance account still require external coordination.
 
 #### dualSidePosition
 
