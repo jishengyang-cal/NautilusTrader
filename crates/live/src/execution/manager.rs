@@ -151,11 +151,12 @@ pub(crate) struct OpenOrderReportCheck {
     pub start: Option<UnixNanos>,
 }
 
-/// Prepare-time client coverage and command for one continuous position reconciliation check.
+/// Prepare-time state and command for one continuous position reconciliation check.
 #[derive(Debug, Clone)]
 pub(crate) struct PositionReportCheck {
     pub command: GeneratePositionStatusReports,
     pub client_coverage: IndexMap<InstrumentAccountKey, ReportClientCoverage>,
+    pub activity_revisions: IndexMap<InstrumentAccountKey, u64>,
 }
 
 struct RetainedFillState {
@@ -315,6 +316,7 @@ pub struct ExecutionManager {
     order_local_activity: RecencyMap<ClientOrderId>,
     // Monotonic (`dst::time`) instants, not `self.clock`; see `record_position_activity`.
     position_local_activity: RecencyMap<InstrumentAccountKey>,
+    position_local_activity_revisions: IndexMap<InstrumentAccountKey, u64>,
     position_recon_retries: IndexMap<InstrumentAccountKey, u32>,
     position_reconciliation_tolerances: IndexMap<AccountId, Decimal>,
     recent_fills_cache: RecencyMap<FillKey>,
@@ -353,6 +355,7 @@ impl ExecutionManager {
             order_query_recency: RecencyMap::default(),
             order_local_activity: RecencyMap::default(),
             position_local_activity: RecencyMap::default(),
+            position_local_activity_revisions: IndexMap::new(),
             position_recon_retries: IndexMap::new(),
             position_reconciliation_tolerances: IndexMap::new(),
             recent_fills_cache: RecencyMap::default(),
@@ -1647,6 +1650,10 @@ impl ExecutionManager {
                 )
             })
             .collect();
+        let activity_revisions = position_keys
+            .iter()
+            .map(|key| (*key, self.position_activity_revision(key)))
+            .collect();
 
         log::debug!(
             "Found {} unique instrument/account combination{} with open positions",
@@ -1668,6 +1675,7 @@ impl ExecutionManager {
         PositionReportCheck {
             command,
             client_coverage,
+            activity_revisions,
         }
     }
 
@@ -1768,6 +1776,21 @@ impl ExecutionManager {
         let mut events = Vec::new();
 
         for key in check.client_coverage.keys() {
+            let prepared_revision = check
+                .activity_revisions
+                .get(key)
+                .copied()
+                .unwrap_or_default();
+
+            if self.position_activity_revision(key) > prepared_revision {
+                log::debug!(
+                    "Deferring position reconciliation for {}/{}: local activity recorded during report request",
+                    key.0,
+                    key.1,
+                );
+                continue;
+            }
+
             let venue_report = venue_positions.get(key);
 
             if venue_report.is_none() {
@@ -1968,8 +1991,20 @@ impl ExecutionManager {
     /// clock the reconciliation loop already schedules on keeps the grace honest.
     /// See `check_position_discrepancy`.
     pub fn record_position_activity(&mut self, instrument_id: InstrumentId, account_id: AccountId) {
-        self.position_local_activity
-            .mark((instrument_id, account_id));
+        let key = (instrument_id, account_id);
+        self.position_local_activity.mark(key);
+        let revision = self
+            .position_local_activity_revisions
+            .entry(key)
+            .or_default();
+        *revision = revision.saturating_add(1);
+    }
+
+    fn position_activity_revision(&self, key: &InstrumentAccountKey) -> u64 {
+        self.position_local_activity_revisions
+            .get(key)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Returns the current position-reconciliation retry count for the given
@@ -3755,7 +3790,7 @@ mod tests {
     use nautilus_common::clock::TestClock;
     use nautilus_core::datetime::NANOSECONDS_IN_SECOND;
     use nautilus_model::{
-        enums::{LiquiditySide, OmsType},
+        enums::{LiquiditySide, OmsType, PositionSideSpecified},
         instruments::{
             Instrument,
             stubs::{crypto_perpetual_ethusdt, xbtusd_bitmex},
@@ -3902,6 +3937,141 @@ mod tests {
         assert_eq!(check.command.log_receipt_level, LogLevel::Debug);
         assert_eq!(check.client_coverage.len(), 1);
         assert!(check.client_coverage.contains_key(&key));
+        assert_eq!(check.activity_revisions.get(&key), Some(&0));
+    }
+
+    #[rstest]
+    #[cfg_attr(
+        not(all(feature = "simulation", madsim)),
+        tokio::test(start_paused = true)
+    )]
+    #[cfg_attr(all(feature = "simulation", madsim), madsim::test)]
+    async fn test_position_report_check_defers_activity_recorded_during_delayed_request() {
+        let clock = Rc::new(RefCell::new(TestClock::new()));
+        let cache = Rc::new(RefCell::new(Cache::default()));
+        let mut manager = ExecutionManager::new(
+            clock,
+            cache.clone(),
+            ExecutionManagerConfig {
+                position_check_threshold_ns: 5_000_000_000,
+                ..Default::default()
+            },
+        );
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
+        let instrument_id = instrument.id();
+        let position = insert_open_position(
+            &cache,
+            &instrument,
+            PositionId::from("P-ACTIVITY-DURING-REQUEST"),
+            OrderSide::Buy,
+            "5.0",
+            "3000.00",
+        );
+        cache
+            .borrow_mut()
+            .add_instrument(instrument.clone())
+            .unwrap();
+        let account_id = position.account_id;
+        let check = manager.prepare_position_report_check(UUID4::new(), &[]);
+        let report = PositionStatusReport::new(
+            account_id,
+            instrument_id,
+            PositionSideSpecified::Long,
+            Quantity::from("5.0"),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+            None,
+            Some(Decimal::from(3000)),
+        );
+
+        let closed_position = close_long_position(
+            position,
+            &instrument,
+            TradeId::from("T-ACTIVITY-DURING-REQUEST"),
+        );
+        cache
+            .borrow_mut()
+            .update_position(&closed_position)
+            .unwrap();
+        manager.record_position_activity(instrument_id, account_id);
+
+        // Client A's report is already captured while client B holds the batch open.
+        dst::time::sleep(Duration::from_secs(6)).await;
+
+        let events = manager.reconcile_position_reports(
+            &check,
+            vec![report],
+            &IndexSet::new(),
+            &IndexSet::new(),
+        );
+
+        assert!(
+            !events.iter().any(|event| {
+                matches!(
+                    event,
+                    OrderEventAny::Filled(fill)
+                        if fill.order_side == OrderSide::Buy
+                            && fill.last_qty == Quantity::from("5.0")
+                )
+            }),
+            "activity recorded after the request started must defer A's stale report",
+        );
+    }
+
+    #[rstest]
+    fn test_position_report_check_does_not_defer_activity_recorded_before_request() {
+        let clock = Rc::new(RefCell::new(TestClock::new()));
+        let cache = Rc::new(RefCell::new(Cache::default()));
+        let mut manager = ExecutionManager::new(
+            clock,
+            cache.clone(),
+            ExecutionManagerConfig {
+                position_check_threshold_ns: 0,
+                ..Default::default()
+            },
+        );
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
+        let instrument_id = instrument.id();
+        let position = insert_open_position(
+            &cache,
+            &instrument,
+            PositionId::from("P-ACTIVITY-BEFORE-REQUEST"),
+            OrderSide::Buy,
+            "5.0",
+            "3000.00",
+        );
+        cache.borrow_mut().add_instrument(instrument).unwrap();
+        let account_id = position.account_id;
+        manager.record_position_activity(instrument_id, account_id);
+        let check = manager.prepare_position_report_check(UUID4::new(), &[]);
+        let report = PositionStatusReport::new(
+            account_id,
+            instrument_id,
+            PositionSideSpecified::Long,
+            Quantity::from("10.0"),
+            UnixNanos::from(1_000_000),
+            UnixNanos::from(1_000_000),
+            None,
+            None,
+            Some(Decimal::from(3000)),
+        );
+
+        let events = manager.reconcile_position_reports(
+            &check,
+            vec![report],
+            &IndexSet::new(),
+            &IndexSet::new(),
+        );
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                OrderEventAny::Filled(fill)
+                    if fill.order_side == OrderSide::Buy
+                        && fill.last_qty == Quantity::from("5.0")
+            )
+        }));
     }
 
     #[rstest]
@@ -4052,6 +4222,33 @@ mod tests {
             .borrow_mut()
             .add_position(&position, OmsType::Hedging)
             .unwrap();
+        position
+    }
+
+    fn close_long_position(
+        mut position: Position,
+        instrument: &InstrumentAny,
+        trade_id: TradeId,
+    ) -> Position {
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Sell)
+            .quantity(position.quantity)
+            .build();
+        let fill = TestOrderEventStubs::filled(
+            &order,
+            instrument,
+            Some(trade_id),
+            Some(position.id),
+            Some(Price::from("3000.00")),
+            Some(position.quantity),
+            None,
+            None,
+            None,
+            Some(position.account_id),
+        );
+        let order_filled: OrderFilled = fill.into();
+        position.apply(&order_filled);
         position
     }
 }
