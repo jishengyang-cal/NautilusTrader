@@ -234,6 +234,7 @@ adapter set. The following limits remain deferred:
 - Fixed Architect AX to deny reduce-only, quote-quantity, and display-quantity orders instead of submitting them without the requested semantics
 - Fixed Architect AX local modify rejections, replacement ID races, and Python reconciliation identity
 - Fixed Architect AX Python reconciliation emitting duplicate order acceptance events
+- Fixed Architect AX client order ID bounds, query correlation, and rejection when market previews fail
 - Fixed OKX price-limit metadata parsing and public limit-price requests (#4413)
 - Fixed Polymarket RTDS retained-subscription recovery after reconnects (#4353), thanks @graceyangfan
 - Fixed Polymarket Gamma market and event keyset filters, validation, and repeated query encoding
