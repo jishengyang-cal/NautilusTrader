@@ -293,6 +293,7 @@ adapter set. The following limits remain deferred:
 - Upgraded Cap'n Proto to v1.5.0
 - Upgraded `capnp` to v0.26.2
 - Upgraded `ed25519-dalek` crate to v3.0.0
+- Upgraded `futures` crate to v0.3.33
 - Upgraded `redis` crate to v1.4.1
 - Upgraded `tokio` crate to v1.53.0
 - Upgraded `tokio-tungstenite` crate to v0.30.0
