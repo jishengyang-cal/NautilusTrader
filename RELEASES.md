@@ -240,6 +240,7 @@ adapter set. The following limits remain deferred:
 - Fixed Polymarket v2 book delta atomicity and local limit-price range validation
 - Fixed Polymarket v2 execution races, ambiguous submissions, trade finality, fill IDs, and proxy funder validation
 - Fixed Polymarket market SELL sizing, terminal IOC remainders, and sub-cent reconciliation that created synthetic position fills
+- Fixed Polymarket limit IOC/FOK BUY orders submitting invalid fractional-cent maker amounts
 - Fixed Tardis replay trades directory to `trades/` for catalog compatibility (#4373), thanks @AdvancedUno
 - Fixed Tardis replay bars directory to `bars/` for catalog compatibility (#4378), thanks @AdvancedUno
 - Fixed Hyperliquid `l2Book` resubscribe options and shared stream teardown (#4298)
