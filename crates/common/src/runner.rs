@@ -802,6 +802,29 @@ mod tests {
         assert_eq!(count.get(), 0);
     }
 
+    #[rstest]
+    #[case::token_close(false)]
+    #[case::final_lease(true)]
+    fn test_callback_removal_releases_registry_borrow_before_entry_drop(
+        #[case] via_final_lease: bool,
+    ) {
+        let inner = register_time_event_callback(local_callback(Rc::new(Cell::new(0))));
+        let inner_lease = inner.acquire().unwrap();
+        inner.close();
+
+        // Dropping the outer callback drops this final lease and re-enters the registry
+        let callback = TimeEventCallback::RustLocal(Rc::new(move |_| {
+            assert_eq!(inner_lease.0.owner, std::thread::current().id());
+        }));
+        let outer = register_time_event_callback(callback);
+        let outer_lease = via_final_lease.then(|| outer.acquire().unwrap());
+        outer.close();
+        drop(outer_lease);
+
+        assert!(!outer.is_registered());
+        assert!(!inner.is_registered());
+    }
+
     // The two following tests reproduce the destructor-during-TLS-teardown
     // abort: a callback holder (a lease, or a token closed from a `Drop` as
     // `LiveTimer::drop` does) is placed in a thread-local initialized BEFORE
