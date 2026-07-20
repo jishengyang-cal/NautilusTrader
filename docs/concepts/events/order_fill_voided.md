@@ -16,11 +16,13 @@ Handler: `on_order_fill_voided`.
 
 ## Quantity and status behavior
 
-`voided_qty` and `commission_voided` are cumulative for the referenced `trade_id`. Quantity and fee
-corrections cannot decrease. A later revision may increase either value or change `is_reopened` at
-the same quantity. Duplicate, stale, and over-void corrections are rejected.
+`voided_qty` and `commission_voided` are cumulative for the referenced `trade_id`. Quantity
+corrections cannot decrease. For a locally applied fill, fee corrections also cannot decrease, and
+a later revision may increase either value or change `is_reopened` at the same quantity. Duplicate,
+stale, and over-void corrections are rejected.
 
-By default, a correction does not make the corrected quantity executable:
+For corrections to locally applied fills, the corrected quantity does not become executable by
+default:
 
 - A filled order becomes terminal `VOIDED`, even when some effective filled quantity survives.
 - A partially filled order preserves the remainder that was already working. Its status derives
@@ -31,7 +33,13 @@ By default, a correction does not make the corrected quantity executable:
   survives.
 
 If Nautilus never applied the referenced fill, the event records the authoritative order-level
-correction but does not reverse position or account exposure.
+correction but does not reverse position or account exposure. The event must match the order
+identity, cannot exceed the order quantity, cannot void a non-zero commission, and cannot set
+`is_reopened`. It moves the order to `VOIDED` with zero leaves.
+
+`VOIDED` is terminal regardless of the correction path: Nautilus rejects later fills, cancels, and
+updates. A later correction to an applied fill may update the effective fill quantity, but it does
+not reopen the order.
 
 :::note
 The schemas append this event and status without changing existing records. Older v2 readers do not

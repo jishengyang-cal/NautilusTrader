@@ -35,7 +35,10 @@ The accepted v2 contract differences are native `CustomData` without v1 wrapper 
 `OptionGreeks` cache writes, no Python `Bar.is_revision`, and a cross-zero `Position.apply` entry
 price that resets to the flipping fill. V2 also prefers mark prices by default. Catalog order-event
 data written before `activation_price` and `OrderFilled.info` were added is not readable with the new
-schema and must be regenerated or migrated before an in-place upgrade.
+schema and must be regenerated or migrated before an in-place upgrade. `OrderFillVoided` replay
+requires the referenced fill locally before reopening and treats `VOIDED` as terminal. Regenerate
+v2 order streams that contain a reopened correction before its referenced fill, or a cancel or
+update after `VOIDED`.
 
 #### Cutover limits
 
@@ -66,7 +69,7 @@ adapter set. The following limits remain deferred:
 - Added v2 Cap'n Proto and SQL persistence for order-event activation prices and fill `info`
 - Added v2 `MessageBusConfig.autotrim_maxlen` for Redis stream count retention (#4433), thanks for reporting @gtalknitin
 - Added v2 `OrderBookDepth10` subscriptions and callbacks for Rust and Python actors and strategies (#4439)
-- Added v2 `OrderFillVoided`, `OrderStatus.VOIDED`, and strategy and algorithm callbacks
+- Added v2 `OrderFillVoided`, `OrderStatus.VOIDED`, terminal voiding for unapplied-fill corrections, and strategy and algorithm callbacks
 - Added Python v2 controller subclassing and importable controller configs for backtest/live
 - Added Python v2 subclassable execution algorithms for routed orders
 - Added Python v2 `LiveNode.add_strategy` for constructed strategy instances (#4487), thanks @dfjmax

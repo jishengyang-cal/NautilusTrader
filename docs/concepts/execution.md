@@ -84,10 +84,11 @@ identifies the original trade and carries the cumulative voided quantity and fee
 
 The execution engine rebuilds the affected order and positions and refreshes portfolio position and
 PnL caches before publishing the correction to strategies and execution algorithms. Migrated venue
-adapters request an authoritative account refresh after a void. A correction preserves any order
-remainder that was already working, but the corrected quantity becomes executable only when the
-venue provides positive evidence through `is_reopened=true`. A prior cancel or expiry remains
-terminal.
+adapters request an authoritative account refresh after a void. When Nautilus applied the referenced
+fill, a correction preserves any order remainder that was already working, but the corrected
+quantity becomes executable only when the venue provides positive evidence through
+`is_reopened=true`. A prior cancel or expiry remains terminal. Without a locally applied fill, a
+non-reopened correction is an authoritative terminal order void with zero leaves.
 
 ## Order denied reasons
 
