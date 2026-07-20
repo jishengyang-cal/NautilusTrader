@@ -65,7 +65,7 @@ and triggered orders support additional transitions documented in the full
 | [`OrderCanceled`](order_canceled.md)              | PendingCancel/Accepted -> Canceled                | `on_order_canceled`        |
 | [`OrderExpired`](order_expired.md)                | Accepted -> Expired                               | `on_order_expired`         |
 | [`OrderFilled`](order_filled.md)                  | Accepted -> Filled/PartiallyFilled                | `on_order_filled`          |
-| [`OrderFillVoided`](order_fill_voided.md)         | Source status -> Voided/Accepted/PartiallyFilled  | `on_order_fill_voided`     |
+| [`OrderFillVoided`](order_fill_voided.md)         | Fill present -> derived; absent + false -> Voided | `on_order_fill_voided`     |
 
 ### Common order event fields
 
