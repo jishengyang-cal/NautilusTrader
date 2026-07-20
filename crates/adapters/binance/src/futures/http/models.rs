@@ -201,7 +201,7 @@ pub struct BinanceFuturesUsdSymbol {
     pub symbol: Ustr,
     /// Trading pair (e.g., "BTCUSDT").
     pub pair: Ustr,
-    /// Contract type (PERPETUAL, CURRENT_QUARTER, NEXT_QUARTER).
+    /// Contract type (PERPETUAL, CURRENT_MONTH, NEXT_MONTH, CURRENT_QUARTER, NEXT_QUARTER).
     pub contract_type: String,
     /// Delivery date timestamp.
     pub delivery_date: i64,

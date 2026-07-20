@@ -123,39 +123,7 @@ fn load_fixture(name: &str) -> serde_json::Value {
 }
 
 fn exchange_info_response() -> serde_json::Value {
-    json!({
-        "timezone": "UTC",
-        "serverTime": 1700000000000_i64,
-        "rateLimits": [],
-        "exchangeFilters": [],
-        "symbols": [{
-            "symbol": "BTCUSDT",
-            "pair": "BTCUSDT",
-            "contractType": "PERPETUAL",
-            "deliveryDate": 4133404800000_i64,
-            "onboardDate": 1569398400000_i64,
-            "status": "TRADING",
-            "baseAsset": "BTC",
-            "quoteAsset": "USDT",
-            "marginAsset": "USDT",
-            "pricePrecision": 2,
-            "quantityPrecision": 3,
-            "baseAssetPrecision": 8,
-            "quotePrecision": 8,
-            "maintMarginPercent": "2.5000",
-            "requiredMarginPercent": "5.0000",
-            "underlyingType": "COIN",
-            "settlePlan": 0,
-            "triggerProtect": "0.0500",
-            "filters": [
-                {"filterType": "PRICE_FILTER", "minPrice": "0.10", "maxPrice": "1000000", "tickSize": "0.10"},
-                {"filterType": "LOT_SIZE", "minQty": "0.001", "maxQty": "1000", "stepSize": "0.001"},
-                {"filterType": "MIN_NOTIONAL", "notional": "5"}
-            ],
-            "orderTypes": ["LIMIT", "MARKET", "STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"],
-            "timeInForce": ["GTC", "IOC", "FOK", "GTD"]
-        }]
-    })
+    load_fixture("exchange_info_delivery_usdm.json")
 }
 
 #[derive(Clone, Copy)]
@@ -210,6 +178,7 @@ type CapturedWsTradingMessages = Arc<std::sync::Mutex<Vec<serde_json::Value>>>;
 
 #[derive(Clone, Copy, Debug)]
 enum ReportFixtureMode {
+    Delivery,
     Empty,
     FillsOnly,
     InvalidFill,
@@ -447,6 +416,11 @@ async fn handle_position_risk_query(
     record_query(&state, "positionRisk", query);
     match state.report_fixture_mode {
         ReportFixtureMode::Empty | ReportFixtureMode::FillsOnly => json_response(&json!([])),
+        ReportFixtureMode::Delivery => {
+            let mut positions = load_fixture("position_risk.json");
+            positions[0]["symbol"] = json!("BTCUSDT_260925");
+            json_response(&positions)
+        }
         ReportFixtureMode::InvalidFill
         | ReportFixtureMode::PaginatedFills
         | ReportFixtureMode::Populated
@@ -466,6 +440,11 @@ async fn handle_open_orders_query(
     record_query(&state, "openOrders", query);
     match state.report_fixture_mode {
         ReportFixtureMode::Empty | ReportFixtureMode::FillsOnly => json_response(&json!([])),
+        ReportFixtureMode::Delivery => {
+            let mut order = load_fixture("order_response.json");
+            order["symbol"] = json!("BTCUSDT_260925");
+            json_response(&json!([order]))
+        }
         ReportFixtureMode::InvalidFill
         | ReportFixtureMode::PaginatedFills
         | ReportFixtureMode::Populated
@@ -487,6 +466,11 @@ async fn handle_open_algo_orders_query(
     record_query(&state, "openAlgoOrders", query);
     match state.report_fixture_mode {
         ReportFixtureMode::Empty | ReportFixtureMode::FillsOnly => json_response(&json!([])),
+        ReportFixtureMode::Delivery => {
+            let mut orders = load_fixture("open_algo_orders.json");
+            orders[0]["symbol"] = json!("BTCUSDT_260925");
+            json_response(&orders)
+        }
         ReportFixtureMode::InvalidFill
         | ReportFixtureMode::PaginatedFills
         | ReportFixtureMode::Populated
@@ -536,7 +520,9 @@ async fn handle_all_algo_orders_query(
         .unwrap_or_default();
     record_query(&state, "allAlgoOrders", query);
     match state.report_fixture_mode {
-        ReportFixtureMode::Empty | ReportFixtureMode::FillsOnly => json_response(&json!([])),
+        ReportFixtureMode::Delivery | ReportFixtureMode::Empty | ReportFixtureMode::FillsOnly => {
+            json_response(&json!([]))
+        }
         ReportFixtureMode::InvalidFill
         | ReportFixtureMode::PaginatedFills
         | ReportFixtureMode::Populated
@@ -590,7 +576,7 @@ async fn handle_user_trades_query(
         - 30_000;
     record_query(&state, "userTrades", query);
     match state.report_fixture_mode {
-        ReportFixtureMode::Empty => json_response(&json!([])),
+        ReportFixtureMode::Delivery | ReportFixtureMode::Empty => json_response(&json!([])),
         ReportFixtureMode::FillsOnly
         | ReportFixtureMode::Populated
         | ReportFixtureMode::MismatchedAlgoId
@@ -1064,41 +1050,7 @@ fn create_exec_test_router_with_order_capture(
         .route("/fapi/v1/ping", get(|| async { json_response(&json!({})) }))
         .route(
             "/fapi/v1/exchangeInfo",
-            get(|| async {
-                json_response(&json!({
-                    "timezone": "UTC",
-                    "serverTime": 1700000000000_i64,
-                    "rateLimits": [],
-                    "exchangeFilters": [],
-                    "symbols": [{
-                        "symbol": "BTCUSDT",
-                        "pair": "BTCUSDT",
-                        "contractType": "PERPETUAL",
-                        "deliveryDate": 4133404800000_i64,
-                        "onboardDate": 1569398400000_i64,
-                        "status": "TRADING",
-                        "baseAsset": "BTC",
-                        "quoteAsset": "USDT",
-                        "marginAsset": "USDT",
-                        "pricePrecision": 2,
-                        "quantityPrecision": 3,
-                        "baseAssetPrecision": 8,
-                        "quotePrecision": 8,
-                        "maintMarginPercent": "2.5000",
-                        "requiredMarginPercent": "5.0000",
-                        "underlyingType": "COIN",
-                        "settlePlan": 0,
-                        "triggerProtect": "0.0500",
-                        "filters": [
-                            {"filterType": "PRICE_FILTER", "minPrice": "0.10", "maxPrice": "1000000", "tickSize": "0.10"},
-                            {"filterType": "LOT_SIZE", "minQty": "0.001", "maxQty": "1000", "stepSize": "0.001"},
-                            {"filterType": "MIN_NOTIONAL", "notional": "5"}
-                        ],
-                        "orderTypes": ["LIMIT", "MARKET", "STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"],
-                        "timeInForce": ["GTC", "IOC", "FOK", "GTD"]
-                    }]
-                }))
-            }),
+            get(|| async { json_response(&exchange_info_response()) }),
         )
         .route(
             "/fapi/v1/positionSide/dual",
@@ -1160,8 +1112,12 @@ fn create_exec_test_router_with_order_capture(
                         if !has_auth_headers(&headers) {
                             return unauthorized_response();
                         }
+                        let mut response = load_fixture("order_response.json");
+                        if let Some(symbol) = query.get("symbol") {
+                            response["symbol"] = json!(symbol);
+                        }
                         *captured.lock().unwrap() = Some(query);
-                        json_response(&load_fixture("order_response.json"))
+                        json_response(&response)
                     }
                 }
             }),
@@ -1292,6 +1248,20 @@ fn add_test_instrument_to_cache(cache: &Rc<RefCell<Cache>>) {
     let exchange_info: BinanceFuturesUsdExchangeInfo =
         serde_json::from_value(exchange_info_response()).unwrap();
     let symbol = exchange_info.symbols.first().unwrap();
+    let instrument =
+        parse_usdm_instrument(symbol, UnixNanos::default(), UnixNanos::default()).unwrap();
+
+    cache.borrow_mut().add_instrument(instrument).unwrap();
+}
+
+fn add_delivery_instrument_to_cache(cache: &Rc<RefCell<Cache>>) {
+    let exchange_info: BinanceFuturesUsdExchangeInfo =
+        serde_json::from_value(exchange_info_response()).unwrap();
+    let symbol = exchange_info
+        .symbols
+        .iter()
+        .find(|symbol| symbol.symbol == "BTCUSDT_260925")
+        .unwrap();
     let instrument =
         parse_usdm_instrument(symbol, UnixNanos::default(), UnixNanos::default()).unwrap();
 
@@ -2353,6 +2323,154 @@ async fn test_query_order_uses_binance_symbol_for_futures_symbol() {
 
     let captured = wait_for_query(&captured_queries, "order").await;
     assert_query_symbol(&captured.query);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_delivery_order_routing_uses_raw_binance_symbol() {
+    let (addr, captured_query) = start_exec_test_server_with_order_capture().await;
+    let base_url_http = format!("http://{addr}");
+    let base_url_ws = format!("ws://{addr}/ws");
+    let (mut client, _rx, cache) = create_test_execution_client(base_url_http, base_url_ws);
+    add_test_account_to_cache(&cache, AccountId::from("BINANCE-001"));
+    let instrument_id = InstrumentId::from("BTCUSDT_260925.BINANCE");
+
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    let order = add_limit_order_for_instrument_to_cache(
+        &cache,
+        instrument_id,
+        ClientOrderId::new("delivery-order-routing-test-001"),
+    );
+    client.submit_order(submit_order_command(&order)).unwrap();
+
+    wait_until_async(
+        || {
+            let captured_query = captured_query.clone();
+            async move { captured_query.lock().unwrap().is_some() }
+        },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let query = captured_query.lock().unwrap().clone().unwrap();
+    assert_query_symbol_eq(&query, "BTCUSDT_260925", "BTCUSDT_260925.BINANCE");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_delivery_reports_use_raw_binance_symbol() {
+    let instrument_id = InstrumentId::from("BTCUSDT_260925.BINANCE");
+    let (addr, captured_queries) = start_exec_test_server_with_query_capture().await;
+    let base_url_http = format!("http://{addr}");
+    let base_url_ws = format!("ws://{addr}/ws");
+    let (mut client, _rx, cache) = create_test_execution_client(base_url_http, base_url_ws);
+    add_test_account_to_cache(&cache, AccountId::from("BINANCE-001"));
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    client
+        .query_order(QueryOrder::new(
+            test_trader_id(),
+            Some(*BINANCE_CLIENT_ID),
+            test_strategy_id(),
+            instrument_id,
+            ClientOrderId::new("delivery-query-routing-test-001"),
+            Some(VenueOrderId::from("12345")),
+            nautilus_core::UUID4::new(),
+            UnixNanos::default(),
+            None,
+            None,
+        ))
+        .unwrap();
+    let query = wait_for_query(&captured_queries, "order").await;
+
+    client
+        .generate_fill_reports(GenerateFillReports::new(
+            nautilus_core::UUID4::new(),
+            UnixNanos::default(),
+            Some(instrument_id),
+            Some(VenueOrderId::from("12345")),
+            None,
+            None,
+            None,
+            None,
+        ))
+        .await
+        .unwrap();
+    let fills = wait_for_query(&captured_queries, "userTrades").await;
+
+    client
+        .generate_position_status_reports(&GeneratePositionStatusReports::new(
+            nautilus_core::UUID4::new(),
+            UnixNanos::default(),
+            Some(instrument_id),
+            None,
+            None,
+            None,
+            None,
+        ))
+        .await
+        .unwrap();
+    let positions = wait_for_query(&captured_queries, "positionRisk").await;
+
+    for captured in [&query, &fills, &positions] {
+        assert_query_symbol_eq(&captured.query, "BTCUSDT_260925", "BTCUSDT_260925.BINANCE");
+    }
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_delivery_reconciliation_emits_open_order_and_position_reports() {
+    let (addr, _captured_queries) = start_exec_test_server_with_query_capture_and_responses(
+        CommandResponses::default(),
+        ReportFixtureMode::Delivery,
+    )
+    .await;
+    let base_url_http = format!("http://{addr}");
+    let base_url_ws = format!("ws://{addr}/ws");
+    let (mut client, _rx, cache) = create_test_execution_client(base_url_http, base_url_ws);
+    add_test_account_to_cache(&cache, AccountId::from("BINANCE-001"));
+    add_delivery_instrument_to_cache(&cache);
+    let instrument_id = InstrumentId::from("BTCUSDT_260925.BINANCE");
+
+    client.start().unwrap();
+    client.connect().await.unwrap();
+
+    let orders = client
+        .generate_order_status_reports(&GenerateOrderStatusReports::new(
+            nautilus_core::UUID4::new(),
+            UnixNanos::default(),
+            true,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ))
+        .await
+        .unwrap();
+    let positions = client
+        .generate_position_status_reports(&GeneratePositionStatusReports::new(
+            nautilus_core::UUID4::new(),
+            UnixNanos::default(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ))
+        .await
+        .unwrap();
+
+    assert!(
+        orders
+            .iter()
+            .any(|report| report.instrument_id == instrument_id)
+    );
+    assert_eq!(positions.len(), 1);
+    assert_eq!(positions[0].instrument_id, instrument_id);
 }
 
 #[rstest]
@@ -3862,7 +3980,7 @@ fn submit_order_command(order: &OrderAny) -> SubmitOrder {
         test_trader_id(),
         Some(*BINANCE_CLIENT_ID),
         test_strategy_id(),
-        test_instrument_id(),
+        order.instrument_id(),
         order.client_order_id(),
         order.init_event().clone(),
         None,
@@ -4065,8 +4183,12 @@ async fn wait_for_ws_trading_method(
 }
 
 fn assert_query_symbol(query: &HashMap<String, String>) {
-    assert_eq!(query.get("symbol").map(String::as_str), Some("BTCUSDT"));
-    assert!(!query.values().any(|value| value.contains("BTCUSDT-PERP")));
+    assert_query_symbol_eq(query, "BTCUSDT", "BTCUSDT-PERP");
+}
+
+fn assert_query_symbol_eq(query: &HashMap<String, String>, expected: &str, nautilus_symbol: &str) {
+    assert_eq!(query.get("symbol").map(String::as_str), Some(expected));
+    assert!(!query.values().any(|value| value.contains(nautilus_symbol)));
 }
 
 async fn assert_no_order_event_matching<F>(

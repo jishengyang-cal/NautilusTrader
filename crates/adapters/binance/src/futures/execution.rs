@@ -2928,10 +2928,16 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 fn is_instrument_for_product(instrument: &InstrumentAny, product_type: BinanceProductType) -> bool {
     match product_type {
         BinanceProductType::UsdM => {
-            matches!(instrument, InstrumentAny::CryptoPerpetual(_)) && !instrument.is_inverse()
+            matches!(
+                instrument,
+                InstrumentAny::CryptoFuture(_) | InstrumentAny::CryptoPerpetual(_)
+            ) && !instrument.is_inverse()
         }
         BinanceProductType::CoinM => {
-            matches!(instrument, InstrumentAny::CryptoPerpetual(_)) && instrument.is_inverse()
+            matches!(
+                instrument,
+                InstrumentAny::CryptoFuture(_) | InstrumentAny::CryptoPerpetual(_)
+            ) && instrument.is_inverse()
         }
         _ => false,
     }
@@ -2939,8 +2945,11 @@ fn is_instrument_for_product(instrument: &InstrumentAny, product_type: BinancePr
 
 #[cfg(test)]
 mod tests {
-    use nautilus_model::instruments::stubs::{
-        crypto_perpetual_ethusdt, currency_pair_btcusdt, xbtusd_bitmex,
+    use nautilus_model::{
+        instruments::stubs::{
+            crypto_future_btcusdt, crypto_perpetual_ethusdt, currency_pair_btcusdt, xbtusd_bitmex,
+        },
+        types::Price,
     };
     use rstest::rstest;
 
@@ -2999,12 +3008,34 @@ mod tests {
     fn test_instrument_product_matching_distinguishes_futures_products_from_spot() {
         let usdm = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
         let coinm = InstrumentAny::CryptoPerpetual(xbtusd_bitmex());
+        let delivery =
+            || crypto_future_btcusdt(2, 6, Price::from("0.01"), Quantity::from("0.000001"));
+        let usdm_delivery = InstrumentAny::CryptoFuture(delivery());
+        let mut coinm_delivery = delivery();
+        coinm_delivery.is_inverse = true;
+        let coinm_delivery = InstrumentAny::CryptoFuture(coinm_delivery);
         let spot = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
 
         assert!(is_instrument_for_product(&usdm, BinanceProductType::UsdM));
         assert!(!is_instrument_for_product(&usdm, BinanceProductType::CoinM));
         assert!(is_instrument_for_product(&coinm, BinanceProductType::CoinM));
         assert!(!is_instrument_for_product(&coinm, BinanceProductType::UsdM));
+        assert!(is_instrument_for_product(
+            &usdm_delivery,
+            BinanceProductType::UsdM
+        ));
+        assert!(!is_instrument_for_product(
+            &usdm_delivery,
+            BinanceProductType::CoinM
+        ));
+        assert!(is_instrument_for_product(
+            &coinm_delivery,
+            BinanceProductType::CoinM
+        ));
+        assert!(!is_instrument_for_product(
+            &coinm_delivery,
+            BinanceProductType::UsdM
+        ));
         assert!(!is_instrument_for_product(&spot, BinanceProductType::UsdM));
         assert!(!is_instrument_for_product(&spot, BinanceProductType::CoinM));
     }

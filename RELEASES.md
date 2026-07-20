@@ -79,6 +79,7 @@ adapter set. The following limits remain deferred:
 - Added Python v2 `ExecTesterConfig` controls for UUID order IDs, quote quantity, and stop-time cancels
 - Added Python v2 Portfolio snapshot access with base-currency equity and stale/unpriced metadata
 - Added Binance Futures and OKX trailing-stop activation prices to v2 execution reports
+- Added Binance USD-M (monthly and quarterly) and COIN-M (quarterly) delivery futures support
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
 - Added Architect AX dated futures parsing and configurable WebSocket heartbeat and disconnect cancellation
 - Added Hyperliquid fast-cancel payloads for non-trigger order cancels (#4414), thanks for reporting @magnified103

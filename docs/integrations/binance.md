@@ -11,8 +11,8 @@ features (noted inline). The Python adapter supports the same product types.
 Supported products:
 
 - **Binance Spot** (including Binance US)
-- **Binance USDT-Margined Futures** (perpetuals and delivery contracts)
-- **Binance Coin-Margined Futures** (perpetuals and delivery contracts)
+- **Binance USDT-Margined Futures** (perpetuals and current or next monthly and quarterly delivery contracts)
+- **Binance Coin-Margined Futures** (perpetuals and current or next quarterly delivery contracts)
 
 ## Examples
 
@@ -39,12 +39,12 @@ these lower-level components directly.
 
 ### Product support
 
-| Product Type                            | Supported | Notes                              |
-|-----------------------------------------|-----------|------------------------------------|
-| Spot Markets (incl. Binance US)         | ✓         |                                    |
-| Margin Accounts (Cross & Isolated)      | -         | *Not implemented.* Planned for v2. |
-| USDT-Margined Futures (PERP & Delivery) | ✓         |                                    |
-| Coin‑Margined Futures                   | ✓         |                                    |
+| Product Type                            | Supported | Notes                                      |
+|-----------------------------------------|-----------|--------------------------------------------|
+| Spot Markets (incl. Binance US)         | ✓         |                                            |
+| Margin Accounts (Cross & Isolated)      | -         | *Not implemented.* Planned for v2.         |
+| USDT-Margined Futures (PERP & Delivery) | ✓         | Monthly and quarterly delivery contracts.  |
+| Coin‑Margined Futures (PERP & Delivery) | ✓         | Quarterly delivery contracts.              |
 
 :::note
 Margin account features (borrow, repay, isolated margin management) are not implemented.
@@ -80,9 +80,30 @@ Because NautilusTrader supports multi-venue trading, it must distinguish between
 `BTCUSDT` the spot pair and `BTCUSDT` the perpetual futures contract (Binance
 uses the same symbol for both).
 
-Nautilus appends the `-PERP` suffix to all perpetual symbols. For example,
-the Binance Futures `BTCUSDT` perpetual contract becomes `BTCUSDT-PERP`
-within Nautilus.
+Nautilus appends `-PERP` to USD-M perpetual symbols. For example, the Binance
+USD-M `BTCUSDT` perpetual becomes `BTCUSDT-PERP`. Binance already names COIN-M
+perpetuals with `_PERP`, so `BTCUSD_PERP` remains unchanged.
+
+Delivery symbols keep Binance's `_YYMMDD` suffix. For example,
+`BTCUSDT_260925` and `BTCUSD_260925` remain unchanged within Nautilus. USD-M
+supports the documented `CURRENT_MONTH`, `NEXT_MONTH`, `CURRENT_QUARTER`, and
+`NEXT_QUARTER` contract types. COIN-M supports `CURRENT_QUARTER` and
+`NEXT_QUARTER`. Contract availability varies by environment and listing cycle.
+
+USD-M delivery instruments are linear and settle in the margin asset. COIN-M
+delivery instruments are inverse, settle in the margin asset (the base
+currency), and use Binance's `contractSize` as the instrument multiplier. Both
+use `onboardDate` and `deliveryDate` for activation and expiration. See
+Binance's official
+[USD-M common definitions](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/common-definition)
+and [COIN-M common definitions](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/common-definition).
+
+The Rust Futures data tester accepts a delivery instrument without source edits:
+
+```bash
+BINANCE_FUTURES_INSTRUMENT_ID=BTCUSDT_260925.BINANCE \
+  cargo run -p nautilus-binance --example binance-futures-data-tester --features examples
+```
 
 ## Order capability
 
@@ -650,6 +671,14 @@ info (e.g. after delisting or contract expiry), the adapter emits
 | Halt               | Halt                       |
 | AuctionMatch       | Cross                      |
 | Break              | Pause                      |
+| PreDelivering      | PreClose                   |
+| Delivering         | Close                      |
+| Delivered          | Close                      |
+| PreSettle          | PreClose                   |
+| Settling           | Close                      |
+| Close              | Close                      |
+| TradingHalt        | Halt                       |
+| TradingCancelOnly  | Halt                       |
 
 #### Futures (COIN-M)
 
@@ -666,6 +695,8 @@ info (e.g. after delisting or contract expiry), the adapter emits
 | PreDelisting       | PreClose                   |
 | Delisting          | Suspend                    |
 | Down               | NotAvailableForTrading     |
+| TradingHalt        | Halt                       |
+| TradingCancelOnly  | Halt                       |
 
 :::note
 Only instruments that are in a tradable state at connect time are tracked.

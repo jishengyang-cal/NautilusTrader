@@ -1363,7 +1363,7 @@ impl BinanceFuturesInstrument {
     }
 }
 
-/// Binance Futures HTTP client for USD-M and COIN-M perpetuals.
+/// Binance Futures HTTP client for USD-M and COIN-M perpetuals and delivery contracts.
 #[derive(Debug, Clone)]
 pub struct BinanceFuturesHttpClient {
     inner: Arc<BinanceRawFuturesHttpClient>,
@@ -1633,7 +1633,7 @@ impl BinanceFuturesHttpClient {
                 }
 
                 log::debug!(
-                    "Loaded USD-M perpetual instruments: count={}",
+                    "Loaded USD-M Futures instruments: count={}",
                     instruments.len()
                 );
                 instruments
@@ -1664,7 +1664,7 @@ impl BinanceFuturesHttpClient {
                 }
 
                 log::debug!(
-                    "Loaded COIN-M perpetual instruments: count={}",
+                    "Loaded COIN-M Futures instruments: count={}",
                     instruments.len()
                 );
                 instruments
@@ -2620,11 +2620,8 @@ impl BinanceFuturesHttpClient {
         let mut reports = Vec::with_capacity(orders.len());
 
         for order in orders {
-            let order_instrument_id = instrument_id.unwrap_or_else(|| {
-                // Build instrument ID from order symbol
-                let suffix = self.product_type.suffix();
-                InstrumentId::from(format!("{}{}.BINANCE", order.symbol, suffix))
-            });
+            let order_instrument_id = instrument_id
+                .unwrap_or_else(|| format_instrument_id(&order.symbol, self.product_type));
 
             let price_precision = self.get_price_precision(&order.symbol).unwrap_or(8);
             let size_precision = self.get_size_precision(&order.symbol).unwrap_or(8);
