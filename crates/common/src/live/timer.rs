@@ -13,13 +13,34 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! Live timer implementation using Tokio for real-time scheduling.
+//! Live timer scheduling and callback dispatch.
+//!
+//! # Scheduling
+//!
+//! The runtime interval starts `TIMER_STARTUP_OVERHEAD` before the nominal schedule to offset
+//! task startup latency. Shorter delays saturate to immediate execution, while event timestamps
+//! retain their nominal schedule. Stop times are inclusive.
+//!
+//! # Task lifecycle
+//!
+//! Each [`LiveTimer::start`] creates fresh public schedule and task-state atomics. Because aborting
+//! a runtime task does not join it, task retirement linearizes restart, cancellation, and drop
+//! against event reservation. Retirement either prevents the old task from dispatching or observes
+//! the schedule advanced by its reserved event; fresh atomics keep that task from overwriting its
+//! replacement's schedule.
+//!
+//! # Callback dispatch
+//!
+//! Thread-safe callbacks cross the worker boundary as [`TimeEventMessage`] values. `RustLocal`
+//! callbacks remain in an owner-thread registry and cross the boundary only through tokens and
+//! leases. Senderless Python callbacks run inline and publish their following schedule after the
+//! callback returns.
 
 use std::{
     num::NonZeroU64,
     sync::{
         Arc,
-        atomic::{self, AtomicU64},
+        atomic::{self, AtomicU8, AtomicU64},
     },
 };
 
@@ -40,13 +61,16 @@ use super::dst::{
 use super::runtime::get_runtime;
 use crate::{
     runner::{
-        TimeEventCallbackToken, TimeEventMessage, TimeEventMessageFactory, TimeEventSender,
-        register_time_event_callback,
+        TimeEventCallbackLease, TimeEventCallbackToken, TimeEventMessage, TimeEventMessageFactory,
+        TimeEventSender, register_time_event_callback,
     },
     timer::{TimeEvent, TimeEventCallback, Timer},
 };
 
 const TIMER_STARTUP_OVERHEAD: Duration = Duration::from_millis(1);
+const TASK_ACTIVE: u8 = 0;
+const TASK_FIRING: u8 = 1;
+const TASK_RETIRED: u8 = 2;
 
 fn should_fire_scheduled_time(next_time_ns: UnixNanos, stop_time_ns: Option<UnixNanos>) -> bool {
     stop_time_ns.is_none_or(|stop_time_ns| next_time_ns <= stop_time_ns)
@@ -90,7 +114,7 @@ fn normalize_start_time_ns(
 fn timer_start_delay(next_time_ns: UnixNanos, now_ns: UnixNanos) -> Duration {
     let delay = Duration::from_nanos(next_time_ns.saturating_sub(now_ns.as_u64()));
 
-    // Subtract the estimated startup overhead, saturating to zero for sub-overhead delays.
+    // Subtract the estimated startup overhead, saturating to zero for sub-overhead delays
     delay.saturating_sub(TIMER_STARTUP_OVERHEAD)
 }
 
@@ -117,8 +141,15 @@ pub struct LiveTimer {
     next_time_ns: Arc<AtomicU64>,
     callback: OwnerCallback,
     task_handle: Option<JoinHandle<()>>,
+    task_state: Option<Arc<TimerTaskState>>,
     canceled: bool,
     sender: Option<Arc<dyn TimeEventSender>>,
+}
+
+#[derive(Debug)]
+struct TimerTaskState {
+    status: AtomicU8,
+    next_time_ns: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -190,6 +221,7 @@ impl LiveTimer {
             next_time_ns: Arc::new(AtomicU64::new(next_time_ns)),
             callback: owner_callback,
             task_handle: None,
+            task_state: None,
             canceled: false,
             sender,
         }
@@ -234,12 +266,12 @@ impl LiveTimer {
         let stop_time_ns = self.stop_time_ns;
         let interval_ns = self.interval_ns.get();
 
-        // An active previous task must not share the registered token with
-        // the new one. Close BEFORE aborting: abort() does not join, and a
-        // task already past its tick can still run its synchronous fire
-        // path - its late close() must land on the old, already-closed
-        // token (a no-op) rather than on the token the new task uses. Any
-        // lease it acquired first stays valid, matching cancel semantics.
+        let mut observed_next = self
+            .retire_task()
+            .unwrap_or_else(|| self.next_time_ns.load(atomic::Ordering::SeqCst));
+
+        // Close the old token before registering its replacement;
+        // any lease acquired before retirement remains valid.
         if let Some(handle) = self.task_handle.take() {
             self.close_registered_callback();
             handle.abort();
@@ -273,41 +305,25 @@ impl LiveTimer {
 
         // Check if the timer's alert time is in the past and adjust if needed
         let now_raw = now_ns.as_u64();
-        let mut observed_next = self.next_time_ns.load(atomic::Ordering::SeqCst);
 
         if should_adjust_past_due_time(observed_next, now_ns, stop_time_ns) {
-            loop {
-                match self.next_time_ns.compare_exchange(
-                    observed_next,
-                    now_raw,
-                    atomic::Ordering::SeqCst,
-                    atomic::Ordering::SeqCst,
-                ) {
-                    Ok(_) => {
-                        if observed_next < now_raw {
-                            let original = UnixNanos::from(observed_next);
-                            log::warn!(
-                                "Timer '{event_name}' alert time {} was in the past, adjusted to current time for immediate fire",
-                                original.to_rfc3339(),
-                            );
-                        }
-                        observed_next = now_raw;
-                        break;
-                    }
-                    Err(actual) => {
-                        observed_next = actual;
-                        if !should_adjust_past_due_time(observed_next, now_ns, stop_time_ns) {
-                            break;
-                        }
-                    }
-                }
+            if observed_next < now_raw {
+                let original = UnixNanos::from(observed_next);
+                log::warn!(
+                    "Timer '{event_name}' alert time {} was in the past, adjusted to current time for immediate fire",
+                    original.to_rfc3339(),
+                );
             }
+
+            observed_next = now_raw;
         }
 
         // Floor the next time to the nearest microsecond which is within the timers accuracy
         let mut next_time_ns = normalize_start_time_ns(observed_next, now_ns, stop_time_ns);
-        let next_time_atomic = self.next_time_ns.clone();
-        next_time_atomic.store(next_time_ns.as_u64(), atomic::Ordering::SeqCst);
+        let next_time_atomic = Arc::new(AtomicU64::new(next_time_ns.as_u64()));
+        let task_state = Arc::new(TimerTaskState::new(next_time_ns.as_u64()));
+        self.next_time_ns = next_time_atomic.clone();
+        self.task_state = Some(task_state.clone());
 
         let sender = self.sender.clone();
 
@@ -346,15 +362,29 @@ impl LiveTimer {
                 // The event scheduled exactly at the stop time fires (inclusive
                 // boundary), then the timer expires.
                 let expires_after_fire = expires_after_scheduled_time(next_time_ns, stop_time_ns);
+                let following_next_time_ns = next_time_ns + interval_ns;
 
-                // Publish the advanced schedule BEFORE a channel send so a
-                // restart that snapshots `next_time_ns` mid-fire cannot
-                // re-schedule the event being emitted. Senderless dispatch
-                // advances after invocation instead, preserving the
-                // pre-advance value a reentrant callback observes.
+                // Reserve this fire and its following schedule together. A
+                // restart either observes the advanced schedule or retires
+                // the task before it can dispatch. Registered callbacks
+                // acquire their lease first so token closure cannot suppress
+                // an event whose schedule already advanced.
+                let registered_lease = if let WorkerDispatch::Registered(token) = &worker_dispatch {
+                    match task_state.reserve_registered_fire(token, following_next_time_ns.as_u64())
+                    {
+                        Some(lease) => Some(lease),
+                        None => break,
+                    }
+                } else {
+                    if !task_state.reserve_fire(following_next_time_ns.as_u64()) {
+                        break;
+                    }
+                    None
+                };
+
                 if sender.is_some() {
-                    next_time_ns += interval_ns;
-                    next_time_atomic.store(next_time_ns.as_u64(), atomic::Ordering::SeqCst);
+                    next_time_atomic
+                        .store(following_next_time_ns.as_u64(), atomic::Ordering::SeqCst);
                 }
 
                 match (&sender, &worker_dispatch) {
@@ -362,12 +392,13 @@ impl LiveTimer {
                         sender.send(factory.message(event));
                     }
                     (Some(sender), WorkerDispatch::Registered(token)) => {
-                        if let Some(lease) = token.acquire() {
-                            if expires_after_fire {
-                                token.close();
-                            }
-                            sender.send(TimeEventMessage::registered(event, lease));
+                        let lease =
+                            registered_lease.expect("registered callback lease was not acquired");
+
+                        if expires_after_fire {
+                            token.close();
                         }
+                        sender.send(TimeEventMessage::registered(event, lease));
                     }
                     #[cfg(feature = "python")]
                     (None, WorkerDispatch::SenderlessPython(callback)) => callback.call(event),
@@ -378,9 +409,11 @@ impl LiveTimer {
                 }
 
                 if sender.is_none() {
-                    next_time_ns += interval_ns;
-                    next_time_atomic.store(next_time_ns.as_u64(), atomic::Ordering::SeqCst);
+                    next_time_atomic
+                        .store(following_next_time_ns.as_u64(), atomic::Ordering::SeqCst);
                 }
+
+                next_time_ns = following_next_time_ns;
 
                 if expires_after_fire {
                     break; // Timer expired at the stop boundary
@@ -405,6 +438,8 @@ impl LiveTimer {
 
         self.close_registered_callback();
 
+        self.retire_task();
+
         if let Some(handle) = self.task_handle.take() {
             handle.abort();
         }
@@ -415,6 +450,70 @@ impl LiveTimer {
         if let OwnerCallback::Registered { token, .. } = &self.callback {
             token.close();
         }
+    }
+
+    fn retire_task(&mut self) -> Option<u64> {
+        let task_state = self.task_state.take()?;
+        let next_time_ns = task_state.retire();
+        self.next_time_ns
+            .store(next_time_ns, atomic::Ordering::SeqCst);
+        Some(next_time_ns)
+    }
+}
+
+impl TimerTaskState {
+    fn new(next_time_ns: u64) -> Self {
+        Self {
+            status: AtomicU8::new(TASK_ACTIVE),
+            next_time_ns: AtomicU64::new(next_time_ns),
+        }
+    }
+
+    fn reserve_registered_fire(
+        &self,
+        token: &TimeEventCallbackToken,
+        following_next_time_ns: u64,
+    ) -> Option<TimeEventCallbackLease> {
+        let lease = token.acquire()?;
+        self.reserve_fire(following_next_time_ns).then_some(lease)
+    }
+
+    fn reserve_fire(&self, following_next_time_ns: u64) -> bool {
+        if self
+            .status
+            .compare_exchange(
+                TASK_ACTIVE,
+                TASK_FIRING,
+                atomic::Ordering::SeqCst,
+                atomic::Ordering::SeqCst,
+            )
+            .is_err()
+        {
+            return false;
+        }
+
+        self.next_time_ns
+            .store(following_next_time_ns, atomic::Ordering::SeqCst);
+        self.status.store(TASK_ACTIVE, atomic::Ordering::SeqCst);
+        true
+    }
+
+    fn retire(&self) -> u64 {
+        loop {
+            match self.status.compare_exchange(
+                TASK_ACTIVE,
+                TASK_RETIRED,
+                atomic::Ordering::SeqCst,
+                atomic::Ordering::SeqCst,
+            ) {
+                Ok(_) | Err(TASK_RETIRED) => break,
+                // The firing section contains only atomic schedule publication
+                Err(TASK_FIRING) => std::hint::spin_loop(),
+                Err(status) => unreachable!("invalid timer task state {status}"),
+            }
+        }
+
+        self.next_time_ns.load(atomic::Ordering::SeqCst)
     }
 }
 
@@ -431,6 +530,7 @@ impl Timer for LiveTimer {
 impl Drop for LiveTimer {
     fn drop(&mut self) {
         self.close_registered_callback();
+        self.retire_task();
 
         if let Some(handle) = self.task_handle.take() {
             handle.abort();
@@ -440,9 +540,17 @@ impl Drop for LiveTimer {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(all(feature = "simulation", madsim))]
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::{num::NonZeroU64, rc::Rc, sync::Arc};
+    #[cfg(not(all(feature = "simulation", madsim)))]
+    use std::rc::Rc;
+    #[cfg(all(feature = "python", not(all(feature = "simulation", madsim))))]
+    use std::sync::atomic::AtomicU64;
+    use std::{
+        num::NonZeroU64,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
     #[cfg(any(feature = "python", not(all(feature = "simulation", madsim))))]
     use std::{
         sync::{Mutex, mpsc},
@@ -459,6 +567,8 @@ mod tests {
     use ustr::Ustr;
 
     use super::LiveTimer;
+    #[cfg(not(all(feature = "simulation", madsim)))]
+    use crate::runner::register_time_event_callback;
     #[cfg(not(all(feature = "simulation", madsim)))]
     use crate::testing::wait_until;
     use crate::{
@@ -480,6 +590,29 @@ mod tests {
                 .expect("sender mutex should lock")
                 .send(message)
                 .expect("message should send");
+        }
+    }
+
+    #[cfg(not(all(feature = "simulation", madsim)))]
+    #[derive(Debug)]
+    struct PausingChannelSender {
+        tx: Mutex<mpsc::Sender<TimeEventMessage>>,
+        release_rx: Mutex<mpsc::Receiver<()>>,
+    }
+
+    #[cfg(not(all(feature = "simulation", madsim)))]
+    impl TimeEventSender for PausingChannelSender {
+        fn send(&self, message: TimeEventMessage) {
+            self.tx
+                .lock()
+                .expect("sender mutex should lock")
+                .send(message)
+                .expect("message should send");
+            self.release_rx
+                .lock()
+                .expect("release mutex should lock")
+                .recv()
+                .expect("timer send should release");
         }
     }
 
@@ -636,6 +769,46 @@ mod tests {
     }
 
     #[rstest]
+    fn test_timer_task_retirement_prevents_a_late_fire() {
+        let state = super::TimerTaskState::new(100);
+
+        let restart_time_ns = state.retire();
+        let reserved = state.reserve_fire(200);
+
+        assert_eq!(restart_time_ns, 100);
+        assert!(!reserved);
+        assert_eq!(state.next_time_ns.load(Ordering::SeqCst), 100);
+    }
+
+    #[rstest]
+    fn test_timer_task_retirement_preserves_a_reserved_fire() {
+        let state = super::TimerTaskState::new(100);
+
+        let reserved = state.reserve_fire(200);
+        let restart_time_ns = state.retire();
+
+        assert!(reserved);
+        assert_eq!(restart_time_ns, 200);
+        assert_eq!(state.next_time_ns.load(Ordering::SeqCst), 200);
+    }
+
+    #[cfg(not(all(feature = "simulation", madsim)))]
+    #[rstest]
+    fn test_closed_registered_callback_does_not_reserve_fire() {
+        let state = super::TimerTaskState::new(100);
+        let callback = TimeEventCallback::RustLocal(Rc::new(|_| {}));
+        let token = register_time_event_callback(callback);
+        token.close();
+
+        let lease = state.reserve_registered_fire(&token, 200);
+        let restart_time_ns = state.retire();
+
+        assert!(lease.is_none());
+        assert_eq!(restart_time_ns, 100);
+        assert_eq!(state.next_time_ns.load(Ordering::SeqCst), 100);
+    }
+
+    #[rstest]
     fn test_live_timer_fire_immediately_field() {
         let timer = LiveTimer::new(
             Ustr::from("TEST_TIMER"),
@@ -732,7 +905,11 @@ mod tests {
     #[rstest]
     fn test_live_timer_cancel_preserves_queued_rust_local_callback_lease() {
         let (tx, rx) = mpsc::channel();
-        let sender = Arc::new(ChannelSender { tx: Mutex::new(tx) });
+        let (release_tx, release_rx) = mpsc::channel();
+        let sender = Arc::new(PausingChannelSender {
+            tx: Mutex::new(tx),
+            release_rx: Mutex::new(release_rx),
+        });
         let count = Rc::new(std::cell::Cell::new(0));
         let callback_count = count.clone();
         let callback: Rc<dyn Fn(crate::timer::TimeEvent)> =
@@ -754,6 +931,7 @@ mod tests {
             .recv_timeout(StdDuration::from_secs(1))
             .expect("registered timer message should arrive");
         timer.cancel();
+        release_tx.send(()).expect("timer send should release");
 
         assert!(callback_weak.upgrade().is_some());
         assert!(message.dispatch());
@@ -763,6 +941,36 @@ mod tests {
         // drops must no registry copy remain.
         drop(timer);
         assert!(callback_weak.upgrade().is_none());
+    }
+
+    #[cfg(not(all(feature = "simulation", madsim)))]
+    #[rstest]
+    fn test_live_timer_cancel_preserves_queued_direct_callback() {
+        let (tx, rx) = mpsc::channel();
+        let sender = Arc::new(ChannelSender { tx: Mutex::new(tx) });
+        let count = Arc::new(AtomicUsize::new(0));
+        let callback_count = count.clone();
+        let now = get_atomic_clock_realtime().get_time_ns();
+        let mut timer = LiveTimer::new(
+            Ustr::from("CANCEL_QUEUED_DIRECT"),
+            NonZeroU64::new(1_000_000).unwrap(),
+            now,
+            None,
+            TimeEventCallback::from(move |_| {
+                callback_count.fetch_add(1, Ordering::Relaxed);
+            }),
+            true,
+            Some(sender),
+        );
+
+        timer.start();
+        let message = rx
+            .recv_timeout(StdDuration::from_secs(1))
+            .expect("direct timer message should arrive");
+        timer.cancel();
+
+        assert!(message.dispatch());
+        assert_eq!(count.load(Ordering::Relaxed), 1);
     }
 
     #[cfg(not(all(feature = "simulation", madsim)))]
@@ -937,6 +1145,68 @@ mod tests {
             assert_eq!(py_list.len(), 0);
             assert!(message.dispatch());
             assert_eq!(py_list.len(), 1);
+        });
+    }
+
+    #[cfg(all(feature = "python", not(all(feature = "simulation", madsim))))]
+    #[rstest]
+    fn test_senderless_callback_observes_current_schedule() {
+        Python::initialize();
+
+        Python::attach(|py| {
+            let schedule: Arc<Mutex<Option<Arc<AtomicU64>>>> = Arc::new(Mutex::new(None));
+            let callback_schedule = schedule.clone();
+            let (tx, rx) = mpsc::channel();
+            let callback = pyo3::types::PyCFunction::new_closure(
+                py,
+                None,
+                None,
+                move |_args: &pyo3::Bound<'_, pyo3::types::PyTuple>,
+                      _kwargs: Option<&pyo3::Bound<'_, pyo3::types::PyDict>>|
+                      -> pyo3::PyResult<()> {
+                    let next_time_ns = callback_schedule
+                        .lock()
+                        .expect("schedule mutex should lock")
+                        .as_ref()
+                        .expect("timer schedule should be available")
+                        .load(Ordering::SeqCst);
+                    tx.send(next_time_ns)
+                        .expect("observed schedule should send");
+                    Ok(())
+                },
+            )
+            .expect("callback should create")
+            .into_any()
+            .unbind();
+            let now = get_atomic_clock_realtime().get_time_ns();
+            let interval_ns = 10_000_000;
+            let start_time_ns = now + 50_000_000;
+            let mut timer = LiveTimer::new(
+                Ustr::from("SENDERLESS_SCHEDULE"),
+                NonZeroU64::new(interval_ns).unwrap(),
+                start_time_ns,
+                None,
+                TimeEventCallback::from(callback),
+                true,
+                None,
+            );
+
+            timer.start();
+            let expected_time_ns = timer.next_time_ns().as_u64();
+            schedule
+                .lock()
+                .expect("schedule mutex should lock")
+                .replace(timer.next_time_ns.clone());
+            let observed_time_ns = py
+                .detach(move || rx.recv_timeout(StdDuration::from_secs(1)))
+                .expect("senderless callback should observe the schedule");
+            wait_until(
+                || timer.next_time_ns().as_u64() == expected_time_ns + interval_ns,
+                StdDuration::from_secs(1),
+            );
+            timer.cancel();
+
+            assert_eq!(observed_time_ns, expected_time_ns);
         });
     }
 }

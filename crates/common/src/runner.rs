@@ -289,6 +289,10 @@ impl TimeEventMessage {
 
     /// Resolves and runs this message on the receiving thread.
     ///
+    /// Messages for a `RustLocal` callback must be dispatched on the thread
+    /// where the callback was registered. Dispatching them elsewhere drops
+    /// the event and returns `false`.
+    ///
     /// Returns `true` when a callback was dispatched. Cleanup messages and
     /// wrong-thread registered messages return `false`.
     pub fn dispatch(self) -> bool {
@@ -426,6 +430,9 @@ pub fn replace_data_cmd_sender(sender: Arc<dyn DataCommandSender>) {
 }
 
 /// Trait for time event sending that can be implemented for both sync and async runners.
+///
+/// Implementations may transfer messages across threads, but messages for
+/// `RustLocal` callbacks must be dispatched on the callback's owner thread.
 pub trait TimeEventSender: Debug + Send + Sync {
     /// Sends a live time event message.
     fn send(&self, message: TimeEventMessage);
