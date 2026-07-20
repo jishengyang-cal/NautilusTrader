@@ -49,6 +49,10 @@ class BookImbalanceActorConfig:
 
 @typing.final
 class CompositeMarketMakerConfig:
+    @property
+    def strategy_id(self) -> model.StrategyId | None: ...
+    @property
+    def order_id_tag(self) -> str | None: ...
     def __init__(
         self,
         instrument_id: model.InstrumentId,
@@ -90,6 +94,10 @@ class CompositeMarketMakerConfig:
 
 @typing.final
 class DeltaNeutralVolConfig:
+    @property
+    def strategy_id(self) -> model.StrategyId | None: ...
+    @property
+    def order_id_tag(self) -> str | None: ...
     def __init__(
         self,
         option_family: str,
@@ -135,9 +143,15 @@ class DeltaNeutralVolConfig:
     def entry_time_in_force(self) -> model.TimeInForce: ...
     @property
     def entry_premium_offset_ticks(self) -> int | None: ...
+    @property
+    def iv_param_key(self) -> str: ...
 
 @typing.final
 class EmaCrossConfig:
+    @property
+    def strategy_id(self) -> model.StrategyId | None: ...
+    @property
+    def order_id_tag(self) -> str | None: ...
     def __init__(
         self,
         instrument_id: model.InstrumentId,
@@ -173,6 +187,10 @@ class ExecutionAlgorithmConfig:
 
 @typing.final
 class GridMarketMakerConfig:
+    @property
+    def strategy_id(self) -> model.StrategyId | None: ...
+    @property
+    def order_id_tag(self) -> str | None: ...
     def __init__(
         self,
         instrument_id: model.InstrumentId,
@@ -208,6 +226,10 @@ class GridMarketMakerConfig:
 
 @typing.final
 class HurstVpinDirectionalConfig:
+    @property
+    def strategy_id(self) -> model.StrategyId | None: ...
+    @property
+    def order_id_tag(self) -> str | None: ...
     def __init__(
         self,
         instrument_id: model.InstrumentId,

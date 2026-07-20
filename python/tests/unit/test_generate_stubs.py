@@ -1260,6 +1260,30 @@ AUTHORING_CONFIG_BINDINGS = {
     ),
 }
 
+CONFIG_READBACK_REPLACEMENTS = {
+    (
+        "nautilus_trader.backtest",
+        "BacktestDataConfig",
+        "catalog_fs_storage_options",
+    ): "catalog_fs_storage_option_keys",
+    (
+        "nautilus_trader.backtest",
+        "BacktestDataConfig",
+        "catalog_fs_rust_storage_options",
+    ): "catalog_fs_rust_storage_option_keys",
+    ("nautilus_trader.network", "SocketConfig", "handler"): "has_handler",
+    ("nautilus_trader.network", "WebSocketConfig", "headers"): "header_names",
+    ("nautilus_trader.network", "WebSocketConfig", "proxy_url"): "has_proxy_url",
+}
+
+WRITABLE_CONFIG_PROPERTIES = {
+    ("nautilus_trader.common", "DataActorConfig"): {
+        "actor_id",
+        "log_commands",
+        "log_events",
+    },
+}
+
 
 def _parse_stub_enum_variants(stub_root: Path) -> dict[str, list[str]]:
     """
@@ -1666,6 +1690,101 @@ def test_generated_config_stubs_include_signature_defaults():
     assert mismatches == [], "Run `make py-stubs-v2`; stale config defaults in " + ", ".join(
         mismatches,
     )
+
+
+def test_non_adapter_config_constructors_have_runtime_readback():
+    mismatches = []
+
+    for stub_file in sorted(STUB_ROOT.rglob("__init__.pyi")):
+        relative_package = stub_file.relative_to(STUB_ROOT).parent
+        module_name = _module_name_from_stub_path(relative_package)
+        if module_name.startswith("nautilus_trader.adapters."):
+            continue
+
+        module = importlib.import_module(module_name)
+        stub_module = ast.parse(stub_file.read_text())
+
+        for stub_class in (
+            node
+            for node in stub_module.body
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Config")
+        ):
+            mismatches.extend(
+                _config_constructor_readback_mismatches(module_name, module, stub_class),
+            )
+
+    assert mismatches == [], "Non-adapter config readback drift:\n" + "\n".join(mismatches)
+
+
+def _config_constructor_readback_mismatches(module_name, module, stub_class):
+    constructor = next(
+        (
+            node
+            for node in stub_class.body
+            if isinstance(node, ast.FunctionDef) and node.name in {"__init__", "__new__"}
+        ),
+        None,
+    )
+
+    if constructor is None:
+        return []
+
+    mismatches = []
+    runtime_class = getattr(module, stub_class.name)
+    properties = {
+        node.name
+        for node in stub_class.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(decorator, ast.Name) and decorator.id == "property"
+            for decorator in node.decorator_list
+        )
+    }
+    setters = {
+        node.name
+        for node in stub_class.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(decorator, ast.Attribute) and decorator.attr == "setter"
+            for decorator in node.decorator_list
+        )
+    }
+    expected_setters = WRITABLE_CONFIG_PROPERTIES.get((module_name, stub_class.name), set())
+    if setters != expected_setters:
+        mismatches.append(
+            f"{module_name}.{stub_class.name}: setters {sorted(setters)}, "
+            f"expected {sorted(expected_setters)}",
+        )
+
+    positional_parameters = [*constructor.args.posonlyargs, *constructor.args.args]
+    parameters = [*positional_parameters[1:], *constructor.args.kwonlyargs]
+    for parameter in parameters:
+        if parameter.arg.startswith("_"):
+            continue
+
+        readback_name = CONFIG_READBACK_REPLACEMENTS.get(
+            (module_name, stub_class.name, parameter.arg),
+            parameter.arg,
+        )
+
+        if readback_name not in properties:
+            mismatches.append(
+                f"{module_name}.{stub_class.name}.{parameter.arg}: "
+                f"missing property {readback_name}",
+            )
+            continue
+
+        descriptor = inspect.getattr_static(runtime_class, readback_name, None)
+        if descriptor is None:
+            mismatches.append(
+                f"{module_name}.{stub_class.name}.{readback_name}: missing at runtime",
+            )
+        elif callable(descriptor):
+            mismatches.append(
+                f"{module_name}.{stub_class.name}.{readback_name}: exposed as method",
+            )
+
+    return mismatches
 
 
 def test_authoring_config_py_new_and_getters_match_rust_fields():

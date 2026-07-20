@@ -332,6 +332,7 @@ def test_strategy_can_recover_order_list_id_from_cache():
         assert order_list.instrument_id == instrument.id
         assert order_list.strategy_id == OrderListCacheProbeStrategy.observed_strategy_id
         assert order_list.client_order_ids() == client_order_ids
+        assert order_list.first_client_order_id == client_order_ids[0]
         assert len(order_list) == 3
         assert hash(order_list) == hash(order_list.id)
         assert repr(order_list) == str(order_list)
@@ -1478,6 +1479,13 @@ def _make_position_events(instrument):
         "position_changed": position_changed,
         "position_closed": position_closed,
     }
+
+
+def test_position_change_and_close_events_expose_peak_qty():
+    events = _make_position_events(TestInstrumentProvider.audusd_sim())
+
+    assert events["position_changed"].peak_qty == Quantity.from_int(150_000)
+    assert events["position_closed"].peak_qty == Quantity.from_int(150_000)
 
 
 def _make_order_filled_event(
