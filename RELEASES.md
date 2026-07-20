@@ -108,6 +108,7 @@ adapter set. The following limits remain deferred:
 - Changed index option settlement to require `IndexPriceUpdate` for underlying levels (#4430, #4431), thanks @taozle
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
 - Removed `Copy` and `Clone` from Rust `CVec`; move values instead (#4499), thanks @folknor
+- Removed Rust `CANCELLABLE_ORDER_STATUSES` and cancellable status set functions; use `OrderStatus::is_cancellable()`
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)

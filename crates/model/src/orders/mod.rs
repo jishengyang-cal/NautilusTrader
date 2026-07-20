@@ -112,34 +112,6 @@ pub const LOCAL_ACTIVE_ORDER_STATUSES: &[OrderStatus] = &[
     OrderStatus::Released,
 ];
 
-/// Order statuses that are safe for cancellation queries.
-///
-/// These are statuses where an order is working on the venue but not already
-/// in the process of being cancelled. Including `PENDING_CANCEL` in cancellation
-/// filters can cause duplicate cancel attempts or incorrect open order counts.
-///
-/// Note: `PENDING_UPDATE` is included as orders being updated can typically still
-/// be cancelled (update and cancel are independent operations on most venues).
-pub const CANCELLABLE_ORDER_STATUSES: &[OrderStatus] = &[
-    OrderStatus::Accepted,
-    OrderStatus::Triggered,
-    OrderStatus::PendingUpdate,
-    OrderStatus::PartiallyFilled,
-];
-
-/// Returns a cached `AHashSet` of cancellable order statuses for O(1) lookups.
-///
-/// For the small set (4 elements), using `CANCELLABLE_ORDER_STATUSES.contains()` may be
-/// equally fast due to better cache locality. Use this function when you need set operations
-/// or are building HashSet-based filters.
-///
-/// Note: This is a module-level convenience function. You can also use
-/// `OrderStatus::cancellable_statuses_set()` directly.
-#[must_use]
-pub fn cancellable_order_statuses_set() -> &'static AHashSet<OrderStatus> {
-    OrderStatus::cancellable_statuses_set()
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum OrderError {
     #[error("Order not found: {0}")]
