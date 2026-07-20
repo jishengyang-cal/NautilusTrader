@@ -215,6 +215,8 @@ adapter set. The following limits remain deferred:
 - Fixed Binance Futures startup reconciliation omitting and truncating fill history
 - Fixed Binance Spot startup reconciliation omitting and truncating fill history
 - Fixed Binance Spot instrument loading after the SBE schema `3:5` rollout (#4407), thanks @learnerLj
+- Fixed BitMEX sparse order updates losing cached order state (#4508), thanks for reporting @4px4d9cdby-star
+- Fixed BitMEX UTF-8 JSON binary WebSocket frames being dropped (#4509), thanks for reporting @4px4d9cdby-star
 - Fixed Blockchain HyperSync live pool-event streams overreaching the tip window
 - Fixed Blockchain RPC pool snapshots panicking on incomplete topology
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
