@@ -74,6 +74,7 @@ adapter set. The following limits remain deferred:
 - Added Python v2 subclassable execution algorithms for routed orders
 - Added Python v2 `LiveNode.add_strategy` for constructed strategy instances (#4487), thanks @dfjmax
 - Added Python v2 `FeeModel` and `FillModel` subclass support for custom backtest models
+- Added Python v2 `nautilus_trader.config` convenience imports for core configuration types
 - Added Python v2 `Strategy.shutdown_system()` and `LiveNode.dispose()` bindings
 - Added Python v2 `ExecTesterConfig` controls for UUID order IDs, quote quantity, and stop-time cancels
 - Added Python v2 Portfolio snapshot access with base-currency equity and stale/unpriced metadata

@@ -88,6 +88,69 @@ def test_python_libdir_env_does_not_mutate_os_environ(monkeypatch):
     assert "LD_LIBRARY_PATH" not in os.environ
 
 
+def test_write_config_stub_uses_runtime_exports(tmp_path):
+    # Arrange
+    runtime_path = tmp_path / "config" / "__init__.py"
+    runtime_path.parent.mkdir()
+    runtime_path.write_text(
+        """
+from __future__ import annotations
+
+from nautilus_trader.analysis import TearsheetConfig
+from nautilus_trader.common import CacheConfig
+
+__all__ = [
+    "CacheConfig",
+    "TearsheetConfig",
+]
+""".lstrip(),
+    )
+
+    # Act
+    generate_stubs.write_config_stub(tmp_path)
+
+    # Assert
+    stub = runtime_path.with_suffix(".pyi").read_text()
+    assert "from nautilus_trader.common import CacheConfig as CacheConfig" in stub
+    assert "from nautilus_trader.analysis import TearsheetConfig as TearsheetConfig" in stub
+    assert ast.literal_eval(
+        next(
+            node.value
+            for node in ast.parse(stub).body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets
+            )
+        ),
+    ) == ["CacheConfig", "TearsheetConfig"]
+
+
+def test_write_config_stub_rejects_export_drift(tmp_path):
+    # Arrange
+    runtime_path = tmp_path / "config" / "__init__.py"
+    runtime_path.parent.mkdir()
+    runtime_path.write_text(
+        """
+from nautilus_trader.common import CacheConfig
+
+__all__ = ["TearsheetConfig"]
+""".lstrip(),
+    )
+
+    # Act
+    with pytest.raises(
+        ValueError,
+        match=r"^Config facade imports and __all__ differ",
+    ) as exc_info:
+        generate_stubs.write_config_stub(tmp_path)
+
+    # Assert
+    assert str(exc_info.value) == (
+        "Config facade imports and __all__ differ: missing imports ['TearsheetConfig'], "
+        "unexported imports ['CacheConfig']"
+    )
+
+
 def test_collect_rust_class_fixups_reads_pymethods_and_identifier_macros(tmp_path):
     # Arrange
     rust_file = tmp_path / "crates" / "model" / "src" / "python" / "sample.rs"
