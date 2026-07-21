@@ -210,6 +210,25 @@ class OrderFactoryProbeStrategy(Strategy):
         type(self).observed_order_list_id_count = order_factory.get_order_list_id_count()
 
 
+class OrderFactoryConfigProbeStrategy(Strategy):
+    observed_factory = None
+    observed_config = None
+    observed_client_order_id = None
+
+    @classmethod
+    def reset(cls):
+        cls.observed_factory = None
+        cls.observed_config = None
+        cls.observed_client_order_id = None
+
+    def on_start(self):
+        order_factory = self.order_factory
+
+        type(self).observed_factory = order_factory
+        type(self).observed_config = self.config
+        type(self).observed_client_order_id = order_factory.generate_client_order_id()
+
+
 def _market_order(
     strategy: Strategy,
     instrument_id: InstrumentId,

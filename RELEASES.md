@@ -178,6 +178,7 @@ adapter set. The following limits remain deferred:
 - Fixed Python v2 cached `OrderList` fields and concrete cache return types (#4453), thanks @JiajunWan
 - Fixed Python v2 indicators matching Rust semantics (#4421), thanks for reporting @a1zb2yc3z
 - Fixed Python v2 config stub/readback drift for `DataActorConfig`, `StrategyConfig`, and `ExecutionAlgorithmConfig`
+- Fixed Python v2 `OrderFactory` identity readback while keeping ID-format options on `Strategy.config`
 - Fixed Python v2 migration gaps for `core.datetime`, `Clock.set_time`, and Strategy data APIs
 - Fixed Python v2 subclassable PyO3 stubs marked as final (#4384), thanks @bebop23
 - Fixed Python v2 `Strategy` close-position and close-all-position commands to accept and forward `params`

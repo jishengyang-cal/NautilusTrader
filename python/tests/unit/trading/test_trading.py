@@ -100,6 +100,7 @@ from nautilus_trader.trading import fx_next_start
 from nautilus_trader.trading import fx_prev_end
 from nautilus_trader.trading import fx_prev_start
 from tests.providers import TestInstrumentProvider
+from tests.unit.common.actor import OrderFactoryConfigProbeStrategy
 from tests.unit.common.actor import OrderFactoryProbeStrategy
 from tests.unit.common.actor import OrderListCacheProbeStrategy
 from tests.unit.common.actor import PortfolioHedgedProbeStrategy
@@ -288,6 +289,56 @@ def test_strategy_order_factory_returns_registered_factory():
         assert OrderFactoryProbeStrategy.observed_next_client_order_id != order.client_order_id
         assert OrderFactoryProbeStrategy.observed_client_order_id_count == 3
         assert OrderFactoryProbeStrategy.observed_order_list_id_count == 0
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("use_uuid_client_order_ids", "expected_client_order_id"),
+    [
+        (False, ClientOrderId("O197001010000000010071")),
+        (True, None),
+    ],
+)
+def test_registered_strategy_order_factory_uses_configured_identity_and_id_format(
+    use_uuid_client_order_ids,
+    expected_client_order_id,
+):
+    OrderFactoryConfigProbeStrategy.reset()
+    usd = Currency.from_str("USD")
+    engine = BacktestEngine(BacktestEngineConfig(bypass_logging=True, run_analysis=False))
+    engine.add_venue(
+        venue=Venue("SIM"),
+        oms_type=OmsType.NETTING,
+        account_type=AccountType.MARGIN,
+        starting_balances=[Money(1_000_000.0, usd)],
+        base_currency=usd,
+    )
+
+    try:
+        strategy = OrderFactoryConfigProbeStrategy(
+            StrategyConfig(
+                strategy_id=StrategyId("FORMAT-007"),
+                use_uuid_client_order_ids=use_uuid_client_order_ids,
+                use_hyphens_in_client_order_ids=False,
+            ),
+        )
+        engine.add_strategy(strategy)
+        engine.run()
+
+        order_factory = OrderFactoryConfigProbeStrategy.observed_factory
+        config = OrderFactoryConfigProbeStrategy.observed_config
+        client_order_id = OrderFactoryConfigProbeStrategy.observed_client_order_id
+        assert order_factory.trader_id == TraderId("TRADER-001")
+        assert order_factory.strategy_id == StrategyId("FORMAT-007")
+        assert config.use_uuid_client_order_ids is use_uuid_client_order_ids
+        assert config.use_hyphens_in_client_order_ids is False
+
+        if expected_client_order_id is None:
+            assert len(str(client_order_id)) == 32
+            assert "-" not in str(client_order_id)
+        else:
+            assert client_order_id == expected_client_order_id
     finally:
         engine.dispose()
 

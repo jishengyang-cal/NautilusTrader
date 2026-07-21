@@ -196,6 +196,13 @@ subclass adds custom fields, remove their keyword arguments in `__new__` before 
 validates them, then assign the fields in `__init__`. See the
 [v2 strategy config example][python-v2-strategy-config].
 
+### Order factory configuration readback
+
+Code that reads `trader_id` or `strategy_id` from an `OrderFactory` needs no change in v2. V1 also
+exposed `use_uuid_client_order_ids` and `use_hyphens_in_client_order_ids` on the factory. In a v2
+strategy, read those settings from `Strategy.config` instead. V2 has no equivalent flag readback on
+standalone factories; keep the values in application-owned configuration if code needs them later.
+
 ### Execution algorithms
 
 Python v2 `ExecutionAlgorithm` remains a routed-order component rather than inheriting the full
