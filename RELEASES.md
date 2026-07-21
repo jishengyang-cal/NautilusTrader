@@ -112,6 +112,7 @@ adapter set. The following limits remain deferred:
 - Removed `DataActor` order fill/cancel callbacks and subscription methods; use the message bus
 - Removed `Copy` and `Clone` from Rust `CVec`; move values instead (#4499), thanks @folknor
 - Removed Rust `CANCELLABLE_ORDER_STATUSES` and cancellable status set functions; use `OrderStatus::is_cancellable()`
+- Removed Rust `last_day_of_month` and `is_leap_year` helpers from `nautilus_core::datetime`; use chrono equivalents
 - Renamed Python v2 `RedisMessageBusDatabase` to `RedisMessageBusBacking` (documenting a previous break)
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
