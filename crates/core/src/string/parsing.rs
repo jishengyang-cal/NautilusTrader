@@ -134,26 +134,6 @@ pub fn min_increment_precision_from_str(s: &str) -> u8 {
     }
 }
 
-/// Returns a `usize` from the given bytes.
-///
-/// Reads the first `size_of::<usize>()` bytes in little-endian order; any
-/// additional bytes are ignored.
-///
-/// # Errors
-///
-/// Returns an error if there are not enough bytes to represent a `usize`.
-pub fn bytes_to_usize(bytes: &[u8]) -> anyhow::Result<usize> {
-    // Check bytes width
-    if bytes.len() >= std::mem::size_of::<usize>() {
-        let mut buffer = [0u8; std::mem::size_of::<usize>()];
-        buffer.copy_from_slice(&bytes[..std::mem::size_of::<usize>()]);
-
-        Ok(usize::from_le_bytes(buffer))
-    } else {
-        anyhow::bail!("Not enough bytes to represent a `usize`");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -206,36 +186,6 @@ mod tests {
     fn test_min_increment_precision_from_str(#[case] s: &str, #[case] expected: u8) {
         let result = min_increment_precision_from_str(s);
         assert_eq!(result, expected);
-    }
-
-    #[rstest]
-    fn test_bytes_to_usize_empty() {
-        let payload: Vec<u8> = vec![];
-        let result = bytes_to_usize(&payload);
-        assert!(result.is_err());
-        assert_eq!(
-            result.err().unwrap().to_string(),
-            "Not enough bytes to represent a `usize`"
-        );
-    }
-
-    #[rstest]
-    fn test_bytes_to_usize_invalid() {
-        let payload: Vec<u8> = vec![0x01, 0x02, 0x03];
-        let result = bytes_to_usize(&payload);
-        assert!(result.is_err());
-        assert_eq!(
-            result.err().unwrap().to_string(),
-            "Not enough bytes to represent a `usize`"
-        );
-    }
-
-    #[rstest]
-    fn test_bytes_to_usize_valid() {
-        let payload: Vec<u8> = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let result = bytes_to_usize(&payload).unwrap();
-        assert_eq!(result, 0x0807_0605_0403_0201);
-        assert_eq!(result, 578_437_695_752_307_201);
     }
 
     #[rstest]
