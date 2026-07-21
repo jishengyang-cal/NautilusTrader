@@ -136,7 +136,7 @@ struct WsState {
     // the `params` object of a captured `private/*` frame so assertions read
     // the signed body fields directly (`body["instrument_name"]`, etc.).
     submitted_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
-    submitted_order_received_at_ms: Arc<tokio::sync::Mutex<Vec<u64>>>,
+    submitted_order_received_at_secs: Arc<tokio::sync::Mutex<Vec<u64>>>,
     submitted_trigger_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
     cancelled_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
     cancelled_trigger_orders: Arc<tokio::sync::Mutex<Vec<Value>>>,
@@ -168,7 +168,7 @@ impl Default for WsState {
             login_failures_after_first: Arc::new(AtomicUsize::new(0)),
             disconnect_after_subscribe: Arc::new(AtomicBool::new(false)),
             submitted_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-            submitted_order_received_at_ms: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            submitted_order_received_at_secs: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             submitted_trigger_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancelled_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancelled_trigger_orders: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -502,16 +502,16 @@ async fn handle_ws(mut socket: WebSocket, state: WsState) {
                                 }
                             }
                             "private/order" => {
-                                let received_at_ms = SystemTime::now()
+                                let received_at_secs = SystemTime::now()
                                     .duration_since(UNIX_EPOCH)
                                     .expect("system time is after unix epoch")
-                                    .as_millis() as u64;
+                                    .as_secs();
                                 state.submitted_orders.lock().await.push(params);
                                 state
-                                    .submitted_order_received_at_ms
+                                    .submitted_order_received_at_secs
                                     .lock()
                                     .await
-                                    .push(received_at_ms);
+                                    .push(received_at_secs);
                                 ws_reply(id, &state.order_reply, || {
                                     json!({"result": {"order": sample_order_json()}})
                                 })
@@ -1602,28 +1602,27 @@ async fn test_deeply_paced_submit_builds_signature_after_matching_quota_wait() {
     .await;
     let elapsed = started.elapsed();
     let posts = ws_state.submitted_orders.lock().await;
-    let received_at_ms = ws_state.submitted_order_received_at_ms.lock().await;
+    let received_at_secs = ws_state.submitted_order_received_at_secs.lock().await;
 
     assert_eq!(posts.len(), 7);
-    assert_eq!(received_at_ms.len(), 7);
+    assert_eq!(received_at_secs.len(), 7);
     assert!(
         elapsed >= Duration::from_millis(1_500),
         "seven writes must exhaust the five-request burst, elapsed {elapsed:?}",
     );
 
-    for (body, received_at_ms) in posts.iter().zip(received_at_ms.iter()) {
-        let expiry_ms = body["signature_expiry_sec"]
+    for (body, received_at_secs) in posts.iter().zip(received_at_secs.iter()) {
+        let expiry_secs = body["signature_expiry_sec"]
             .as_i64()
-            .expect("payload has signature expiry") as i128
-            * 1_000;
-        let remaining_ms = expiry_ms - i128::from(*received_at_ms);
+            .expect("payload has signature expiry");
+        let remaining_secs = i128::from(expiry_secs) - i128::from(*received_at_secs);
         assert!(
-            remaining_ms > MIN_SIGNATURE_TTL.as_millis() as i128,
-            "signature for {} must retain more than the venue minimum after pacing, remaining {remaining_ms} ms",
+            remaining_secs >= i128::from(MIN_SIGNATURE_TTL.as_secs()),
+            "signature for {} must retain at least the venue minimum after pacing, remaining {remaining_secs} s",
             body["label"],
         );
     }
-    drop(received_at_ms);
+    drop(received_at_secs);
     drop(posts);
 
     tc.client.disconnect().await.expect("disconnect");
