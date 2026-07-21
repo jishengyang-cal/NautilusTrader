@@ -192,6 +192,7 @@ adapter set. The following limits remain deferred:
 - Fixed `LiveNode` external order claims bypassing the execution engine (#4347), thanks for reporting @linimin
 - Fixed `LiveTimer` firing past its `stop_time_ns` bound (#4401), thanks @folknor
 - Fixed `Clock.timer_exists` to exclude expired timers (#4400), thanks @folknor
+- Fixed `TestTimer` panicking after firing at the maximum timestamp
 - Fixed indicator rolling-window bounds and averages past capacity (#4351), thanks @Martingale42
 - Fixed legacy `Equity` catalog round trips dropping quantity constraints (#4461)
 - Fixed live fill deduplication when trade IDs collide across accounts or instruments
