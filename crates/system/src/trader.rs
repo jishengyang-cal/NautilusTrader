@@ -957,6 +957,9 @@ impl Trader {
         let clock = self.create_component_clock(component_id);
 
         exec_algorithm.register(self.trader_id, clock, self.cache.clone())?;
+        exec_algorithm
+            .exec_algorithm_core_mut()
+            .set_portfolio(self.portfolio.clone());
 
         register_component_actor(exec_algorithm);
 

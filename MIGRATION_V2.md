@@ -196,6 +196,56 @@ subclass adds custom fields, remove their keyword arguments in `__new__` before 
 validates them, then assign the fields in `__init__`. See the
 [v2 strategy config example][python-v2-strategy-config].
 
+### Execution algorithms
+
+Python v2 `ExecutionAlgorithm` remains a routed-order component rather than inheriting the full
+`Actor` authoring surface. Override `on_order`, order and position callbacks, lifecycle callbacks,
+or `on_signal`. The runtime owns command routing and calls `execute`; do not call or override
+`execute` as the algorithm entrypoint.
+
+The supported authoring surface has these v1 dispositions:
+
+| V1 `ExecAlgorithm` / `Actor` capability | Python v2 contract                                                            |
+|-----------------------------------------|-------------------------------------------------------------------------------|
+| `cache`                                 | Available as a read-only property after node or engine registration.          |
+| `portfolio`                             | Available as a read-only property after node or engine registration.          |
+| `greeks`                                | Construct `GreeksCalculator(self.cache, self.clock)` after registration.      |
+| `msgbus`                                | Not exposed; use signals for supported custom messaging.                      |
+| Registered indicators                   | Use `DataActor` or `Strategy` for indicator-driven workflows.                 |
+| Market-data subscriptions and callbacks | Use `DataActor` or `Strategy`; algorithms inspect cache and routed events.     |
+| Lifecycle state and control             | Use `is_*()` and lifecycle methods; the Rust component remains authoritative. |
+| Direct `register(...)`                  | Use `BacktestEngine.add_exec_algorithm` or `LiveNode.add_exec_algorithm`.      |
+
+Signals replace direct message-bus access on Python v2 `DataActor`, `Strategy`, and
+`ExecutionAlgorithm`. Call `subscribe_signal(name)` during `on_start`, handle `on_signal(signal)`,
+and call `publish_signal(name, value)`. Signal values use their string representation. Raw
+message-bus endpoints and handlers remain runtime internals.
+
+```python
+from nautilus_trader.common import GreeksCalculator
+from nautilus_trader.trading import ExecutionAlgorithm
+
+
+class RoutedAlgorithm(ExecutionAlgorithm):
+    def on_start(self) -> None:
+        self._greeks = GreeksCalculator(self.cache, self.clock)
+        self.subscribe_signal("execution-control")
+
+    def on_signal(self, signal) -> None:
+        self.log.info(f"Received {signal.value}")
+
+    def on_order(self, order) -> None:
+        instrument = self.cache.instrument(order.instrument_id)
+        portfolio_ready = self.portfolio.is_initialized()
+        self.log.info(f"Routing {instrument.id}; portfolio ready={portfolio_ready}")
+```
+
+Constructed instances and importable configs are supported in backtest and live workflows.
+`LiveNode.add_exec_algorithm` accepts v2 `ExecutionAlgorithm` instances; DataActor-based
+compatibility algorithms use `add_exec_algorithm_from_config`. Nodes normally drive lifecycle
+transitions; direct lifecycle methods remain available for control-plane integrations and dispatch
+the same Python lifecycle callbacks.
+
 Port one workflow at a time and verify the generated stub before replacing a v1 convenience method.
 Do not assume that a v1 adapter config field also exists on its v2 Rust config.
 

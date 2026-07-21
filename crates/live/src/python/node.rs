@@ -674,6 +674,59 @@ impl LiveNode {
         Ok(())
     }
 
+    /// Adds an execution algorithm to the trader.
+    ///
+    /// Execution algorithms are registered in both the component registry (for lifecycle
+    /// management) and the actor registry (for data callbacks via msgbus).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The node is currently running.
+    /// - An execution algorithm with the same ID is already registered.
+    #[pyo3(name = "add_exec_algorithm")]
+    fn py_add_exec_algorithm(&mut self, exec_algorithm: &Bound<'_, PyAny>) -> PyResult<()> {
+        if self.state() != NodeState::Idle {
+            return Err(to_pyruntime_err(
+                "Cannot add exec algorithm while node is running, add exec algorithms before calling start()",
+            ));
+        }
+
+        log::debug!("`add_exec_algorithm` with a constructed instance");
+
+        let exec_algorithm = exec_algorithm.clone().unbind();
+        let py_exec_algorithm = Python::attach(|py| -> anyhow::Result<PyExecutionAlgorithm> {
+            let bound = exec_algorithm.bind(py);
+            let config = bound
+                .getattr("config")
+                .ok()
+                .filter(|config| !config.is_none());
+            let mut py_exec_algorithm_ref = bound
+                .extract::<PyRefMut<PyExecutionAlgorithm>>()
+                .map_err(Into::<PyErr>::into)
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "LiveNode.add_exec_algorithm requires a Python v2 ExecutionAlgorithm instance; use add_exec_algorithm_from_config for DataActor-based algorithms: {e}"
+                    )
+                })?;
+
+            if let Some(config) = config.as_ref() {
+                configure_py_execution_algorithm(&mut py_exec_algorithm_ref, config)?;
+            }
+
+            py_exec_algorithm_ref.set_python_instance(exec_algorithm.clone_ref(py));
+            Ok(py_exec_algorithm_ref.clone())
+        })
+        .map_err(to_pyruntime_err)?;
+
+        let exec_algorithm_id = py_exec_algorithm.exec_algorithm_id();
+        self.add_exec_algorithm(py_exec_algorithm)
+            .map_err(to_pyruntime_err)?;
+
+        log::info!("Registered Python exec algorithm {exec_algorithm_id}");
+        Ok(())
+    }
+
     #[allow(
         unsafe_code,
         reason = "Required for Python exec algorithm component registration"
