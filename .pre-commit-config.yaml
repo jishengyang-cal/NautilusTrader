@@ -121,6 +121,21 @@ repos:
         types_or: [rust, python, cython, toml, markdown, yaml, json, text]
         files: "\\.(rs|py|pyx|toml|md|yml|yaml|json|sh|dockerfile)$|Dockerfile.*"
 
+      - id: check-unicode-typography
+        name: check Unicode typography
+        description: Reject typographic dashes, curly quotes, and emoji-style check/cross marks
+        entry: bash .pre-commit-hooks/check_unicode_typography.sh
+        language: system
+        types: [text]
+
+      - id: test-unicode-typography
+        name: test Unicode typography hook
+        description: Verifies rejected characters, allowed characters, and exceptions
+        entry: bash .pre-commit-hooks/test_check_unicode_typography.sh
+        language: system
+        files: ^(\.pre-commit-config\.yaml|\.pre-commit-hooks/(check|test_check)_unicode_typography\.sh)$
+        pass_filenames: false
+
       - id: check-non-latin-text
         name: check non-Latin text
         description: Detect non-Latin characters (CJK, Cyrillic, Arabic, etc.) to enforce English-only

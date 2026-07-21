@@ -18,8 +18,8 @@ Binance WebSocket API client for user data streams.
 This client uses the authenticated WebSocket API endpoint with
 `session.logon`. Supports both Ed25519 and HMAC API keys.
 
-Spot uses `userDataStream.subscribe` — events arrive inline on the same connection.
-Futures + Ed25519 uses `userDataStream.start` via WS API — events are delivered on
+Spot uses `userDataStream.subscribe` - events arrive inline on the same connection.
+Futures + Ed25519 uses `userDataStream.start` via WS API - events are delivered on
 a separate stream connection whose listen-key URL depends on the Futures product.
 Futures + HMAC uses REST API for listenKey management (Binance Futures WS API
 `session.logon` only accepts Ed25519).
@@ -511,7 +511,7 @@ class BinanceUserDataWebSocketClient:
         """
         Subscribe to the user data stream.
 
-        For Spot, sends `userDataStream.subscribe` — events arrive inline.
+        For Spot, sends `userDataStream.subscribe` - events arrive inline.
         For Futures + Ed25519, sends `userDataStream.start` via WS API.
         For Futures + HMAC, creates listenKey via REST API.
 

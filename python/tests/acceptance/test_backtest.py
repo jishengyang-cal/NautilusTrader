@@ -223,7 +223,7 @@ class TestBacktestAcceptanceTestsUSDJPY:
             self.usdjpy,
             bid_csv="fxcm/usdjpy-m1-bid-2013.csv",
             ask_csv="fxcm/usdjpy-m1-ask-2013.csv",
-            max_rows=2_000,  # ~8k ticks (4 ticks/bar) — keeps suite under a minute
+            max_rows=2_000,  # ~8k ticks (4 ticks/bar) - keeps suite under a minute
         )
         self.engine.add_data(ticks)
 
