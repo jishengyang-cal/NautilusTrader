@@ -1869,6 +1869,7 @@ impl BinanceFuturesHttpClient {
         post_only: bool,
         position_side: Option<BinancePositionSide>,
         price_match: Option<BinancePriceMatch>,
+        good_till_date: Option<i64>,
     ) -> anyhow::Result<OrderStatusReport> {
         let symbol = format_binance_symbol(&instrument_id);
         let size_precision = self.get_size_precision(&symbol)?;
@@ -1931,7 +1932,7 @@ impl BinanceFuturesHttpClient {
             working_type: None,
             price_protect: None,
             new_order_resp_type: None,
-            good_till_date: None,
+            good_till_date,
             recv_window: None,
             price_match,
             self_trade_prevention_mode: None,
@@ -1979,6 +1980,7 @@ impl BinanceFuturesHttpClient {
         activation_price: Option<Price>,
         callback_rate: Option<String>,
         working_type: Option<BinanceWorkingType>,
+        good_till_date: Option<i64>,
     ) -> anyhow::Result<OrderStatusReport> {
         let symbol = format_binance_symbol(&instrument_id);
         let size_precision = self.get_size_precision(&symbol)?;
@@ -2036,7 +2038,7 @@ impl BinanceFuturesHttpClient {
                 activation_price: activation_price.map(|p| p.to_string()),
                 callback_rate,
                 client_algo_id: Some(client_id_str),
-                good_till_date: None,
+                good_till_date,
                 recv_window: None,
             }
         } else {
@@ -2062,7 +2064,7 @@ impl BinanceFuturesHttpClient {
                 activation_price: activation_price.map(|p| p.to_string()),
                 callback_rate,
                 client_algo_id: Some(client_id_str),
-                good_till_date: None,
+                good_till_date,
                 recv_window: None,
             }
         };
@@ -3346,6 +3348,7 @@ mod tests {
                 None,
                 false,
                 false,
+                None,
                 None,
                 None,
                 None,

@@ -110,6 +110,8 @@ class BinanceExecClientConfig:
     @property
     def use_ws_trading(self) -> bool: ...
     @property
+    def use_gtd(self) -> bool: ...
+    @property
     def use_position_ids(self) -> bool: ...
     @property
     def oms_type(self) -> model.OmsType | None: ...
@@ -137,6 +139,7 @@ class BinanceExecClientConfig:
         base_url_ws: str | None = None,
         base_url_ws_trading: str | None = None,
         use_ws_trading: bool = True,
+        use_gtd: bool = True,
         use_position_ids: bool = True,
         oms_type: model.OmsType | None = None,
         default_taker_fee: float | None = None,

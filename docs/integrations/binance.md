@@ -140,12 +140,36 @@ Only *limit* order types support `post_only`.
 
 ### Time in force
 
-| Time in force | Spot | Margin | USDT Futures | Coin Futures | Notes                                      |
-|---------------|------|--------|--------------|--------------|--------------------------------------------|
-| `GTC`         | ✓    | -      | ✓            | ✓            | Good Till Canceled.                        |
-| `GTD`         | ✓*   | -      | ✓            | ✓            | *Converted to GTC for Spot with warning.   |
-| `FOK`         | ✓    | -      | ✓            | ✓            | Fill or Kill.                              |
-| `IOC`         | ✓    | -      | ✓            | ✓            | Immediate or Cancel.                       |
+| Time in force | Spot | Margin | USDT Futures | Coin Futures | Notes                                          |
+|---------------|------|--------|--------------|--------------|------------------------------------------------|
+| `GTC`         | ✓    | -      | ✓            | ✓            | Good Till Canceled.                            |
+| `GTD`         | ✓*   | -      | ✓            | ✓*           | *Non‑default local mapping through `GTC`.      |
+| `FOK`         | ✓    | -      | ✓            | ✓            | Fill or Kill.                                  |
+| `IOC`         | ✓    | -      | ✓            | ✓            | Immediate or Cancel.                           |
+
+#### GTD policy
+
+[Binance Spot time-in-force values](https://github.com/binance/binance-spot-api-docs/blob/master/enums.md)
+are `GTC`, `IOC`, and `FOK`; Spot has no native `GTD` or `goodTillDate`. USD-M supports native
+`GTD` for `LIMIT` and the limit forms of `STOP` and `TAKE_PROFIT`. The adapter routes regular
+orders through HTTP or WebSocket trading, independent batches through HTTP `batchOrders`, and
+conditional algo orders through HTTP `algoOrder`. The current Binance WebSocket algo schema
+includes `goodTillDate` but does not include `GTD` in its `timeInForce` enum, so the adapter does
+not route GTD algo orders through that endpoint. COIN-M has no native `GTD` value or
+`goodTillDate` parameter in its documented order APIs. See the official
+[USD-M trade API](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade)
+and [COIN-M common definitions](https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/common-definition).
+
+USD-M `goodTillDate` is an epoch timestamp in milliseconds, but Binance ignores any sub-second
+part. Nautilus rejects an expiry that is not on a whole-second boundary rather than silently
+rounding it. The expiry must be strictly greater than the current time plus 600 seconds and
+strictly less than `253402300799000`. Native GTD also rejects market and post-only orders and any
+order without an expiry.
+
+`use_gtd=True` is the default. It uses native USD-M GTD and rejects native GTD on Spot and COIN-M.
+Set `use_gtd=False` only when the submitting strategy has `manage_gtd_expiry=True`. The adapter
+then warns and sends `GTC`, while Nautilus cancels the order at its local expiry. This preserves
+the v1 locally managed Spot policy without claiming venue-native GTD support.
 
 ### Advanced order features
 
@@ -160,7 +184,7 @@ Only *limit* order types support `post_only`.
 
 | Operation          | Spot | Margin | USDT Futures | Coin Futures | Notes                                        |
 |--------------------|------|--------|--------------|--------------|----------------------------------------------|
-| Batch Submit       | ✓    | -      | ✓            | ✓            | Orders submitted individually (no batch API call). |
+| Batch Submit       | ✓    | -      | ✓            | ✓            | Spot OCO or Futures `batchOrders`.             |
 | Batch Modify       | -    | -      | -            | -            | Not implemented.                             |
 | Batch Cancel       | -*   | -      | ✓            | ✓            | *Spot falls back to individual cancels.      |
 
@@ -820,7 +844,7 @@ definitive list of Rust config options.
 | `proxy_url`                             | `None`    | Optional proxy URL for HTTP and WebSocket transports. |
 | `us`                                    | `False`   | Route requests to Binance US endpoints when `True`. |
 | `environment`                           | `None`    | Binance environment: `LIVE`, `TESTNET`, or `DEMO`. Defaults to `LIVE` when `None`. |
-| `use_gtd`                               | `True`    | When `False`, remaps GTD orders to GTC for local expiry management. |
+| `use_gtd`                               | `True`    | Use native USD-M GTD. Set `False` only with strategy `manage_gtd_expiry=True`; GTD then maps to GTC with a warning. |
 | `use_reduce_only`                       | `True`    | When `True`, passes through `reduce_only` instructions to Binance. |
 | `use_position_ids`                      | `True`    | Enable Binance hedging position IDs; set `False` for virtual hedging. |
 | `use_trade_lite`                        | `False`   | Use TRADE_LITE execution events that include derived fees. |

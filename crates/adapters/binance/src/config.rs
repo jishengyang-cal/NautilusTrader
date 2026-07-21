@@ -159,6 +159,12 @@ pub struct BinanceExecClientConfig {
     /// Whether to use the WebSocket trading API for order operations (Spot and USD-M Futures).
     #[builder(default = true)]
     pub use_ws_trading: bool,
+    /// Whether to use Binance-native GTD orders.
+    ///
+    /// Set to false only when the strategy manages GTD expiry locally. The adapter then maps GTD
+    /// to GTC and the strategy must enable `manage_gtd_expiry`.
+    #[builder(default = true)]
+    pub use_gtd: bool,
     /// Whether to use Binance Futures hedging position IDs.
     ///
     /// When true, fill reports include a `venue_position_id` derived from
@@ -216,6 +222,7 @@ nautilus_core::impl_pyo3_config_getters!(BinanceExecClientConfig {
     base_url_ws: Option<String>,
     base_url_ws_trading: Option<String>,
     use_ws_trading: bool,
+    use_gtd: bool,
     use_position_ids: bool,
     oms_type: Option<OmsType>,
     default_taker_fee: Decimal,
@@ -297,6 +304,7 @@ product_types = ["SPOT", "USD_M"]
         assert_eq!(config.environment, expected.environment);
         assert_eq!(config.product_type, expected.product_type);
         assert_eq!(config.use_ws_trading, expected.use_ws_trading);
+        assert_eq!(config.use_gtd, expected.use_gtd);
         assert_eq!(config.use_position_ids, expected.use_position_ids);
         assert_eq!(config.oms_type, expected.oms_type);
         assert_eq!(config.default_taker_fee, expected.default_taker_fee);
@@ -318,5 +326,12 @@ oms_type = "Hedging"
         .unwrap();
 
         assert_eq!(config.oms_type, Some(OmsType::Hedging));
+    }
+
+    #[rstest]
+    fn test_exec_config_toml_use_gtd_override() {
+        let config: BinanceExecClientConfig = toml::from_str("use_gtd = false").unwrap();
+
+        assert!(!config.use_gtd);
     }
 }
