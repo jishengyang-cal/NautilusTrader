@@ -1822,14 +1822,14 @@ async fn test_reconcile_mass_status_deduplicates_fills() {
     tokio::test(start_paused = true)
 )]
 #[cfg_attr(all(feature = "simulation", madsim), madsim::test)]
-async fn test_rejected_reconciliation_fill_is_retried() {
+async fn test_canonical_duplicate_reconciliation_fill_is_committed() {
     let mut ctx = TestContext::new();
     let instrument_id = test_instrument_id();
-    let client_order_id = ClientOrderId::from("O-REJECT-RETRY");
-    let venue_order_id = VenueOrderId::from("V-REJECT-RETRY");
-    let retry_client_order_id = ClientOrderId::from("O-REJECT-RETRY-2");
-    let retry_venue_order_id = VenueOrderId::from("V-REJECT-RETRY-2");
-    let trade_id = TradeId::from("T-REJECT-RETRY");
+    let client_order_id = ClientOrderId::from("O-DUPLICATE-COMMIT");
+    let venue_order_id = VenueOrderId::from("V-DUPLICATE-COMMIT");
+    let retry_client_order_id = ClientOrderId::from("O-DUPLICATE-COMMIT-2");
+    let retry_venue_order_id = VenueOrderId::from("V-DUPLICATE-COMMIT-2");
+    let trade_id = TradeId::from("T-DUPLICATE-COMMIT");
 
     let instrument = test_instrument();
     ctx.add_instrument(instrument.clone());
@@ -1845,6 +1845,103 @@ async fn test_rejected_reconciliation_fill_is_retried() {
         &order,
         &instrument,
         Some(trade_id),
+        None,
+        Some(Price::from("3000.00")),
+        Some(Quantity::from("1.0")),
+        Some(LiquiditySide::Maker),
+        None,
+        None,
+        Some(test_account_id()),
+    );
+    order.apply(existing_fill).unwrap();
+    ctx.add_order(order);
+
+    let duplicate_report = create_order_status_report(
+        Some(client_order_id),
+        venue_order_id,
+        instrument_id,
+        OrderStatus::Filled,
+        Quantity::from("2.0"),
+        Quantity::from("2.0"),
+    );
+    let duplicate_fill = create_fill_report(
+        client_order_id,
+        venue_order_id,
+        instrument_id,
+        trade_id,
+        "1.0",
+    );
+    let duplicate = ctx
+        .manager
+        .reconcile_execution_mass_status(
+            create_mass_status(vec![duplicate_report], vec![duplicate_fill]),
+            ctx.exec_engine.clone(),
+        )
+        .await;
+    assert!(duplicate.events.is_empty());
+
+    ctx.add_order(create_accepted_order(
+        retry_client_order_id.as_str(),
+        instrument_id,
+        OrderSide::Buy,
+        "1.0",
+        "3000.00",
+        retry_venue_order_id,
+    ));
+    let retry_fill = create_fill_report(
+        retry_client_order_id,
+        retry_venue_order_id,
+        instrument_id,
+        trade_id,
+        "1.0",
+    );
+    let retry = ctx
+        .manager
+        .reconcile_execution_mass_status(
+            create_mass_status(vec![], vec![retry_fill]),
+            ctx.exec_engine.clone(),
+        )
+        .await;
+
+    assert!(retry.events.is_empty());
+    assert!(
+        ctx.get_order(&retry_client_order_id)
+            .unwrap()
+            .trade_ids()
+            .is_empty()
+    );
+}
+
+#[rstest]
+#[cfg_attr(
+    not(all(feature = "simulation", madsim)),
+    tokio::test(start_paused = true)
+)]
+#[cfg_attr(all(feature = "simulation", madsim), madsim::test)]
+async fn test_rejected_reconciliation_fill_is_retried() {
+    let mut ctx = TestContext::new();
+    let instrument_id = test_instrument_id();
+    let client_order_id = ClientOrderId::from("O-REJECT-RETRY");
+    let venue_order_id = VenueOrderId::from("V-REJECT-RETRY");
+    let retry_client_order_id = ClientOrderId::from("O-REJECT-RETRY-2");
+    let retry_venue_order_id = VenueOrderId::from("V-REJECT-RETRY-2");
+    let existing_trade_id = TradeId::from("T-REJECT-EXISTING");
+    let trade_id = TradeId::from("T-REJECT-RETRY");
+
+    let instrument = test_instrument();
+    ctx.add_instrument(instrument.clone());
+    let mut order = create_accepted_order(
+        client_order_id.as_str(),
+        instrument_id,
+        OrderSide::Buy,
+        "1.0",
+        "3000.00",
+        venue_order_id,
+    );
+    let existing_fill = TestOrderEventStubs::filled(
+        &order,
+        &instrument,
+        Some(existing_trade_id),
         None,
         Some(Price::from("3000.00")),
         Some(Quantity::from("1.0")),
@@ -1878,12 +1975,10 @@ async fn test_rejected_reconciliation_fill_is_retried() {
             ctx.exec_engine.clone(),
         )
         .await;
-    assert!(
-        rejected
-            .events
-            .iter()
-            .all(|event| !matches!(event, OrderEventAny::Filled(_)))
-    );
+
+    assert!(rejected.events.is_empty());
+    let rejected_order = ctx.get_order(&client_order_id).unwrap();
+    assert_eq!(rejected_order.trade_ids(), vec![&existing_trade_id]);
 
     ctx.add_order(create_accepted_order(
         retry_client_order_id.as_str(),
@@ -1908,20 +2003,10 @@ async fn test_rejected_reconciliation_fill_is_retried() {
         )
         .await;
 
-    assert_eq!(
-        retry
-            .events
-            .iter()
-            .filter(|event| matches!(event, OrderEventAny::Filled(_)))
-            .count(),
-        1
-    );
-    assert!(
-        ctx.get_order(&retry_client_order_id)
-            .unwrap()
-            .trade_ids()
-            .contains(&&trade_id)
-    );
+    assert_eq!(retry.events.len(), 1);
+    assert!(matches!(retry.events[0], OrderEventAny::Filled(_)));
+    let retry_order = ctx.get_order(&retry_client_order_id).unwrap();
+    assert_eq!(retry_order.trade_ids(), vec![&trade_id]);
 }
 
 #[rstest]

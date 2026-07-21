@@ -853,18 +853,9 @@ impl ExecutionManager {
 
             if let OrderEventAny::Filled(fill) = event
                 && let Some(fill_key) = fill_queue.event_fill_keys.get(&fill.event_id).copied()
+                && self.is_fill_applied(fill, fill_key)
             {
-                let order = self
-                    .get_order(fill.client_order_id)
-                    .or_else(|| self.get_order_by_venue_order_id(fill.venue_order_id));
-
-                if order.is_some_and(|order| {
-                    order.account_id() == Some(fill_key.0)
-                        && order.instrument_id() == fill_key.1
-                        && order.trade_ids().contains(&&fill_key.2)
-                }) {
-                    self.processed_fills.mark(fill_key);
-                }
+                self.processed_fills.mark(fill_key);
             }
         }
 
@@ -3241,7 +3232,7 @@ impl ExecutionManager {
 
     /// Reconciles an order with its associated fills atomically.
     fn reconcile_order_with_fills(
-        &self,
+        &mut self,
         order: &OrderAny,
         report: &OrderStatusReport,
         fills: &[&FillReport],
@@ -3298,10 +3289,16 @@ impl ExecutionManager {
                 };
 
                 if let Err(e) = working.apply(event.clone()) {
-                    log::warn!(
-                        "Cannot project reconciliation fill for {}: {e}",
-                        order.client_order_id()
-                    );
+                    if let OrderEventAny::Filled(fill) = &event
+                        && self.is_fill_applied(fill, fill_key)
+                    {
+                        self.processed_fills.mark(fill_key);
+                    } else {
+                        log::warn!(
+                            "Cannot project reconciliation fill for {}: {e}",
+                            order.client_order_id()
+                        );
+                    }
                     return events;
                 }
                 fill_queue.push(&mut events, event, fill_key);
@@ -3735,6 +3732,16 @@ impl ExecutionManager {
             && !should_reconciliation_update(order, report)
     }
 
+    fn is_fill_applied(&self, fill: &OrderFilled, fill_key: FillKey) -> bool {
+        self.get_order(fill.client_order_id)
+            .or_else(|| self.get_order_by_venue_order_id(fill.venue_order_id))
+            .is_some_and(|order| {
+                order.account_id() == Some(fill_key.0)
+                    && order.instrument_id() == fill_key.1
+                    && order.trade_ids().contains(&&fill_key.2)
+            })
+    }
+
     fn create_order_fill(
         &self,
         order: &OrderAny,
@@ -4148,7 +4155,7 @@ mod tests {
     fn test_mass_status_projects_companion_fill_before_void_correction() {
         let clock = Rc::new(RefCell::new(TestClock::new()));
         let cache = Rc::new(RefCell::new(Cache::default()));
-        let manager =
+        let mut manager =
             ExecutionManager::new(clock, cache.clone(), ExecutionManagerConfig::default());
         let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
         let client_order_id = ClientOrderId::from("O-MASS-VOID-001");
