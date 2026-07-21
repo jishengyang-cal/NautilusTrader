@@ -72,8 +72,6 @@ pub mod sorted_hashset {
     }
 }
 
-struct BoolVisitor;
-
 /// Zero-allocation decimal visitor for maximum deserialization performance.
 ///
 /// Directly visits JSON tokens without intermediate `serde_json::Value` allocation.
@@ -434,40 +432,6 @@ pub mod msgpack {
     impl<T> MsgPackSerializable for T where T: Serializable {}
 }
 
-impl Visitor<'_> for BoolVisitor {
-    type Value = u8;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("a boolean as u8")
-    }
-
-    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(u8::from(value))
-    }
-
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "Intentional for parsing, value range validated"
-    )]
-    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        // Only 0 or 1 are considered valid representations when provided as an
-        // integer. We deliberately reject values outside this range to avoid
-        // silently truncating larger integers into impl-defined boolean
-        // semantics.
-        if value > 1 {
-            Err(E::invalid_value(Unexpected::Unsigned(value), &self))
-        } else {
-            Ok(value as u8)
-        }
-    }
-}
-
 /// Serde default value function that returns `true`.
 ///
 /// Use with `#[serde(default = "default_true")]` on boolean fields.
@@ -482,18 +446,6 @@ pub const fn default_true() -> bool {
 #[must_use]
 pub const fn default_false() -> bool {
     false
-}
-
-/// Deserialize the boolean value as a `u8`.
-///
-/// # Errors
-///
-/// Returns serialization errors.
-pub fn from_bool_as_u8<'de, D>(deserializer: D) -> Result<u8, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    deserializer.deserialize_any(BoolVisitor)
 }
 
 /// Deserializes a `Decimal` from either a JSON string or number.
@@ -872,42 +824,12 @@ mod tests {
         deserialize_empty_ustr_as_none, deserialize_optional_decimal,
         deserialize_optional_decimal_or_zero, deserialize_optional_decimal_str,
         deserialize_optional_string_to_u64, deserialize_string_to_u8, deserialize_string_to_u64,
-        deserialize_vec_decimal_from_str, from_bool_as_u8,
+        deserialize_vec_decimal_from_str,
         msgpack::{FromMsgPack, ToMsgPack},
         parse_decimal, parse_optional_decimal, serialize_decimal, serialize_decimal_as_str,
         serialize_optional_decimal, serialize_optional_decimal_as_str,
         serialize_vec_decimal_as_str,
     };
-
-    #[derive(Deserialize)]
-    pub(super) struct TestStruct {
-        #[serde(deserialize_with = "from_bool_as_u8")]
-        pub value: u8,
-    }
-
-    #[rstest]
-    #[case(r#"{"value": true}"#, 1)]
-    #[case(r#"{"value": false}"#, 0)]
-    fn test_deserialize_bool_as_u8_with_boolean(#[case] json_str: &str, #[case] expected: u8) {
-        let test_struct: TestStruct = serde_json::from_str(json_str).unwrap();
-        assert_eq!(test_struct.value, expected);
-    }
-
-    #[rstest]
-    #[case(r#"{"value": 1}"#, 1)]
-    #[case(r#"{"value": 0}"#, 0)]
-    fn test_deserialize_bool_as_u8_with_u64(#[case] json_str: &str, #[case] expected: u8) {
-        let test_struct: TestStruct = serde_json::from_str(json_str).unwrap();
-        assert_eq!(test_struct.value, expected);
-    }
-
-    #[rstest]
-    fn test_deserialize_bool_as_u8_with_invalid_integer() {
-        // Any integer other than 0/1 is invalid and should error
-        let json = r#"{"value": 2}"#;
-        let result: Result<TestStruct, _> = serde_json::from_str(json);
-        assert!(result.is_err());
-    }
 
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
     struct SerializableTestStruct {
