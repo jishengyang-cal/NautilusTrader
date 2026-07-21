@@ -290,6 +290,14 @@ repos:
         files: "\\.rs$"
         pass_filenames: false
 
+      - id: test-formatting-rs
+        name: test Rust formatting hook
+        description: Verifies blank-line rules and match guard exceptions
+        entry: bash .pre-commit-hooks/test_check_formatting_rs.sh
+        language: system
+        files: ^(\.pre-commit-config\.yaml|\.pre-commit-hooks/(check|test_check)_formatting_rs\.sh)$
+        pass_filenames: false
+
       - id: check-formatting-py
         name: check formatting (Python)
         description: Enforces formatting conventions in Python code

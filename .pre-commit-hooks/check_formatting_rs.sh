@@ -40,6 +40,23 @@ fi
 
 if [[ -n "$output" ]]; then
 
+  match_guard_locations=$(
+    rg -0 -l --no-messages '^\s*if\s' crates tests examples docs --type rust |
+      xargs -0 awk '
+        FNR == 1 { in_if = 0 }
+        /^[[:space:]]*if[[:space:]]/ {
+          start = FNR
+          in_if = 1
+        }
+        in_if && /=>[[:space:]]*$/ {
+          printf "|%s:%d|", FILENAME, start
+          in_if = 0
+          next
+        }
+        in_if && /[{;]/ { in_if = 0 }
+      '
+  )
+
   has_prev=false
   prev_content=""
 
@@ -120,9 +137,16 @@ if [[ -n "$output" ]]; then
         continue
       fi
 
-      # Exempt: match arm guard (prev line is multi-alternative pattern with `|`)
+      # Exempt: match arm guard after a multi-alternative pattern
       if [[ "$prev_trimmed" =~ [[:alnum:]][[:space:]]*\|[[:space:]]*[[:alnum:]] ]] &&
         ! [[ "$prev_trimmed" =~ \|\| ]]; then
+        prev_content="$content"
+        continue
+      fi
+
+      # Exempt: match arm guard (`=>` terminates the condition before a block opens)
+      match_guard_location="|${file}:${line_num}|"
+      if [[ "$match_guard_locations" == *"$match_guard_location"* ]]; then
         prev_content="$content"
         continue
       fi
