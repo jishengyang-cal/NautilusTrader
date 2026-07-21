@@ -97,6 +97,17 @@ pub struct BinanceDataClientConfig {
     pub transport_backend: TransportBackend,
 }
 
+#[cfg(feature = "python")]
+nautilus_core::impl_pyo3_config_getters!(BinanceDataClientConfig {
+    product_type: BinanceProductType,
+    environment: BinanceEnvironment,
+    base_url_http: Option<String>,
+    base_url_ws: Option<String>,
+    spot_market_data_mode: BinanceSpotMarketDataMode,
+    instrument_status_poll_secs: u64,
+    transport_backend: TransportBackend,
+});
+
 impl Default for BinanceDataClientConfig {
     fn default() -> Self {
         Self::builder().build()
@@ -194,6 +205,27 @@ pub struct BinanceExecClientConfig {
     #[builder(default)]
     pub transport_backend: TransportBackend,
 }
+
+#[cfg(feature = "python")]
+nautilus_core::impl_pyo3_config_getters!(BinanceExecClientConfig {
+    trader_id: TraderId,
+    account_id: AccountId,
+    product_type: BinanceProductType,
+    environment: BinanceEnvironment,
+    base_url_http: Option<String>,
+    base_url_ws: Option<String>,
+    base_url_ws_trading: Option<String>,
+    use_ws_trading: bool,
+    use_position_ids: bool,
+    oms_type: Option<OmsType>,
+    default_taker_fee: Decimal,
+    futures_leverages: Option<HashMap<String, u32>>,
+    futures_margin_types: Option<HashMap<String, BinanceMarginType>>,
+    treat_expired_as_canceled: bool,
+    use_trade_lite: bool,
+    bnfcr_currency: Currency,
+    transport_backend: TransportBackend,
+});
 
 impl Default for BinanceExecClientConfig {
     fn default() -> Self {

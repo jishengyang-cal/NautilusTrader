@@ -77,6 +77,8 @@ adapter set. The following limits remain deferred:
 - Added Python v2 `nautilus_trader.config` convenience imports for core configuration types
 - Added Python v2 `Strategy.shutdown_system()` and `LiveNode.dispose()` bindings
 - Added Python v2 `ExecTesterConfig` controls for UUID order IDs, quote quantity, and stop-time cancels
+- Added safe Python v2 adapter config readback for all accepted constructor fields, while keeping
+  credentials private and limiting proxy and nested database inspection to presence checks
 - Added Python v2 Portfolio snapshot access with base-currency equity and stale/unpriced metadata
 - Added Binance Futures and OKX trailing-stop activation prices to v2 execution reports
 - Added Binance USD-M (monthly and quarterly) and COIN-M (quarterly) delivery futures support

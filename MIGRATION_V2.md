@@ -138,6 +138,35 @@ readback:
 The raw fields in this table are intentionally not properties. Keep the original secret or callback
 in application-owned state if it must be reused.
 
+Adapter credentials remain private after construction. Some configs provide `has_*` checks for
+credential-bearing proxy, database, or gateway settings without returning their values. Keep the
+original value in application-owned state if it must be reused.
+
+Betfair configuration moves and flattens in v2:
+
+- `BetfairDataClientConfig` becomes `BetfairDataConfig`, and `BetfairExecClientConfig` becomes
+  `BetfairExecConfig`.
+- `BetfairInstrumentProviderConfig` no longer exists as a separate config. Its
+  `account_currency`, `default_min_notional`, `event_type_ids`, `event_type_names`, `event_ids`,
+  `market_ids`, `country_codes`, `market_types`, `min_market_start_time`, and
+  `max_market_start_time` fields move directly onto `BetfairDataConfig`.
+- Execution reconciliation uses `BetfairExecConfig.reconcile_market_ids` directly.
+  `reconcile_market_ids_only` still controls whether the filter applies.
+- `certs_dir` is removed because v2 uses interactive login. The HTTP keepalive interval is fixed
+  internally at 36,000 seconds rather than exposed as `keep_alive_secs`.
+
+Databento configuration also changes shape:
+
+- `DatabentoDataClientConfig` becomes `DatabentoLiveClientConfig`. It keeps
+  `use_exchange_as_venue`, `bars_timestamp_on_close`, and `venue_dataset_map`, adds the required
+  `publishers_filepath`, and accepts `api_key` as a private constructor value.
+- The v1 startup preload fields `instrument_ids` and `parent_symbols` are removed. V2 handles live
+  subscriptions and historical instrument requests directly instead of configuring an instrument
+  provider preload.
+- `http_gateway`, `live_gateway`, `timeout_initial_load`, `mbo_subscriptions_delay`, and
+  `reconnect_timeout_mins` are not accepted by the v2 live-node config. Reconnection remains an
+  internal client concern; do not copy those v1 fields into v2 config construction.
+
 In general, v1 types from `nautilus_trader.config` move beside the runtime that owns them. For
 example, v2 exposes `BacktestRunConfig` from `nautilus_trader.backtest` and `PortfolioConfig` from
 `nautilus_trader.portfolio`.

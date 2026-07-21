@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib
 import inspect
 import keyword
@@ -224,6 +225,31 @@ impl Currency {
     # Assert
     assert fixups["Currency"].staticmethods == {"is_commodity_backed", "is_commodidity_backed"}
     assert fixups["Currency"].renames == {"is_commodidity_backed": "is_commodity_backed"}
+
+
+def test_collect_rust_class_fixups_renames_get_prefixed_getter(tmp_path):
+    # Arrange
+    rust_file = tmp_path / "crates" / "adapter" / "src" / "python" / "config.rs"
+    rust_file.parent.mkdir(parents=True)
+    rust_file.write_text(
+        """
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl ClientConfig {
+    #[getter]
+    fn get_ws_url(&self) -> Option<String> {
+        todo!()
+    }
+}
+""".strip(),
+    )
+
+    # Act
+    fixups = generate_stubs.collect_rust_class_fixups(tmp_path)
+
+    # Assert
+    assert fixups["ClientConfig"].getters == {"get_ws_url", "ws_url"}
+    assert fixups["ClientConfig"].renames == {"get_ws_url": "ws_url"}
 
 
 def test_collect_rust_class_fixups_detects_classmethods(tmp_path):
@@ -1345,7 +1371,60 @@ WRITABLE_CONFIG_PROPERTIES = {
         "log_commands",
         "log_events",
     },
+    ("nautilus_trader.adapters.interactive_brokers", "InteractiveBrokersDataClientConfig"): {
+        "instrument_provider",
+    },
+    ("nautilus_trader.adapters.interactive_brokers", "InteractiveBrokersExecClientConfig"): {
+        "instrument_provider",
+    },
+    (
+        "nautilus_trader.adapters.interactive_brokers",
+        "InteractiveBrokersInstrumentProviderConfig",
+    ): {"cache_path"},
 }
+
+ADAPTER_CONFIG_SECRET_FIELDS = {
+    "api_key",
+    "api_secret",
+    "api_passphrase",
+    "app_key",
+    "password",
+    "passphrase",
+    "private_key",
+    "session_key",
+}
+ADAPTER_CONFIG_READBACK_REPLACEMENTS = {
+    "proxy_url": "has_proxy_url",
+    "submitter_proxy_urls": "has_submitter_proxy_urls",
+    "canceller_proxy_urls": "has_canceller_proxy_urls",
+}
+ADAPTER_CONFIG_FIELD_READBACK_REPLACEMENTS = {
+    (
+        "nautilus_trader.adapters.blockchain",
+        "BlockchainDataClientConfig",
+        "postgres_cache_database_config",
+    ): "has_postgres_cache_database_config",
+    (
+        "nautilus_trader.adapters.interactive_brokers",
+        "DockerizedIBGatewayConfig",
+        "password",
+    ): "has_password",
+}
+ADAPTER_CONFIG_CONSTRUCTOR_ONLY_FIELDS = {
+    (
+        "nautilus_trader.adapters.interactive_brokers",
+        "InteractiveBrokersDataClientConfig",
+        "dockerized_gateway",
+    ),
+    (
+        "nautilus_trader.adapters.interactive_brokers",
+        "InteractiveBrokersExecClientConfig",
+        "dockerized_gateway",
+    ),
+}
+ADAPTER_CONFIG_CONSTRUCTOR_INVENTORY_SHA256 = (
+    "a26f423735cb1fa7a7b9d83891bf87060155fbb8211c06532aa1992ad46e5351"
+)
 
 
 def _parse_stub_enum_variants(stub_root: Path) -> dict[str, list[str]]:
@@ -1779,7 +1858,230 @@ def test_non_adapter_config_constructors_have_runtime_readback():
     assert mismatches == [], "Non-adapter config readback drift:\n" + "\n".join(mismatches)
 
 
-def _config_constructor_readback_mismatches(module_name, module, stub_class):
+def test_adapter_config_constructors_have_runtime_readback():
+    mismatches = []
+    inventory = []
+
+    for stub_file in sorted((STUB_ROOT / "adapters").glob("*/__init__.pyi")):
+        relative_package = stub_file.relative_to(STUB_ROOT).parent
+        module_name = _module_name_from_stub_path(relative_package)
+        module = importlib.import_module(module_name)
+        stub_module = ast.parse(stub_file.read_text())
+
+        for stub_class in (
+            node
+            for node in stub_module.body
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Config")
+        ):
+            mismatches.extend(
+                _config_constructor_readback_mismatches(
+                    module_name,
+                    module,
+                    stub_class,
+                    adapter_inventory=inventory,
+                ),
+            )
+
+    inventory_digest = hashlib.sha256("\n".join(sorted(inventory)).encode()).hexdigest()
+    assert inventory_digest == ADAPTER_CONFIG_CONSTRUCTOR_INVENTORY_SHA256, (
+        "Adapter config constructor inventory changed. Review each new or renamed field's readback "
+        f"and secret policy, then update the approved digest to {inventory_digest}."
+    )
+    assert mismatches == [], "Adapter config readback drift:\n" + "\n".join(mismatches)
+
+
+def test_adapter_config_readback_returns_constructor_values(tmp_path):
+    from nautilus_trader.adapters.architect_ax import AxDataClientConfig
+    from nautilus_trader.adapters.betfair import BetfairDataConfig
+    from nautilus_trader.adapters.bitmex import BitmexExecClientConfig
+    from nautilus_trader.adapters.bitmex import BitmexExecFactoryConfig
+    from nautilus_trader.adapters.bybit import BybitDataClientConfig
+    from nautilus_trader.adapters.databento import DatabentoLiveClientConfig
+    from nautilus_trader.model import AccountId
+    from nautilus_trader.model import TraderId
+
+    ax_config = AxDataClientConfig(
+        base_url_http="https://ax.example.test",
+        proxy_url="http://user:password@proxy.example.test",
+        http_timeout_secs=17,
+    )
+    betfair_config = BetfairDataConfig(
+        username="readback-user",
+        password="readback-password",
+        app_key="readback-app-key",
+        proxy_url="http://user:password@proxy.example.test",
+        event_type_ids=[7, 9],
+        stream_heartbeat_ms=4321,
+    )
+    bitmex_config = BitmexExecClientConfig(
+        submitter_proxy_urls=["http://submitter.example.test"],
+        canceller_proxy_urls=["http://canceller.example.test"],
+        deadmans_switch_timeout_secs=45,
+    )
+    bybit_config = BybitDataClientConfig(instrument_status_poll_secs=23)
+    databento_config = DatabentoLiveClientConfig(
+        api_key="readback-api-key",
+        publishers_filepath=tmp_path / "publishers.json",
+        use_exchange_as_venue=True,
+        bars_timestamp_on_close=False,
+        venue_dataset_map={"XNAS": "XNAS.ITCH"},
+    )
+    factory_config = BitmexExecFactoryConfig(
+        trader_id=TraderId("TRADER-001"),
+        account_id=AccountId("BITMEX-001"),
+        config=bitmex_config,
+    )
+
+    assert ax_config.base_url_http == "https://ax.example.test"
+    assert ax_config.http_timeout_secs == 17
+    assert ax_config.has_proxy_url is True
+    assert betfair_config.username == "readback-user"
+    assert betfair_config.event_type_ids == ["7", "9"]
+    assert betfair_config.stream_heartbeat_ms == 4321
+    assert betfair_config.has_proxy_url is True
+    assert bitmex_config.deadmans_switch_timeout_secs == 45
+    assert bitmex_config.has_submitter_proxy_urls is True
+    assert bitmex_config.has_canceller_proxy_urls is True
+    assert bybit_config.instrument_status_poll_secs == 23
+    assert databento_config.publishers_filepath == tmp_path / "publishers.json"
+    assert databento_config.use_exchange_as_venue is True
+    assert databento_config.bars_timestamp_on_close is False
+    assert databento_config.venue_dataset_map == {"XNAS": "XNAS.ITCH"}
+    assert factory_config.trader_id == TraderId("TRADER-001")
+    assert factory_config.account_id == AccountId("BITMEX-001")
+    assert factory_config.config.deadmans_switch_timeout_secs == 45
+
+
+def test_adapter_config_runtime_setter_policy(tmp_path):
+    from nautilus_trader.adapters.architect_ax import AxDataClientConfig
+    from nautilus_trader.adapters.interactive_brokers import DockerizedIBGatewayConfig
+    from nautilus_trader.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
+    from nautilus_trader.adapters.interactive_brokers import InteractiveBrokersExecClientConfig
+    from nautilus_trader.adapters.interactive_brokers import (
+        InteractiveBrokersInstrumentProviderConfig,
+    )
+
+    readonly_config = AxDataClientConfig(base_url_http="https://ax.example.test")
+    gateway_config = DockerizedIBGatewayConfig()
+    provider_config = InteractiveBrokersInstrumentProviderConfig()
+    data_config = InteractiveBrokersDataClientConfig()
+    exec_config = InteractiveBrokersExecClientConfig()
+
+    with pytest.raises(AttributeError):
+        readonly_config.base_url_http = "https://changed.example.test"
+    for config_class in (InteractiveBrokersDataClientConfig, InteractiveBrokersExecClientConfig):
+        with pytest.raises(ValueError, match="is not wired into the Rust/PyO3 IB"):
+            config_class(dockerized_gateway=gateway_config)
+
+    provider_config.cache_path = str(tmp_path)
+    data_config.instrument_provider = provider_config
+    exec_config.instrument_provider = provider_config
+
+    assert data_config.instrument_provider.cache_path == str(tmp_path)
+    assert exec_config.instrument_provider.cache_path == str(tmp_path)
+    assert provider_config.cache_path == str(tmp_path)
+
+
+def test_adapter_config_secret_values_are_not_exposed(tmp_path):
+    from nautilus_trader.model import AccountId
+    from nautilus_trader.model import TraderId
+
+    required_values = {
+        "account_id": AccountId("VENUE-001"),
+        "publishers_filepath": tmp_path / "publishers.json",
+        "trader_id": TraderId("TRADER-001"),
+    }
+    failures = []
+
+    for stub_file in sorted((STUB_ROOT / "adapters").glob("*/__init__.pyi")):
+        relative_package = stub_file.relative_to(STUB_ROOT).parent
+        module_name = _module_name_from_stub_path(relative_package)
+        module = importlib.import_module(module_name)
+
+        for stub_class in (
+            node
+            for node in ast.parse(stub_file.read_text()).body
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Config")
+        ):
+            runtime_class = getattr(module, stub_class.name)
+            signature = inspect.signature(runtime_class)
+            secret_parameters = [
+                name for name in signature.parameters if name in ADAPTER_CONFIG_SECRET_FIELDS
+            ]
+
+            if not secret_parameters:
+                continue
+
+            kwargs = {name: f"raw-secret-{name}" for name in secret_parameters}
+            for parameter in signature.parameters.values():
+                if parameter.default is not inspect.Parameter.empty or parameter.name in kwargs:
+                    continue
+                if parameter.name not in required_values:
+                    failures.append(
+                        f"{module_name}.{stub_class.name}: no value for required {parameter.name}",
+                    )
+                    break
+                kwargs[parameter.name] = required_values[parameter.name]
+            else:
+                config = runtime_class(**kwargs)
+                representations = (repr(config), str(config))
+
+                for parameter_name in secret_parameters:
+                    secret_value = kwargs[parameter_name]
+                    if inspect.getattr_static(runtime_class, parameter_name, None) is not None:
+                        failures.append(
+                            f"{module_name}.{stub_class.name}.{parameter_name}: raw property exists",
+                        )
+                    if any(secret_value in representation for representation in representations):
+                        failures.append(
+                            f"{module_name}.{stub_class.name}.{parameter_name}: value in representation",
+                        )
+
+    assert failures == [], "Adapter config secret policy drift:\n" + "\n".join(failures)
+
+
+def test_adapter_config_sensitive_readback_values_are_not_represented():
+    from nautilus_trader.adapters.bitmex import BitmexExecClientConfig
+    from nautilus_trader.adapters.blockchain import BlockchainDataClientConfig
+    from nautilus_trader.adapters.derive import DeriveDataClientConfig
+    from nautilus_trader.adapters.dydx import DydxDataClientConfig
+    from nautilus_trader.infrastructure import PostgresConnectOptions
+    from nautilus_trader.model import Chain
+    from nautilus_trader.model import DexType
+
+    sentinel = "raw-sensitive-value"
+    configs = [
+        BitmexExecClientConfig(
+            submitter_proxy_urls=[f"http://{sentinel}@submitter.example.test"],
+            canceller_proxy_urls=[f"http://{sentinel}@canceller.example.test"],
+        ),
+        BlockchainDataClientConfig(
+            chain=Chain.ARBITRUM(),
+            dex_ids=[DexType.UNISWAP_V3],
+            http_rpc_url="https://arb1.arbitrum.io/rpc",
+            postgres_cache_database_config=PostgresConnectOptions(
+                host="localhost",
+                port=5432,
+                user="user",
+                password=sentinel,
+                database="database",
+            ),
+            proxy_url=f"http://{sentinel}@proxy.example.test",
+        ),
+        DeriveDataClientConfig(proxy_url=f"http://{sentinel}@proxy.example.test"),
+        DydxDataClientConfig(proxy_url=f"http://{sentinel}@proxy.example.test"),
+    ]
+
+    assert all(sentinel not in repr(config) for config in configs)
+    assert all(sentinel not in str(config) for config in configs)
+
+
+def _config_constructor_readback_mismatches(
+    module_name,
+    module,
+    stub_class,
+    adapter_inventory=None,
+):
     constructor = next(
         (
             node
@@ -1825,29 +2127,90 @@ def _config_constructor_readback_mismatches(module_name, module, stub_class):
         if parameter.arg.startswith("_"):
             continue
 
-        readback_name = CONFIG_READBACK_REPLACEMENTS.get(
-            (module_name, stub_class.name, parameter.arg),
-            parameter.arg,
+        field_key = (module_name, stub_class.name, parameter.arg)
+
+        if adapter_inventory is not None:
+            inventory_entry, readback_name, policy_mismatches = _adapter_config_field_policy(
+                runtime_class,
+                properties,
+                field_key,
+            )
+            adapter_inventory.append(inventory_entry)
+            mismatches.extend(policy_mismatches)
+
+            if readback_name is None:
+                continue
+        else:
+            readback_name = CONFIG_READBACK_REPLACEMENTS.get(field_key, parameter.arg)
+
+        mismatches.extend(
+            _config_readback_descriptor_mismatches(
+                runtime_class,
+                properties,
+                field_key,
+                readback_name,
+            ),
         )
 
-        if readback_name not in properties:
-            mismatches.append(
-                f"{module_name}.{stub_class.name}.{parameter.arg}: "
-                f"missing property {readback_name}",
-            )
-            continue
-
-        descriptor = inspect.getattr_static(runtime_class, readback_name, None)
-        if descriptor is None:
-            mismatches.append(
-                f"{module_name}.{stub_class.name}.{readback_name}: missing at runtime",
-            )
-        elif callable(descriptor):
-            mismatches.append(
-                f"{module_name}.{stub_class.name}.{readback_name}: exposed as method",
-            )
-
     return mismatches
+
+
+def _adapter_config_field_policy(runtime_class, properties, field_key):
+    module_name, class_name, field_name = field_key
+    raw_property_exists = (
+        field_name in properties
+        or inspect.getattr_static(runtime_class, field_name, None) is not None
+    )
+    mismatches = []
+
+    if field_key in ADAPTER_CONFIG_CONSTRUCTOR_ONLY_FIELDS:
+        if raw_property_exists:
+            mismatches.append(
+                f"{module_name}.{class_name}.{field_name}: constructor-only field exposed",
+            )
+        policy = "constructor-only"
+        readback_name = None
+    elif field_name in ADAPTER_CONFIG_SECRET_FIELDS:
+        if raw_property_exists:
+            mismatches.append(
+                f"{module_name}.{class_name}.{field_name}: raw secret property exposed",
+            )
+        readback_name = ADAPTER_CONFIG_FIELD_READBACK_REPLACEMENTS.get(field_key)
+        policy = f"secret:{readback_name or 'absent'}"
+    else:
+        readback_name = ADAPTER_CONFIG_FIELD_READBACK_REPLACEMENTS.get(
+            field_key,
+            ADAPTER_CONFIG_READBACK_REPLACEMENTS.get(field_name, field_name),
+        )
+
+        if readback_name != field_name and raw_property_exists:
+            mismatches.append(
+                f"{module_name}.{class_name}.{field_name}: "
+                f"raw property exposed alongside {readback_name}",
+            )
+        policy = f"readback:{readback_name}"
+
+    return "|".join((*field_key, policy)), readback_name, mismatches
+
+
+def _config_readback_descriptor_mismatches(
+    runtime_class,
+    properties,
+    field_key,
+    readback_name,
+):
+    module_name, class_name, field_name = field_key
+    if readback_name not in properties:
+        return [f"{module_name}.{class_name}.{field_name}: missing property {readback_name}"]
+
+    descriptor = inspect.getattr_static(runtime_class, readback_name, None)
+    if descriptor is None:
+        return [f"{module_name}.{class_name}.{readback_name}: missing at runtime"]
+    if not inspect.isdatadescriptor(descriptor):
+        return [f"{module_name}.{class_name}.{readback_name}: not a data descriptor"]
+    if callable(descriptor):
+        return [f"{module_name}.{class_name}.{readback_name}: exposed as method"]
+    return []
 
 
 def test_authoring_config_py_new_and_getters_match_rust_fields():

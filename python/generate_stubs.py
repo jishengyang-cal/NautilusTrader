@@ -1422,7 +1422,7 @@ def register_rust_method_fixup(
     if not python_name:
         return
 
-    fallback_name = _python_exposed_name(rust_name, [], is_getter)
+    fallback_name = _python_exposed_name(rust_name, [], False)
     method_names = {python_name}
     if fallback_name and fallback_name != python_name:
         method_names.add(fallback_name)

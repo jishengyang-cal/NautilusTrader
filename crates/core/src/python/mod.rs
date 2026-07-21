@@ -31,6 +31,27 @@
 //! consumed from the `nautilus_trader` Python package without sacrificing type-safety or
 //! performance.
 
+/// Implements read-only Python getters for cloneable configuration fields.
+#[macro_export]
+macro_rules! impl_pyo3_config_getters {
+    ($config:ty { $($field:ident: $field_type:ty),+ $(,)? }) => {
+        #[pyo3_stub_gen::derive::gen_stub_pymethods]
+        #[pyo3::pymethods]
+        #[allow(
+            clippy::clone_on_copy,
+            reason = "one macro handles Copy and owned configuration fields"
+        )]
+        impl $config {
+            $(
+                #[getter]
+                fn $field(&self) -> $field_type {
+                    self.$field.clone()
+                }
+            )+
+        }
+    };
+}
+
 pub mod casing;
 pub mod datetime;
 pub mod enums;

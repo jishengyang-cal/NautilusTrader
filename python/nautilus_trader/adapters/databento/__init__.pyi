@@ -373,6 +373,14 @@ class DatabentoLiveClient:
 
 @typing.final
 class DatabentoLiveClientConfig:
+    @property
+    def publishers_filepath(self) -> pathlib.Path: ...
+    @property
+    def use_exchange_as_venue(self) -> bool: ...
+    @property
+    def bars_timestamp_on_close(self) -> bool: ...
+    @property
+    def venue_dataset_map(self) -> dict[str, str]: ...
     def __init__(
         self,
         api_key: str,

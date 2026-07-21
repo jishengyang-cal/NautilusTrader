@@ -77,7 +77,7 @@ impl BinanceDataClientConfig {
     }
 
     fn __repr__(&self) -> String {
-        format!("{self:?}")
+        stringify!(BinanceDataClientConfig).to_string()
     }
 }
 
@@ -160,7 +160,7 @@ impl BinanceExecClientConfig {
     }
 
     fn __repr__(&self) -> String {
-        format!("{self:?}")
+        stringify!(BinanceExecClientConfig).to_string()
     }
 }
 
