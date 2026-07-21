@@ -116,16 +116,16 @@ enum LoggerLifecycle {
 /// Process-global logger lifecycle serialization.
 static LOGGER_LIFECYCLE: Mutex<LoggerLifecycle> = Mutex::new(LoggerLifecycle::Uninitialized);
 
-#[cfg(test)]
+#[cfg(all(test, not(all(feature = "simulation", madsim))))]
 struct InitPublishHook {
     reached: std::sync::mpsc::Sender<()>,
     resume: std::sync::mpsc::Receiver<()>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(feature = "simulation", madsim))))]
 static INIT_PUBLISH_HOOK: Mutex<Option<InitPublishHook>> = Mutex::new(None);
 
-#[cfg(test)]
+#[cfg(all(test, not(all(feature = "simulation", madsim))))]
 enum TestGuardAcquire {
     LifecycleBusy,
     Acquired(Option<LogGuard>),
@@ -994,7 +994,7 @@ impl Logger {
             return Err(e.into());
         }
 
-        #[cfg(test)]
+        #[cfg(all(test, not(all(feature = "simulation", madsim))))]
         if let Some(hook) = INIT_PUBLISH_HOOK
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -1007,13 +1007,13 @@ impl Logger {
         // Store the sender globally so additional guards can be created
         if let Err(tx) = LOGGER_TX.set(tx) {
             #[cfg(not(all(feature = "simulation", madsim)))]
-            let _ = tx.send(LogEvent::Close);
-            #[cfg(not(all(feature = "simulation", madsim)))]
             {
+                let _ = tx.send(LogEvent::Close);
                 if handle.thread().id() != std::thread::current().id() {
                     let _ = handle.join();
                 }
             }
+            drop(tx);
             *lifecycle = LoggerLifecycle::Terminated;
             anyhow::bail!("Global logging sender was already published");
         }
@@ -1420,6 +1420,7 @@ pub fn log<T: AsRef<str>>(level: LogLevel, color: LogColor, component: Ustr, mes
 )]
 #[derive(Debug)]
 pub struct LogGuard {
+    #[cfg(not(all(feature = "simulation", madsim)))]
     tx: std::sync::mpsc::Sender<LogEvent>,
 }
 
@@ -1445,7 +1446,7 @@ impl LogGuard {
         Self::new_locked()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(all(feature = "simulation", madsim))))]
     fn try_new_for_test() -> TestGuardAcquire {
         match LOGGER_LIFECYCLE.try_lock() {
             Ok(lifecycle) => TestGuardAcquire::Acquired(Self::new_from_lifecycle(&lifecycle)),
@@ -1457,7 +1458,10 @@ impl LogGuard {
     }
 
     fn new_locked() -> Option<Self> {
+        #[cfg(not(all(feature = "simulation", madsim)))]
         let tx = LOGGER_TX.get()?;
+        #[cfg(all(feature = "simulation", madsim))]
+        LOGGER_TX.get()?;
         LOGGING_GUARDS_ACTIVE
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
                 if count == u8::MAX {
@@ -1468,7 +1472,10 @@ impl LogGuard {
             })
             .ok()?;
 
-        Some(Self { tx: tx.clone() })
+        Some(Self {
+            #[cfg(not(all(feature = "simulation", madsim)))]
+            tx: tx.clone(),
+        })
     }
 }
 
@@ -1491,6 +1498,9 @@ impl Drop for LogGuard {
         if *lifecycle != LoggerLifecycle::Running {
             return;
         }
+
+        #[cfg(all(feature = "simulation", madsim))]
+        let _ = previous_count;
 
         #[cfg(not(all(feature = "simulation", madsim)))]
         if previous_count == 1 {
