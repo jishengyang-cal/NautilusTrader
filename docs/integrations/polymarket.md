@@ -466,6 +466,8 @@ precision requirements**:
 - Resting `GTC` and `GTD` limit orders and all SELL orders keep their tick-derived amount precision.
 - The adapter rejects limit prices outside the current market's `tick_size` to `1 - tick_size`
   range before signing.
+- The published `BinaryOption` advertises `min_price` and `max_price` equal to `tick_size` and
+  `1 - tick_size`, so consumers that clamp to the instrument bounds stay within that accepted range.
 - Market-order precision limits include two decimals for the sell size plus tick-derived bounds
   for the computed amount.
 - Tick sizes can change dynamically during market conditions, particularly when markets become one-sided.
@@ -479,7 +481,8 @@ book levels can be invalid on the new grid (for example `0.505` fits a `0.001`
 tick but not a `0.01` tick). To keep old-grid prices out of the new epoch, the
 adapter treats the change as a book epoch transition:
 
-1. Publish the updated `BinaryOption` with the new `price_increment` and `price_precision`.
+1. Publish the updated `BinaryOption` with the new `price_increment`, `price_precision`, and
+   tick-relative `min_price`/`max_price` bounds.
 2. Drop the local order book for the instrument.
 3. Mark the instrument as awaiting a fresh snapshot.
 4. Drop incremental `price_change` book deltas until the snapshot arrives.

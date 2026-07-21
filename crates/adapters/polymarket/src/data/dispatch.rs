@@ -3349,6 +3349,9 @@ mod tests {
             .cloned()
             .expect("rebuilt instrument");
         assert_eq!(rebuilt.price_increment(), Price::from("0.001"));
+        // Rebuild derives tick-relative bounds for the new 0.001 tick
+        assert_eq!(rebuilt.min_price(), Some(Price::from("0.001")));
+        assert_eq!(rebuilt.max_price(), Some(Price::from("0.999")));
 
         let events: Vec<DataEvent> = std::iter::from_fn(|| data_rx.try_recv().ok()).collect();
         assert!(

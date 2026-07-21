@@ -2896,6 +2896,42 @@ async fn test_submit_order_denied_for_price_out_of_range(#[case] price: &str) {
 }
 
 #[rstest]
+#[case("0.0001")]
+#[case("0.9999")]
+#[tokio::test]
+async fn test_submit_order_accepts_price_at_tick_relative_bound(#[case] price: &str) {
+    let state = TestServerState::default();
+    let addr = start_mock_server(state.clone()).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    client.start().unwrap();
+
+    let instrument_id = InstrumentId::from("TEST-TOKEN.POLYMARKET");
+    add_instrument_to_cache(&cache, instrument_id);
+    let order = make_limit_order_at_price(
+        "O-PRICE-BOUND",
+        instrument_id,
+        OrderSide::Buy,
+        false,
+        false,
+        false,
+        TimeInForce::Gtc,
+        Price::from(price),
+    );
+    cache
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .unwrap();
+
+    client
+        .submit_order(make_submit_cmd(&order, instrument_id))
+        .unwrap();
+
+    // A price at the tick-relative bound (tick=0.0001 -> range [0.0001, 0.9999], the value a
+    // consumer clamps to) is not locally denied; the single-submit path emits Submitted.
+    assert_order_event(rx.try_recv().unwrap(), "Submitted");
+}
+
+#[rstest]
 #[case::ioc(TimeInForce::Ioc, "FAK")]
 #[case::fok(TimeInForce::Fok, "FOK")]
 #[tokio::test]
@@ -3768,6 +3804,65 @@ async fn test_submit_order_list_denies_invalid_orders_before_batch_post(
 
     assert_eq!(*state.batch_order_post_count.lock().await, 1);
     assert_eq!(state.last_path.lock().await.as_str(), "/orders");
+    let body = state.last_body.lock().await.clone().unwrap();
+    assert_eq!(body.as_array().unwrap().len(), 2);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_submit_order_list_accepts_prices_at_tick_relative_bounds() {
+    let state = TestServerState::default();
+    *state.batch_order_response.lock().await = Some(json!([
+        {"success": true, "orderID": "0xbatch-order-1", "errorMsg": ""},
+        {"success": true, "orderID": "0xbatch-order-2", "errorMsg": ""}
+    ]));
+    let addr = start_mock_server(state.clone()).await;
+    let (mut client, mut rx, cache) = create_test_execution_client(addr);
+    client.start().unwrap();
+
+    let instrument_id = InstrumentId::from("TEST-TOKEN.POLYMARKET");
+    add_instrument_to_cache(&cache, instrument_id);
+
+    // tick=0.0001 -> tick-relative bounds [0.0001, 0.9999]; orders at both bounds submit through
+    // the batch path without a local denial and reach the venue POST.
+    let at_min = make_limit_order_at_price(
+        "O-LIST-MIN",
+        instrument_id,
+        OrderSide::Buy,
+        false,
+        false,
+        false,
+        TimeInForce::Gtc,
+        Price::from("0.0001"),
+    );
+    let at_max = make_limit_order_at_price(
+        "O-LIST-MAX",
+        instrument_id,
+        OrderSide::Sell,
+        false,
+        false,
+        false,
+        TimeInForce::Gtc,
+        Price::from("0.9999"),
+    );
+    cache
+        .borrow_mut()
+        .add_order(at_min.clone(), None, None, false)
+        .unwrap();
+    cache
+        .borrow_mut()
+        .add_order(at_max.clone(), None, None, false)
+        .unwrap();
+
+    let cmd = make_submit_order_list_cmd(instrument_id, &[at_min, at_max]);
+    client.submit_order_list(cmd).unwrap();
+
+    assert_order_event(recv_execution_event(&mut rx).await, "Submitted");
+    assert_order_event(recv_execution_event(&mut rx).await, "Submitted");
+    assert_order_event(recv_execution_event(&mut rx).await, "Accepted");
+    assert_order_event(recv_execution_event(&mut rx).await, "Accepted");
+
+    assert_eq!(*state.batch_order_post_count.lock().await, 1);
     let body = state.last_body.lock().await.clone().unwrap();
     assert_eq!(body.as_array().unwrap().len(), 2);
 }
