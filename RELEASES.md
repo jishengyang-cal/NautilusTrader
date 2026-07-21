@@ -63,6 +63,7 @@ adapter set. The following limits remain deferred:
 - Added Up/Down Capture ratio portfolio statistics (#4354), thanks @mahimn01
 - Added Ulcer Index, Omega Ratio, VaR, and Expected Shortfall portfolio statistics (#4352), thanks @Martingale42
 - Added Tail Ratio portfolio statistic (#4341), thanks @Martingale42
+- Added Polymarket v2 market WebSocket subscription sharding that enforces `ws_max_subscriptions` across a connection pool
 - Added v2 `info` fill metadata to `OrderFilled`
 - Added v2 order-event `activation_price` persistence through event and dictionary reconstruction
 - Added v2 trailing stops that activate at market and set prices from the first update

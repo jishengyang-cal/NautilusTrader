@@ -673,9 +673,11 @@ The `PolymarketWebSocketClient` is built on top of the high-performance Nautilus
 
 ### Data
 
-The data adapter opens `market` subscriptions dynamically as instruments are requested. It currently
-uses one market WebSocket connection. The `ws_max_subscriptions` configuration field is present,
-but V2 does not yet enforce it or shard subscriptions across connections.
+The data adapter opens `market` subscriptions dynamically as instruments are requested. It spreads
+those subscriptions across a pool of market WebSocket connections so that no single connection
+carries more than `ws_max_subscriptions` assets. The pool grows lazily (a universe below the cap
+stays on one connection) and closes a secondary connection once it owns no assets. Each connection
+replays only its own assets on reconnect.
 
 A single `price_change` payload can contain interleaved updates for several assets. The adapter
 groups updates by instrument and publishes one atomic order book delta batch per instrument, while
@@ -831,12 +833,11 @@ trade reaches `CONFIRMED`.
 ### Subscription limits
 
 Polymarket does not publish a WebSocket subscription cap in its current rate-limit documentation.
-The V2 configuration exposes `ws_max_subscriptions` with a default of 200, but the Rust client does
-not currently enforce that value or create additional connections. It sends the supplied asset IDs
-in one `subscribe` request on one market connection.
-
-Do not rely on this setting for subscription sharding. Keep large-universe strategies below an
-operationally verified venue limit until connection sharding is implemented.
+`ws_max_subscriptions` (default 200) is therefore a conservative, self-chosen per-connection
+reliability bound rather than a venue-enforced limit: high per-connection subscription counts have
+been observed to silently stall a connection. The adapter enforces the bound by sharding asset
+subscriptions across a pool of market connections, opening a new connection only when the existing
+ones are full and closing a secondary connection once it owns no assets.
 
 ## Rate limiting
 
@@ -870,8 +871,8 @@ Polymarket changes these quotas over time. As of 2026-07-10, the official limits
 
 ### WebSocket limits
 
-The WebSocket quotas are not part of the published REST rate-limits table. The V2 adapter exposes
-`ws_max_subscriptions` (default 200), but it does not yet enforce that cap or shard connections.
+The WebSocket quotas are not part of the published REST rate-limits table. The V2 adapter enforces
+`ws_max_subscriptions` (default 200) by sharding subscriptions across a pool of market connections.
 
 :::warning
 Exceeding Polymarket rate limits triggers Cloudflare throttling. Requests are queued
@@ -914,7 +915,7 @@ Class/struct: `PolymarketDataClientConfig`.
 | `base_url_gamma`, `base_url_data_api`         | `None`    | Override the Gamma or Data API endpoint. |
 | `base_url_rtds`                               | `None`    | Override the RTDS endpoint. |
 | `http_timeout_secs`, `ws_timeout_secs`        | `60`, `30` | HTTP and WebSocket timeout in seconds. |
-| `ws_max_subscriptions`                        | `200`     | Configured cap; V2 does not currently enforce or shard it. |
+| `ws_max_subscriptions`                        | `200`     | Per‑connection subscription cap; the market pool shards across connections at this bound. |
 | `update_instruments_interval_mins`            | `60`      | Instrument catalogue refresh interval; pass `None` to disable it. |
 | `subscribe_new_markets`                       | `false`   | Subscribe to new‑market discovery events. |
 | `drop_quotes_missing_side`                    | `true`    | Drop quotes that do not contain both a bid and an ask. |

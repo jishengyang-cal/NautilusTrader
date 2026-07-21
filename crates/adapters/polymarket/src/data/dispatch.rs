@@ -788,11 +788,11 @@ mod tests {
             upsert_resolve_watch_entry_from_instrument,
         },
         websocket::{
-            client::PolymarketWebSocketClient,
             messages::{
                 PolymarketBookLevel, PolymarketBookSnapshot, PolymarketMarketResolved,
                 PolymarketQuote, PolymarketTickSizeChange,
             },
+            pool::PolymarketMarketConnectionPool,
         },
     };
 
@@ -2023,10 +2023,11 @@ mod tests {
             PolymarketClobPublicClient::new(Some(base_url.clone()), 5).expect("clob client");
         let data_api =
             PolymarketDataApiHttpClient::new(Some(base_url.clone()), 5).expect("data api client");
-        let ws = PolymarketWebSocketClient::new_market(
+        let ws = PolymarketMarketConnectionPool::new(
             Some(format!("ws://{addr}/ws/market")),
             false,
             TransportBackend::default(),
+            crate::common::consts::WS_DEFAULT_SUBSCRIPTIONS,
         );
 
         let config = PolymarketDataClientConfig {
@@ -2064,10 +2065,11 @@ mod tests {
             .expect("clob client");
         let data_api = PolymarketDataApiHttpClient::new(Some("http://localhost".to_string()), 5)
             .expect("data api client");
-        let ws = PolymarketWebSocketClient::new_market(
+        let ws = PolymarketMarketConnectionPool::new(
             Some("ws://localhost/ws/market".to_string()),
             false,
             TransportBackend::default(),
+            crate::common::consts::WS_DEFAULT_SUBSCRIPTIONS,
         );
 
         PolymarketDataClient::new(

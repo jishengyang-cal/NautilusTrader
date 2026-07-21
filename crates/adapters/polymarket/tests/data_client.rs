@@ -48,14 +48,14 @@ use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::identifiers::InstrumentId;
 use nautilus_network::{retry::RetryConfig, websocket::TransportBackend};
 use nautilus_polymarket::{
-    common::consts::{POLYMARKET_CLIENT_ID, POLYMARKET_VENUE},
+    common::consts::{POLYMARKET_CLIENT_ID, POLYMARKET_VENUE, WS_DEFAULT_SUBSCRIPTIONS},
     config::PolymarketDataClientConfig,
     data::PolymarketDataClient,
     http::{
         clob::PolymarketClobPublicClient, data_api::PolymarketDataApiHttpClient,
         gamma::PolymarketGammaHttpClient,
     },
-    websocket::client::PolymarketWebSocketClient,
+    websocket::pool::PolymarketMarketConnectionPool,
 };
 use rstest::rstest;
 use serde_json::Value;
@@ -212,10 +212,11 @@ fn create_test_data_client(
         .expect("gamma client");
     let clob_public = PolymarketClobPublicClient::new(Some(base_url.clone()), 5).expect("clob");
     let data_api = PolymarketDataApiHttpClient::new(Some(base_url.clone()), 5).expect("data_api");
-    let ws = PolymarketWebSocketClient::new_market(
+    let ws = PolymarketMarketConnectionPool::new(
         Some(format!("ws://{addr}/ws/market")),
         false,
         TransportBackend::default(),
+        WS_DEFAULT_SUBSCRIPTIONS,
     );
 
     let config = PolymarketDataClientConfig {

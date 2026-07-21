@@ -71,7 +71,12 @@ pub const POSITION_RECONCILIATION_TOLERANCE: Decimal = dec!(0.009999);
 /// engine. See `docs/integrations/polymarket.md` (Fill quantity normalization).
 pub const DUST_SNAP_THRESHOLD_DEC: Decimal = dec!(0.01);
 
-pub const WS_MAX_SUBSCRIPTIONS: usize = 200;
+/// Default per-connection market subscription cap.
+///
+/// A conservative, self-chosen reliability bound, not a venue limit: Polymarket
+/// documents no per-connection cap, and high per-connection counts have been
+/// observed to silently stall a connection. The market pool shards across
+/// connections at this bound.
 pub const WS_DEFAULT_SUBSCRIPTIONS: usize = 200;
 
 /// Maximum orders per `POST /orders` batch request; Polymarket caps batch submits at 15.
