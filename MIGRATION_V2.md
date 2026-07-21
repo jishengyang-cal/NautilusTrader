@@ -196,6 +196,27 @@ subclass adds custom fields, remove their keyword arguments in `__new__` before 
 validates them, then assign the fields in `__init__`. See the
 [v2 strategy config example][python-v2-strategy-config].
 
+### Backtest node post-run inspection
+
+V2 keeps `BacktestNode` engines internal instead of returning them from v1-style `get_engine` or
+`get_engines` calls. To inspect state after `run()`, set `dispose_on_completion=False` on the
+`BacktestRunConfig`; the default is `True` and drops engine state. Then use the run config ID with
+the node inspection methods:
+
+```python
+config = BacktestRunConfig(..., dispose_on_completion=False)
+node = BacktestNode([config])
+results = node.run()
+
+cache = node.get_engine_cache(config.id)
+portfolio = node.get_engine_portfolio(config.id)
+statistics = portfolio.statistics()
+fills = node.generate_fills_report(config.id)
+```
+
+The node also provides `generate_orders_report`, `generate_order_fills_report`,
+`generate_positions_report`, and `generate_account_report`; pass the run config ID first.
+
 ### Order factory configuration readback
 
 Code that reads `trader_id` or `strategy_id` from an `OrderFactory` needs no change in v2. V1 also

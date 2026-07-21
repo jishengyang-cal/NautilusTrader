@@ -776,14 +776,14 @@ impl PyBacktestEngine {
     #[getter]
     #[pyo3(name = "cache")]
     fn py_cache(&self) -> PyCache {
-        PyCache::from_rc(self.0.kernel().cache.clone())
+        engine_cache(&self.0)
     }
 
     /// Returns the portfolio shared with the kernel and registered components.
     #[getter]
     #[pyo3(name = "portfolio")]
     fn py_portfolio(&self) -> PyPortfolio {
-        PyPortfolio::from_rc(self.0.kernel().portfolio.clone())
+        engine_portfolio(&self.0)
     }
 
     /// Generates an orders report as a pandas `DataFrame`.
@@ -793,8 +793,7 @@ impl PyBacktestEngine {
     /// Returns an error if the Python `ReportProvider` import or call fails.
     #[pyo3(name = "generate_orders_report")]
     fn py_generate_orders_report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let orders = self.cache_bound(py)?.call_method0("orders")?;
-        Self::report_provider(py)?.call_method1("generate_orders_report", (orders,))
+        generate_orders_report(&self.0, py)
     }
 
     /// Generates an order fills report as a pandas `DataFrame`.
@@ -804,8 +803,7 @@ impl PyBacktestEngine {
     /// Returns an error if the Python `ReportProvider` import or call fails.
     #[pyo3(name = "generate_order_fills_report")]
     fn py_generate_order_fills_report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let orders = self.cache_bound(py)?.call_method0("orders")?;
-        Self::report_provider(py)?.call_method1("generate_order_fills_report", (orders,))
+        generate_order_fills_report(&self.0, py)
     }
 
     /// Generates a fills report as a pandas `DataFrame`.
@@ -815,8 +813,7 @@ impl PyBacktestEngine {
     /// Returns an error if the Python `ReportProvider` import or call fails.
     #[pyo3(name = "generate_fills_report")]
     fn py_generate_fills_report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let orders = self.cache_bound(py)?.call_method0("orders")?;
-        Self::report_provider(py)?.call_method1("generate_fills_report", (orders,))
+        generate_fills_report(&self.0, py)
     }
 
     /// Generates a positions report as a pandas `DataFrame`.
@@ -826,10 +823,7 @@ impl PyBacktestEngine {
     /// Returns an error if the Python `ReportProvider` import or call fails.
     #[pyo3(name = "generate_positions_report")]
     fn py_generate_positions_report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let cache = self.cache_bound(py)?;
-        let positions = cache.call_method0("positions")?;
-        let snapshots = cache.call_method0("position_snapshots")?;
-        Self::report_provider(py)?.call_method1("generate_positions_report", (positions, snapshots))
+        generate_positions_report(&self.0, py)
     }
 
     /// Generates an account report as a pandas `DataFrame`.
@@ -847,21 +841,7 @@ impl PyBacktestEngine {
         venue: Option<Venue>,
         account_id: Option<AccountId>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let cache = self.cache_bound(py)?;
-        let account = match (account_id, venue) {
-            (Some(aid), _) => cache.call_method1("account", (aid,))?,
-            (None, Some(v)) => cache.call_method1("account_for_venue", (v,))?,
-            (None, None) => {
-                return Err(to_pyvalue_err(
-                    "At least one of 'venue' or 'account_id' must be provided",
-                ));
-            }
-        };
-
-        if account.is_none() {
-            return py.import("pandas")?.call_method0("DataFrame");
-        }
-        Self::report_provider(py)?.call_method1("generate_account_report", (account,))
+        generate_account_report(&self.0, py, venue, account_id)
     }
 
     fn __repr__(&self) -> String {
@@ -869,16 +849,81 @@ impl PyBacktestEngine {
     }
 }
 
+pub(super) fn engine_cache(engine: &BacktestEngine) -> PyCache {
+    PyCache::from_rc(engine.kernel().cache.clone())
+}
+
+pub(super) fn engine_portfolio(engine: &BacktestEngine) -> PyPortfolio {
+    PyPortfolio::from_rc(engine.kernel().portfolio.clone())
+}
+
+pub(super) fn generate_orders_report<'py>(
+    engine: &BacktestEngine,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let orders = cache_bound(engine, py)?.call_method0("orders")?;
+    report_provider(py)?.call_method1("generate_orders_report", (orders,))
+}
+
+pub(super) fn generate_order_fills_report<'py>(
+    engine: &BacktestEngine,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let orders = cache_bound(engine, py)?.call_method0("orders")?;
+    report_provider(py)?.call_method1("generate_order_fills_report", (orders,))
+}
+
+pub(super) fn generate_fills_report<'py>(
+    engine: &BacktestEngine,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let orders = cache_bound(engine, py)?.call_method0("orders")?;
+    report_provider(py)?.call_method1("generate_fills_report", (orders,))
+}
+
+pub(super) fn generate_positions_report<'py>(
+    engine: &BacktestEngine,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let cache = cache_bound(engine, py)?;
+    let positions = cache.call_method0("positions")?;
+    let snapshots = cache.call_method0("position_snapshots")?;
+    report_provider(py)?.call_method1("generate_positions_report", (positions, snapshots))
+}
+
+pub(super) fn generate_account_report<'py>(
+    engine: &BacktestEngine,
+    py: Python<'py>,
+    venue: Option<Venue>,
+    account_id: Option<AccountId>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let cache = cache_bound(engine, py)?;
+    let account = match (account_id, venue) {
+        (Some(aid), _) => cache.call_method1("account", (aid,))?,
+        (None, Some(v)) => cache.call_method1("account_for_venue", (v,))?,
+        (None, None) => {
+            return Err(to_pyvalue_err(
+                "At least one of 'venue' or 'account_id' must be provided",
+            ));
+        }
+    };
+
+    if account.is_none() {
+        return py.import("pandas")?.call_method0("DataFrame");
+    }
+    report_provider(py)?.call_method1("generate_account_report", (account,))
+}
+
+fn cache_bound<'py>(engine: &BacktestEngine, py: Python<'py>) -> PyResult<Bound<'py, PyCache>> {
+    Ok(Py::new(py, engine_cache(engine))?.into_bound(py))
+}
+
+fn report_provider(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    py.import("nautilus_trader.analysis.reporter")?
+        .getattr("ReportProvider")
+}
+
 impl PyBacktestEngine {
-    fn cache_bound<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyCache>> {
-        Ok(Py::new(py, self.py_cache())?.into_bound(py))
-    }
-
-    fn report_provider(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
-        py.import("nautilus_trader.analysis.reporter")?
-            .getattr("ReportProvider")
-    }
-
     /// Provides access to the inner [`BacktestEngine`].
     #[must_use]
     pub fn inner(&self) -> &BacktestEngine {

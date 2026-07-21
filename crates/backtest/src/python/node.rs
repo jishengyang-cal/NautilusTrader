@@ -17,11 +17,15 @@
 
 use std::collections::HashMap;
 
-use nautilus_common::{actor::data_actor::ImportableActorConfig, python::actor::PyDataActor};
+use nautilus_common::{
+    actor::data_actor::ImportableActorConfig,
+    python::{actor::PyDataActor, cache::PyCache},
+};
 #[cfg(feature = "examples")]
 use nautilus_core::python::to_pytype_err;
 use nautilus_core::python::{to_pyruntime_err, to_pyvalue_err};
-use nautilus_model::identifiers::{ActorId, ComponentId, StrategyId};
+use nautilus_model::identifiers::{AccountId, ActorId, ComponentId, StrategyId, Venue};
+use nautilus_portfolio::python::PyPortfolio;
 #[cfg(feature = "examples")]
 use nautilus_trading::examples::strategies::{
     CompositeMarketMaker, CompositeMarketMakerConfig, DeltaNeutralVol, DeltaNeutralVolConfig,
@@ -34,9 +38,13 @@ use nautilus_trading::{
 };
 use pyo3::{prelude::*, types::PyDict};
 
-#[cfg(feature = "examples")]
-use crate::engine::BacktestEngine;
-use crate::{config::BacktestRunConfig, node::BacktestNode, result::BacktestResult};
+use super::engine::{
+    engine_cache, engine_portfolio, generate_account_report, generate_fills_report,
+    generate_order_fills_report, generate_orders_report, generate_positions_report,
+};
+use crate::{
+    config::BacktestRunConfig, engine::BacktestEngine, node::BacktestNode, result::BacktestResult,
+};
 
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
 #[pymethods]
@@ -81,6 +89,104 @@ impl BacktestNode {
     #[pyo3(name = "dispose")]
     fn py_dispose(&mut self) {
         self.dispose();
+    }
+
+    /// Returns the cache for the given run config engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no engine exists for the run config ID.
+    #[pyo3(name = "get_engine_cache")]
+    fn py_get_engine_cache(&self, run_config_id: &str) -> PyResult<PyCache> {
+        Ok(engine_cache(self.require_engine(run_config_id)?))
+    }
+
+    /// Returns the portfolio for the given run config engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no engine exists for the run config ID.
+    #[pyo3(name = "get_engine_portfolio")]
+    fn py_get_engine_portfolio(&self, run_config_id: &str) -> PyResult<PyPortfolio> {
+        Ok(engine_portfolio(self.require_engine(run_config_id)?))
+    }
+
+    /// Generates an orders report for the given run config engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no engine exists or report generation fails.
+    #[pyo3(name = "generate_orders_report")]
+    fn py_generate_orders_report<'py>(
+        &self,
+        py: Python<'py>,
+        run_config_id: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        generate_orders_report(self.require_engine(run_config_id)?, py)
+    }
+
+    /// Generates an order fills report for the given run config engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no engine exists or report generation fails.
+    #[pyo3(name = "generate_order_fills_report")]
+    fn py_generate_order_fills_report<'py>(
+        &self,
+        py: Python<'py>,
+        run_config_id: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        generate_order_fills_report(self.require_engine(run_config_id)?, py)
+    }
+
+    /// Generates a fills report for the given run config engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no engine exists or report generation fails.
+    #[pyo3(name = "generate_fills_report")]
+    fn py_generate_fills_report<'py>(
+        &self,
+        py: Python<'py>,
+        run_config_id: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        generate_fills_report(self.require_engine(run_config_id)?, py)
+    }
+
+    /// Generates a positions report for the given run config engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no engine exists or report generation fails.
+    #[pyo3(name = "generate_positions_report")]
+    fn py_generate_positions_report<'py>(
+        &self,
+        py: Python<'py>,
+        run_config_id: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        generate_positions_report(self.require_engine(run_config_id)?, py)
+    }
+
+    /// Generates an account report for the given run config engine.
+    ///
+    /// At least one of `venue` or `account_id` must be provided.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no engine exists, neither selector is provided, or report generation
+    /// fails.
+    #[pyo3(
+        name = "generate_account_report",
+        signature = (run_config_id, venue=None, account_id=None)
+    )]
+    fn py_generate_account_report<'py>(
+        &self,
+        py: Python<'py>,
+        run_config_id: &str,
+        venue: Option<Venue>,
+        account_id: Option<AccountId>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        generate_account_report(self.require_engine(run_config_id)?, py, venue, account_id)
     }
 
     #[allow(
@@ -450,6 +556,13 @@ impl BacktestNode {
 
     fn __repr__(&self) -> String {
         format!("{self:?}")
+    }
+}
+
+impl BacktestNode {
+    fn require_engine(&self, run_config_id: &str) -> PyResult<&BacktestEngine> {
+        self.get_engine(run_config_id)
+            .ok_or_else(|| to_pyruntime_err(format!("No engine for run config '{run_config_id}'")))
     }
 }
 

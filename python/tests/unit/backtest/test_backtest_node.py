@@ -17,6 +17,7 @@ from decimal import Decimal
 
 import pytest
 
+from nautilus_trader.analysis.reporter import ReportProvider
 from nautilus_trader.backtest import BacktestDataConfig
 from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.backtest import BacktestNode
@@ -27,6 +28,7 @@ from nautilus_trader.model import BookType
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.model import OmsType
 from nautilus_trader.model import Quantity
+from nautilus_trader.model import Venue
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import EmaCrossConfig
 from tests.providers import TestInstrumentProvider
@@ -114,6 +116,91 @@ def test_node_dispose():
     node.dispose()
 
 
+@pytest.mark.parametrize(
+    ("method_name", "args"),
+    [
+        ("get_engine_cache", ()),
+        ("get_engine_portfolio", ()),
+        ("generate_orders_report", ()),
+        ("generate_order_fills_report", ()),
+        ("generate_fills_report", ()),
+        ("generate_positions_report", ()),
+        ("generate_account_report", (Venue("SIM"),)),
+    ],
+)
+def test_node_post_run_inspection_unknown_config_raises(method_name, args):
+    venue = BacktestVenueConfig(
+        name="SIM",
+        oms_type=OmsType.HEDGING,
+        account_type=AccountType.MARGIN,
+        book_type=BookType.L1_MBP,
+        starting_balances=["1_000_000 USD"],
+    )
+    config = BacktestRunConfig(venues=[venue], data=[])
+    node = BacktestNode([config])
+
+    with pytest.raises(RuntimeError, match="No engine for run config 'missing'"):
+        getattr(node, method_name)("missing", *args)
+
+
+def test_node_post_run_inspection_retains_exact_engine_state(tmp_path):
+    instrument = TestInstrumentProvider.ethusdt_binance()
+    catalog_path = tmp_path / "catalog"
+    catalog_path.mkdir()
+    catalog = ParquetDataCatalog(str(catalog_path))
+    quotes = _whipsaw_quotes(instrument, count=30)
+    catalog.write_instruments([instrument])
+    catalog.write_quote_ticks(quotes)
+    node, config = _build_ema_cross_node(
+        str(catalog_path),
+        instrument,
+        chunk_size=7,
+        dispose_on_completion=False,
+    )
+
+    try:
+        result = node.run()[0]
+        cache = node.get_engine_cache(config.id)
+        portfolio = node.get_engine_portfolio(config.id)
+        statistics = portfolio.statistics()
+        account = cache.account_for_venue(Venue("BINANCE"))
+        orders = cache.orders()
+        positions = cache.positions()
+        position_snapshots = cache.position_snapshots()
+
+        orders_report = node.generate_orders_report(config.id)
+        order_fills_report = node.generate_order_fills_report(config.id)
+        fills_report = node.generate_fills_report(config.id)
+        positions_report = node.generate_positions_report(config.id)
+        account_report = node.generate_account_report(config.id, venue=Venue("BINANCE"))
+        account_report_by_id = node.generate_account_report(config.id, account_id=account.id)
+
+        with pytest.raises(ValueError, match="At least one of 'venue' or 'account_id'"):
+            node.generate_account_report(config.id)
+
+        assert cache.instrument_ids() == [instrument.id]
+        assert cache.orders_total_count() == result.total_orders
+        assert portfolio.account(venue=Venue("BINANCE")).id == account.id
+        assert statistics.pnls.keys() == result.stats_pnls.keys()
+        for currency in statistics.pnls:
+            assert statistics.pnls[currency] == pytest.approx(
+                result.stats_pnls[currency],
+                nan_ok=True,
+            )
+        assert statistics.returns == pytest.approx(result.stats_returns, nan_ok=True)
+        assert statistics.general == pytest.approx(result.stats_general, nan_ok=True)
+        assert orders_report.equals(ReportProvider.generate_orders_report(orders))
+        assert order_fills_report.equals(ReportProvider.generate_order_fills_report(orders))
+        assert fills_report.equals(ReportProvider.generate_fills_report(orders))
+        assert positions_report.equals(
+            ReportProvider.generate_positions_report(positions, position_snapshots),
+        )
+        assert account_report.equals(ReportProvider.generate_account_report(account))
+        assert account_report_by_id.equals(account_report)
+    finally:
+        node.dispose()
+
+
 def test_node_streaming_matches_oneshot_from_local_catalog(tmp_path):
     instrument = TestInstrumentProvider.ethusdt_binance()
     catalog_path = tmp_path / "catalog"
@@ -139,6 +226,18 @@ def test_node_streaming_matches_oneshot_from_local_catalog(tmp_path):
 
 
 def _run_ema_cross_node(catalog_path, instrument, chunk_size):
+    node, _ = _build_ema_cross_node(catalog_path, instrument, chunk_size)
+    result = node.run()[0]
+    node.dispose()
+    return result
+
+
+def _build_ema_cross_node(
+    catalog_path,
+    instrument,
+    chunk_size,
+    dispose_on_completion=True,
+):
     venue = BacktestVenueConfig(
         name="BINANCE",
         oms_type=OmsType.NETTING,
@@ -156,6 +255,7 @@ def _run_ema_cross_node(catalog_path, instrument, chunk_size):
         data=[data],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         chunk_size=chunk_size,
+        dispose_on_completion=dispose_on_completion,
     )
     node = BacktestNode([config])
     node.build()
@@ -169,9 +269,7 @@ def _run_ema_cross_node(catalog_path, instrument, chunk_size):
             slow_period=6,
         ),
     )
-    result = node.run()[0]
-    node.dispose()
-    return result
+    return node, config
 
 
 def _whipsaw_quotes(instrument, count):
