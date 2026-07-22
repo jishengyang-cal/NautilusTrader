@@ -23,10 +23,13 @@ use std::str::FromStr;
 use anyhow::Context;
 use nautilus_core::nanos::UnixNanos;
 use nautilus_model::{
-    data::{Bar, BarSpecification, BarType, TradeTick},
+    data::{
+        Bar, BarSpecification, BarType, BookOrder, OrderBookDelta, OrderBookDeltas, QuoteTick,
+        TradeTick,
+    },
     enums::{
-        AggressorSide, BarAggregation, LiquiditySide, OrderSide, OrderStatus, OrderType,
-        TimeInForce, TriggerType,
+        AggressorSide, BarAggregation, BookAction, LiquiditySide, OrderSide, OrderStatus,
+        OrderType, RecordFlag, TimeInForce, TriggerType,
     },
     identifiers::{
         AccountId, ClientOrderId, InstrumentId, OrderListId, Symbol, TradeId, Venue, VenueOrderId,
@@ -1112,12 +1115,12 @@ pub fn parse_fill_report_sbe(
 /// # Errors
 ///
 /// Returns an error if any kline cannot be parsed.
-pub fn parse_klines_to_bars(
+pub fn parse_klines_to_binance_bars(
     klines: &BinanceKlines,
     bar_type: BarType,
     instrument: &InstrumentAny,
     ts_init: UnixNanos,
-) -> anyhow::Result<Vec<Bar>> {
+) -> anyhow::Result<Vec<crate::common::bar::BinanceBar>> {
     let price_precision = instrument.price_precision();
     let size_precision = instrument.size_precision();
 
@@ -1141,13 +1144,60 @@ pub fn parse_klines_to_bars(
             Decimal::from_i128_with_scale(volume_mantissa, (-klines.qty_exponent as i32) as u32);
         let volume = Quantity::from_decimal_dp(volume_dec, size_precision)?;
 
-        let ts_event = UnixNanos::from_micros(kline.open_time as u64);
+        let quote_volume = Decimal::from_i128_with_scale(
+            i128::from_le_bytes(kline.quote_volume),
+            (-klines.price_exponent as i32) as u32,
+        );
+        let taker_buy_base_volume = Decimal::from_i128_with_scale(
+            i128::from_le_bytes(kline.taker_buy_base_volume),
+            (-klines.qty_exponent as i32) as u32,
+        );
+        let taker_buy_quote_volume = Decimal::from_i128_with_scale(
+            i128::from_le_bytes(kline.taker_buy_quote_volume),
+            (-klines.price_exponent as i32) as u32,
+        );
+        let count = u64::try_from(kline.num_trades).map_err(|_| {
+            anyhow::anyhow!("invalid negative kline trade count {}", kline.num_trades)
+        })?;
+        let ts_event = UnixNanos::from_micros(kline.close_time as u64);
 
-        let bar = Bar::new(bar_type, open, high, low, close, volume, ts_event, ts_init);
+        let bar = crate::common::bar::BinanceBar::new(
+            bar_type,
+            open,
+            high,
+            low,
+            close,
+            volume,
+            quote_volume,
+            count,
+            taker_buy_base_volume,
+            taker_buy_quote_volume,
+            ts_event,
+            ts_init,
+        );
         bars.push(bar);
     }
 
     Ok(bars)
+}
+
+/// Parses Binance SBE klines into core bars.
+///
+/// # Errors
+///
+/// Returns an error if any kline cannot be parsed.
+pub fn parse_klines_to_bars(
+    klines: &BinanceKlines,
+    bar_type: BarType,
+    instrument: &InstrumentAny,
+    ts_init: UnixNanos,
+) -> anyhow::Result<Vec<Bar>> {
+    Ok(
+        parse_klines_to_binance_bars(klines, bar_type, instrument, ts_init)?
+            .into_iter()
+            .map(|bar| bar.bar())
+            .collect(),
+    )
 }
 
 /// Converts a Nautilus bar specification to a Binance kline interval.
@@ -1161,9 +1211,10 @@ pub fn bar_spec_to_binance_interval(
 ) -> anyhow::Result<BinanceKlineInterval> {
     let step = bar_spec.step.get();
     let interval = match bar_spec.aggregation {
-        BarAggregation::Second => {
-            anyhow::bail!("Binance Spot does not support second-level kline intervals")
-        }
+        BarAggregation::Second => match step {
+            1 => BinanceKlineInterval::Second1,
+            _ => anyhow::bail!("Unsupported second interval: {step}s"),
+        },
         BarAggregation::Minute => match step {
             1 => BinanceKlineInterval::Minute1,
             3 => BinanceKlineInterval::Minute3,
@@ -1200,6 +1251,39 @@ pub fn bar_spec_to_binance_interval(
     Ok(interval)
 }
 
+pub(crate) fn quote_to_l1_deltas(quote: QuoteTick, sequence: u64) -> OrderBookDeltas {
+    let bid_action = if quote.bid_size.is_zero() {
+        BookAction::Delete
+    } else {
+        BookAction::Update
+    };
+    let ask_action = if quote.ask_size.is_zero() {
+        BookAction::Delete
+    } else {
+        BookAction::Update
+    };
+    let bid = OrderBookDelta::new(
+        quote.instrument_id,
+        bid_action,
+        BookOrder::new(OrderSide::Buy, quote.bid_price, quote.bid_size, 0),
+        RecordFlag::F_MBP as u8,
+        sequence,
+        quote.ts_event,
+        quote.ts_init,
+    );
+    let ask = OrderBookDelta::new(
+        quote.instrument_id,
+        ask_action,
+        BookOrder::new(OrderSide::Sell, quote.ask_price, quote.ask_size, 0),
+        RecordFlag::F_MBP as u8 | RecordFlag::F_LAST as u8,
+        sequence,
+        quote.ts_event,
+        quote.ts_init,
+    );
+
+    OrderBookDeltas::new(quote.instrument_id, vec![bid, ask])
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -1212,6 +1296,78 @@ mod tests {
         consts::BINANCE_NAUTILUS_SPOT_BROKER_ID,
         enums::{BinanceContractStatus, BinanceTradingStatus},
     };
+
+    #[rstest]
+    fn test_quote_to_l1_deltas_maps_all_fields() {
+        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
+        let ts_event = UnixNanos::from(1_700_000_000_000_000_001u64);
+        let ts_init = UnixNanos::from(1_700_000_000_000_000_002u64);
+        let quote = QuoteTick::new(
+            instrument_id,
+            Price::from("42000.01"),
+            Price::from("42000.02"),
+            Quantity::from("1.23456"),
+            Quantity::from("2.34567"),
+            ts_event,
+            ts_init,
+        );
+        let expected = OrderBookDeltas::new(
+            instrument_id,
+            vec![
+                OrderBookDelta::new(
+                    instrument_id,
+                    BookAction::Update,
+                    BookOrder::new(
+                        OrderSide::Buy,
+                        Price::from("42000.01"),
+                        Quantity::from("1.23456"),
+                        0,
+                    ),
+                    RecordFlag::F_MBP as u8,
+                    12345,
+                    ts_event,
+                    ts_init,
+                ),
+                OrderBookDelta::new(
+                    instrument_id,
+                    BookAction::Update,
+                    BookOrder::new(
+                        OrderSide::Sell,
+                        Price::from("42000.02"),
+                        Quantity::from("2.34567"),
+                        0,
+                    ),
+                    RecordFlag::F_MBP as u8 | RecordFlag::F_LAST as u8,
+                    12345,
+                    ts_event,
+                    ts_init,
+                ),
+            ],
+        );
+
+        let actual = quote_to_l1_deltas(quote, 12345);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    fn test_quote_to_l1_deltas_deletes_empty_sides() {
+        let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
+        let quote = QuoteTick::new(
+            instrument_id,
+            Price::from("42000.01"),
+            Price::from("42000.02"),
+            Quantity::from("0.00000"),
+            Quantity::from("0.00000"),
+            UnixNanos::from(1_700_000_000_000_000_001u64),
+            UnixNanos::from(1_700_000_000_000_000_002u64),
+        );
+
+        let actual = quote_to_l1_deltas(quote, 12345);
+
+        assert_eq!(actual.deltas[0].action, BookAction::Delete);
+        assert_eq!(actual.deltas[1].action, BookAction::Delete);
+    }
 
     #[rstest]
     #[case::positive("0.001", 8, Some(Quantity::from_decimal_dp(Decimal::from_str("0.001").unwrap(), 8).unwrap()))]
@@ -1859,15 +2015,15 @@ mod tests {
                 close_price: 12_345,
                 volume: 1_234_500_i128.to_le_bytes(),
                 close_time: 1_700_000_059_999_000,
-                quote_volume: 0_i128.to_le_bytes(),
+                quote_volume: 777_788_i128.to_le_bytes(),
                 num_trades: 100,
-                taker_buy_base_volume: 0_i128.to_le_bytes(),
-                taker_buy_quote_volume: 0_i128.to_le_bytes(),
+                taker_buy_base_volume: 56_789_i128.to_le_bytes(),
+                taker_buy_quote_volume: 9_901_i128.to_le_bytes(),
             }],
         };
         let ts_init = UnixNanos::from(1_700_000_001_000_000_000u64);
 
-        let bars = parse_klines_to_bars(&klines, bar_type, &instrument, ts_init).unwrap();
+        let bars = parse_klines_to_binance_bars(&klines, bar_type, &instrument, ts_init).unwrap();
 
         assert_eq!(bars.len(), 1);
         assert_eq!(bars[0].bar_type, bar_type);
@@ -1876,9 +2032,13 @@ mod tests {
         assert_eq!(bars[0].low, Price::new(119.0, 2));
         assert_eq!(bars[0].close, Price::new(123.45, 2));
         assert_eq!(bars[0].volume, Quantity::new(123.45, 4));
+        assert_eq!(bars[0].quote_volume, dec!(7777.88));
+        assert_eq!(bars[0].count, 100);
+        assert_eq!(bars[0].taker_buy_base_volume, dec!(5.6789));
+        assert_eq!(bars[0].taker_buy_quote_volume, dec!(99.01));
         assert_eq!(
             bars[0].ts_event,
-            UnixNanos::from(1_700_000_000_000_000_000u64)
+            UnixNanos::from(1_700_000_059_999_000_000u64)
         );
         assert_eq!(bars[0].ts_init, ts_init);
     }
@@ -1903,6 +2063,7 @@ mod tests {
         }
 
         #[rstest]
+        #[case(1, BarAggregation::Second, BinanceKlineInterval::Second1)]
         #[case(1, BarAggregation::Minute, BinanceKlineInterval::Minute1)]
         #[case(3, BarAggregation::Minute, BinanceKlineInterval::Minute3)]
         #[case(5, BarAggregation::Minute, BinanceKlineInterval::Minute5)]
@@ -1930,14 +2091,14 @@ mod tests {
 
         #[rstest]
         fn test_unsupported_second_interval() {
-            let bar_spec = make_bar_spec(1, BarAggregation::Second);
+            let bar_spec = make_bar_spec(2, BarAggregation::Second);
             let result = bar_spec_to_binance_interval(bar_spec);
             assert!(result.is_err());
             assert!(
                 result
                     .unwrap_err()
                     .to_string()
-                    .contains("does not support second-level")
+                    .contains("Unsupported second interval")
             );
         }
 

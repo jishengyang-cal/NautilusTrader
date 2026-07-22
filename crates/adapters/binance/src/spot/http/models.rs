@@ -90,6 +90,38 @@ pub struct BinanceTrades {
     pub trades: Vec<BinanceTrade>,
 }
 
+/// A single aggregate trade from Binance Spot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceAggTrade {
+    /// Aggregate trade ID.
+    pub id: i64,
+    /// Price mantissa.
+    pub price_mantissa: i64,
+    /// Quantity mantissa.
+    pub qty_mantissa: i64,
+    /// First raw trade ID represented by this aggregate.
+    pub first_trade_id: i64,
+    /// Last raw trade ID represented by this aggregate.
+    pub last_trade_id: i64,
+    /// Trade timestamp in microseconds.
+    pub time: i64,
+    /// Whether the buyer is the maker.
+    pub is_buyer_maker: bool,
+    /// Whether this trade was the best price match.
+    pub is_best_match: bool,
+}
+
+/// Binance Spot aggregate trades response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceAggTrades {
+    /// Price exponent for all trades.
+    pub price_exponent: i8,
+    /// Quantity exponent for all trades.
+    pub qty_exponent: i8,
+    /// Aggregate trades in chronological order.
+    pub trades: Vec<BinanceAggTrade>,
+}
+
 /// A fill from an order execution.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinanceOrderFill {

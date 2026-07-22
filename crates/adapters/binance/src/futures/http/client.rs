@@ -31,14 +31,15 @@ use nautilus_core::{
     consts::NAUTILUS_USER_AGENT, datetime::SECONDS_IN_DAY, nanos::UnixNanos, time::AtomicTime,
 };
 use nautilus_model::{
-    data::{Bar, BarType, FundingRateUpdate, TradeTick},
+    data::{Bar, BarType, BookOrder, FundingRateUpdate, TradeTick},
     enums::{
-        AggregationSource, AggressorSide, BarAggregation, MarketStatusAction, OrderSide, OrderType,
-        TimeInForce,
+        AggregationSource, AggressorSide, BarAggregation, BookType, MarketStatusAction, OrderSide,
+        OrderType, TimeInForce,
     },
     events::AccountState,
     identifiers::{AccountId, ClientOrderId, InstrumentId, TradeId, VenueOrderId},
     instruments::any::InstrumentAny,
+    orderbook::OrderBook,
     reports::{FillReport, OrderStatusReport},
     types::{Currency, Price, Quantity},
 };
@@ -54,28 +55,31 @@ use super::{
     error::{BinanceFuturesHttpError, BinanceFuturesHttpResult},
     models::{
         BatchOrderResult, BinanceBookTicker, BinanceCancelAllOrdersResponse, BinanceFundingRate,
-        BinanceFuturesAccountInfo, BinanceFuturesAlgoOrder, BinanceFuturesAlgoOrderCancelResponse,
-        BinanceFuturesCoinExchangeInfo, BinanceFuturesCoinSymbol, BinanceFuturesKline,
-        BinanceFuturesMarkPrice, BinanceFuturesOrder, BinanceFuturesTicker24hr,
-        BinanceFuturesTrade, BinanceFuturesUsdExchangeInfo, BinanceFuturesUsdSymbol,
-        BinanceHedgeModeResponse, BinanceLeverageResponse, BinanceOpenInterest,
-        BinanceOpenInterestHistRecord, BinanceOrderBook, BinancePositionRisk, BinancePriceTicker,
-        BinanceServerTime, BinanceUserTrade, ListenKeyResponse,
+        BinanceFuturesAccountInfo, BinanceFuturesAggTrade, BinanceFuturesAlgoOrder,
+        BinanceFuturesAlgoOrderCancelResponse, BinanceFuturesCoinExchangeInfo,
+        BinanceFuturesCoinSymbol, BinanceFuturesKline, BinanceFuturesMarkPrice,
+        BinanceFuturesOrder, BinanceFuturesTicker24hr, BinanceFuturesTrade,
+        BinanceFuturesUsdExchangeInfo, BinanceFuturesUsdSymbol, BinanceHedgeModeResponse,
+        BinanceLeverageResponse, BinanceOpenInterest, BinanceOpenInterestHistRecord,
+        BinanceOrderBook, BinancePositionRisk, BinancePriceTicker, BinanceServerTime,
+        BinanceUserTrade, ListenKeyResponse,
     },
     query::{
-        BatchCancelItem, BatchModifyItem, BatchOrderItem, BinanceAlgoOrderQueryParams,
-        BinanceAllAlgoOrdersParams, BinanceAllOrdersParams, BinanceBookTickerParams,
-        BinanceCancelAllAlgoOrdersParams, BinanceCancelAllOrdersParams, BinanceCancelOrderParams,
-        BinanceDepthParams, BinanceFundingRateParams, BinanceKlinesParams, BinanceMarkPriceParams,
-        BinanceModifyOrderParams, BinanceNewAlgoOrderParams, BinanceNewOrderParams,
-        BinanceOpenAlgoOrdersParams, BinanceOpenInterestHistParams, BinanceOpenInterestParams,
-        BinanceOpenOrdersParams, BinanceOrderQueryParams, BinancePositionRiskParams,
-        BinanceSetLeverageParams, BinanceSetMarginTypeParams, BinanceTicker24hrParams,
-        BinanceTradesParams, BinanceUserTradesParams, ListenKeyParams,
+        BatchCancelItem, BatchModifyItem, BatchOrderItem, BinanceAggTradesParams,
+        BinanceAlgoOrderQueryParams, BinanceAllAlgoOrdersParams, BinanceAllOrdersParams,
+        BinanceBookTickerParams, BinanceCancelAllAlgoOrdersParams, BinanceCancelAllOrdersParams,
+        BinanceCancelOrderParams, BinanceDepthParams, BinanceFundingRateParams,
+        BinanceKlinesParams, BinanceMarkPriceParams, BinanceModifyOrderParams,
+        BinanceNewAlgoOrderParams, BinanceNewOrderParams, BinanceOpenAlgoOrdersParams,
+        BinanceOpenInterestHistParams, BinanceOpenInterestParams, BinanceOpenOrdersParams,
+        BinanceOrderQueryParams, BinancePositionRiskParams, BinanceSetLeverageParams,
+        BinanceSetMarginTypeParams, BinanceTicker24hrParams, BinanceTradesParams,
+        BinanceUserTradesParams, ListenKeyParams,
     },
 };
 use crate::{
     common::{
+        bar::BinanceBar,
         consts::{
             BINANCE_API_KEY_HEADER, BINANCE_DAPI_PATH, BINANCE_DAPI_RATE_LIMITS, BINANCE_FAPI_PATH,
             BINANCE_FAPI_RATE_LIMITS, BINANCE_NAUTILUS_FUTURES_BROKER_ID, BinanceRateLimitQuota,
@@ -855,6 +859,43 @@ impl BinanceRawFuturesHttpClient {
         params: &BinanceTradesParams,
     ) -> BinanceFuturesHttpResult<Vec<BinanceFuturesTrade>> {
         self.get("trades", Some(params), false, false).await
+    }
+
+    /// Fetches aggregate public trades for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if documented Binance Futures bounds are violated or the request fails.
+    pub async fn agg_trades(
+        &self,
+        params: &BinanceAggTradesParams,
+    ) -> BinanceFuturesHttpResult<Vec<BinanceFuturesAggTrade>> {
+        if params.limit.is_some_and(|limit| limit > 1000) {
+            return Err(BinanceFuturesHttpError::ValidationError(
+                "aggregate trade limit must not exceed 1000".to_string(),
+            ));
+        }
+
+        if let (Some(start), Some(end)) = (params.start_time, params.end_time) {
+            if start > end {
+                return Err(BinanceFuturesHttpError::ValidationError(
+                    "aggregate trade startTime must not exceed endTime".to_string(),
+                ));
+            }
+            let Some(range) = end.checked_sub(start) else {
+                return Err(BinanceFuturesHttpError::ValidationError(
+                    "aggregate trade time range must be less than one hour".to_string(),
+                ));
+            };
+
+            if range >= 3_600_000 {
+                return Err(BinanceFuturesHttpError::ValidationError(
+                    "aggregate trade time range must be less than one hour".to_string(),
+                ));
+            }
+        }
+
+        self.get("aggTrades", Some(params), false, false).await
     }
 
     /// Fetches kline/candlestick data for a symbol.
@@ -2738,19 +2779,62 @@ impl BinanceFuturesHttpClient {
         Ok(result)
     }
 
+    /// Requests bounded aggregate public trades for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a supplied time bound is invalid or parsing fails.
+    pub async fn request_agg_trades(
+        &self,
+        instrument_id: InstrumentId,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<TradeTick>> {
+        let cutoff = self.clock.get_time_ns().to_datetime_utc() - chrono::Duration::hours(24);
+        anyhow::ensure!(
+            start.as_ref().is_none_or(|value| value >= &cutoff)
+                && end.as_ref().is_none_or(|value| value >= &cutoff),
+            "Binance Futures aggregate trade history is limited to the past 24 hours"
+        );
+        let (symbol, price_precision, size_precision) =
+            self.cached_precisions_by_id(instrument_id)?;
+        let params = BinanceAggTradesParams {
+            symbol,
+            from_id: None,
+            start_time: start.map(|value| value.timestamp_millis()),
+            end_time: end.map(|value| value.timestamp_millis()),
+            limit,
+        };
+        let trades = self.inner.agg_trades(&params).await?;
+        trades
+            .iter()
+            .map(|trade| {
+                let ts_init = UnixNanos::from_millis(trade.time as u64);
+                parse_futures_agg_trade_tick(
+                    trade,
+                    instrument_id,
+                    price_precision,
+                    size_precision,
+                    ts_init,
+                )
+            })
+            .collect()
+    }
+
     /// Requests bar (kline/candlestick) data for an instrument.
     ///
     /// # Errors
     ///
     /// Returns an error if the bar type is not supported, instrument is not cached,
     /// or the request fails.
-    pub async fn request_bars(
+    pub async fn request_binance_bars(
         &self,
         bar_type: BarType,
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
         limit: Option<u32>,
-    ) -> anyhow::Result<Vec<Bar>> {
+    ) -> anyhow::Result<Vec<BinanceBar>> {
         anyhow::ensure!(
             bar_type.aggregation_source() == AggregationSource::External,
             "Only EXTERNAL aggregation is supported"
@@ -2783,21 +2867,94 @@ impl BinanceFuturesHttpClient {
         };
 
         let klines = self.inner.klines(&params).await?;
-        let ts_init = UnixNanos::default();
+        let now = self.clock.get_time_ns();
 
         let mut result = Vec::with_capacity(klines.len());
         for kline in klines {
-            let bar = parse_futures_kline_bar(
+            let ts_init = UnixNanos::from_millis(kline.close_time as u64);
+            let bar = parse_futures_kline_binance_bar(
                 &kline,
                 bar_type,
                 price_precision,
                 size_precision,
                 ts_init,
             )?;
-            result.push(bar);
+
+            if bar.ts_event < now {
+                result.push(bar);
+            }
         }
 
         Ok(result)
+    }
+
+    /// Requests core bars for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bar type is unsupported or the request fails.
+    pub async fn request_bars(
+        &self,
+        bar_type: BarType,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<Bar>> {
+        Ok(self
+            .request_binance_bars(bar_type, start, end, limit)
+            .await?
+            .into_iter()
+            .map(|bar| bar.bar())
+            .collect())
+    }
+
+    /// Requests an explicit L2 order-book snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid depth, missing instrument, request failure, or invalid level.
+    pub async fn request_book_snapshot(
+        &self,
+        instrument_id: InstrumentId,
+        depth: Option<u32>,
+    ) -> anyhow::Result<OrderBook> {
+        if depth.is_some_and(|value| !crate::common::consts::BINANCE_BOOK_DEPTHS.contains(&value)) {
+            anyhow::bail!(
+                "invalid Binance Futures order-book depth; valid values are {:?}",
+                crate::common::consts::BINANCE_BOOK_DEPTHS
+            );
+        }
+        let (symbol, price_precision, size_precision) =
+            self.cached_precisions_by_id(instrument_id)?;
+        let params = BinanceDepthParams {
+            symbol,
+            limit: depth,
+        };
+        let snapshot = self.inner.depth(&params).await?;
+        let ts_event = self.clock.get_time_ns();
+        let sequence = u64::try_from(snapshot.last_update_id)
+            .map_err(|_| anyhow::anyhow!("invalid negative order-book update ID"))?;
+        let mut book = OrderBook::new(instrument_id, BookType::L2_MBP);
+        for (index, level) in snapshot.bids.iter().enumerate() {
+            let order = BookOrder::new(
+                OrderSide::Buy,
+                parse_required_price_at_precision(&level.0, price_precision, "bid price")?,
+                parse_required_quantity_at_precision(&level.1, size_precision, "bid quantity")?,
+                index as u64,
+            );
+            book.add(order, 0, sequence, ts_event);
+        }
+        let bid_count = snapshot.bids.len();
+        for (index, level) in snapshot.asks.iter().enumerate() {
+            let order = BookOrder::new(
+                OrderSide::Sell,
+                parse_required_price_at_precision(&level.0, price_precision, "ask price")?,
+                parse_required_quantity_at_precision(&level.1, size_precision, "ask quantity")?,
+                (bid_count + index) as u64,
+            );
+            book.add(order, 0, sequence, ts_event);
+        }
+        Ok(book)
     }
 
     fn cached_precisions_by_id(
@@ -2883,13 +3040,37 @@ fn parse_futures_trade_tick(
     ))
 }
 
-fn parse_futures_kline_bar(
+fn parse_futures_agg_trade_tick(
+    trade: &BinanceFuturesAggTrade,
+    instrument_id: InstrumentId,
+    price_precision: u8,
+    size_precision: u8,
+    ts_init: UnixNanos,
+) -> anyhow::Result<TradeTick> {
+    let trade = BinanceFuturesTrade {
+        id: trade.id,
+        price: trade.price.clone(),
+        qty: trade.qty.clone(),
+        quote_qty: String::new(),
+        time: trade.time,
+        is_buyer_maker: trade.is_buyer_maker,
+    };
+    parse_futures_trade_tick(
+        &trade,
+        instrument_id,
+        price_precision,
+        size_precision,
+        ts_init,
+    )
+}
+
+fn parse_futures_kline_binance_bar(
     kline: &BinanceFuturesKline,
     bar_type: BarType,
     price_precision: u8,
     size_precision: u8,
     ts_init: UnixNanos,
-) -> anyhow::Result<Bar> {
+) -> anyhow::Result<BinanceBar> {
     let open = parse_required_price_at_precision(&kline.open, price_precision, "kline.open")
         .map_err(|e| anyhow::anyhow!("invalid Futures kline {}: {e}", kline.open_time))?;
     let high = parse_required_price_at_precision(&kline.high, price_precision, "kline.high")
@@ -2903,8 +3084,50 @@ fn parse_futures_kline_bar(
             .map_err(|e| anyhow::anyhow!("invalid Futures kline {}: {e}", kline.open_time))?;
     let ts_event = UnixNanos::from_millis(kline.close_time as u64);
 
-    Ok(Bar::new(
-        bar_type, open, high, low, close, volume, ts_event, ts_init,
+    let quote_volume = kline.quote_volume.parse::<Decimal>().map_err(|e| {
+        anyhow::anyhow!(
+            "invalid Futures kline {} quote volume: {e}",
+            kline.open_time
+        )
+    })?;
+    let taker_buy_base_volume = kline
+        .taker_buy_base_volume
+        .parse::<Decimal>()
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "invalid Futures kline {} taker buy base volume: {e}",
+                kline.open_time
+            )
+        })?;
+    let taker_buy_quote_volume = kline
+        .taker_buy_quote_volume
+        .parse::<Decimal>()
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "invalid Futures kline {} taker buy quote volume: {e}",
+                kline.open_time
+            )
+        })?;
+    let count = u64::try_from(kline.num_trades).map_err(|_| {
+        anyhow::anyhow!(
+            "invalid Futures kline {} negative trade count",
+            kline.open_time
+        )
+    })?;
+
+    Ok(BinanceBar::new(
+        bar_type,
+        open,
+        high,
+        low,
+        close,
+        volume,
+        quote_volume,
+        count,
+        taker_buy_base_volume,
+        taker_buy_quote_volume,
+        ts_event,
+        ts_init,
     ))
 }
 
@@ -3237,7 +3460,7 @@ mod tests {
             taker_buy_quote_volume: "313100.00".to_string(),
         };
 
-        let result = parse_futures_kline_bar(
+        let result = parse_futures_kline_binance_bar(
             &kline,
             BarType::from("BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"),
             2,
@@ -3248,6 +3471,89 @@ mod tests {
         let error = result.unwrap_err().to_string();
         assert!(error.contains("kline.volume"));
         assert!(error.contains("1625474304000"));
+    }
+
+    #[rstest]
+    #[case::limit(
+        BinanceAggTradesParams {
+            symbol: "BTCUSDT".to_string(),
+            from_id: None,
+            start_time: None,
+            end_time: None,
+            limit: Some(1001),
+        },
+        "Validation error: aggregate trade limit must not exceed 1000"
+    )]
+    #[case::order(
+        BinanceAggTradesParams {
+            symbol: "BTCUSDT".to_string(),
+            from_id: None,
+            start_time: Some(2000),
+            end_time: Some(1000),
+            limit: Some(1000),
+        },
+        "Validation error: aggregate trade startTime must not exceed endTime"
+    )]
+    #[case::range(
+        BinanceAggTradesParams {
+            symbol: "BTCUSDT".to_string(),
+            from_id: None,
+            start_time: Some(1000),
+            end_time: Some(3_601_000),
+            limit: Some(1000),
+        },
+        "Validation error: aggregate trade time range must be less than one hour"
+    )]
+    #[case::overflow(
+        BinanceAggTradesParams {
+            symbol: "BTCUSDT".to_string(),
+            from_id: None,
+            start_time: Some(i64::MIN),
+            end_time: Some(i64::MAX),
+            limit: Some(1000),
+        },
+        "Validation error: aggregate trade time range must be less than one hour"
+    )]
+    #[tokio::test]
+    async fn test_agg_trades_rejects_invalid_bounds(
+        #[case] params: BinanceAggTradesParams,
+        #[case] expected: &str,
+    ) {
+        let error = create_test_raw_client()
+            .agg_trades(&params)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), expected);
+    }
+
+    #[rstest]
+    #[case::start(true, false)]
+    #[case::end(false, true)]
+    #[case::both(true, true)]
+    #[tokio::test]
+    async fn test_request_agg_trades_rejects_history_older_than_24_hours(
+        #[case] include_start: bool,
+        #[case] include_end: bool,
+    ) {
+        let client = create_test_client();
+        let start = Utc::now() - chrono::Duration::hours(25);
+        let end = start + chrono::Duration::minutes(30);
+
+        let error = client
+            .request_agg_trades(
+                InstrumentId::from("BTCUSDT-PERP.BINANCE"),
+                include_start.then_some(start),
+                include_end.then_some(end),
+                Some(1000),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Binance Futures aggregate trade history is limited to the past 24 hours"
+        );
     }
 
     fn create_test_raw_client() -> BinanceRawFuturesHttpClient {

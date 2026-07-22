@@ -37,8 +37,9 @@ use crate::{
     },
     config::{BinanceDataClientConfig, BinanceExecClientConfig, BinanceSpotMarketDataMode},
     data_types::{
-        BinanceFuturesLiquidation, BinanceFuturesOpenInterest, BinanceFuturesOpenInterestHist,
-        BinanceFuturesOpenInterestHistPoint, BinanceFuturesTicker, register_binance_custom_data,
+        BinanceFuturesLiquidation, BinanceFuturesMarkPriceUpdate, BinanceFuturesOpenInterest,
+        BinanceFuturesOpenInterestHist, BinanceFuturesOpenInterestHistPoint, BinanceFuturesTicker,
+        BinanceSpotTicker, register_binance_custom_data,
     },
     factories::{BinanceDataClientFactory, BinanceExecutionClientFactory},
 };
@@ -137,6 +138,8 @@ pub fn binance(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BinanceBar>()?;
     m.add_class::<BinanceFuturesLiquidation>()?;
     m.add_class::<BinanceFuturesTicker>()?;
+    m.add_class::<BinanceSpotTicker>()?;
+    m.add_class::<BinanceFuturesMarkPriceUpdate>()?;
     m.add_class::<BinanceFuturesOpenInterest>()?;
     m.add_class::<BinanceFuturesOpenInterestHistPoint>()?;
     m.add_class::<BinanceFuturesOpenInterestHist>()?;
@@ -166,6 +169,8 @@ pub fn binance(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_binance_custom_data();
     let _result = ensure_rust_extractor_registered::<BinanceFuturesLiquidation>();
     let _result = ensure_rust_extractor_registered::<BinanceFuturesTicker>();
+    let _result = ensure_rust_extractor_registered::<BinanceSpotTicker>();
+    let _result = ensure_rust_extractor_registered::<BinanceFuturesMarkPriceUpdate>();
     let _result = ensure_rust_extractor_registered::<BinanceFuturesOpenInterest>();
     let _result = ensure_rust_extractor_registered::<BinanceFuturesOpenInterestHist>();
 

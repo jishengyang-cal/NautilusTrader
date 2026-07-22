@@ -40,11 +40,12 @@ use nautilus_core::{
     consts::NAUTILUS_USER_AGENT, datetime::SECONDS_IN_DAY, hex, nanos::UnixNanos, time::AtomicTime,
 };
 use nautilus_model::{
-    data::{Bar, BarType, TradeTick},
-    enums::{AggregationSource, BarAggregation, OrderSide, OrderType, TimeInForce},
+    data::{Bar, BarType, BookOrder, TradeTick},
+    enums::{AggregationSource, BarAggregation, BookType, OrderSide, OrderType, TimeInForce},
     events::AccountState,
     identifiers::{AccountId, ClientOrderId, InstrumentId, VenueOrderId},
     instruments::{Instrument, any::InstrumentAny},
+    orderbook::OrderBook,
     reports::{FillReport, OrderStatusReport},
     types::{Price, Quantity},
 };
@@ -59,16 +60,17 @@ use super::{
     error::{BinanceSpotHttpError, BinanceSpotHttpResult},
     models::{
         AvgPrice, BatchCancelResult, BatchOrderResult, BinanceAccountInfo, BinanceAccountTrade,
-        BinanceCancelOrderResponse, BinanceDepth, BinanceKlines, BinanceNewOrderResponse,
-        BinanceOrderResponse, BinanceTrades, BookTicker, ListenKeyResponse,
-        NewOcoOrderListResponse, Ticker24hr, TickerPrice, TradeFee,
+        BinanceAggTrades, BinanceCancelOrderResponse, BinanceDepth, BinanceKlines,
+        BinanceNewOrderResponse, BinanceOrderResponse, BinanceTrades, BookTicker,
+        ListenKeyResponse, NewOcoOrderListResponse, Ticker24hr, TickerPrice, TradeFee,
     },
     parse,
     query::{
-        AccountInfoParams, AccountTradesParams, AllOrdersParams, AvgPriceParams, BatchCancelItem,
-        BatchOrderItem, CancelOpenOrdersParams, CancelOrderParams, CancelReplaceOrderParams,
-        DepthParams, KlinesParams, ListenKeyParams, NewOcoOrderListParams, NewOrderParams,
-        OpenOrdersParams, QueryOrderParams, TickerParams, TradeFeeParams, TradesParams,
+        AccountInfoParams, AccountTradesParams, AggTradesParams, AllOrdersParams, AvgPriceParams,
+        BatchCancelItem, BatchOrderItem, CancelOpenOrdersParams, CancelOrderParams,
+        CancelReplaceOrderParams, DepthParams, KlinesParams, ListenKeyParams,
+        NewOcoOrderListParams, NewOrderParams, OpenOrdersParams, QueryOrderParams, TickerParams,
+        TradeFeeParams, TradesParams,
     },
 };
 use crate::{
@@ -85,7 +87,7 @@ use crate::{
         },
         models::BinanceErrorResponse,
         parse::{
-            get_currency, parse_fill_report_sbe, parse_klines_to_bars,
+            get_currency, parse_fill_report_sbe, parse_klines_to_binance_bars,
             parse_new_order_response_sbe, parse_order_status_report_sbe, parse_spot_instrument_sbe,
             parse_spot_trades_sbe,
         },
@@ -590,6 +592,31 @@ impl BinanceRawSpotHttpClient {
         let bytes = self.get("trades", Some(&params)).await?;
         let trades = parse::decode_trades(&bytes)?;
         Ok(trades)
+    }
+
+    /// Returns aggregate trades for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bounds are invalid or the request cannot be decoded.
+    pub async fn agg_trades(
+        &self,
+        params: &AggTradesParams,
+    ) -> BinanceSpotHttpResult<BinanceAggTrades> {
+        if params.limit.is_some_and(|limit| limit > 1000) {
+            return Err(BinanceSpotHttpError::ValidationError(
+                "aggregate trade limit must not exceed 1000".to_string(),
+            ));
+        }
+
+        if matches!((params.start_time, params.end_time), (Some(start), Some(end)) if start > end) {
+            return Err(BinanceSpotHttpError::ValidationError(
+                "aggregate trade startTime must not exceed endTime".to_string(),
+            ));
+        }
+
+        let bytes = self.get("aggTrades", Some(params)).await?;
+        Ok(parse::decode_agg_trades(&bytes)?)
     }
 
     /// Returns kline (candlestick) data for a symbol.
@@ -1615,19 +1642,66 @@ impl BinanceSpotHttpClient {
         parse_spot_trades_sbe(&trades, &instrument, ts_init)
     }
 
+    /// Requests bounded aggregate trades for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails, the instrument is not cached, or parsing fails.
+    pub async fn request_agg_trades(
+        &self,
+        instrument_id: InstrumentId,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<TradeTick>> {
+        let symbol = instrument_id.symbol.inner();
+        let instrument = self.instrument_from_cache_by_id(instrument_id)?;
+        let params = AggTradesParams {
+            symbol: symbol.to_string(),
+            from_id: None,
+            start_time: start.map(|dt| dt.timestamp_millis()),
+            end_time: end.map(|dt| dt.timestamp_millis()),
+            limit,
+        };
+        let response = self.inner.agg_trades(&params).await?;
+        let trades = BinanceTrades {
+            price_exponent: response.price_exponent,
+            qty_exponent: response.qty_exponent,
+            trades: response
+                .trades
+                .into_iter()
+                .map(|trade| super::models::BinanceTrade {
+                    id: trade.id,
+                    price_mantissa: trade.price_mantissa,
+                    qty_mantissa: trade.qty_mantissa,
+                    quote_qty_mantissa: 0,
+                    time: trade.time,
+                    is_buyer_maker: trade.is_buyer_maker,
+                    is_best_match: trade.is_best_match,
+                })
+                .collect(),
+        };
+
+        let mut parsed = parse_spot_trades_sbe(&trades, &instrument, UnixNanos::default())?;
+        for trade in &mut parsed {
+            trade.ts_init = trade.ts_event;
+        }
+        Ok(parsed)
+    }
+
     /// Requests bar (kline/candlestick) data.
     ///
     /// # Errors
     ///
     /// Returns an error if the bar type is not supported, instrument is not cached,
     /// or the request fails.
-    pub async fn request_bars(
+    pub async fn request_binance_bars(
         &self,
         bar_type: BarType,
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
         limit: Option<u32>,
-    ) -> anyhow::Result<Vec<Bar>> {
+    ) -> anyhow::Result<Vec<crate::common::bar::BinanceBar>> {
         anyhow::ensure!(
             bar_type.aggregation_source() == AggregationSource::External,
             "Only EXTERNAL aggregation is supported"
@@ -1636,8 +1710,9 @@ impl BinanceSpotHttpClient {
         let spec = bar_type.spec();
         let step = spec.step.get();
         let interval = match spec.aggregation {
+            BarAggregation::Second if step == 1 => "1s".to_string(),
             BarAggregation::Second => {
-                anyhow::bail!("Binance Spot does not support second-level kline intervals")
+                anyhow::bail!("Binance Spot supports only the 1s kline interval")
             }
             BarAggregation::Minute => format!("{step}m"),
             BarAggregation::Hour => format!("{step}h"),
@@ -1650,8 +1725,6 @@ impl BinanceSpotHttpClient {
         let instrument_id = bar_type.instrument_id();
         let symbol = instrument_id.symbol;
         let instrument = self.instrument_from_cache_by_id(instrument_id)?;
-        let ts_init = self.generate_ts_init();
-
         let klines = self
             .inner
             .klines(
@@ -1664,7 +1737,114 @@ impl BinanceSpotHttpClient {
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        parse_klines_to_bars(&klines, bar_type, &instrument, ts_init)
+        let mut bars =
+            parse_klines_to_binance_bars(&klines, bar_type, &instrument, UnixNanos::default())?;
+        let now = self.clock.get_time_ns();
+        bars.retain(|bar| bar.ts_event < now);
+        for bar in &mut bars {
+            bar.ts_init = bar.ts_event;
+        }
+        Ok(bars)
+    }
+
+    /// Requests core bars for an instrument.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bar type is unsupported or the request fails.
+    pub async fn request_bars(
+        &self,
+        bar_type: BarType,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<Vec<Bar>> {
+        Ok(self
+            .request_binance_bars(bar_type, start, end, limit)
+            .await?
+            .into_iter()
+            .map(|bar| bar.bar())
+            .collect())
+    }
+
+    /// Requests an explicit L2 order-book snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid depth, missing instrument, request failure, or invalid level.
+    pub async fn request_book_snapshot(
+        &self,
+        instrument_id: InstrumentId,
+        depth: Option<u32>,
+    ) -> anyhow::Result<OrderBook> {
+        if depth.is_some_and(|value| value == 0 || value > 5000) {
+            anyhow::bail!("Binance Spot order-book depth must be between 1 and 5000");
+        }
+        let instrument = self.instrument_from_cache_by_id(instrument_id)?;
+        let params = DepthParams {
+            symbol: instrument_id.symbol.to_string(),
+            limit: depth,
+        };
+        let snapshot = self.inner.depth(&params).await?;
+        let ts_event = self.generate_ts_init();
+        Self::parse_book_snapshot_response(instrument_id, &instrument, &snapshot, ts_event)
+    }
+
+    fn parse_book_snapshot_response(
+        instrument_id: InstrumentId,
+        instrument: &InstrumentAny,
+        snapshot: &BinanceDepth,
+        ts_event: UnixNanos,
+    ) -> anyhow::Result<OrderBook> {
+        let sequence = u64::try_from(snapshot.last_update_id)
+            .map_err(|_| anyhow::anyhow!("invalid negative order-book update ID"))?;
+        let mut book = OrderBook::new(instrument_id, BookType::L2_MBP);
+        let mut add_level = |level: &super::models::BinancePriceLevel,
+                             side: OrderSide,
+                             order_id: usize,
+                             name: &str|
+         -> anyhow::Result<()> {
+            let price = Price::from_mantissa_exponent_checked(
+                level.price_mantissa,
+                snapshot.price_exponent,
+                instrument.price_precision(),
+            )
+            .map_err(|e| anyhow::anyhow!("invalid {name} price: {e}"))?;
+            anyhow::ensure!(price.is_positive(), "invalid non-positive {name} price");
+            let qty_mantissa = u64::try_from(level.qty_mantissa)
+                .map_err(|_| anyhow::anyhow!("invalid negative {name} quantity"))?;
+            let quantity = Quantity::from_mantissa_exponent_checked(
+                qty_mantissa,
+                snapshot.qty_exponent,
+                instrument.size_precision(),
+            )
+            .map_err(|e| anyhow::anyhow!("invalid {name} quantity: {e}"))?;
+            anyhow::ensure!(
+                quantity.is_positive(),
+                "invalid non-positive {name} quantity"
+            );
+            let order = BookOrder::new(
+                side,
+                price,
+                quantity,
+                u64::try_from(order_id)
+                    .map_err(|_| anyhow::anyhow!("order-book level index overflow"))?,
+            );
+            book.add(order, 0, sequence, ts_event);
+            Ok(())
+        };
+
+        for (index, level) in snapshot.bids.iter().enumerate() {
+            add_level(level, OrderSide::Buy, index, "bid")?;
+        }
+        let bid_count = snapshot.bids.len();
+        for (index, level) in snapshot.asks.iter().enumerate() {
+            let order_id = bid_count
+                .checked_add(index)
+                .ok_or_else(|| anyhow::anyhow!("order-book level index overflow"))?;
+            add_level(level, OrderSide::Sell, order_id, "ask")?;
+        }
+        Ok(book)
     }
 
     fn instrument_from_cache_by_id(
@@ -2200,9 +2380,11 @@ impl BinanceSpotHttpClient {
 
 #[cfg(test)]
 mod tests {
+    use nautilus_model::instruments::stubs::currency_pair_btcusdt;
     use rstest::rstest;
 
     use super::*;
+    use crate::spot::http::models::BinancePriceLevel;
 
     #[rstest]
     fn test_schema_constants() {
@@ -2215,6 +2397,53 @@ mod tests {
     #[rstest]
     fn test_sbe_schema_header() {
         assert_eq!(SBE_SCHEMA_HEADER, "3:5");
+    }
+
+    #[rstest]
+    fn test_parse_book_snapshot_response_rejects_negative_update_id() {
+        let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
+        let snapshot = BinanceDepth {
+            last_update_id: -1,
+            price_exponent: -2,
+            qty_exponent: -5,
+            bids: vec![],
+            asks: vec![],
+        };
+
+        let error = BinanceSpotHttpClient::parse_book_snapshot_response(
+            InstrumentId::from("BTCUSDT.BINANCE"),
+            &instrument,
+            &snapshot,
+            UnixNanos::from(1_700_000_000_000_000_001u64),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "invalid negative order-book update ID");
+    }
+
+    #[rstest]
+    fn test_parse_book_snapshot_response_rejects_negative_quantity() {
+        let instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
+        let snapshot = BinanceDepth {
+            last_update_id: 12345,
+            price_exponent: -2,
+            qty_exponent: -5,
+            bids: vec![BinancePriceLevel {
+                price_mantissa: 4_200_001,
+                qty_mantissa: -1,
+            }],
+            asks: vec![],
+        };
+
+        let error = BinanceSpotHttpClient::parse_book_snapshot_response(
+            InstrumentId::from("BTCUSDT.BINANCE"),
+            &instrument,
+            &snapshot,
+            UnixNanos::from(1_700_000_000_000_000_001u64),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "invalid negative bid quantity");
     }
 
     #[rstest]
@@ -2244,5 +2473,52 @@ mod tests {
         };
 
         assert!(BinanceRawSpotHttpClient::quota_from(&quota).is_none());
+    }
+
+    fn create_test_raw_client() -> BinanceRawSpotHttpClient {
+        BinanceRawSpotHttpClient::new(
+            BinanceEnvironment::Live,
+            None,
+            None,
+            Some("http://127.0.0.1:1".to_string()),
+            None,
+            Some(1),
+            None,
+        )
+        .unwrap()
+    }
+
+    #[rstest]
+    #[case::limit(
+        AggTradesParams {
+            symbol: "BTCUSDT".to_string(),
+            from_id: None,
+            start_time: None,
+            end_time: None,
+            limit: Some(1001),
+        },
+        "Validation error: aggregate trade limit must not exceed 1000"
+    )]
+    #[case::bounds(
+        AggTradesParams {
+            symbol: "BTCUSDT".to_string(),
+            from_id: None,
+            start_time: Some(2000),
+            end_time: Some(1000),
+            limit: Some(1000),
+        },
+        "Validation error: aggregate trade startTime must not exceed endTime"
+    )]
+    #[tokio::test]
+    async fn test_agg_trades_rejects_invalid_bounds(
+        #[case] params: AggTradesParams,
+        #[case] expected: &str,
+    ) {
+        let error = create_test_raw_client()
+            .agg_trades(&params)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), expected);
     }
 }

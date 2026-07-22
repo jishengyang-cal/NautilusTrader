@@ -66,9 +66,10 @@ multi-client ID routing pattern.
 
 The integration includes several custom data types:
 
+- `BinanceSpotTicker`: Spot 24-hour ticker data including prices, volumes, and trade statistics.
 - `BinanceFuturesTicker`: Futures 24-hour ticker data including price and statistics.
 - `BinanceBar`: Bar data with additional volume metrics for historical and real-time use.
-- `BinanceFuturesMarkPriceUpdate`: Mark price updates for Binance Futures.
+- `BinanceFuturesMarkPriceUpdate`: Futures mark data including the estimated settlement price.
 - `BinanceFuturesLiquidation`: Futures liquidation events from the `forceOrder` stream.
 
 See the Binance [API Reference](/docs/python-api-latest/adapters/binance.html) for full definitions.
@@ -487,9 +488,16 @@ available rate:
 - **Spot JSON diff depth**: 100ms
 - **Futures**: 0ms (unthrottled)
 
-Only one order book per instrument per trader instance is supported. When
-stream subscriptions vary, the Binance data client uses the latest order book
-data subscription (deltas or snapshots).
+`L1_MBP` subscriptions require depth 1 and use the Spot `bestBidAsk` or `bookTicker`
+stream and the Futures `bookTicker` stream. Each update emits the normal `QuoteTick`
+and a two-sided `OrderBookDeltas` batch with `F_MBP` flags so a managed L1 book receives
+the same top-of-book state. Quote and L1 subscriptions share the venue stream through
+reference counting. The client rejects concurrent L1 and L2 subscriptions for the same
+instrument.
+
+Explicit order-book snapshot requests are supported separately from subscription
+synchronization. Spot accepts depths from 1 through 5000. Futures accepts 5, 10, 20,
+50, 100, 500, or 1000.
 
 Order book snapshot rebuilds will be triggered on:
 
@@ -514,9 +522,31 @@ self-contained top-N snapshots. See [Spot market data mode](#spot-market-data-mo
 
 ## Binance data differences
 
-The `ts_event` field on `QuoteTick` differs between Spot and Futures. Spot
-does not provide an event timestamp, so the adapter uses `ts_init` (meaning
-`ts_event` and `ts_init` are identical).
+The `ts_event` field on `QuoteTick` differs between transports. Spot SBE uses the
+microsecond event timestamp. Spot public JSON `bookTicker` messages can omit an event
+timestamp, in which case the adapter uses `ts_init`. Futures uses the transaction time.
+
+## Bars and historical market data
+
+Spot supports one-second klines for subscriptions and historical requests. Real-time
+Spot kline subscriptions require `spot_market_data_mode=Json` because Binance does not
+publish kline or ticker streams over Spot SBE. Binance Futures rejects second-level
+klines because the Futures API does not offer them.
+
+Closed venue klines emit a core `Bar` and a `BinanceBar` custom-data event. `BinanceBar`
+retains quote volume, trade count, taker-buy base volume, and taker-buy quote volume.
+Historical core bar requests return `Bar`; request `BinanceBar` custom data with
+`bar_type` metadata to retain the extended fields in historical responses.
+
+Historical trade requests without bounds use the recent-trades endpoint. A request with
+time bounds uses aggregate trades and accepts at most 1000 records. Spot passes the
+supplied bounds to `/api/v3/aggTrades`. Futures accepts either bound within the last 24
+hours; when both are supplied, the range must be shorter than one hour.
+
+Historical core bar requests accept externally aggregated time bars and use the corresponding
+venue kline endpoint. Internally aggregated bars are built by the `DataEngine` from raw trade,
+quote, or source-bar responses through the `bar_types` request parameter; the Binance data client
+does not aggregate them.
 
 ## Binance specific data
 
@@ -528,10 +558,30 @@ normal way via the Rust adapter. The custom data subscriptions below are for
 the Python adapter.
 :::
 
-Binance USD-M mark-price payloads may include an `ap` moving-average field. The Rust
-adapter parses this raw venue field but does not emit it as domain data or
-Binance custom data; Nautilus mark-price subscriptions emit mark, index, and
-funding-rate updates from the same stream.
+Binance Futures mark-price payloads preserve the venue `P` estimated settlement price in
+`BinanceFuturesMarkPriceUpdate`. Nautilus also emits standard mark-price, index-price, and
+funding-rate updates from the same stream. The optional USD-M `ap` moving-average field is
+parsed at the transport boundary but is not exposed as domain or custom data.
+
+### `BinanceSpotTicker`
+
+Spot 24-hour ticker custom data requires public JSON market-data mode and an
+`instrument_id` metadata value:
+
+```python
+from nautilus_trader.core import nautilus_pyo3 as pyo3
+
+self.subscribe_data(
+    data_type=pyo3.DataType(
+        "BinanceSpotTicker",
+        {"instrument_id": "BTCUSDT.BINANCE"},
+    ),
+    client_id=pyo3.ClientId.from_str("BINANCE"),
+)
+```
+
+The adapter subscribes to the instrument `@ticker` stream. SBE mode rejects this
+subscription because Binance Spot SBE does not provide the stream.
 
 ### `BinanceFuturesTicker`
 

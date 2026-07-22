@@ -80,6 +80,32 @@ pub struct BinanceFuturesTrade {
     pub is_buyer_maker: bool,
 }
 
+/// Aggregate public trade from `GET /fapi/v1/aggTrades` or `GET /dapi/v1/aggTrades`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BinanceFuturesAggTrade {
+    /// Aggregate trade ID.
+    #[serde(rename = "a")]
+    pub id: i64,
+    /// Trade price.
+    #[serde(rename = "p")]
+    pub price: String,
+    /// Trade quantity.
+    #[serde(rename = "q")]
+    pub qty: String,
+    /// First raw trade ID represented by this aggregate.
+    #[serde(rename = "f")]
+    pub first_trade_id: i64,
+    /// Last raw trade ID represented by this aggregate.
+    #[serde(rename = "l")]
+    pub last_trade_id: i64,
+    /// Trade timestamp in milliseconds.
+    #[serde(rename = "T")]
+    pub time: i64,
+    /// Whether the buyer is the maker.
+    #[serde(rename = "m")]
+    pub is_buyer_maker: bool,
+}
+
 /// Kline/candlestick data from `GET /fapi/v1/klines`.
 #[derive(Clone, Debug)]
 pub struct BinanceFuturesKline {

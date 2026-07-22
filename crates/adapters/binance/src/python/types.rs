@@ -36,8 +36,9 @@ use rust_decimal::Decimal;
 use crate::{
     common::bar::BinanceBar,
     data_types::{
-        BinanceFuturesLiquidation, BinanceFuturesOpenInterest, BinanceFuturesOpenInterestHist,
-        BinanceFuturesOpenInterestHistPoint, BinanceFuturesTicker,
+        BinanceFuturesLiquidation, BinanceFuturesMarkPriceUpdate, BinanceFuturesOpenInterest,
+        BinanceFuturesOpenInterestHist, BinanceFuturesOpenInterestHistPoint, BinanceFuturesTicker,
+        BinanceSpotTicker,
     },
 };
 
@@ -349,6 +350,140 @@ impl BinanceFuturesTicker {
     #[getter]
     #[pyo3(name = "ts_init")]
     fn py_ts_init(&self) -> u64 {
+        self.ts_init.as_u64()
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl BinanceSpotTicker {
+    #[getter]
+    fn instrument_id(&self) -> InstrumentId {
+        self.instrument_id
+    }
+    #[getter]
+    fn price_change(&self) -> Decimal {
+        self.price_change
+    }
+    #[getter]
+    fn price_change_percent(&self) -> Decimal {
+        self.price_change_percent
+    }
+    #[getter]
+    fn weighted_avg_price(&self) -> Decimal {
+        self.weighted_avg_price
+    }
+    #[getter]
+    fn prev_close_price(&self) -> Decimal {
+        self.prev_close_price
+    }
+    #[getter]
+    fn last_price(&self) -> Decimal {
+        self.last_price
+    }
+    #[getter]
+    fn last_qty(&self) -> Decimal {
+        self.last_qty
+    }
+    #[getter]
+    fn bid_price(&self) -> Decimal {
+        self.bid_price
+    }
+    #[getter]
+    fn bid_qty(&self) -> Decimal {
+        self.bid_qty
+    }
+    #[getter]
+    fn ask_price(&self) -> Decimal {
+        self.ask_price
+    }
+    #[getter]
+    fn ask_qty(&self) -> Decimal {
+        self.ask_qty
+    }
+    #[getter]
+    fn open_price(&self) -> Decimal {
+        self.open_price
+    }
+    #[getter]
+    fn high_price(&self) -> Decimal {
+        self.high_price
+    }
+    #[getter]
+    fn low_price(&self) -> Decimal {
+        self.low_price
+    }
+    #[getter]
+    fn volume(&self) -> Decimal {
+        self.volume
+    }
+    #[getter]
+    fn quote_volume(&self) -> Decimal {
+        self.quote_volume
+    }
+    #[getter]
+    fn open_time(&self) -> u64 {
+        self.open_time.as_u64()
+    }
+    #[getter]
+    fn close_time(&self) -> u64 {
+        self.close_time.as_u64()
+    }
+    #[getter]
+    fn first_trade_id(&self) -> i64 {
+        self.first_trade_id
+    }
+    #[getter]
+    fn last_trade_id(&self) -> i64 {
+        self.last_trade_id
+    }
+    #[getter]
+    fn num_trades(&self) -> i64 {
+        self.num_trades
+    }
+    #[getter]
+    fn ts_event(&self) -> u64 {
+        self.ts_event.as_u64()
+    }
+    #[getter]
+    fn ts_init(&self) -> u64 {
+        self.ts_init.as_u64()
+    }
+}
+
+#[pymethods]
+#[pyo3_stub_gen::derive::gen_stub_pymethods]
+impl BinanceFuturesMarkPriceUpdate {
+    #[getter]
+    fn instrument_id(&self) -> InstrumentId {
+        self.instrument_id
+    }
+    #[getter]
+    fn mark_price(&self) -> Price {
+        self.mark_price
+    }
+    #[getter]
+    fn index_price(&self) -> Price {
+        self.index_price
+    }
+    #[getter]
+    fn estimated_settle_price(&self) -> Price {
+        self.estimated_settle_price
+    }
+    #[getter]
+    fn funding_rate(&self) -> Decimal {
+        self.funding_rate
+    }
+    #[getter]
+    fn next_funding_time(&self) -> Option<u64> {
+        self.next_funding_time.map(|time| time.as_u64())
+    }
+    #[getter]
+    fn ts_event(&self) -> u64 {
+        self.ts_event.as_u64()
+    }
+    #[getter]
+    fn ts_init(&self) -> u64 {
         self.ts_init.as_u64()
     }
 }

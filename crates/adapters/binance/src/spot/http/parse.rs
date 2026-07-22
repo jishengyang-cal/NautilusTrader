@@ -21,10 +21,11 @@
 use super::{
     error::SbeDecodeError,
     models::{
-        BinanceAccountInfo, BinanceAccountTrade, BinanceBalance, BinanceCancelOrderResponse,
-        BinanceDepth, BinanceExchangeInfoSbe, BinanceKline, BinanceKlines, BinanceLotSizeFilterSbe,
-        BinanceNewOrderResponse, BinanceOrderFill, BinanceOrderResponse, BinancePriceFilterSbe,
-        BinancePriceLevel, BinanceSymbolFiltersSbe, BinanceSymbolSbe, BinanceTrade, BinanceTrades,
+        BinanceAccountInfo, BinanceAccountTrade, BinanceAggTrade, BinanceAggTrades, BinanceBalance,
+        BinanceCancelOrderResponse, BinanceDepth, BinanceExchangeInfoSbe, BinanceKline,
+        BinanceKlines, BinanceLotSizeFilterSbe, BinanceNewOrderResponse, BinanceOrderFill,
+        BinanceOrderResponse, BinancePriceFilterSbe, BinancePriceLevel, BinanceSymbolFiltersSbe,
+        BinanceSymbolSbe, BinanceTrade, BinanceTrades,
     },
 };
 use crate::spot::sbe::{
@@ -32,7 +33,8 @@ use crate::spot::sbe::{
     spot::{
         SBE_SCHEMA_ID, account_response_codec::SBE_TEMPLATE_ID as ACCOUNT_TEMPLATE_ID,
         account_trades_response_codec::SBE_TEMPLATE_ID as ACCOUNT_TRADES_TEMPLATE_ID,
-        account_type::AccountType, bool_enum::BoolEnum,
+        account_type::AccountType,
+        agg_trades_response_codec::SBE_TEMPLATE_ID as AGG_TRADES_TEMPLATE_ID, bool_enum::BoolEnum,
         cancel_open_orders_response_codec::SBE_TEMPLATE_ID as CANCEL_OPEN_ORDERS_TEMPLATE_ID,
         cancel_order_response_codec::SBE_TEMPLATE_ID as CANCEL_ORDER_TEMPLATE_ID,
         depth_response_codec::SBE_TEMPLATE_ID as DEPTH_TEMPLATE_ID,
@@ -217,6 +219,43 @@ pub fn decode_trades(buf: &[u8]) -> Result<BinanceTrades, SbeDecodeError> {
     })?;
 
     Ok(BinanceTrades {
+        price_exponent,
+        qty_exponent,
+        trades,
+    })
+}
+
+/// Decodes an aggregate trades response.
+///
+/// # Errors
+///
+/// Returns an error for an invalid header, template, or group payload.
+pub fn decode_agg_trades(buf: &[u8]) -> Result<BinanceAggTrades, SbeDecodeError> {
+    let mut cursor = SbeCursor::new(buf);
+    let header = MessageHeader::decode_cursor(&mut cursor)?;
+    header.validate()?;
+
+    if header.template_id != AGG_TRADES_TEMPLATE_ID {
+        return Err(SbeDecodeError::UnknownTemplateId(header.template_id));
+    }
+
+    let price_exponent = cursor.read_i8()?;
+    let qty_exponent = cursor.read_i8()?;
+    let (block_len, count) = cursor.read_group_header()?;
+    let trades = cursor.read_group(block_len, count, |c| {
+        Ok(BinanceAggTrade {
+            id: c.read_i64_le()?,
+            price_mantissa: c.read_i64_le()?,
+            qty_mantissa: c.read_i64_le()?,
+            first_trade_id: c.read_i64_le()?,
+            last_trade_id: c.read_i64_le()?,
+            time: c.read_i64_le()?,
+            is_buyer_maker: BoolEnum::from(c.read_u8()?) == BoolEnum::True,
+            is_best_match: BoolEnum::from(c.read_u8()?) == BoolEnum::True,
+        })
+    })?;
+
+    Ok(BinanceAggTrades {
         price_exponent,
         qty_exponent,
         trades,
@@ -1351,6 +1390,50 @@ mod tests {
         let trades = decode_trades(&buf).unwrap();
 
         assert!(trades.trades.is_empty());
+    }
+
+    #[rstest]
+    fn test_decode_agg_trades_preserves_all_fields() {
+        let header = create_header(2, AGG_TRADES_TEMPLATE_ID, SBE_SCHEMA_ID, SBE_SCHEMA_VERSION);
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header);
+        buf.push((-7_i8) as u8);
+        buf.push((-5_i8) as u8);
+        buf.extend_from_slice(&create_group_header(50, 1));
+        buf.extend_from_slice(&101_i64.to_le_bytes());
+        buf.extend_from_slice(&123_456_789_i64.to_le_bytes());
+        buf.extend_from_slice(&765_432_i64.to_le_bytes());
+        buf.extend_from_slice(&201_i64.to_le_bytes());
+        buf.extend_from_slice(&207_i64.to_le_bytes());
+        buf.extend_from_slice(&1_700_000_000_123_i64.to_le_bytes());
+        buf.push(1);
+        buf.push(0);
+
+        let trades = decode_agg_trades(&buf).unwrap();
+
+        assert_eq!(trades.price_exponent, -7);
+        assert_eq!(trades.qty_exponent, -5);
+        assert_eq!(trades.trades.len(), 1);
+        assert_eq!(trades.trades[0].id, 101);
+        assert_eq!(trades.trades[0].price_mantissa, 123_456_789);
+        assert_eq!(trades.trades[0].qty_mantissa, 765_432);
+        assert_eq!(trades.trades[0].first_trade_id, 201);
+        assert_eq!(trades.trades[0].last_trade_id, 207);
+        assert_eq!(trades.trades[0].time, 1_700_000_000_123);
+        assert!(trades.trades[0].is_buyer_maker);
+        assert!(!trades.trades[0].is_best_match);
+    }
+
+    #[rstest]
+    fn test_decode_agg_trades_rejects_wrong_template() {
+        let header = create_header(2, PING_TEMPLATE_ID, SBE_SCHEMA_ID, SBE_SCHEMA_VERSION);
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header);
+        buf.extend_from_slice(&[0_u8; 2]);
+
+        let error = decode_agg_trades(&buf).unwrap_err();
+
+        assert!(matches!(error, SbeDecodeError::UnknownTemplateId(101)));
     }
 
     #[rstest]
