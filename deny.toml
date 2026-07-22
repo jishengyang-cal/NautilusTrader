@@ -44,11 +44,6 @@ ignore = [
   # TODO: Monitor https://github.com/enviodev/hypersync-client-rust for capnp update
   { id = "RUSTSEC-2025-0143", reason = "capnp unsound APIs, transitive via hypersync-client, awaiting upstream fix" },
 
-  # proc-macro-error2 unmaintained, transitive via alloy and tabled_derive.
-  # No patched version is available; not a vulnerability.
-  # TODO: Monitor upstream alloy and tabled releases for migration away from proc-macro-error2
-  { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained via alloy and tabled_derive; no patch" },
-
   # quick-xml duplicate-attribute check DoS, transitive via object_store 0.13.2.
   # object_store has no release that depends on quick-xml >= 0.41.0.
   # TODO: Remove when the DataFusion-aligned object_store release depends on quick-xml >= 0.41.0
@@ -202,7 +197,6 @@ skip = [
   { crate = "hashbrown" },
   { crate = "itertools" },
   { crate = "foldhash" },
-  { crate = "rustc-hash" },
   { crate = "petgraph" },
   { crate = "socket2" },
 

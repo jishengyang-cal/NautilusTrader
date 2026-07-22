@@ -52,10 +52,6 @@ id = "RUSTSEC-2025-0141"
 reason = "bincode unmaintained, transitive via hypersync-client (not a security vulnerability)"
 
 [[IgnoredVulns]]
-id = "RUSTSEC-2026-0173"
-reason = "proc-macro-error2 unmaintained via alloy and tabled_derive; no patch available"
-
-[[IgnoredVulns]]
 id = "RUSTSEC-2026-0194"
 reason = "quick-xml DoS via object_store 0.13.2; no fixed object_store release"
 
