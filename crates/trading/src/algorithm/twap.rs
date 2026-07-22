@@ -84,6 +84,7 @@ impl TwapAlgorithm {
         if core.clock_mut().timer_names().contains(&timer_name) {
             core.clock_mut().cancel_timer(timer_name);
         }
+        core.remove_submit_params(&primary_id);
         self.scheduled_sizes.remove(&primary_id);
         log::info!("Completed TWAP execution for {primary_id}");
     }
@@ -203,6 +204,7 @@ nautilus_execution_algorithm!(TwapAlgorithm, {
                 "Submitting for entire size: qty_per_interval={qty_per_interval}, order_quantity={total_qty}"
             );
             self.submit_order(order, None, None)?;
+            self.complete_sequence(primary_id);
             return Ok(());
         }
 
@@ -213,6 +215,7 @@ nautilus_execution_algorithm!(TwapAlgorithm, {
                 "Submitting for entire size: qty_per_interval={qty_per_interval} < min_quantity={min_qty}"
             );
             self.submit_order(order, None, None)?;
+            self.complete_sequence(primary_id);
             return Ok(());
         }
 
@@ -371,8 +374,10 @@ mod tests {
         clock::{Clock, TestClock},
         component::Component,
         enums::ComponentTrigger,
+        messages::execution::{SubmitOrder, TradingCommand},
+        msgbus::{self, MessagingSwitchboard},
     };
-    use nautilus_core::UUID4;
+    use nautilus_core::{Params, UUID4};
     use nautilus_model::{
         enums::{OrderSide, TimeInForce},
         events::{OrderEventAny, order::spec::OrderCanceledSpec},
@@ -733,6 +738,13 @@ mod tests {
 
         let order = create_market_order_with_params_and_qty(params, Quantity::from("1.2"));
         let primary_id = order.client_order_id();
+        let mut submit_params = Params::new();
+        submit_params.insert(
+            "routing_profile".to_string(),
+            serde_json::Value::String("intermediate-slice".to_string()),
+        );
+        algo.core
+            .remember_submit_params(primary_id, Some(submit_params.clone()));
 
         algo.on_order(order).unwrap();
 
@@ -745,6 +757,7 @@ mod tests {
 
         // One slice consumed
         assert_eq!(algo.scheduled_sizes.get(&primary_id).unwrap().len(), 1);
+        assert_eq!(algo.core.submit_params(&primary_id), Some(submit_params));
     }
 
     #[rstest]
@@ -785,9 +798,34 @@ mod tests {
 
         let order = create_market_order_with_params(params);
         let primary_id = order.client_order_id();
+        let mut submit_params = Params::new();
+        submit_params.insert(
+            "routing_profile".to_string(),
+            serde_json::Value::String("final-slice".to_string()),
+        );
+        algo.core
+            .remember_submit_params(primary_id, Some(submit_params.clone()));
 
         algo.on_order(order).unwrap();
         assert_eq!(algo.scheduled_sizes.get(&primary_id).unwrap().len(), 1);
+        assert_eq!(
+            algo.core.submit_params(&primary_id),
+            Some(submit_params.clone())
+        );
+
+        let received = Rc::new(RefCell::new(None::<SubmitOrder>));
+        let handler = msgbus::TypedIntoHandler::from({
+            let captured = received.clone();
+            move |cmd: TradingCommand| {
+                if let TradingCommand::SubmitOrder(cmd) = cmd {
+                    *captured.borrow_mut() = Some(cmd);
+                }
+            }
+        });
+        msgbus::register_trading_command_endpoint(
+            MessagingSwitchboard::risk_engine_execute(),
+            handler,
+        );
 
         // Simulate timer firing for final slice
         let event = TimeEvent::new(primary_id.inner(), UUID4::new(), 0.into(), 0.into());
@@ -795,6 +833,14 @@ mod tests {
 
         // Sequence completed, scheduled_sizes removed
         assert!(algo.scheduled_sizes.get(&primary_id).is_none());
+        assert_eq!(
+            received
+                .borrow()
+                .as_ref()
+                .and_then(|cmd| cmd.params.clone()),
+            Some(submit_params),
+        );
+        assert_eq!(algo.core.submit_params(&primary_id), None);
     }
 
     #[rstest]
@@ -810,6 +856,13 @@ mod tests {
 
         let order = create_market_order_with_params_and_qty(params, Quantity::from("1.2"));
         let primary_id = order.client_order_id();
+        let mut submit_params = Params::new();
+        submit_params.insert(
+            "routing_profile".to_string(),
+            serde_json::Value::String("closed-primary".to_string()),
+        );
+        algo.core
+            .remember_submit_params(primary_id, Some(submit_params));
 
         algo.on_order(order).unwrap();
         assert_eq!(algo.scheduled_sizes.get(&primary_id).unwrap().len(), 2);
@@ -837,6 +890,7 @@ mod tests {
 
         // Sequence should complete early since primary is closed
         assert!(algo.scheduled_sizes.get(&primary_id).is_none());
+        assert_eq!(algo.core.submit_params(&primary_id), None);
     }
 
     #[rstest]
@@ -940,10 +994,55 @@ mod tests {
         ));
 
         let primary_id = order.client_order_id();
+        let mut submit_params = Params::new();
+        submit_params.insert(
+            "routing_profile".to_string(),
+            serde_json::Value::String("whole-size".to_string()),
+        );
+        algo.core
+            .remember_submit_params(primary_id, Some(submit_params));
         algo.on_order(order).unwrap();
 
         // Should submit entire size directly (no scheduling)
         assert!(algo.scheduled_sizes.get(&primary_id).is_none());
+        assert_eq!(algo.core.submit_params(&primary_id), None);
+    }
+
+    #[rstest]
+    fn test_twap_submits_entire_size_when_qty_per_interval_below_min_quantity() {
+        use nautilus_model::instruments::{InstrumentAny, stubs::crypto_perpetual_ethusdt};
+
+        let mut algo = create_twap_algorithm();
+        register_algorithm(&mut algo);
+
+        let mut instrument = crypto_perpetual_ethusdt();
+        instrument.min_quantity = Some(Quantity::from("0.5"));
+        {
+            let cache_rc = algo.core.cache_rc();
+            let mut cache = cache_rc.borrow_mut();
+            cache
+                .add_instrument(InstrumentAny::CryptoPerpetual(instrument))
+                .unwrap();
+        }
+
+        let mut params = IndexMap::new();
+        params.insert(Ustr::from("horizon_secs"), Ustr::from("60"));
+        params.insert(Ustr::from("interval_secs"), Ustr::from("20"));
+
+        let order = create_market_order_with_params_and_qty(params, Quantity::from("1.2"));
+        let primary_id = order.client_order_id();
+        let mut submit_params = Params::new();
+        submit_params.insert(
+            "routing_profile".to_string(),
+            serde_json::Value::String("minimum-quantity".to_string()),
+        );
+        algo.core
+            .remember_submit_params(primary_id, Some(submit_params));
+
+        algo.on_order(order).unwrap();
+
+        assert!(algo.scheduled_sizes.get(&primary_id).is_none());
+        assert_eq!(algo.core.submit_params(&primary_id), None);
     }
 
     #[rstest]

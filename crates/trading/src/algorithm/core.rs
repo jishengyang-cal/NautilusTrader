@@ -275,6 +275,11 @@ impl ExecutionAlgorithmCore {
         self.submit_params.get(primary_id).cloned()
     }
 
+    /// Removes the stored submit command params for a primary order.
+    pub fn remove_submit_params(&mut self, primary_id: &ClientOrderId) {
+        self.submit_params.remove(primary_id);
+    }
+
     /// Clears all stored submit command params.
     pub fn clear_submit_params(&mut self) {
         self.submit_params.clear();
@@ -434,6 +439,31 @@ mod tests {
 
         core.clear_spawn_ids();
         assert!(core.spawn_sequence(&primary_id).is_none());
+    }
+
+    #[rstest]
+    fn test_remove_submit_params_only_removes_requested_primary() {
+        let config = create_test_config();
+        let mut core = ExecutionAlgorithmCore::new(config);
+        let primary1 = ClientOrderId::new("O-001");
+        let primary2 = ClientOrderId::new("O-002");
+        let mut params1 = Params::new();
+        params1.insert(
+            "route".to_string(),
+            serde_json::Value::String("A".to_string()),
+        );
+        let mut params2 = Params::new();
+        params2.insert(
+            "route".to_string(),
+            serde_json::Value::String("B".to_string()),
+        );
+
+        core.remember_submit_params(primary1, Some(params1));
+        core.remember_submit_params(primary2, Some(params2.clone()));
+        core.remove_submit_params(&primary1);
+
+        assert_eq!(core.submit_params(&primary1), None);
+        assert_eq!(core.submit_params(&primary2), Some(params2));
     }
 
     #[rstest]
