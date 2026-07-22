@@ -41,5 +41,6 @@ To contribute, follow these steps:
 - For documentation changes, follow the style guide in `docs/developer_guide/docs.md` (use sentence case for headings H2 and below).
 - For v2 PyO3 bindings or wrapped Rust docs, run `make py-stubs-v2` and commit the
   generated output. See [Generated Python artifacts](docs/developer_guide/rust.md#generated-python-artifacts).
+- Do not update `RELEASES.md` in a pull request. Maintainers keep it current to avoid frequent merge conflicts.
 - Keep PRs small and focused for easier review.
 - Reference the relevant GitHub issue(s) in your PR comment.

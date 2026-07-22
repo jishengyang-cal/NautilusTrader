@@ -31,10 +31,6 @@
 
 - [ ] Documentation changes follow the style guide (`docs/developer_guide/docs.md`)
 
-## Release notes
-
-- [ ] I added a concise entry to `RELEASES.md` that follows the existing conventions (when applicable)
-
 ## Testing
 
 **Ensure new or changed logic is covered by tests.**
