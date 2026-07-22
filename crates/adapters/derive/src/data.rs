@@ -101,7 +101,7 @@ pub struct DeriveDataClient {
     ws_client: DeriveWebSocketClient,
     is_connected: Arc<AtomicBool>,
     cancellation_token: CancellationToken,
-    ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
+    ws_stream_handle: Option<JoinHandle<()>>,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
     data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
     instruments: Arc<AtomicMap<InstrumentId, InstrumentAny>>,
@@ -155,7 +155,7 @@ impl DeriveDataClient {
             ws_client,
             is_connected: Arc::new(AtomicBool::new(false)),
             cancellation_token: CancellationToken::new(),
-            ws_stream_handle: Mutex::new(None),
+            ws_stream_handle: None,
             pending_tasks: Mutex::new(Vec::new()),
             data_sender,
             instruments: Arc::new(AtomicMap::new()),
@@ -222,7 +222,7 @@ impl DeriveDataClient {
         self.quote_cache.lock().expect(MUTEX_POISONED).clear();
     }
 
-    fn spawn_stream_task(&self, mut rx: tokio::sync::mpsc::UnboundedReceiver<DeriveWsMessage>) {
+    fn spawn_stream_task(&mut self, mut rx: tokio::sync::mpsc::UnboundedReceiver<DeriveWsMessage>) {
         let ctx = WsMessageContext {
             clock: self.clock,
             data_sender: self.data_sender.clone(),
@@ -267,8 +267,7 @@ impl DeriveDataClient {
             }
         });
 
-        let mut slot = self.ws_stream_handle.lock().expect(MUTEX_POISONED);
-        *slot = Some(handle);
+        self.ws_stream_handle = Some(handle);
     }
 
     fn handle_ws_message(message: DeriveWsMessage, ctx: &WsMessageContext) {
@@ -647,7 +646,7 @@ impl DataClient for DeriveDataClient {
 
         self.abort_pending_tasks();
 
-        if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).as_ref() {
+        if let Some(handle) = self.ws_stream_handle.as_ref() {
             handle.abort();
         }
 
@@ -683,7 +682,7 @@ impl DataClient for DeriveDataClient {
             if let Err(e) = self.ws_client.disconnect().await {
                 log::debug!("Error tearing down WebSocket on reconnect: {e}");
             }
-            let ws_handle = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take();
+            let ws_handle = self.ws_stream_handle.take();
             if let Some(handle) = ws_handle
                 && let Err(e) = handle.await
                 && !e.is_cancelled()
@@ -737,7 +736,7 @@ impl DataClient for DeriveDataClient {
         // Await the WS consumption loop so its sender is dropped before we
         // return; abort the request-handler tasks since they don't observe
         // the cancellation token and would otherwise outlive the client.
-        let ws_handle = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take();
+        let ws_handle = self.ws_stream_handle.take();
         if let Some(handle) = ws_handle
             && let Err(e) = handle.await
         {
@@ -2706,7 +2705,7 @@ mod tests {
             environment: DeriveEnvironment::Mainnet,
             ..Default::default()
         };
-        let client = DeriveDataClient::new(*DERIVE_CLIENT_ID, config).unwrap();
+        let mut client = DeriveDataClient::new(*DERIVE_CLIENT_ID, config).unwrap();
         let (ws_tx, ws_rx) = tokio::sync::mpsc::unbounded_channel();
         client.is_connected.store(true, Ordering::Release);
         client.spawn_stream_task(ws_rx);

@@ -21,7 +21,7 @@ impl InteractiveBrokersExecutionClient {
     /// # Errors
     ///
     /// Returns an error if starting the subscription fails.
-    pub(super) async fn start_order_updates(&self) -> anyhow::Result<()> {
+    pub(super) async fn start_order_updates(&mut self) -> anyhow::Result<()> {
         let client = self.ib_client.as_ref().context("IB client not connected")?;
 
         let timeout_dur = Duration::from_secs(self.config.request_timeout);
@@ -81,10 +81,7 @@ impl InteractiveBrokersExecutionClient {
             .await;
         });
 
-        self.order_update_handle
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Failed to lock order update handle"))?
-            .replace(handle);
+        self.order_update_handle.replace(handle);
 
         log::debug!("IB order update stream subscription started");
 

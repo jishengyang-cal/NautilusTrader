@@ -140,7 +140,7 @@ pub struct InteractiveBrokersExecutionClient {
     /// Serializes order submissions so TWS receives monotonically increasing order IDs.
     order_submit_lock: Arc<AsyncMutex<()>>,
     /// Order update subscription handle.
-    order_update_handle: Mutex<Option<JoinHandle<()>>>,
+    order_update_handle: Option<JoinHandle<()>>,
     /// Client order ID to venue order ID mapping.
     order_id_map: Arc<Mutex<AHashMap<ClientOrderId, i32>>>,
     /// Venue order ID to client order ID mapping.
@@ -299,7 +299,7 @@ impl InteractiveBrokersExecutionClient {
             pending_tasks: Mutex::new(Vec::new()),
             next_order_id: Arc::new(Mutex::new(0)),
             order_submit_lock: Arc::new(AsyncMutex::new(())),
-            order_update_handle: Mutex::new(None),
+            order_update_handle: None,
             order_id_map: Arc::new(Mutex::new(AHashMap::new())),
             venue_order_id_map: Arc::new(Mutex::new(AHashMap::new())),
             commission_cache: Arc::new(Mutex::new(CommissionCache::new())),
@@ -451,18 +451,13 @@ impl InteractiveBrokersExecutionClient {
     }
 
     /// Aborts all pending tasks.
-    fn abort_pending_tasks(&self) {
+    fn abort_pending_tasks(&mut self) {
         let mut tasks = self.pending_tasks.lock().expect(MUTEX_POISONED);
         for task in tasks.drain(..) {
             task.abort();
         }
 
-        if let Some(handle) = self
-            .order_update_handle
-            .lock()
-            .expect(MUTEX_POISONED)
-            .take()
-        {
+        if let Some(handle) = self.order_update_handle.take() {
             handle.abort();
         }
     }

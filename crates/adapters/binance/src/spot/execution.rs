@@ -128,10 +128,10 @@ pub struct BinanceSpotExecutionClient {
     dispatch_state: Arc<WsDispatchState>,
     http_client: BinanceSpotHttpClient,
     ws_trading_client: Option<BinanceSpotWsTradingClient>,
-    ws_trading_handle: Mutex<Option<JoinHandle<()>>>,
+    ws_trading_handle: Option<JoinHandle<()>>,
     ws_user_data_client: Option<BinanceSpotWsTradingClient>,
-    ws_user_data_handle: Mutex<Option<JoinHandle<()>>>,
-    listen_key_keepalive_handle: Mutex<Option<JoinHandle<()>>>,
+    ws_user_data_handle: Option<JoinHandle<()>>,
+    listen_key_keepalive_handle: Option<JoinHandle<()>>,
     listen_key: Option<String>,
     us_credentials: Option<(String, String)>,
     ws_authenticated: Arc<tokio::sync::Notify>,
@@ -206,10 +206,10 @@ impl BinanceSpotExecutionClient {
             dispatch_state: Arc::new(WsDispatchState::default()),
             http_client,
             ws_trading_client,
-            ws_trading_handle: Mutex::new(None),
+            ws_trading_handle: None,
             ws_user_data_client: None,
-            ws_user_data_handle: Mutex::new(None),
-            listen_key_keepalive_handle: Mutex::new(None),
+            ws_user_data_handle: None,
+            listen_key_keepalive_handle: None,
             listen_key: None,
             us_credentials,
             ws_authenticated: Arc::new(tokio::sync::Notify::new()),
@@ -247,8 +247,6 @@ impl BinanceSpotExecutionClient {
     fn ws_trading_active(&self) -> bool {
         let dispatch_running = self
             .ws_trading_handle
-            .lock()
-            .expect(MUTEX_POISONED)
             .as_ref()
             .is_some_and(|handle| !handle.is_finished());
 
@@ -536,7 +534,7 @@ impl BinanceSpotExecutionClient {
             "{reason}; entering Spot HTTP-only execution mode. Order commands use HTTP responses; execution reconciliation requires explicit queries until WS trading is re-enabled"
         );
 
-        if let Some(handle) = self.ws_trading_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_trading_handle.take() {
             handle.abort();
         }
         ws_trading.disconnect().await;
@@ -599,7 +597,7 @@ impl BinanceSpotExecutionClient {
             }
             log::warn!("Binance US user data dispatch loop ended");
         });
-        *self.ws_user_data_handle.lock().expect(MUTEX_POISONED) = Some(handle);
+        self.ws_user_data_handle = Some(handle);
 
         let keepalive_http = self.http_client.clone();
         let keepalive_key = listen_key.clone();
@@ -620,10 +618,7 @@ impl BinanceSpotExecutionClient {
                 }
             }
         });
-        *self
-            .listen_key_keepalive_handle
-            .lock()
-            .expect(MUTEX_POISONED) = Some(keepalive);
+        self.listen_key_keepalive_handle = Some(keepalive);
 
         self.listen_key = Some(listen_key);
         self.ws_user_data_client = Some(ws_user_data);
@@ -631,21 +626,11 @@ impl BinanceSpotExecutionClient {
     }
 
     async fn disconnect_us_user_data(&mut self) {
-        if let Some(handle) = self
-            .ws_user_data_handle
-            .lock()
-            .expect(MUTEX_POISONED)
-            .take()
-        {
+        if let Some(handle) = self.ws_user_data_handle.take() {
             handle.abort();
         }
 
-        if let Some(handle) = self
-            .listen_key_keepalive_handle
-            .lock()
-            .expect(MUTEX_POISONED)
-            .take()
-        {
+        if let Some(handle) = self.listen_key_keepalive_handle.take() {
             handle.abort();
         }
 
@@ -779,7 +764,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
                         }
                     });
 
-                    *self.ws_trading_handle.lock().expect(MUTEX_POISONED) = Some(handle);
+                    self.ws_trading_handle = Some(handle);
 
                     if let Err(e) = ws_trading.session_logon().await {
                         let reason = format!("WS session logon failed: {e}");
@@ -866,7 +851,7 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         }
 
         // Abort WS trading task and disconnect
-        if let Some(handle) = self.ws_trading_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_trading_handle.take() {
             handle.abort();
         }
 
@@ -986,25 +971,15 @@ impl ExecutionClient for BinanceSpotExecutionClient {
         }
 
         // Abort WS trading task
-        if let Some(handle) = self.ws_trading_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_trading_handle.take() {
             handle.abort();
         }
 
-        if let Some(handle) = self
-            .ws_user_data_handle
-            .lock()
-            .expect(MUTEX_POISONED)
-            .take()
-        {
+        if let Some(handle) = self.ws_user_data_handle.take() {
             handle.abort();
         }
 
-        if let Some(handle) = self
-            .listen_key_keepalive_handle
-            .lock()
-            .expect(MUTEX_POISONED)
-            .take()
-        {
+        if let Some(handle) = self.listen_key_keepalive_handle.take() {
             handle.abort();
         }
 

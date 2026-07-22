@@ -214,16 +214,16 @@ pub struct BinanceFuturesExecutionClient {
     http_client: BinanceFuturesHttpClient,
     ws_client: Arc<TokioMutex<Option<BinanceFuturesWebSocketClient>>>,
     ws_trading_client: Option<BinanceFuturesWsTradingClient>,
-    ws_trading_handle: Mutex<Option<JoinHandle<()>>>,
+    ws_trading_handle: Option<JoinHandle<()>>,
     listen_key: Arc<RwLock<Option<String>>>,
     cancellation_token: CancellationToken,
     triggered_algo_order_ids: Arc<AtomicSet<ClientOrderId>>,
     algo_client_order_ids: Arc<AtomicSet<ClientOrderId>>,
     ws_task: Arc<Mutex<Option<JoinHandle<()>>>>,
-    keepalive_task: Mutex<Option<JoinHandle<()>>>,
-    recovery_task: Mutex<Option<JoinHandle<()>>>,
+    keepalive_task: Option<JoinHandle<()>>,
+    recovery_task: Option<JoinHandle<()>>,
     recovery_lock: Arc<TokioMutex<()>>,
-    recovery_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<()>>>,
+    recovery_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
     is_hedge_mode: AtomicBool,
 }
@@ -316,16 +316,16 @@ impl BinanceFuturesExecutionClient {
             http_client,
             ws_client: Arc::new(TokioMutex::new(None)),
             ws_trading_client,
-            ws_trading_handle: Mutex::new(None),
+            ws_trading_handle: None,
             listen_key: Arc::new(RwLock::new(None)),
             cancellation_token: CancellationToken::new(),
             triggered_algo_order_ids: Arc::new(AtomicSet::new()),
             algo_client_order_ids: Arc::new(AtomicSet::new()),
             ws_task: Arc::new(Mutex::new(None)),
-            keepalive_task: Mutex::new(None),
-            recovery_task: Mutex::new(None),
+            keepalive_task: None,
+            recovery_task: None,
             recovery_lock: Arc::new(TokioMutex::new(())),
-            recovery_tx: Mutex::new(None),
+            recovery_tx: None,
             pending_tasks: Mutex::new(Vec::new()),
             is_hedge_mode: AtomicBool::new(false),
         })
@@ -1398,7 +1398,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         );
 
         let (recovery_tx, recovery_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-        *self.recovery_tx.lock().expect(MUTEX_POISONED) = Some(recovery_tx.clone());
+        self.recovery_tx = Some(recovery_tx.clone());
 
         let seen_trade_ids: Arc<Mutex<FifoCache<(ustr::Ustr, i64), 10_000>>> =
             Arc::new(Mutex::new(FifoCache::new()));
@@ -1494,7 +1494,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                     }
                 }
             });
-            *self.keepalive_task.lock().expect(MUTEX_POISONED) = Some(keepalive_task);
+            self.keepalive_task = Some(keepalive_task);
         }
 
         // Start listen key recovery driver task
@@ -1520,7 +1520,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                 )
                 .await;
             });
-            *self.recovery_task.lock().expect(MUTEX_POISONED) = Some(recovery_task);
+            self.recovery_task = Some(recovery_task);
         }
 
         // Request initial account state
@@ -1566,7 +1566,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                         }
                     });
 
-                    *self.ws_trading_handle.lock().expect(MUTEX_POISONED) = Some(handle);
+                    self.ws_trading_handle = Some(handle);
                 }
                 Err(e) => {
                     log::error!(
@@ -1612,13 +1612,13 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         }
 
         // Drop the recovery tx so the driver exits its recv loop
-        self.recovery_tx.lock().expect(MUTEX_POISONED).take();
+        self.recovery_tx.take();
 
         // Cancel all background tasks
         self.cancellation_token.cancel();
 
         // Abort WS trading task and disconnect
-        if let Some(handle) = self.ws_trading_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_trading_handle.take() {
             handle.abort();
         }
 
@@ -1635,7 +1635,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         // Abort the keepalive task. An in-flight keepalive_listen_key HTTP
         // call ignores the cancellation token until it returns, so awaiting
         // without aborting can stall disconnect for the full HTTP timeout.
-        let keepalive_task = self.keepalive_task.lock().expect(MUTEX_POISONED).take();
+        let keepalive_task = self.keepalive_task.take();
         if let Some(task) = keepalive_task {
             task.abort();
             let _ = task.await;
@@ -1644,7 +1644,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         // Abort the recovery driver task. Waiting would block disconnect until
         // any in-flight HTTP or WebSocket call inside recover_user_data_stream
         // returns, which can be many seconds under a network outage.
-        let recovery_task = self.recovery_task.lock().expect(MUTEX_POISONED).take();
+        let recovery_task = self.recovery_task.take();
         if let Some(task) = recovery_task {
             task.abort();
             let _ = task.await;
@@ -2442,7 +2442,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
 
         self.cancellation_token.cancel();
 
-        if let Some(handle) = self.ws_trading_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_trading_handle.take() {
             handle.abort();
         }
 
@@ -2450,12 +2450,12 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             handle.abort();
         }
 
-        if let Some(handle) = self.keepalive_task.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.keepalive_task.take() {
             handle.abort();
         }
 
-        self.recovery_tx.lock().expect(MUTEX_POISONED).take();
-        if let Some(handle) = self.recovery_task.lock().expect(MUTEX_POISONED).take() {
+        self.recovery_tx.take();
+        if let Some(handle) = self.recovery_task.take() {
             handle.abort();
         }
 

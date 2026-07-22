@@ -199,8 +199,8 @@ pub struct HyperliquidExecutionClient {
     http_client: HyperliquidHttpClient,
     ws_client: HyperliquidWebSocketClient,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
-    ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
-    settlement_poll_handle: Mutex<Option<JoinHandle<()>>>,
+    ws_stream_handle: Option<JoinHandle<()>>,
+    settlement_poll_handle: Option<JoinHandle<()>>,
     ws_dispatch_state: Arc<WsDispatchState>,
     staged_brackets: Arc<Mutex<StagedBracketState>>,
     outcome_settlement_tracker: Arc<Mutex<OutcomeSettlementTracker>>,
@@ -472,8 +472,8 @@ impl HyperliquidExecutionClient {
             http_client,
             ws_client,
             pending_tasks: Mutex::new(Vec::new()),
-            ws_stream_handle: Mutex::new(None),
-            settlement_poll_handle: Mutex::new(None),
+            ws_stream_handle: None,
+            settlement_poll_handle: None,
             ws_dispatch_state: Arc::new(WsDispatchState::new()),
             staged_brackets: Arc::new(Mutex::new(StagedBracketState::default())),
             outcome_settlement_tracker: Arc::new(Mutex::new(OutcomeSettlementTracker::new())),
@@ -612,7 +612,7 @@ impl HyperliquidExecutionClient {
         tasks.push(handle);
     }
 
-    fn start_outcome_settlement_poll(&self) -> anyhow::Result<()> {
+    fn start_outcome_settlement_poll(&mut self) -> anyhow::Result<()> {
         let poll_secs = self.config.outcome_settlement_poll_secs;
         if poll_secs == 0 {
             log::debug!("Outcome settlement polling disabled by config");
@@ -684,8 +684,7 @@ impl HyperliquidExecutionClient {
             }
         });
 
-        let mut slot = self.settlement_poll_handle.lock().expect(MUTEX_POISONED);
-        if let Some(previous) = slot.replace(handle) {
+        if let Some(previous) = self.settlement_poll_handle.replace(handle) {
             previous.abort();
         }
 
@@ -766,16 +765,11 @@ impl ExecutionClient for HyperliquidExecutionClient {
 
         log::info!("Stopping Hyperliquid execution client");
 
-        if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }
 
-        if let Some(handle) = self
-            .settlement_poll_handle
-            .lock()
-            .expect(MUTEX_POISONED)
-            .take()
-        {
+        if let Some(handle) = self.settlement_poll_handle.take() {
             handle.abort();
         }
 
@@ -1743,12 +1737,7 @@ impl ExecutionClient for HyperliquidExecutionClient {
         // Disconnect WebSocket
         self.ws_client.disconnect().await?;
 
-        if let Some(handle) = self
-            .settlement_poll_handle
-            .lock()
-            .expect(MUTEX_POISONED)
-            .take()
-        {
+        if let Some(handle) = self.settlement_poll_handle.take() {
             handle.abort();
         }
 
@@ -2002,11 +1991,8 @@ impl ExecutionClient for HyperliquidExecutionClient {
 
 impl HyperliquidExecutionClient {
     async fn start_ws_stream(&mut self) -> anyhow::Result<()> {
-        {
-            let handle_guard = self.ws_stream_handle.lock().expect(MUTEX_POISONED);
-            if handle_guard.is_some() {
-                return Ok(());
-            }
+        if self.ws_stream_handle.is_some() {
+            return Ok(());
         }
 
         // Must match REST queries; mismatch silently drops fills on agent wallets
@@ -2255,7 +2241,7 @@ impl HyperliquidExecutionClient {
             }
         });
 
-        *self.ws_stream_handle.lock().expect(MUTEX_POISONED) = Some(handle);
+        self.ws_stream_handle = Some(handle);
         log::debug!("Hyperliquid WebSocket execution stream started");
         Ok(())
     }

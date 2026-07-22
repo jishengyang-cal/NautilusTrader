@@ -117,7 +117,7 @@ pub struct KrakenSpotExecutionClient {
     truncated_id_map: Arc<AtomicMap<String, ClientOrderId>>,
     ws_dispatch_state: Arc<WsDispatchState>,
     order_request_state: Arc<OrderRequestState>,
-    order_event_rx: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<OrderEventAny>>>,
+    order_event_rx: Option<tokio::sync::mpsc::UnboundedReceiver<OrderEventAny>>,
 }
 
 impl KrakenSpotExecutionClient {
@@ -207,7 +207,7 @@ impl KrakenSpotExecutionClient {
             truncated_id_map: Arc::new(AtomicMap::new()),
             ws_dispatch_state,
             order_request_state,
-            order_event_rx: Mutex::new(Some(order_event_rx)),
+            order_event_rx: Some(order_event_rx),
         })
     }
 
@@ -561,7 +561,7 @@ impl KrakenSpotExecutionClient {
 
         self.ws_stream_handle = Some(handle);
 
-        let event_rx = self.order_event_rx.lock().expect(MUTEX_POISONED).take();
+        let event_rx = self.order_event_rx.take();
 
         if let Some(mut event_rx) = event_rx {
             let emitter = self.emitter.clone();

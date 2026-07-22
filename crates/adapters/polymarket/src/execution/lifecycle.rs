@@ -305,7 +305,7 @@ impl PolymarketExecutionClient {
             log::debug!("User WebSocket handler task completed");
         });
 
-        *self.ws_stream_handle.lock().expect(MUTEX_POISONED) = Some(handle);
+        self.ws_stream_handle = Some(handle);
         Ok(())
     }
 
@@ -438,7 +438,7 @@ impl PolymarketExecutionClient {
         self.clear_order_event_subscription();
         self.clear_position_event_subscription();
 
-        if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }
 
@@ -513,7 +513,7 @@ impl PolymarketExecutionClient {
 
         self.ws_client.disconnect().await?;
 
-        if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }
 

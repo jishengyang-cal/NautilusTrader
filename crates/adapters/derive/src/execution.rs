@@ -138,7 +138,7 @@ pub struct DeriveExecutionClient {
     is_connected: Arc<AtomicBool>,
     cancellation_token: CancellationToken,
     pending_tasks: Mutex<Vec<JoinHandle<()>>>,
-    ws_stream_handle: Mutex<Option<JoinHandle<()>>>,
+    ws_stream_handle: Option<JoinHandle<()>>,
     dispatch_state: Arc<WsDispatchState>,
 }
 
@@ -230,7 +230,7 @@ impl DeriveExecutionClient {
             is_connected: Arc::new(AtomicBool::new(false)),
             cancellation_token: CancellationToken::new(),
             pending_tasks: Mutex::new(Vec::new()),
-            ws_stream_handle: Mutex::new(None),
+            ws_stream_handle: None,
             dispatch_state: Arc::new(WsDispatchState::new()),
         })
     }
@@ -353,7 +353,7 @@ impl DeriveExecutionClient {
     async fn teardown_partial_connect(&mut self) {
         self.cancellation_token.cancel();
 
-        if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }
 
@@ -363,7 +363,7 @@ impl DeriveExecutionClient {
         self.abort_pending_tasks();
     }
 
-    fn start_ws_dispatch(&self, rx: tokio::sync::mpsc::UnboundedReceiver<DeriveWsMessage>) {
+    fn start_ws_dispatch(&mut self, rx: tokio::sync::mpsc::UnboundedReceiver<DeriveWsMessage>) {
         let emitter = self.emitter.clone();
         let account_id = self.core.account_id;
         let clock = self.clock;
@@ -430,7 +430,7 @@ impl DeriveExecutionClient {
                 }
             }
         });
-        *self.ws_stream_handle.lock().expect(MUTEX_POISONED) = Some(handle);
+        self.ws_stream_handle = Some(handle);
     }
 }
 
@@ -489,7 +489,7 @@ impl ExecutionClient for DeriveExecutionClient {
 
         self.cancellation_token.cancel();
 
-        if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }
         self.abort_pending_tasks();
@@ -581,7 +581,7 @@ impl ExecutionClient for DeriveExecutionClient {
             log::warn!("Error while disconnecting Derive execution WebSocket: {e}");
         }
 
-        if let Some(handle) = self.ws_stream_handle.lock().expect(MUTEX_POISONED).take() {
+        if let Some(handle) = self.ws_stream_handle.take() {
             handle.abort();
         }
         self.abort_pending_tasks();
