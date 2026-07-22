@@ -163,7 +163,7 @@ adapter set. The following limits remain deferred:
 - Fixed v2 `Bar` and `BarSpecification` deserialization to validate OHLC ordering and step periodicity
 - Fixed v2 `Bar.from_pyobject` and bar type parsing at the Python boundary to raise `ValueError` instead of panicking
 - Fixed v2 catalog writes re-labeling mixed instruments or bar types; writes now group or reject them
-- Fixed v2 synchronous Parquet catalog queries panicking in the multi-threaded Rust live runtime
+- Fixed Parquet catalog queries panicking in the Rust live runtime (#4526), thanks @TheoBabilon
 - Fixed v2 bar-type conversion corrupting `-INTERNAL` symbols and composite bar types
 - Fixed v2 SQL bar decoding to reject invalid rows and composite bar inserts without panicking
 - Fixed v2 external bar unsubscribe detaching the venue stream while other actors remained subscribed
@@ -186,9 +186,11 @@ adapter set. The following limits remain deferred:
 - Fixed v2 own order book sizes to track remaining quantity after partial fills
 - Fixed v2 interval book snapshots blocking order submission from `on_book` handlers
 - Fixed v2 position reconciliation grace to measure on the monotonic clock (#4366), thanks @folknor
+- Fixed v2 cross-zero reconciliation stranding synthetic orders after a failed leg (#4521), thanks @folknor
 - Fixed v2 continuous position reconciliation emitting synthetic fills from stale in-flight reports (#4517), thanks @folknor
 - Fixed v2 missing-order resolution and failed-report handling in live reconciliation (#4479), thanks @folknor
 - Fixed v2 batch-cancel inflight coverage, tracking leaks, and stale cancel-replace grace (#4523), thanks @folknor
+- Fixed v2 live fill deduplication suppressing reports after rejected fills (#4522), thanks @folknor
 - Fixed Python v2 order, event, balance, position, instrument, indicator, and config inspection
   properties and documented their migration contracts
 - Fixed v2 startup reconciliation fill-key deduplication and retention (#4518), thanks @folknor
@@ -200,6 +202,7 @@ adapter set. The following limits remain deferred:
 - Fixed Python v2 migration gaps for `core.datetime`, `Clock.set_time`, and Strategy data APIs
 - Fixed Python v2 subclassable PyO3 stubs marked as final (#4384), thanks @bebop23
 - Fixed Python v2 `Strategy` close-position and close-all-position commands to accept and forward `params`
+- Fixed execution algorithms dropping submit parameters for spawned orders (#4524), thanks @dxwil
 - Fixed Python v2 `DataActor.shutdown_system()` unregistered calls to raise `RuntimeError`
 - Fixed Python v2 `LiveNode.stop()` to complete shutdown instead of only signaling the handle
 - Fixed Python v2 boundary error handling to raise exceptions instead of panicking on invalid inputs
@@ -216,6 +219,7 @@ adapter set. The following limits remain deferred:
 - Fixed `LiveTimer` firing past its `stop_time_ns` bound (#4401), thanks @folknor
 - Fixed `Clock.timer_exists` to exclude expired timers (#4400), thanks @folknor
 - Fixed `TestTimer` panicking after firing at the maximum timestamp
+- Fixed global logger initialization races and reuse after guard teardown (#4520), thanks @folknor
 - Fixed indicator rolling-window bounds and averages past capacity (#4351), thanks @Martingale42
 - Fixed legacy `Equity` catalog round trips dropping quantity constraints (#4461)
 - Fixed live fill deduplication when trade IDs collide across accounts or instruments
@@ -300,6 +304,7 @@ adapter set. The following limits remain deferred:
 - Fixed Interactive Brokers v2 tracked fill lifecycle and terminal fill identity
 - Fixed Interactive Brokers `IneligibilityReason` serialization (#4380), thanks @xxxxxx-oss
 - Fixed Interactive Brokers Docker gateway startup with non-default Docker contexts
+- Fixed Interactive Brokers startup loading all configured instruments (#4519), thanks @mahimn01
 - Fixed Kraken Futures batch order `order_tag` serialization (#4459), thanks @Andreas197510
 - Fixed Kraken financial values losing precision through floating-point parsing and arithmetic
 - Fixed Lighter batch orders to use correlated sequential WebSocket transactions
@@ -322,6 +327,8 @@ adapter set. The following limits remain deferred:
 
 ### Internal Improvements
 - Made portfolio reference-count clones explicit (#4364), thanks @ChrisAB
+- Improved Clippy compatibility for nightly and all-feature Rust builds (#4505), thanks @folknor
+- Improved pre-commit checks for DST, Python errors, and Cargo dependency groups (#4506), thanks @folknor
 - Improved core decimal deserialization to round fractional scales above 28 digits instead of erroring
 - Improved live reconciliation recency tracking with `RecencyMap` (#4386), thanks @folknor
 - Improved portfolio statistics test coverage with canonical worked examples
@@ -331,20 +338,22 @@ adapter set. The following limits remain deferred:
 - Upgraded Rust (MSRV) to 1.97.1
 - Upgraded Cython to v3.2.8
 - Upgraded Cap'n Proto to v1.5.0
-- Upgraded `capnp` to v0.26.2
+- Upgraded `capnp` crate to v0.26.2
+- Upgraded `databento` crate to v0.55.0
+- Upgraded `datafusion` crate to v54.1.0
 - Upgraded `ed25519-dalek` crate to v3.0.0
 - Upgraded `futures` crate to v0.3.33
 - Upgraded `redis` crate to v1.4.1
-- Upgraded `tokio` crate to v1.53.0
+- Upgraded `tokio` crate to v1.53.1
 - Upgraded `tokio-tungstenite` crate to v0.30.0
 - Upgraded `pyarrow` to v25.0.0
-- Upgraded `databento` crate to v0.55.0
 
 ### Documentation Updates
 - Added the v1-to-v2 property, method, and callback migration matrix
 - Added canonical references and doc comments for portfolio statistics
 - Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
 - Added SinoPac Securities community adapter listing (#4324), thanks @Martingale42
+- Updated authored comments and documentation to use ASCII punctuation (#4504), thanks @folknor
 - Updated Architect AX integration docs for current market-data, REST schema, and funding-rate behavior
 - Updated Lighter integration docs for sequential order fanout and reconciliation limits
 - Updated Polymarket v2 examples and integration docs for current markets, order modes, and configuration
