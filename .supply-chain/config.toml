@@ -744,11 +744,11 @@ version = "0.10.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap]]
-version = "4.6.1"
+version = "4.6.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.clap_derive]]
-version = "4.6.1"
+version = "4.6.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.cmake]]
@@ -952,127 +952,127 @@ version = "0.51.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-catalog-listing]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-common]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-common-runtime]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-arrow]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-csv]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-json]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-datasource-parquet]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-doc]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-execution]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-expr]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-expr-common]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-aggregate]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-aggregate-common]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-nested]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-table]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-window]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-functions-window-common]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-macros]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-optimizer]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr-adapter]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-expr-common]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-optimizer]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-physical-plan]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-pruning]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-session]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.datafusion-sql]]
-version = "54.0.0"
+version = "54.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.dbn]]
@@ -1339,6 +1339,10 @@ criteria = "safe-to-deploy"
 version = "0.4.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.glob]]
+version = "0.3.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.group]]
 version = "0.12.0"
 criteria = "safe-to-deploy"
@@ -1404,11 +1408,11 @@ version = "0.4.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.hyper]]
-version = "1.10.1"
+version = "1.11.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.hyper-named-pipe]]
-version = "0.1.0"
+version = "0.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.hyper-rustls]]
@@ -1620,7 +1624,7 @@ version = "0.2.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.libc]]
-version = "0.2.186"
+version = "0.2.189"
 criteria = "safe-to-deploy"
 
 [[exemptions.libfuzzer-sys]]
@@ -2644,7 +2648,7 @@ version = "2.0.119"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn]]
-version = "3.0.2"
+version = "3.0.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.syn-solidity]]
@@ -2704,11 +2708,11 @@ version = "0.17.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.time]]
-version = "0.3.53"
+version = "0.3.54"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-macros]]
-version = "0.2.31"
+version = "0.2.32"
 criteria = "safe-to-deploy"
 
 [[exemptions.time-tz]]
@@ -2728,7 +2732,7 @@ version = "1.12.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
-version = "1.53.0"
+version = "1.53.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-macros]]
@@ -2748,7 +2752,7 @@ version = "0.28.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-util]]
-version = "0.7.18"
+version = "0.7.19"
 criteria = "safe-to-deploy"
 
 [[exemptions.tonic]]
@@ -2864,7 +2868,7 @@ version = "1.24.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.value-bag]]
-version = "1.13.0"
+version = "1.13.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.version_check]]
@@ -3052,7 +3056,7 @@ version = "0.8.28"
 criteria = "safe-to-deploy"
 
 [[exemptions.xxhash-rust]]
-version = "0.8.17"
+version = "0.8.18"
 criteria = "safe-to-deploy"
 
 [[exemptions.yansi]]
@@ -3072,11 +3076,11 @@ version = "0.8.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy]]
-version = "0.8.54"
+version = "0.8.55"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerocopy-derive]]
-version = "0.8.54"
+version = "0.8.55"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerofrom]]
