@@ -118,6 +118,7 @@ adapter set. The following limits remain deferred:
 - Changed Blockchain fee-protocol update and snapshot storage to use `INTEGER` protocol-fee shares; run `make init-db`
 - Renamed Interactive Brokers PyO3 enum variants to uppercase names (e.g. `MarketDataType.DELAYED`) (#4350)
 - Changed Architect AX request models and low-level submission APIs to match current venue schemas; venue-native stop-limit orders are rejected after sandbox testing could not confirm conditional execution semantics
+- Changed BitMEX quanto multipliers from raw to settlement-currency units (#4507), thanks for reporting @4px4d9cdby-star
 
 ### Security
 - Fixed underflow and currency-mismatch panics from out-of-order fill events (#4483), thanks @folknor
