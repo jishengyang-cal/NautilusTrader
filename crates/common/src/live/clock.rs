@@ -288,7 +288,11 @@ impl Clock for LiveClock {
 #[cfg(not(all(feature = "simulation", madsim)))]
 mod tests {
     use std::{
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
         time::Duration,
     };
 
@@ -327,6 +331,29 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct PausingCollectingSender {
+        collector: CollectingSender,
+        paused_tx: mpsc::Sender<()>,
+        release_rx: Mutex<mpsc::Receiver<()>>,
+        pause_once: AtomicBool,
+    }
+
+    impl TimeEventSender for PausingCollectingSender {
+        fn send(&self, message: TimeEventMessage) {
+            self.collector.send(message);
+
+            if self.pause_once.swap(false, Ordering::SeqCst) {
+                self.paused_tx.send(()).expect("timer send should pause");
+                self.release_rx
+                    .lock()
+                    .expect("release mutex should lock")
+                    .recv()
+                    .expect("timer send should release");
+            }
+        }
+    }
+
     fn wait_for_events(
         events: &Arc<Mutex<Vec<(TimeEvent, UnixNanos)>>>,
         target: usize,
@@ -341,7 +368,14 @@ mod tests {
     #[rstest]
     fn test_live_clock_timer_replacement_cancels_previous_task() {
         let events = Arc::new(Mutex::new(Vec::new()));
-        let sender = Arc::new(CollectingSender::new(Arc::clone(&events)));
+        let (paused_tx, paused_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let sender = Arc::new(PausingCollectingSender {
+            collector: CollectingSender::new(Arc::clone(&events)),
+            paused_tx,
+            release_rx: Mutex::new(release_rx),
+            pause_once: AtomicBool::new(true),
+        });
 
         let mut clock = LiveClock::new(Some(sender));
         clock.register_default_handler(TimeEventCallback::from(|_| {}));
@@ -351,15 +385,18 @@ mod tests {
             .set_timer_ns("replace", fast_interval, None, None, None, None, None)
             .unwrap();
 
-        wait_for_events(&events, 2, Duration::from_millis(200));
+        paused_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("fast timer send should pause");
         events.lock().expect(MUTEX_POISONED).clear();
 
         let slow_interval = Duration::from_millis(30).as_nanos() as u64;
         clock
             .set_timer_ns("replace", slow_interval, None, None, None, None, None)
             .unwrap();
+        release_tx.send(()).expect("fast timer send should release");
 
-        wait_for_events(&events, 3, Duration::from_millis(300));
+        wait_for_events(&events, 3, Duration::from_secs(2));
 
         let snapshot = events.lock().expect(MUTEX_POISONED).clone();
         let diffs: Vec<u64> = snapshot
@@ -369,7 +406,7 @@ mod tests {
 
         assert!(!diffs.is_empty());
         for diff in diffs {
-            assert_ne!(diff, fast_interval);
+            assert_eq!(diff, slow_interval);
         }
 
         clock.cancel_timers();

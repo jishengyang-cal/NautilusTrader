@@ -382,7 +382,9 @@ pub(crate) fn parse_funding_interval_minutes(raw: &str) -> Option<u16> {
 
 #[cfg(test)]
 mod tests {
-    use nautilus_common::messages::DataEvent;
+    use std::time::Duration;
+
+    use nautilus_common::{messages::DataEvent, testing::wait_until_async};
     use nautilus_core::UnixNanos;
     use nautilus_model::{data::Data, identifiers::InstrumentId};
     use rstest::rstest;
@@ -703,10 +705,9 @@ mod tests {
     // a long-lived client that repeatedly flips subscriptions leaks one
     // JoinHandle per cycle.
     //
-    // The test asserts the invariant through the public surface only:
-    // it never calls `reap_finished_tasks()` directly, so any regression
-    // that removes the reap from `register` or `unregister` would fail
-    // here.
+    // The test asserts the invariant through the public surface only: it
+    // waits until the cancelled tasks finish, then relies on the next
+    // subscribe to reap them before adding its own handle.
     #[rstest]
     #[tokio::test]
     async fn test_manager_does_not_leak_task_handles_on_churn() {
@@ -716,24 +717,28 @@ mod tests {
         for _ in 0..20 {
             manager.subscribe_index(instrument_id);
             manager.unsubscribe_index(instrument_id);
-            // Let each cancelled task notice the token flip and return
-            // so the next register's reap can drop its handle.
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
 
-        // After the churn loop the manager may still be holding the
-        // final cycle's handle because nothing has reaped since it was
-        // cancelled. Wait for that task to finish, then trigger one more
-        // subscribe: register's leading reap sweeps every accumulated
-        // handle before pushing its own.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        wait_until_async(
+            || async {
+                manager
+                    .tasks
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(tokio::task::JoinHandle::is_finished)
+            },
+            Duration::from_secs(2),
+        )
+        .await;
+
         manager.subscribe_index(instrument_id);
 
-        assert!(
-            manager.tasks.lock().unwrap().len() <= 1,
+        let task_count = manager.tasks.lock().unwrap().len();
+        assert_eq!(
+            task_count, 1,
             "task vec should stay bounded under subscribe/unsubscribe churn, \
-             was {}",
-            manager.tasks.lock().unwrap().len()
+             was {task_count}"
         );
 
         manager.unsubscribe_index(instrument_id);
