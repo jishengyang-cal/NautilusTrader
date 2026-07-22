@@ -80,7 +80,7 @@ pub fn get_levels_for_price(
                 }
             }
         }
-        let level_size = Quantity::new(level.size(), size_precision);
+        let level_size = Quantity::from_raw(level.size_raw(), size_precision);
         result.push((level.price.value, level_size));
     }
 

@@ -60,8 +60,9 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::fixed::{
-    FIXED_PRECISION, FIXED_SCALAR, MAX_FLOAT_PRECISION, check_fixed_precision,
-    mantissa_exponent_to_fixed_i128, mantissa_exponent_to_raw_checked, raw_scales_match,
+    FIXED_PRECISION, FIXED_SCALAR, FIXED_SCALAR_RAW, MAX_FLOAT_PRECISION, check_fixed_precision,
+    checked_mul_div_fixed, mantissa_exponent_to_fixed_i128, mantissa_exponent_to_raw_checked,
+    raw_scales_match,
 };
 #[cfg(not(feature = "high-precision"))]
 use super::fixed::{f64_to_fixed_u64, fixed_u64_to_f64};
@@ -708,20 +709,24 @@ impl Sub for Quantity {
     }
 }
 
-#[expect(
-    clippy::suspicious_arithmetic_impl,
-    reason = "Can use division to scale back"
-)]
 impl Mul for Quantity {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        let result_raw = self
-            .raw
-            .checked_mul(rhs.raw)
-            .expect("Overflow occurred when multiplying `Quantity`");
+        let result_raw = if self.raw != QUANTITY_UNDEF
+            && rhs.raw != QUANTITY_UNDEF
+            && self.precision <= FIXED_PRECISION
+            && rhs.precision <= FIXED_PRECISION
+        {
+            checked_mul_div_fixed(self.raw, rhs.raw).filter(|raw| *raw <= QUANTITY_RAW_MAX)
+        } else {
+            self.raw
+                .checked_mul(rhs.raw)
+                .map(|raw| raw / FIXED_SCALAR_RAW)
+        }
+        .expect("Overflow occurred when multiplying `Quantity`");
 
         Self {
-            raw: result_raw / (FIXED_SCALAR as QuantityRaw),
+            raw: result_raw,
             precision: self.precision.max(rhs.precision),
         }
     }
@@ -1470,6 +1475,36 @@ mod tests {
     }
 
     #[rstest]
+    fn test_mul_avoids_intermediate_raw_overflow() {
+        let scalar = FIXED_SCALAR_RAW;
+        #[cfg(feature = "high-precision")]
+        let (lhs_raw, rhs_raw, expected_raw) =
+            (100_000 * scalar, 100 * scalar, 10_000_000 * scalar);
+        #[cfg(not(feature = "high-precision"))]
+        let (lhs_raw, rhs_raw, expected_raw) = (
+            9_000_000_000 * scalar,
+            2 * scalar + 1,
+            18_000_000_009 * scalar,
+        );
+        let lhs = Quantity::from_raw(lhs_raw, FIXED_PRECISION);
+        let rhs = Quantity::from_raw(rhs_raw, FIXED_PRECISION);
+        let result = lhs * rhs;
+
+        assert_eq!(lhs_raw.checked_mul(rhs_raw), None);
+        assert_eq!(result.raw, expected_raw);
+        assert_eq!(result.precision, FIXED_PRECISION);
+    }
+
+    #[rstest]
+    #[should_panic(expected = "Overflow occurred when multiplying `Quantity`")]
+    fn test_mul_panics_when_scaled_result_exceeds_quantity_max() {
+        let lhs = Quantity::from_raw(QUANTITY_RAW_MAX, FIXED_PRECISION);
+        let rhs = Quantity::from(2);
+
+        let _ = lhs * rhs;
+    }
+
+    #[rstest]
     fn test_comparisons() {
         assert_eq!(Quantity::new(1.0, 1), Quantity::new(1.0, 1));
         assert_eq!(Quantity::new(1.0, 1), Quantity::new(1.0, 2));
@@ -2083,7 +2118,7 @@ mod property_tests {
 
             if let Some(raw_product) = raw_product_check {
                 // Additional check to ensure the scaled result won't overflow
-                let scaled_raw = raw_product / (FIXED_SCALAR as QuantityRaw);
+                let scaled_raw = raw_product / FIXED_SCALAR_RAW;
                 if scaled_raw <= QUANTITY_RAW_MAX {
                     // Multiplying two quantities should always result in a non-negative value
                     let product = q_a * q_b;
