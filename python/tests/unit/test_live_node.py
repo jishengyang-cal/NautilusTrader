@@ -13,7 +13,14 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+import asyncio
+from datetime import UTC
+from datetime import datetime
+from datetime import timedelta
+
 import pytest
+from strategies.acceptance import DualTimer
+from strategies.acceptance import DualTimerConfig
 
 from nautilus_trader.common import Cache
 from nautilus_trader.common import CacheConfig
@@ -30,6 +37,8 @@ from nautilus_trader.live import LiveNodeConfig
 from nautilus_trader.live import LiveRiskEngineConfig
 from nautilus_trader.live import PortfolioConfig
 from nautilus_trader.model import ExecAlgorithmId
+from nautilus_trader.model import OrderSide
+from nautilus_trader.model import OrderStatus
 from nautilus_trader.model import TraderId
 from nautilus_trader.portfolio import Portfolio
 from nautilus_trader.trading import ExecutionAlgorithm
@@ -190,6 +199,64 @@ def test_live_node_poll_requires_running_node_and_returns_processed_count():
 
         node.start()
         assert node.poll() == 0
+    finally:
+        node.dispose()
+
+
+@pytest.mark.asyncio
+async def test_live_node_poll_services_migrated_strategy_from_async_host_loop():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-012"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+    strategy = DualTimer(
+        DualTimerConfig(
+            instrument_id="AUD/USD.SIM",
+            trade_size="100000",
+            alert_iso=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+        ),
+    )
+    node.add_strategy(strategy)
+    processed_counts = []
+
+    try:
+        assert strategy.is_ready() is True
+
+        node.start()
+
+        assert node.is_running is True
+        assert strategy.is_running() is True
+
+        async with asyncio.timeout(5):
+            while not (strategy.fired_a and strategy.fired_b):
+                processed_counts.append(node.poll())
+                await asyncio.sleep(0.01)
+
+        processed_counts.append(node.poll())
+        orders = node.cache.orders(strategy_id=strategy.strategy_id)
+
+        assert len(processed_counts) > 1
+        assert sum(processed_counts) == 5
+        assert strategy.fired_a is True
+        assert strategy.fired_b is True
+        assert len(orders) == 2
+        assert {order.side for order in orders} == {OrderSide.BUY, OrderSide.SELL}
+        assert {order.status for order in orders} == {OrderStatus.DENIED}
+
+        node.stop()
+
+        assert node.is_running is False
+        assert strategy.is_stopped() is True
     finally:
         node.dispose()
 
