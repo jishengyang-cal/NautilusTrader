@@ -239,6 +239,7 @@ adapter set. The following limits remain deferred:
 - Fixed BitMEX cancel-all responses emitting sparse cancellation rejections as external orders
 - Fixed BitMEX sparse order updates losing cached order state (#4508), thanks for reporting @4px4d9cdby-star
 - Fixed BitMEX UTF-8 JSON binary WebSocket frames being dropped (#4509), thanks for reporting @4px4d9cdby-star
+- Fixed Blockchain `U256` price and quantity decoding losing exact raw units above the `f64` integer limit
 - Fixed Blockchain HyperSync live pool-event streams overreaching the tip window
 - Fixed Blockchain RPC pool snapshots panicking on incomplete topology
 - Fixed Databento OPRA option contract multipliers (#4388), thanks for reporting @pjlegato
