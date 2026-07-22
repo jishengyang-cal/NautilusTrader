@@ -480,3 +480,14 @@ repos:
           - --fix
         files: "\\.md$"
         exclude: "^(CLA\\.md|CONTRIBUTING\\.md|RELEASES\\.md)$"
+
+  - repo: local
+    hooks:
+      - id: mermaid-lint
+        name: mermaid lint
+        description: Validates Mermaid diagrams embedded in Markdown files
+        entry: mermaid-lint
+        language: node
+        additional_dependencies: ["@mermaid-lint/cli@0.35.0"]
+        args: [--fix, --no-semantic, --quiet]
+        types: [markdown]

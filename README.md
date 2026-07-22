@@ -1,4 +1,4 @@
-# <img src="https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/nautilus-trader-logo.png" width="500">
+# <img src="https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/nautilus-trader-logo.png" alt="NautilusTrader" width="500">
 
 [![codecov](https://codecov.io/gh/nautechsystems/nautilus_trader/branch/master/graph/badge.svg?token=DXO9QQI40H)](https://codecov.io/gh/nautechsystems/nautilus_trader)
 [![codspeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/nautechsystems/nautilus_trader)
@@ -657,4 +657,4 @@ Use of this software is subject to the [Disclaimer](https://nautilustrader.io/le
 © 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
 
 ![nautechsystems](https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/ns-logo.png "nautechsystems")
-<img src="https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/ferris.png" width="128">
+<img src="https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/ferris.png" alt="Ferris" width="128">

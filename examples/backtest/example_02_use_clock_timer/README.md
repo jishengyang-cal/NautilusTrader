@@ -1,3 +1,5 @@
+# Clock timer example
+
 This is a simple example of how to use NautilusTrader's **Timer** feature in a strategy.
 
 The strategy works by running action at regular time intervals while also handling market data events.

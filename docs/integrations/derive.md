@@ -42,7 +42,7 @@ alongside this guide for additional details.
 |------------------------|-----------|----------------------------------------------------------------------|
 | ERC-20 spot            | ✓         | USDC‑quoted pairs such as `ETH-USDC`; parsed as `CurrencyPair`.      |
 | Perpetual swaps        | ✓         | Cash‑settled in USDC, with per‑currency listings such as `ETH-PERP`. |
-| Options (calls / puts) | ✓         | European‑style options using `{CURRENCY}-{EXPIRY}-{STRIKE}-{C|P}`.   |
+| Options (calls / puts) | ✓         | European‑style options using `{CURRENCY}-{EXPIRY}-{STRIKE}-{C\|P}`.  |
 
 ## Symbology
 

@@ -938,7 +938,7 @@ The following limitations are currently known:
   minimum order size. Position reconciliation therefore tolerates differences through 0.009999
   shares and reconciles differences of 0.01 shares or more.
 
-## Configuration
+## V2 client configuration
 
 Rust structs and PyO3 classes expose the same V2 client configuration. The only Rust-only fields
 are the programmatic `filters` and `new_market_filter` trait objects on
