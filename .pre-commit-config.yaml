@@ -383,6 +383,14 @@ repos:
         files: "(Cargo\\.toml|\\.rs)$"
         pass_filenames: false
 
+      - id: cargo-hawk
+        name: cargo hawk
+        description: Detect unnecessary Rust visibility
+        entry: make hawk
+        language: system
+        files: "(\\.rs$|(^|/)Cargo\\.toml$|^hawk\\.toml$|^Makefile$|^rust-toolchain\\.toml$)"
+        pass_filenames: false
+
   ##############################################################################
   #  Python/Cython formatting and linting
   ##############################################################################

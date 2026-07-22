@@ -20,7 +20,7 @@ use clap::Parser;
 #[clap(version, about, author)]
 pub struct NautilusCli {
     #[clap(subcommand)]
-    pub command: Commands,
+    pub(crate) command: Commands,
 }
 
 /// Available top-level commands for the NautilusTrader CLI.
@@ -36,7 +36,7 @@ pub enum Commands {
 #[command(about = "Postgres database operations", long_about = None)]
 pub struct DatabaseOpt {
     #[clap(subcommand)]
-    pub command: DatabaseCommand,
+    pub(crate) command: DatabaseCommand,
 }
 
 /// Configuration parameters for database connection and operations.
@@ -44,22 +44,22 @@ pub struct DatabaseOpt {
 pub struct DatabaseConfig {
     /// Hostname or IP address of the database server.
     #[arg(long)]
-    pub host: Option<String>,
+    pub(crate) host: Option<String>,
     /// Port number of the database server.
     #[arg(long)]
-    pub port: Option<u16>,
+    pub(crate) port: Option<u16>,
     /// Username for connecting to the database.
     #[arg(long)]
-    pub username: Option<String>,
+    pub(crate) username: Option<String>,
     /// Name of the database.
     #[arg(long)]
-    pub database: Option<String>,
+    pub(crate) database: Option<String>,
     /// Password for connecting to the database.
     #[arg(long)]
-    pub password: Option<String>,
+    pub(crate) password: Option<String>,
     /// Directory path to the schema files.
     #[arg(long)]
-    pub schema: Option<String>,
+    pub(crate) schema: Option<String>,
 }
 
 /// Available database management commands.
@@ -78,7 +78,7 @@ pub enum DatabaseCommand {
 #[command(about = "Blockchain operations", long_about = None)]
 pub struct BlockchainOpt {
     #[clap(subcommand)]
-    pub command: BlockchainCommand,
+    pub(crate) command: BlockchainCommand,
 }
 
 #[cfg(feature = "defi")]

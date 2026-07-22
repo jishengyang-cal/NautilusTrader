@@ -197,6 +197,20 @@ runs:
         key: ${{ inputs.rust-cache-key }}
         save-if: ${{ inputs.rust-cache-save-if }}
 
+    - name: Install cargo-hawk and compiler driver
+      if: inputs.build-type == 'pre-commit'
+      shell: bash
+      run: |
+        version="$(bash scripts/cargo-tool-version.sh cargo-hawk)"
+        if [ -z "$version" ]; then
+          echo "::error::Failed to extract cargo-hawk version"
+          exit 1
+        fi
+
+        curl --proto '=https' --tlsv1.2 -LsSf \
+          "https://github.com/astral-sh/hawk/releases/download/${version}/cargo-hawk-installer.sh" |
+          sh
+
     - name: Get cargo-nextest version
       if: inputs.build-type != 'pre-commit'
       shell: bash

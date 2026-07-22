@@ -112,6 +112,7 @@ adapter set. The following limits remain deferred:
 - Changed Rust time-event channels to `TimeEventMessage`; callbacks are no longer `Send + Sync` (#4496), thanks @folknor
 - Changed Rust `DataQueryResult.chunk` to private; use the borrow returned by `set_chunk` (#4499), thanks @folknor
 - Changed Rust FFI functions accessing `CVec` data to `unsafe`; wrap calls in `unsafe` blocks (#4499), thanks @folknor
+- Changed Rust CLI parser fields to crate-private; use `nautilus_cli::cli_command` and `run`
 - Changed v2 portfolios to record daily equity snapshots by default; set `equity_curve=False` to opt out
 - Changed v2 order-event schemas to persist activation prices and fill `info`; old catalogs must be migrated
 - Changed v2 instrument Arrow schemas to persist all constraints; old catalogs must be migrated

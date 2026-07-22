@@ -11,6 +11,7 @@ CARGO_AUDIT_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-audit)
 CARGO_DENY_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-deny)
 CARGO_EDIT_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-edit)
 CARGO_FUZZ_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-fuzz)
+CARGO_HAWK_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-hawk)
 CARGO_LLVM_COV_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-llvm-cov)
 CARGO_MACHETE_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-machete)
 CARGO_NEXTEST_VERSION := $(shell bash scripts/cargo-tool-version.sh cargo-nextest)
@@ -178,7 +179,7 @@ CORE_SELECTED_FEATURES := $(subst $(space),$(comma),$(strip $(CORE_SELECTED_FEAT
 CARGO_BUILD_JOB_TARGETS := install install-debug build build-debug \
 	build-debug-pyo3 build-wheel build-wheel-debug build-dry-run check-code \
 	check-all-targets clippy clippy-fix clippy-fix-nightly clippy-pedantic-crate-% \
-	docs docs-rust docsrs-check cargo-build cargo-check check-features cargo-test \
+	docs docs-rust docsrs-check cargo-build cargo-check check-features hawk cargo-test \
 	cargo-test-extras cargo-test-core-local cargo-test-core-selected \
 	cargo-test-core cargo-test-adapters cargo-test-sim cargo-test-core-debug \
 	cargo-test-core-local-debug cargo-test-lib cargo-test-standard-precision \
@@ -446,6 +447,11 @@ clippy-pedantic-crate-%:  #-- Run clippy linter for a specific Rust crate (usage
 		-W clippy::unwrap_used \
 		-W clippy::expect_used
 
+.PHONY: hawk
+hawk: check-hawk-installed  #-- Find unnecessary Rust public surface and restricted visibility
+	$(info $(M) Running Hawk visibility checks...)
+	cargo hawk check -D warnings
+
 #== Dependencies
 
 .PHONY: outdated
@@ -454,7 +460,7 @@ outdated: check-edit-installed  #-- Check for outdated dependencies
 	uv tree --outdated --depth 1 --all-groups
 	@printf "\n$(CYAN)Checking tool versions...$(RESET)\n"
 	@outdated_count=0; \
-	for tool in cargo-audit:$(CARGO_AUDIT_VERSION) cargo-deny:$(CARGO_DENY_VERSION) cargo-edit:$(CARGO_EDIT_VERSION) cargo-fuzz:$(CARGO_FUZZ_VERSION) cargo-llvm-cov:$(CARGO_LLVM_COV_VERSION) cargo-machete:$(CARGO_MACHETE_VERSION) cargo-nextest:$(CARGO_NEXTEST_VERSION) cargo-vet:$(CARGO_VET_VERSION) flamegraph:$(FLAMEGRAPH_VERSION) lychee:$(LYCHEE_VERSION); do \
+	for tool in cargo-audit:$(CARGO_AUDIT_VERSION) cargo-deny:$(CARGO_DENY_VERSION) cargo-edit:$(CARGO_EDIT_VERSION) cargo-fuzz:$(CARGO_FUZZ_VERSION) cargo-hawk:$(CARGO_HAWK_VERSION) cargo-llvm-cov:$(CARGO_LLVM_COV_VERSION) cargo-machete:$(CARGO_MACHETE_VERSION) cargo-nextest:$(CARGO_NEXTEST_VERSION) cargo-vet:$(CARGO_VET_VERSION) flamegraph:$(FLAMEGRAPH_VERSION) lychee:$(LYCHEE_VERSION); do \
 		name=$${tool%%:*}; current=$${tool##*:}; \
 		latest=$$(cargo search $$name --limit 1 2>/dev/null | head -1 | awk -F\" '{print $$2}'); \
 		if [ "$$current" != "$$latest" ]; then \
@@ -482,6 +488,7 @@ install-tools: check-binstall-installed update-uv  #-- Install required developm
 	cargo install cargo-deny --version $(CARGO_DENY_VERSION) --locked \
 	&& cargo install cargo-edit --version $(CARGO_EDIT_VERSION) --locked \
 	&& cargo install cargo-fuzz --version $(CARGO_FUZZ_VERSION) --locked \
+	&& cargo binstall cargo-hawk --version $(CARGO_HAWK_VERSION) --no-confirm --locked \
 	&& cargo install cargo-machete --version $(CARGO_MACHETE_VERSION) --locked \
 	&& cargo install cargo-nextest --version $(CARGO_NEXTEST_VERSION) --locked \
 	&& cargo install cargo-llvm-cov --version $(CARGO_LLVM_COV_VERSION) --locked \
@@ -669,6 +676,22 @@ check-hack-installed:  #-- Verify cargo-hack is installed
 check-edit-installed:  #-- Verify cargo-edit is installed
 	@if ! cargo upgrade --version >/dev/null 2>&1; then \
 		echo "cargo-edit is not installed. You can install it using 'cargo install cargo-edit'"; \
+		exit 1; \
+	fi
+
+.PHONY: check-hawk-installed
+check-hawk-installed:  #-- Verify the pinned cargo-hawk version is installed
+	@if ! cargo hawk --version >/dev/null 2>&1 || ! command -v cargo-hawk-driver >/dev/null 2>&1; then \
+		printf "$(YELLOW)cargo-hawk %s is required but not installed$(RESET)\n" \
+			"$(CARGO_HAWK_VERSION)"; \
+		printf "Install with: $(CYAN)cargo binstall cargo-hawk --version %s --no-confirm --locked$(RESET)\n" \
+			"$(CARGO_HAWK_VERSION)"; \
+		exit 1; \
+	fi
+	@INSTALLED=$$(cargo hawk --version | awk '{print $$3}'); \
+	if [ "$$INSTALLED" != "$(CARGO_HAWK_VERSION)" ]; then \
+		printf "$(RED)cargo-hawk version mismatch: installed %s, expected %s (from Cargo.toml)$(RESET)\n" \
+			"$$INSTALLED" "$(CARGO_HAWK_VERSION)"; \
 		exit 1; \
 	fi
 
