@@ -1769,11 +1769,27 @@ impl LiveNode {
                     return None;
                 }
                 self.exec_manager.observe_execution_report(report);
+
+                if let Some(client_order_id) = Self::closed_order_report_client_order_id(report) {
+                    close_ids.push(client_order_id);
+                }
             }
             ExecutionEvent::Account(_) => {}
         }
 
         Some(close_ids)
+    }
+
+    fn closed_order_report_client_order_id(report: &ExecutionReport) -> Option<ClientOrderId> {
+        match report {
+            ExecutionReport::Order(order_report)
+            | ExecutionReport::OrderWithFills(order_report, _)
+                if order_report.order_status.is_closed() =>
+            {
+                order_report.client_order_id
+            }
+            _ => None,
+        }
     }
 
     fn observe_exec_command_before_dispatch(&mut self, cmd: &TradingCommand) {
@@ -2691,9 +2707,15 @@ mod tests {
         reconciliation::create_inferred_fill_for_qty,
     };
     use nautilus_model::{
+        accounts::{AccountAny, MarginAccount},
         data::QuoteTick,
-        enums::{LiquiditySide, OmsType, OrderSide, OrderStatus, OrderType, TimeInForce},
-        events::{OrderAcceptedBatch, OrderFilled, order::spec::OrderAcceptedSpec},
+        enums::{
+            AccountType, LiquiditySide, OmsType, OrderSide, OrderStatus, OrderType, TimeInForce,
+        },
+        events::{
+            AccountState, OrderAcceptedBatch, OrderFilled,
+            order::spec::{OrderAcceptedSpec, OrderPendingUpdateSpec, OrderUpdatedSpec},
+        },
         identifiers::{
             AccountId, ClientId, InstrumentId, PositionId, StrategyId, TradeId, TraderId,
             VenueOrderId,
@@ -2701,7 +2723,7 @@ mod tests {
         instruments::{Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt},
         orders::{OrderTestBuilder, stubs::TestOrderEventStubs},
         reports::FillReport,
-        types::{Money, Price, Quantity},
+        types::{AccountBalance, Currency, Money, Price, Quantity},
     };
     use nautilus_system::{KernelEventStore, RegisteredComponents, event_store::EventStoreConfig};
     use nautilus_trading::{
@@ -2766,6 +2788,183 @@ mod tests {
 
         let close_ids = node.observe_exec_event_before_dispatch(&event);
         assert_eq!(close_ids, None);
+    }
+
+    #[rstest]
+    #[case(false, false, OrderStatus::Canceled, 1)]
+    #[case(false, true, OrderStatus::Accepted, 0)]
+    #[case(true, false, OrderStatus::Canceled, 1)]
+    #[case(true, true, OrderStatus::Accepted, 0)]
+    fn test_process_exec_event_clears_terminal_activity_only_after_cached_order_closes(
+        #[case] with_fills: bool,
+        #[case] superseded: bool,
+        #[case] expected_status: OrderStatus,
+        #[case] expected_query_count: usize,
+    ) {
+        let config = LiveNodeConfig {
+            exec_engine: crate::config::LiveExecEngineConfig {
+                reconciliation: true,
+                open_check_threshold_ms: 5_000,
+                single_order_query_delay_ms: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("TerminalReportNode".to_string(), Some(config)).unwrap();
+        let client_order_id = ClientOrderId::from("O-TERMINAL-REPORT");
+        let old_venue_order_id = VenueOrderId::from("V-TERMINAL-REPORT-OLD");
+        let new_venue_order_id = VenueOrderId::from("V-TERMINAL-REPORT-NEW");
+        let account_id = AccountId::from("TEST-001");
+        let client_id = ClientId::from("TEST");
+        let instrument = crypto_perpetual_ethusdt();
+        let instrument_id = instrument.id();
+        let account = AccountAny::Margin(MarginAccount::new(
+            AccountState::new(
+                account_id,
+                AccountType::Margin,
+                vec![AccountBalance::new(
+                    Money::from("1000000 USDT"),
+                    Money::from("0 USDT"),
+                    Money::from("1000000 USDT"),
+                )],
+                Vec::new(),
+                true,
+                UUID4::new(),
+                UnixNanos::default(),
+                UnixNanos::default(),
+                Some(Currency::USDT()),
+            ),
+            true,
+        ));
+        node.kernel.cache.borrow_mut().add_account(account).unwrap();
+        node.kernel
+            .cache
+            .borrow_mut()
+            .add_instrument(InstrumentAny::CryptoPerpetual(instrument))
+            .unwrap();
+        insert_accepted_limit_order_in_node(
+            &node,
+            account_id,
+            client_id,
+            instrument_id,
+            client_order_id,
+            old_venue_order_id,
+        );
+
+        if superseded {
+            let order = node
+                .kernel
+                .cache
+                .borrow()
+                .order_owned(&client_order_id)
+                .unwrap();
+            let pending_update = OrderPendingUpdateSpec::builder()
+                .trader_id(order.trader_id())
+                .strategy_id(order.strategy_id())
+                .instrument_id(order.instrument_id())
+                .client_order_id(client_order_id)
+                .account_id(account_id)
+                .venue_order_id(old_venue_order_id)
+                .build();
+            node.kernel
+                .cache
+                .borrow_mut()
+                .update_order(&OrderEventAny::PendingUpdate(pending_update))
+                .unwrap();
+            let order = node
+                .kernel
+                .cache
+                .borrow()
+                .order_owned(&client_order_id)
+                .unwrap();
+            let updated = OrderUpdatedSpec::builder()
+                .trader_id(order.trader_id())
+                .strategy_id(order.strategy_id())
+                .instrument_id(order.instrument_id())
+                .client_order_id(client_order_id)
+                .quantity(order.quantity())
+                .venue_order_id(new_venue_order_id)
+                .account_id(account_id)
+                .build();
+            node.kernel
+                .cache
+                .borrow_mut()
+                .update_order(&OrderEventAny::Updated(updated))
+                .unwrap();
+        }
+
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            Some(client_order_id),
+            old_venue_order_id,
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Canceled,
+            Quantity::from("10.0"),
+            Quantity::from("0.0"),
+            UnixNanos::from(1_000),
+            UnixNanos::from(2_000),
+            UnixNanos::from(3_000),
+            None,
+        );
+        let report = if with_fills {
+            ExecutionReport::OrderWithFills(Box::new(report), Vec::new())
+        } else {
+            ExecutionReport::Order(Box::new(report))
+        };
+        let event = ExecutionEvent::Report(report);
+
+        node.process_exec_event(event);
+
+        let order = node
+            .kernel
+            .cache
+            .borrow()
+            .order_owned(&client_order_id)
+            .unwrap();
+        let expected_venue_order_id = if superseded {
+            new_venue_order_id
+        } else {
+            old_venue_order_id
+        };
+
+        assert_eq!(order.status(), expected_status);
+        assert_eq!(order.venue_order_id(), Some(expected_venue_order_id));
+
+        if !superseded {
+            let replacement = OrderTestBuilder::new(OrderType::Limit)
+                .client_order_id(client_order_id)
+                .instrument_id(instrument_id)
+                .quantity(Quantity::from("20.0"))
+                .price(Price::from("200.0"))
+                .build();
+            let submitted = TestOrderEventStubs::submitted(&replacement, account_id);
+            node.kernel
+                .cache
+                .borrow_mut()
+                .add_order(replacement, None, Some(client_id), true)
+                .unwrap();
+            let replacement = node
+                .kernel
+                .cache
+                .borrow_mut()
+                .update_order(&submitted)
+                .unwrap();
+            let accepted =
+                TestOrderEventStubs::accepted(&replacement, account_id, old_venue_order_id);
+            node.kernel
+                .cache
+                .borrow_mut()
+                .update_order(&accepted)
+                .unwrap();
+        }
+
+        assert_eq!(
+            node.exec_manager.check_open_order_queries().len(),
+            expected_query_count,
+        );
     }
 
     #[rstest]

@@ -178,6 +178,7 @@ adapter set. The following limits remain deferred:
 - Fixed v2 position reconciliation grace to measure on the monotonic clock (#4366), thanks @folknor
 - Fixed v2 continuous position reconciliation emitting synthetic fills from stale in-flight reports (#4517), thanks @folknor
 - Fixed v2 missing-order resolution and failed-report handling in live reconciliation (#4479), thanks @folknor
+- Fixed v2 batch-cancel inflight coverage, tracking leaks, and stale cancel-replace grace (#4523), thanks @folknor
 - Fixed Python v2 order, event, balance, position, instrument, indicator, and config inspection
   properties and documented their migration contracts
 - Fixed v2 startup reconciliation fill-key deduplication and retention (#4518), thanks @folknor

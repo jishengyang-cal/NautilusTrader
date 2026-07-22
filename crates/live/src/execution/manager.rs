@@ -2201,17 +2201,17 @@ impl ExecutionManager {
             return;
         };
 
-        if matches!(
+        if !matches!(
             report.order_status,
             OrderStatus::PendingUpdate | OrderStatus::PendingCancel
         ) {
-            self.record_local_activity(client_order_id);
-        } else if report.order_status.is_closed() {
-            self.clear_recon_tracking(&client_order_id, true);
-        } else {
-            self.clear_recon_tracking(&client_order_id, false);
-            self.record_local_activity(client_order_id);
+            self.clear_recon_tracking(&client_order_id, report.order_status.is_closed());
         }
+
+        // Dispatch may suppress a terminal report, such as a stale cancel for the
+        // old leg of a cancel-replace. Keep the settling grace until the node
+        // confirms the cached order closed after dispatch.
+        self.record_local_activity(client_order_id);
     }
 
     /// Checks if a fill has been recently processed (for deduplication).
@@ -3880,8 +3880,10 @@ fn targeted_report_matches(query: &TargetedOrderQuery, report: &OrderStatusRepor
 mod tests {
     use nautilus_common::clock::TestClock;
     use nautilus_core::datetime::NANOSECONDS_IN_SECOND;
+    use nautilus_execution::reconciliation::generate_reconciliation_order_events;
     use nautilus_model::{
         enums::{LiquiditySide, OmsType, PositionSideSpecified},
+        events::order::spec::{OrderPendingUpdateSpec, OrderUpdatedSpec},
         instruments::{
             Instrument,
             stubs::{crypto_perpetual_ethusdt, xbtusd_bitmex},
@@ -3968,10 +3970,10 @@ mod tests {
     #[rstest]
     #[case(false, OrderStatus::PendingUpdate, true, true, true)]
     #[case(false, OrderStatus::Accepted, false, true, true)]
-    #[case(false, OrderStatus::Canceled, false, false, false)]
+    #[case(false, OrderStatus::Canceled, false, true, false)]
     #[case(true, OrderStatus::PendingCancel, true, true, true)]
     #[case(true, OrderStatus::Accepted, false, true, true)]
-    #[case(true, OrderStatus::Filled, false, false, false)]
+    #[case(true, OrderStatus::Filled, false, true, false)]
     fn test_observe_order_status_report_tracking_matrix(
         #[case] with_fills: bool,
         #[case] status: OrderStatus,
@@ -4044,6 +4046,101 @@ mod tests {
             manager.targeted_order_queries.contains(&client_order_id),
             expect_inflight,
         );
+    }
+
+    #[rstest]
+    fn test_superseded_cancel_report_preserves_missing_order_grace() {
+        let client_order_id = ClientOrderId::from("O-CANCEL-REPLACE");
+        let old_venue_order_id = VenueOrderId::from("V-CANCEL-REPLACE-OLD");
+        let new_venue_order_id = VenueOrderId::from("V-CANCEL-REPLACE-NEW");
+        let account_id = AccountId::from("TEST-001");
+        let client_id = ClientId::from("TEST");
+        let instrument_id = crypto_perpetual_ethusdt().id();
+        let clock = Rc::new(RefCell::new(TestClock::new()));
+        let cache = Rc::new(RefCell::new(Cache::default()));
+        insert_accepted_limit_order(
+            &cache,
+            client_order_id,
+            old_venue_order_id,
+            instrument_id,
+            client_id,
+        );
+
+        let order = cache.borrow().order_owned(&client_order_id).unwrap();
+        let pending_update = OrderPendingUpdateSpec::builder()
+            .trader_id(order.trader_id())
+            .strategy_id(order.strategy_id())
+            .instrument_id(order.instrument_id())
+            .client_order_id(client_order_id)
+            .account_id(account_id)
+            .venue_order_id(old_venue_order_id)
+            .build();
+        cache
+            .borrow_mut()
+            .update_order(&OrderEventAny::PendingUpdate(pending_update))
+            .unwrap();
+        let order = cache.borrow().order_owned(&client_order_id).unwrap();
+        let updated = OrderUpdatedSpec::builder()
+            .trader_id(order.trader_id())
+            .strategy_id(order.strategy_id())
+            .instrument_id(order.instrument_id())
+            .client_order_id(client_order_id)
+            .quantity(order.quantity())
+            .venue_order_id(new_venue_order_id)
+            .account_id(account_id)
+            .build();
+        cache
+            .borrow_mut()
+            .update_order(&OrderEventAny::Updated(updated))
+            .unwrap();
+
+        let mut manager = ExecutionManager::new(
+            clock,
+            cache.clone(),
+            ExecutionManagerConfig {
+                open_check_missing_retries: 1,
+                ..Default::default()
+            },
+        );
+        manager.record_local_activity(client_order_id);
+        assert!(
+            manager
+                .prepare_missing_order_query(client_order_id)
+                .is_none()
+        );
+
+        let report = OrderStatusReport::new(
+            account_id,
+            instrument_id,
+            Some(client_order_id),
+            old_venue_order_id,
+            OrderSide::Buy,
+            OrderType::Limit,
+            TimeInForce::Gtc,
+            OrderStatus::Canceled,
+            Quantity::from("10.0"),
+            Quantity::from("0.0"),
+            UnixNanos::from(1_000),
+            UnixNanos::from(2_000),
+            UnixNanos::from(3_000),
+            None,
+        );
+
+        manager.observe_execution_report(&ExecutionReport::Order(Box::new(report.clone())));
+        let order = cache.borrow().order_owned(&client_order_id).unwrap();
+        let events =
+            generate_reconciliation_order_events(&order, &report, None, UnixNanos::from(1_000));
+
+        assert!(events.is_empty());
+        assert_eq!(order.status(), OrderStatus::Accepted);
+        assert_eq!(order.venue_order_id(), Some(new_venue_order_id));
+        assert!(manager.order_local_activity.contains_key(&client_order_id));
+        assert!(
+            manager
+                .prepare_missing_order_query(client_order_id)
+                .is_none()
+        );
+        assert_eq!(manager.recon_check_retry_count(&client_order_id), 0);
     }
 
     #[rstest]
