@@ -244,6 +244,44 @@ When setting up NautilusTrader to work with Polymarket, it's crucial to properly
 We recommend using environment variables to manage your credentials.
 :::
 
+## Data capability
+
+Polymarket supports live `L2_MBP` order book deltas, quotes, and trades. Instrument definitions are
+published by bootstrap, configured refreshes, new-market discovery, and tick-size changes.
+
+### Generic subscription commands
+
+| Test ID | Command                    | Disposition | Matrix |
+|---------|----------------------------|-------------|--------|
+| TC-D02  | Singular instrument        | Supported   | Run    |
+| TC-D12  | `OrderBookDepth10`         | Unsupported | Skip   |
+| TC-D60  | Instrument status          | Unsupported | Skip   |
+| TC-D61  | Instrument close           | Unsupported | Skip   |
+
+- TC-D02 receives live definition publications from the shared instrument sources. It does not
+  replay a cached definition. Unsubscribe removes the per-instrument data-engine handler without
+  stopping bootstrap, refresh, new-market, or tick-size-change publishers.
+- TC-D12 has no separate Polymarket feed. Use managed `L2_MBP` deltas; the adapter does not
+  synthesize a second book stream from its local book.
+- TC-D60 cannot own delivery: new-market status belongs to configured discovery, while resolution
+  status belongs to open-position tracking. A generic command cannot start or stop either source.
+- TC-D61 cannot own delivery: resolution close events belong to open-position tracking and must
+  remain active until exposure closes. A generic unsubscribe cannot stop that source.
+
+The unsupported commands return an explicit error when called directly. This does not remove the
+resolution behavior described in [Market resolution events](#market-resolution-events): the data
+client still emits `InstrumentStatus` and `InstrumentClose` for position-tracked legs.
+
+For `DataTesterConfig` and live capability matrices:
+
+- Enable `subscribe_instrument` for TC-D02 and set `update_instruments_interval_mins=1` so the
+  matrix observes a real Gamma refresh rather than a cached replay.
+- Record TC-D12 as skipped. Exercise the supported book contract with `subscribe_book_deltas=true`
+  and `manage_book=true`; set `book_levels_to_print=10` when only the top ten levels need display.
+- Record TC-D60 and TC-D61 as skipped. Leave `subscribe_instrument_status` and
+  `subscribe_instrument_close` disabled because their resolution events require position-owned
+  lifecycle state rather than generic subscription ownership.
+
 ## Orders capability
 
 Polymarket operates as a prediction market with a more limited set of order types and instructions compared to traditional exchanges.

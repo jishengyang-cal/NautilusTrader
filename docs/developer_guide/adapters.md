@@ -532,6 +532,19 @@ The factory returns `Box<dyn DataClient>` or `Box<dyn ExecutionClient>`. An exec
 receives a read-only `CacheView`; pass that view to `ExecutionClientCore` rather than mutating the
 platform cache from the adapter.
 
+#### Instrument request freshness
+
+`DataClient::request_instrument` and `DataClient::request_instruments` are point-in-time venue
+requests. Fetch from the upstream API on every call, even when the requested definitions already
+exist in an adapter or platform cache. Update caches from a successful response, but do not use a
+cached definition as the response to a new request. If the venue cannot fetch definitions on demand,
+return an explicit unsupported error instead of silently serving cached data.
+
+Keep requests separate from subscriptions. Instrument subscriptions deliver future definition
+updates; replaying a cached definition does not prove that an adapter supports live instrument
+updates. Test request freshness by changing the mock upstream response between two calls and
+asserting that the second response reflects the changed source.
+
 The PyO3 module registers factory and config extractors with `get_global_pyo3_registry()` so
 `LiveNode.builder().add_data_client(...)` and `.add_exec_client(...)` can pass Python objects into
 the Rust factory traits. Register the public config and factory classes in the adapter's

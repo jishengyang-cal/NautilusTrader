@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             event_slugs: Some(vec![EVENT_SLUG.to_string()]),
             ..Default::default()
         }),
+        update_instruments_interval_mins: Some(1),
         ..Default::default()
     };
     let client_factory = PolymarketDataClientFactory;
@@ -87,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tester_config = DataTesterConfig::builder()
         .client_id(client_id)
         .instrument_ids(instrument_ids)
+        .subscribe_instrument(true)
         .subscribe_trades(true)
         .subscribe_quotes(true)
         .manage_book(true)
