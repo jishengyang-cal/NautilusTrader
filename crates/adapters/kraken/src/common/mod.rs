@@ -27,6 +27,7 @@ pub mod enums;
 pub mod models;
 pub mod order_params;
 pub mod parse;
+pub(crate) mod serialization;
 pub mod urls;
 
 /// Looks up a Kraken instrument from a preloaded map snapshot by raw exchange symbol.

@@ -64,6 +64,7 @@ use nautilus_model::{
     reports::{FillReport, OrderStatusReport},
 };
 use pyo3::{IntoPyObjectExt, prelude::*};
+use rust_decimal::Decimal;
 use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
 
@@ -244,7 +245,7 @@ impl KrakenSpotWebSocketClient {
 
             get_runtime().spawn(async move {
                 tokio::pin!(stream);
-                let order_qty_cache: Arc<AtomicMap<String, f64>> =
+                let order_qty_cache: Arc<AtomicMap<String, Decimal>> =
                     Arc::new(AtomicMap::new());
                 let order_instrument_cache: Arc<AtomicMap<String, InstrumentAny>> =
                     Arc::new(AtomicMap::new());

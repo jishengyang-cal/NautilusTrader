@@ -54,6 +54,7 @@ use nautilus_model::{
     reports::FillReport,
     types::{Currency, Quantity},
 };
+use rust_decimal::Decimal;
 
 const DEDUP_CAPACITY: usize = 10_000;
 
@@ -66,29 +67,29 @@ const DEDUP_CAPACITY: usize = 10_000;
 pub struct DeltaSnapshot {
     pub qty: Quantity,
     pub filled: Quantity,
-    pub limit_price_bits: Option<u64>,
-    pub stop_price_bits: Option<u64>,
+    pub limit_price: Option<Decimal>,
+    pub stop_price: Option<Decimal>,
 }
 
 impl DeltaSnapshot {
     pub(crate) fn new(
         qty: Quantity,
         filled: Quantity,
-        limit_price: Option<f64>,
-        stop_price: Option<f64>,
+        limit_price: Option<Decimal>,
+        stop_price: Option<Decimal>,
     ) -> Self {
         Self {
             qty,
             filled,
-            limit_price_bits: limit_price.map(f64::to_bits),
-            stop_price_bits: stop_price.map(f64::to_bits),
+            limit_price,
+            stop_price,
         }
     }
 
     pub(crate) fn non_fill_fields_match(&self, other: &Self) -> bool {
         self.qty == other.qty
-            && self.limit_price_bits == other.limit_price_bits
-            && self.stop_price_bits == other.stop_price_bits
+            && self.limit_price == other.limit_price
+            && self.stop_price == other.stop_price
     }
 }
 

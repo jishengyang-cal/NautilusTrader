@@ -39,6 +39,7 @@ use nautilus_model::{
 };
 use nautilus_network::websocket::{SubscriptionState, TransportBackend};
 use pyo3::{IntoPyObjectExt, prelude::*};
+use rust_decimal_macros::dec;
 
 use crate::{
     common::{
@@ -762,7 +763,10 @@ fn handle_open_orders_delta(
 
     order_instrument_map.insert(delta.order.order_id.clone(), instrument.id());
 
-    let qty = Quantity::new(delta.order.qty, instrument.size_precision());
+    let Ok(qty) = Quantity::from_decimal_dp(delta.order.qty, instrument.size_precision()) else {
+        log::error!("Failed to parse order quantity: {}", delta.order.qty);
+        return;
+    };
     venue_order_qty.insert(delta.order.order_id.clone(), qty);
 
     match parse_futures_ws_order_status_report(
@@ -1106,9 +1110,9 @@ fn maybe_emit_quote(
         return;
     };
 
-    let bid = bid_price.as_f64();
-    let ask = ask_price.as_f64();
-    if bid > 0.0 && (ask - bid) / bid > 0.25 {
+    let bid = bid_price.as_decimal();
+    let ask = ask_price.as_decimal();
+    if bid > dec!(0) && (ask - bid) / bid > dec!(0.25) {
         log::debug!("Filtered quote with wide spread: bid={bid}, ask={ask}");
         return;
     }

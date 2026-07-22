@@ -291,6 +291,7 @@ adapter set. The following limits remain deferred:
 - Fixed Interactive Brokers `IneligibilityReason` serialization (#4380), thanks @xxxxxx-oss
 - Fixed Interactive Brokers Docker gateway startup with non-default Docker contexts
 - Fixed Kraken Futures batch order `order_tag` serialization (#4459), thanks @Andreas197510
+- Fixed Kraken financial values losing precision through floating-point parsing and arithmetic
 - Fixed Lighter batch orders to use correlated sequential WebSocket transactions
 - Fixed Lighter reconciliation cursor loops, fill deduplication, and trailing fill identity
 - Fixed Lighter instrument parsing, gap candle filtering, and spot quote currencies
