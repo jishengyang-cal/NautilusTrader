@@ -34,7 +34,10 @@ use nautilus_model::{
 };
 use nautilus_network::{
     RECONNECTED,
-    websocket::{TransportBackend, WebSocketClient, WebSocketConfig, channel_message_handler},
+    websocket::{
+        TransportBackend, WebSocketClient, WebSocketConfig, channel_message_handler,
+        proxy::ProxyUrl,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Number;
@@ -66,6 +69,7 @@ pub(crate) struct PolymarketRtdsFeed {
 #[derive(Debug)]
 struct PolymarketRtdsFeedInner {
     url: String,
+    proxy_url: Option<ProxyUrl>,
     transport_backend: TransportBackend,
     clock: &'static AtomicTime,
     data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
@@ -195,15 +199,27 @@ struct SnapshotPointRaw {
 }
 
 impl PolymarketRtdsFeed {
+    #[cfg(test)]
     pub(crate) fn new(
         url: String,
         transport_backend: TransportBackend,
         clock: &'static AtomicTime,
         data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
     ) -> Self {
+        Self::new_with_proxy(url, transport_backend, clock, data_sender, None)
+    }
+
+    pub(crate) fn new_with_proxy(
+        url: String,
+        transport_backend: TransportBackend,
+        clock: &'static AtomicTime,
+        data_sender: tokio::sync::mpsc::UnboundedSender<DataEvent>,
+        proxy_url: Option<ProxyUrl>,
+    ) -> Self {
         Self {
             inner: Arc::new(PolymarketRtdsFeedInner {
                 url,
+                proxy_url,
                 transport_backend,
                 clock,
                 data_sender,
@@ -224,6 +240,11 @@ impl PolymarketRtdsFeed {
 
     pub(crate) fn has_subscriptions(&self) -> bool {
         !self.inner.subscriptions.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn proxy_url(&self) -> Option<&ProxyUrl> {
+        self.inner.proxy_url.as_ref()
     }
 
     pub(crate) fn track_subscribe(&self, data_type: DataType) -> anyhow::Result<bool> {
@@ -536,21 +557,7 @@ impl PolymarketRtdsFeed {
         }
 
         let (handler, raw_rx) = channel_message_handler();
-        let config = WebSocketConfig {
-            url: self.inner.url.clone(),
-            headers: vec![],
-            heartbeat: Some(POLYMARKET_RTDS_HEARTBEAT_SECS),
-            heartbeat_msg: Some("PING".to_string()),
-            reconnect_timeout_ms: Some(POLYMARKET_RTDS_RECONNECT_TIMEOUT_MS),
-            reconnect_delay_initial_ms: Some(POLYMARKET_RTDS_RECONNECT_DELAY_INITIAL_MS),
-            reconnect_delay_max_ms: Some(POLYMARKET_RTDS_RECONNECT_DELAY_MAX_MS),
-            reconnect_backoff_factor: Some(2.0),
-            reconnect_jitter_ms: Some(POLYMARKET_RTDS_RECONNECT_JITTER_MS),
-            reconnect_max_attempts: None,
-            idle_timeout_ms: Some(POLYMARKET_RTDS_IDLE_TIMEOUT_MS),
-            backend: self.inner.transport_backend,
-            proxy_url: None,
-        };
+        let config = self.websocket_config();
 
         let ws = Arc::new(
             WebSocketClient::connect(config, Some(handler), None, None, vec![], None)
@@ -582,6 +589,28 @@ impl PolymarketRtdsFeed {
         }
 
         Ok(true)
+    }
+
+    fn websocket_config(&self) -> WebSocketConfig {
+        WebSocketConfig {
+            url: self.inner.url.clone(),
+            headers: vec![],
+            heartbeat: Some(POLYMARKET_RTDS_HEARTBEAT_SECS),
+            heartbeat_msg: Some("PING".to_string()),
+            reconnect_timeout_ms: Some(POLYMARKET_RTDS_RECONNECT_TIMEOUT_MS),
+            reconnect_delay_initial_ms: Some(POLYMARKET_RTDS_RECONNECT_DELAY_INITIAL_MS),
+            reconnect_delay_max_ms: Some(POLYMARKET_RTDS_RECONNECT_DELAY_MAX_MS),
+            reconnect_backoff_factor: Some(2.0),
+            reconnect_jitter_ms: Some(POLYMARKET_RTDS_RECONNECT_JITTER_MS),
+            reconnect_max_attempts: None,
+            idle_timeout_ms: Some(POLYMARKET_RTDS_IDLE_TIMEOUT_MS),
+            backend: self.inner.transport_backend,
+            proxy_url: self
+                .inner
+                .proxy_url
+                .as_ref()
+                .map(|url| url.expose().to_string()),
+        }
     }
 
     fn snapshot_wire_subscriptions(&self) -> AHashMap<String, RtdsWireSubscription> {
@@ -1151,6 +1180,52 @@ mod tests {
             tx,
         );
         (feed, rx)
+    }
+
+    #[rstest]
+    fn feed_retains_proxy_url_without_debug_exposure() {
+        const PROXY_URL: &str = "http://rtds-user:rtds-proxy-secret@127.0.0.1:18089";
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let feed = PolymarketRtdsFeed::new_with_proxy(
+            "ws://rtds.example/ws".to_string(),
+            TransportBackend::Tungstenite,
+            get_atomic_clock_realtime(),
+            tx,
+            Some(ProxyUrl::parse(PROXY_URL).unwrap()),
+        );
+        let config = feed.websocket_config();
+        let debug = format!("{feed:?}");
+
+        assert_eq!(feed.proxy_url().unwrap().expose(), PROXY_URL);
+        assert_eq!(config.url, "ws://rtds.example/ws");
+        assert_eq!(config.headers, Vec::<(String, String)>::new());
+        assert_eq!(config.heartbeat, Some(POLYMARKET_RTDS_HEARTBEAT_SECS));
+        assert_eq!(config.heartbeat_msg.as_deref(), Some("PING"));
+        assert_eq!(
+            config.reconnect_timeout_ms,
+            Some(POLYMARKET_RTDS_RECONNECT_TIMEOUT_MS)
+        );
+        assert_eq!(
+            config.reconnect_delay_initial_ms,
+            Some(POLYMARKET_RTDS_RECONNECT_DELAY_INITIAL_MS)
+        );
+        assert_eq!(
+            config.reconnect_delay_max_ms,
+            Some(POLYMARKET_RTDS_RECONNECT_DELAY_MAX_MS)
+        );
+        assert_eq!(config.reconnect_backoff_factor, Some(2.0));
+        assert_eq!(
+            config.reconnect_jitter_ms,
+            Some(POLYMARKET_RTDS_RECONNECT_JITTER_MS)
+        );
+        assert_eq!(config.reconnect_max_attempts, None);
+        assert_eq!(
+            config.idle_timeout_ms,
+            Some(POLYMARKET_RTDS_IDLE_TIMEOUT_MS)
+        );
+        assert_eq!(config.backend, TransportBackend::Tungstenite);
+        assert_eq!(config.proxy_url.as_deref(), Some(PROXY_URL));
+        assert!(!debug.contains("rtds-proxy-secret"));
     }
 
     #[derive(Clone, Default)]

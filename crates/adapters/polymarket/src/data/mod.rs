@@ -61,6 +61,7 @@ use nautilus_model::{
     instruments::InstrumentAny,
     orderbook::OrderBook,
 };
+use nautilus_network::websocket::proxy::ProxyUrl;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
@@ -134,17 +135,39 @@ pub struct PolymarketDataClient {
     auto_load_scheduled: Arc<AtomicBool>,
     position_event_handler: Option<TypedHandler<PositionEvent>>,
     rtds_feed: PolymarketRtdsFeed,
+    proxy_url: Option<ProxyUrl>,
 }
 
 impl PolymarketDataClient {
     /// Creates a new [`PolymarketDataClient`].
     pub fn new(
         client_id: ClientId,
+        config: PolymarketDataClientConfig,
+        gamma_client: PolymarketGammaHttpClient,
+        clob_public_client: PolymarketClobPublicClient,
+        data_api_client: PolymarketDataApiHttpClient,
+        ws_client: PolymarketMarketConnectionPool,
+    ) -> Self {
+        Self::new_with_proxy(
+            client_id,
+            config,
+            gamma_client,
+            clob_public_client,
+            data_api_client,
+            ws_client,
+            None,
+        )
+    }
+
+    /// Creates a new data client with an optional validated proxy URL.
+    pub fn new_with_proxy(
+        client_id: ClientId,
         mut config: PolymarketDataClientConfig,
         gamma_client: PolymarketGammaHttpClient,
         clob_public_client: PolymarketClobPublicClient,
         data_api_client: PolymarketDataApiHttpClient,
         ws_client: PolymarketMarketConnectionPool,
+        proxy_url: Option<ProxyUrl>,
     ) -> Self {
         let clock = get_atomic_clock_realtime();
         let data_sender = get_data_event_sender();
@@ -200,12 +223,14 @@ impl PolymarketDataClient {
             pending_auto_loads: Arc::new(StdMutex::new(AHashSet::new())),
             auto_load_scheduled: Arc::new(AtomicBool::new(false)),
             position_event_handler: None,
-            rtds_feed: PolymarketRtdsFeed::new(
+            rtds_feed: PolymarketRtdsFeed::new_with_proxy(
                 rtds_url,
                 rtds_transport_backend,
                 clock,
                 rtds_data_sender,
+                proxy_url.clone(),
             ),
+            proxy_url,
         }
     }
 
@@ -225,6 +250,26 @@ impl PolymarketDataClient {
     #[must_use]
     pub fn provider(&self) -> &PolymarketInstrumentProvider {
         &self.provider
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clob_public_client(&self) -> &PolymarketClobPublicClient {
+        &self.clob_public_client
+    }
+
+    #[cfg(test)]
+    pub(crate) fn data_api_client(&self) -> &PolymarketDataApiHttpClient {
+        &self.data_api_client
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ws_client(&self) -> &PolymarketMarketConnectionPool {
+        &self.ws_client
+    }
+
+    #[cfg(test)]
+    pub(crate) fn rtds_feed(&self) -> &PolymarketRtdsFeed {
+        &self.rtds_feed
     }
 
     /// Adds an instrument filter on the underlying provider.

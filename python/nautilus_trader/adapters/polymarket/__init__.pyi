@@ -93,7 +93,10 @@ class PolymarketDataClientConfig:
         base_url_rtds: str | None = None,
         transport_backend: network.TransportBackend | None = None,
         drop_quotes_missing_side: bool | None = None,
+        proxy_url: str | None = None,
     ) -> None: ...
+    @property
+    def has_proxy_url(self) -> bool: ...
 
 @typing.final
 class PolymarketDataClientFactory:
@@ -147,7 +150,10 @@ class PolymarketExecClientConfig:
         retry_delay_max_ms: int | None = None,
         ack_timeout_secs: int | None = None,
         transport_backend: network.TransportBackend | None = None,
+        proxy_url: str | None = None,
     ) -> None: ...
+    @property
+    def has_proxy_url(self) -> bool: ...
 
 @typing.final
 class PolymarketExecutionClientFactory:

@@ -67,6 +67,7 @@ adapter set. The following limits remain deferred:
 - Added Polymarket v2 singular instrument definition subscriptions through shared live publishers
   and explicit generic subscription capability contracts
 - Added Polymarket v2 GTD expiry and idempotent already-canceled execution test contracts
+- Added HTTP and WebSocket proxy support to every Polymarket v2 live client transport
 - Added v2 `info` fill metadata to `OrderFilled`
 - Added v2 order-event `activation_price` persistence through event and dictionary reconstruction
 - Added v2 trailing stops that activate at market and set prices from the first update

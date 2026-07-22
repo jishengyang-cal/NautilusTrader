@@ -25,7 +25,7 @@ use nautilus_network::{
     mode::ConnectionMode,
     websocket::{
         AuthTracker, SubscriptionState, TransportBackend, WebSocketClient, WebSocketConfig,
-        channel_message_handler,
+        channel_message_handler, proxy::ProxyUrl,
     },
 };
 
@@ -117,6 +117,7 @@ pub struct PolymarketWebSocketClient {
     task_handle: Option<tokio::task::JoinHandle<()>>,
     subscribe_new_markets: bool,
     transport_backend: TransportBackend,
+    proxy_url: Option<ProxyUrl>,
 }
 
 impl PolymarketWebSocketClient {
@@ -129,6 +130,17 @@ impl PolymarketWebSocketClient {
         subscribe_new_markets: bool,
         transport_backend: TransportBackend,
     ) -> Self {
+        Self::new_market_with_proxy(base_url, subscribe_new_markets, transport_backend, None)
+    }
+
+    /// Creates a new market-channel client with an optional validated proxy URL.
+    #[must_use]
+    pub fn new_market_with_proxy(
+        base_url: Option<String>,
+        subscribe_new_markets: bool,
+        transport_backend: TransportBackend,
+        proxy_url: Option<ProxyUrl>,
+    ) -> Self {
         let url = base_url.unwrap_or_else(|| clob_ws_market_url().to_string());
         Self::new_inner(
             WsChannel::Market,
@@ -136,6 +148,7 @@ impl PolymarketWebSocketClient {
             None,
             subscribe_new_markets,
             transport_backend,
+            proxy_url,
         )
     }
 
@@ -148,6 +161,17 @@ impl PolymarketWebSocketClient {
         credential: Credential,
         transport_backend: TransportBackend,
     ) -> Self {
+        Self::new_user_with_proxy(base_url, credential, transport_backend, None)
+    }
+
+    /// Creates a new user-channel client with an optional validated proxy URL.
+    #[must_use]
+    pub fn new_user_with_proxy(
+        base_url: Option<String>,
+        credential: Credential,
+        transport_backend: TransportBackend,
+        proxy_url: Option<ProxyUrl>,
+    ) -> Self {
         let url = base_url.unwrap_or_else(|| clob_ws_user_url().to_string());
         Self::new_inner(
             WsChannel::User,
@@ -155,6 +179,7 @@ impl PolymarketWebSocketClient {
             Some(credential),
             false,
             transport_backend,
+            proxy_url,
         )
     }
 
@@ -164,6 +189,7 @@ impl PolymarketWebSocketClient {
         credential: Option<Credential>,
         subscribe_new_markets: bool,
         transport_backend: TransportBackend,
+        proxy_url: Option<ProxyUrl>,
     ) -> Self {
         let (placeholder_tx, _) = tokio::sync::mpsc::unbounded_channel();
         Self {
@@ -180,7 +206,13 @@ impl PolymarketWebSocketClient {
             task_handle: None,
             subscribe_new_markets,
             transport_backend,
+            proxy_url,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn proxy_url(&self) -> Option<&ProxyUrl> {
+        self.proxy_url.as_ref()
     }
 
     /// Establishes the WebSocket connection and spawns the message handler.
@@ -195,21 +227,7 @@ impl PolymarketWebSocketClient {
         }
 
         let (message_handler, raw_rx) = channel_message_handler();
-        let cfg = WebSocketConfig {
-            url: self.url.clone(),
-            headers: vec![],
-            heartbeat: Some(POLYMARKET_HEARTBEAT_SECS),
-            heartbeat_msg: None,
-            reconnect_timeout_ms: Some(15_000),
-            reconnect_delay_initial_ms: Some(250),
-            reconnect_delay_max_ms: Some(5_000),
-            reconnect_backoff_factor: Some(2.0),
-            reconnect_jitter_ms: Some(200),
-            reconnect_max_attempts: None,
-            idle_timeout_ms: Some(idle_timeout_ms_for(self.channel)),
-            backend: self.transport_backend,
-            proxy_url: None,
-        };
+        let cfg = self.websocket_config();
 
         let client =
             WebSocketClient::connect(cfg, Some(message_handler), None, None, vec![], None).await?;
@@ -315,6 +333,24 @@ impl PolymarketWebSocketClient {
         });
         self.task_handle = Some(stream_handle);
         Ok(())
+    }
+
+    fn websocket_config(&self) -> WebSocketConfig {
+        WebSocketConfig {
+            url: self.url.clone(),
+            headers: vec![],
+            heartbeat: Some(POLYMARKET_HEARTBEAT_SECS),
+            heartbeat_msg: None,
+            reconnect_timeout_ms: Some(15_000),
+            reconnect_delay_initial_ms: Some(250),
+            reconnect_delay_max_ms: Some(5_000),
+            reconnect_backoff_factor: Some(2.0),
+            reconnect_jitter_ms: Some(200),
+            reconnect_max_attempts: None,
+            idle_timeout_ms: Some(idle_timeout_ms_for(self.channel)),
+            backend: self.transport_backend,
+            proxy_url: self.proxy_url.as_ref().map(|url| url.expose().to_string()),
+        }
     }
 
     /// Force-close fallback for the sync `stop()` path.
@@ -503,7 +539,10 @@ mod tests {
         response::Response,
         routing::get,
     };
-    use nautilus_network::{RECONNECTED, websocket::TransportBackend};
+    use nautilus_network::{
+        RECONNECTED,
+        websocket::{TransportBackend, WebSocketConfig, proxy::ProxyUrl},
+    };
     use rstest::rstest;
 
     use super::{PolymarketWebSocketClient, WsChannel, idle_timeout_ms_for};
@@ -568,5 +607,64 @@ mod tests {
             .disconnect()
             .await
             .expect("disconnect websocket client");
+    }
+
+    #[rstest]
+    fn proxy_url_is_retained_for_market_and_user_clients() {
+        const MARKET_PROXY: &str = "http://market-user:market-proxy-secret@127.0.0.1:18086";
+        const USER_PROXY: &str = "https://user-user:user-proxy-secret@127.0.0.1:18087";
+        let market = PolymarketWebSocketClient::new_market_with_proxy(
+            Some("ws://market.example/ws".to_string()),
+            false,
+            TransportBackend::Tungstenite,
+            Some(ProxyUrl::parse(MARKET_PROXY).unwrap()),
+        );
+        let credential = crate::common::credential::Credential::new(
+            "fixture-key",
+            "Zml4dHVyZQ==",
+            "fixture-passphrase".to_string(),
+        )
+        .unwrap();
+        let user = PolymarketWebSocketClient::new_user_with_proxy(
+            Some("ws://user.example/ws".to_string()),
+            credential,
+            TransportBackend::Tungstenite,
+            Some(ProxyUrl::parse(USER_PROXY).unwrap()),
+        );
+        let market_config = market.websocket_config();
+        let user_config = user.websocket_config();
+        let market_debug = format!("{market:?}");
+        let user_debug = format!("{user:?}");
+        let assert_common = |config: &WebSocketConfig| {
+            assert_eq!(config.headers, Vec::<(String, String)>::new());
+            assert_eq!(config.heartbeat, Some(super::POLYMARKET_HEARTBEAT_SECS));
+            assert_eq!(config.heartbeat_msg, None);
+            assert_eq!(config.reconnect_timeout_ms, Some(15_000));
+            assert_eq!(config.reconnect_delay_initial_ms, Some(250));
+            assert_eq!(config.reconnect_delay_max_ms, Some(5_000));
+            assert_eq!(config.reconnect_backoff_factor, Some(2.0));
+            assert_eq!(config.reconnect_jitter_ms, Some(200));
+            assert_eq!(config.reconnect_max_attempts, None);
+            assert_eq!(config.backend, TransportBackend::Tungstenite);
+        };
+
+        assert_eq!(market.proxy_url.as_ref().unwrap().expose(), MARKET_PROXY);
+        assert_eq!(user.proxy_url.as_ref().unwrap().expose(), USER_PROXY);
+        assert_eq!(market_config.url, "ws://market.example/ws");
+        assert_eq!(user_config.url, "ws://user.example/ws");
+        assert_eq!(
+            market_config.idle_timeout_ms,
+            Some(idle_timeout_ms_for(WsChannel::Market))
+        );
+        assert_eq!(
+            user_config.idle_timeout_ms,
+            Some(idle_timeout_ms_for(WsChannel::User))
+        );
+        assert_eq!(market_config.proxy_url.as_deref(), Some(MARKET_PROXY));
+        assert_eq!(user_config.proxy_url.as_deref(), Some(USER_PROXY));
+        assert_common(&market_config);
+        assert_common(&user_config);
+        assert!(!market_debug.contains("market-proxy-secret"));
+        assert!(!user_debug.contains("user-proxy-secret"));
     }
 }

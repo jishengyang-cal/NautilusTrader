@@ -24,7 +24,10 @@ use nautilus_model::{
     identifiers::{InstrumentId, TradeId},
     types::{Price, Quantity},
 };
-use nautilus_network::http::{HttpClient, HttpClientError, Method, USER_AGENT};
+use nautilus_network::{
+    http::{HttpClient, HttpClientError, Method, USER_AGENT},
+    websocket::proxy::ProxyUrl,
+};
 
 use crate::{
     common::enums::PolymarketOrderSide,
@@ -84,6 +87,19 @@ impl PolymarketDataApiHttpClient {
     ///
     /// Returns an error if the HTTP client cannot be created.
     pub fn new(base_url: Option<String>, timeout_secs: u64) -> StdResult<Self, HttpClientError> {
+        Self::new_with_proxy(base_url, timeout_secs, None)
+    }
+
+    /// Creates a new client with an optional validated proxy URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be created.
+    pub fn new_with_proxy(
+        base_url: Option<String>,
+        timeout_secs: u64,
+        proxy_url: Option<ProxyUrl>,
+    ) -> StdResult<Self, HttpClientError> {
         Ok(Self {
             client: HttpClient::new(
                 HashMap::from([
@@ -94,7 +110,7 @@ impl PolymarketDataApiHttpClient {
                 vec![],
                 None,
                 Some(timeout_secs),
-                None,
+                proxy_url.map(|url| url.expose().to_string()),
             )?,
             base_url: base_url
                 .unwrap_or_else(|| POLYMARKET_DATA_API_URL.to_string())

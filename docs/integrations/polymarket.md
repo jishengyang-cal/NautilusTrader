@@ -954,6 +954,7 @@ Class/struct: `PolymarketDataClientConfig`.
 | `base_url_http`, `base_url_ws`                | `None`    | Override the CLOB HTTP or WebSocket endpoint. |
 | `base_url_gamma`, `base_url_data_api`         | `None`    | Override the Gamma or Data API endpoint. |
 | `base_url_rtds`                               | `None`    | Override the RTDS endpoint. |
+| `proxy_url`                                   | `None`    | HTTP or HTTPS proxy for every data transport. |
 | `http_timeout_secs`, `ws_timeout_secs`        | `60`, `30` | HTTP and WebSocket timeout in seconds. |
 | `ws_max_subscriptions`                        | `200`     | Per‑connection subscription cap; the market pool shards across connections at this bound. |
 | `update_instruments_interval_mins`            | `60`      | Instrument catalogue refresh interval; pass `None` to disable it. |
@@ -984,12 +985,27 @@ Class/struct: `PolymarketExecClientConfig`.
 | `funder`                                         | `POLYMARKET_FUNDER`     | Funding wallet; proxy and deposit‑wallet signatures require it to differ from the signing address. |
 | `signature_type`                                 | `Eoa`                   | `Eoa`, `PolyProxy`, `PolyGnosisSafe`, or `Poly1271`. |
 | `base_url_http`, `base_url_ws`, `base_url_data_api` | `None`                | Override the respective production endpoint. |
+| `proxy_url`                                      | `None`                  | HTTP or HTTPS proxy for every execution transport. |
 | `http_timeout_secs`                              | `60`                    | HTTP timeout in seconds. |
 | `max_retries`                                    | `3`                     | Retries for single‑order submit and cancel requests. |
 | `retry_delay_initial_ms`                         | `1000`                  | Initial retry delay. |
 | `retry_delay_max_ms`                             | `10000`                 | Maximum retry delay. |
 | `ack_timeout_secs`                               | `5`                     | Reserved for order/trade acknowledgment handling; not currently applied. |
 | `transport_backend`                              | `Sockudo`               | WebSocket transport implementation. |
+
+### Proxy routing
+
+Set `proxy_url` to apply one HTTP or HTTPS proxy to every transport owned by that client. The data
+client routes CLOB HTTP, Gamma HTTP, Data API HTTP, the market WebSocket pool, and RTDS through the
+proxy. The execution client routes authenticated CLOB HTTP, Data API HTTP, and the authenticated
+user WebSocket through it. Configure the same value on both clients when running data and execution
+together.
+
+SOCKS URLs and malformed URLs fail configuration validation. When `proxy_url` is `None`, the adapter
+does not configure an explicit proxy: HTTP retains reqwest's environment-proxy behavior and
+WebSockets connect directly. Treat credential-bearing proxy URLs as secrets because serialized
+configs contain the supplied URL. Python exposes only `has_proxy_url`; configuration `Debug` output
+and transport diagnostics redact proxy credentials.
 
 Batch submissions never retry because Polymarket does not expose an idempotency key.
 Proxy signature clients fail during construction unless `funder` is present and differs from the

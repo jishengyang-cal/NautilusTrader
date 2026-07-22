@@ -623,6 +623,7 @@ fn is_terminal_order_event(event: &OrderEventAny) -> bool {
 mod tests {
     use std::{cell::RefCell, rc::Rc};
 
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use nautilus_common::{
         cache::Cache,
         live::runner::set_exec_event_sender,
@@ -646,12 +647,31 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+    use crate::factories::spawn_rejecting_proxy;
 
     const TEST_PRIVATE_KEY: &str =
         "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
     const TEST_API_SECRET_B64: &str = "dGVzdF9zZWNyZXRfa2V5XzMyYnl0ZXNfcGFkMTIzNDU=";
 
     fn test_client() -> (PolymarketExecutionClient, Rc<RefCell<Cache>>) {
+        test_client_with_proxy(None)
+    }
+
+    fn test_client_with_proxy(
+        proxy_url: Option<String>,
+    ) -> (PolymarketExecutionClient, Rc<RefCell<Cache>>) {
+        test_client_with_proxy_and_http_urls(
+            proxy_url,
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3000",
+        )
+    }
+
+    fn test_client_with_proxy_and_http_urls(
+        proxy_url: Option<String>,
+        base_url_http: &str,
+        base_url_data_api: &str,
+    ) -> (PolymarketExecutionClient, Rc<RefCell<Cache>>) {
         let cache = Rc::new(RefCell::new(Cache::default()));
         let core = ExecutionClientCore::new(
             TraderId::from("TESTER-001"),
@@ -673,15 +693,79 @@ mod tests {
                 api_secret: Some(TEST_API_SECRET_B64.to_string()),
                 passphrase: Some("test_pass".to_string()),
                 funder: None,
-                base_url_http: Some("http://127.0.0.1:3000".to_string()),
+                base_url_http: Some(base_url_http.to_string()),
                 base_url_ws: Some("ws://127.0.0.1:3000/ws".to_string()),
-                base_url_data_api: Some("http://127.0.0.1:3000".to_string()),
+                base_url_data_api: Some(base_url_data_api.to_string()),
+                proxy_url,
                 ..crate::config::PolymarketExecClientConfig::default()
             },
         )
         .expect("test client should construct");
 
         (client, cache)
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn execution_client_propagates_proxy_without_debug_exposure() {
+        const USERNAME: &str = "exec-user";
+        const SECRET: &str = "exec-client-proxy-secret";
+        let (proxy_addr, requests) = spawn_rejecting_proxy(2).await;
+        let proxy_url = format!("http://{USERNAME}:{SECRET}@{proxy_addr}");
+        let (client, _cache) = test_client_with_proxy_and_http_urls(
+            Some(proxy_url.clone()),
+            "https://clob-auth.fixture",
+            "https://data-auth.fixture",
+        );
+        let debug = format!("{client:?}");
+        let errors = [
+            client
+                .http_client
+                .get_book("auth-token")
+                .await
+                .unwrap_err()
+                .to_string(),
+            client
+                .data_api_client
+                .get_positions("0x0000000000000000000000000000000000000002")
+                .await
+                .unwrap_err()
+                .to_string(),
+        ];
+        let requests = requests.lock().await;
+        let request_lines = requests
+            .iter()
+            .map(|request| request.lines().next().unwrap().to_string())
+            .collect::<Vec<_>>();
+        let expected_auth = format!("Basic {}", BASE64.encode(format!("{USERNAME}:{SECRET}")));
+
+        assert_eq!(client.config.proxy_url.as_deref(), Some(proxy_url.as_str()));
+        assert_eq!(client.ws_client.proxy_url().unwrap().expose(), proxy_url);
+        assert_eq!(
+            request_lines,
+            [
+                "CONNECT clob-auth.fixture:443 HTTP/1.1",
+                "CONNECT data-auth.fixture:443 HTTP/1.1",
+            ]
+        );
+
+        for request in requests.iter() {
+            let auth = request
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("proxy-authorization")
+                        .then_some(value.trim())
+                })
+                .expect("Proxy-Authorization header");
+            assert_eq!(auth, expected_auth);
+        }
+
+        for error in errors {
+            assert!(!error.contains(SECRET));
+            assert!(!error.contains(&expected_auth));
+        }
+        assert!(!debug.contains(SECRET));
     }
 
     fn test_binary_option(raw_symbol: &str, expired: bool, neg_risk: bool) -> InstrumentAny {

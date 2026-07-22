@@ -27,7 +27,10 @@ use nautilus_model::{
     identifiers::InstrumentId,
     orderbook::OrderBook,
 };
-use nautilus_network::http::{HttpClient, HttpClientError, Method, USER_AGENT};
+use nautilus_network::{
+    http::{HttpClient, HttpClientError, Method, USER_AGENT},
+    websocket::proxy::ProxyUrl,
+};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
@@ -101,6 +104,21 @@ impl PolymarketClobHttpClient {
         base_url: Option<String>,
         timeout_secs: u64,
     ) -> StdResult<Self, HttpClientError> {
+        Self::new_with_proxy(credential, address, base_url, timeout_secs, None)
+    }
+
+    /// Creates a new authenticated client with an optional validated proxy URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be created.
+    pub fn new_with_proxy(
+        credential: Credential,
+        address: String,
+        base_url: Option<String>,
+        timeout_secs: u64,
+        proxy_url: Option<ProxyUrl>,
+    ) -> StdResult<Self, HttpClientError> {
         Ok(Self {
             client: HttpClient::new(
                 Self::default_headers(),
@@ -108,7 +126,7 @@ impl PolymarketClobHttpClient {
                 vec![],
                 Some(*POLYMARKET_CLOB_REST_QUOTA),
                 Some(timeout_secs),
-                None,
+                proxy_url.map(|url| url.expose().to_string()),
             )?,
             base_url: base_url
                 .unwrap_or_else(|| clob_http_url().to_string())
@@ -461,6 +479,19 @@ impl PolymarketClobPublicClient {
     ///
     /// Returns an error if the HTTP client cannot be created.
     pub fn new(base_url: Option<String>, timeout_secs: u64) -> StdResult<Self, HttpClientError> {
+        Self::new_with_proxy(base_url, timeout_secs, None)
+    }
+
+    /// Creates a new public client with an optional validated proxy URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be created.
+    pub fn new_with_proxy(
+        base_url: Option<String>,
+        timeout_secs: u64,
+        proxy_url: Option<ProxyUrl>,
+    ) -> StdResult<Self, HttpClientError> {
         Ok(Self {
             client: HttpClient::new(
                 HashMap::from([
@@ -471,7 +502,7 @@ impl PolymarketClobPublicClient {
                 vec![],
                 Some(*POLYMARKET_CLOB_REST_QUOTA),
                 Some(timeout_secs),
-                None,
+                proxy_url.map(|url| url.expose().to_string()),
             )?,
             base_url: base_url
                 .unwrap_or_else(|| clob_http_url().to_string())

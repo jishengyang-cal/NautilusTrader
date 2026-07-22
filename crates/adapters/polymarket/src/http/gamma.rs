@@ -36,6 +36,7 @@ use nautilus_model::instruments::InstrumentAny;
 use nautilus_network::{
     http::{HttpClient, HttpClientError, HttpResponse, Method, USER_AGENT},
     retry::{RetryConfig, RetryManager},
+    websocket::proxy::ProxyUrl,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -71,6 +72,19 @@ impl PolymarketGammaRawHttpClient {
     ///
     /// Returns an error if the HTTP client cannot be created.
     pub fn new(base_url: Option<String>, timeout_secs: u64) -> StdResult<Self, HttpClientError> {
+        Self::new_with_proxy(base_url, timeout_secs, None)
+    }
+
+    /// Creates a new raw client with an optional validated proxy URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be created.
+    pub fn new_with_proxy(
+        base_url: Option<String>,
+        timeout_secs: u64,
+        proxy_url: Option<ProxyUrl>,
+    ) -> StdResult<Self, HttpClientError> {
         Ok(Self {
             client: HttpClient::new(
                 Self::default_headers(),
@@ -78,7 +92,7 @@ impl PolymarketGammaRawHttpClient {
                 vec![],
                 Some(*POLYMARKET_GAMMA_REST_QUOTA),
                 Some(timeout_secs),
-                None,
+                proxy_url.map(|url| url.expose().to_string()),
             )?,
             base_url: base_url
                 .unwrap_or_else(|| gamma_api_url().to_string())
@@ -441,10 +455,25 @@ impl PolymarketGammaHttpClient {
         timeout_secs: u64,
         retry_config: RetryConfig,
     ) -> StdResult<Self, HttpClientError> {
+        Self::new_with_proxy(gamma_base_url, timeout_secs, retry_config, None)
+    }
+
+    /// Creates a new domain client with an optional validated proxy URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying HTTP client cannot be created.
+    pub fn new_with_proxy(
+        gamma_base_url: Option<String>,
+        timeout_secs: u64,
+        retry_config: RetryConfig,
+        proxy_url: Option<ProxyUrl>,
+    ) -> StdResult<Self, HttpClientError> {
         Ok(Self {
-            inner: Arc::new(PolymarketGammaRawHttpClient::new(
+            inner: Arc::new(PolymarketGammaRawHttpClient::new_with_proxy(
                 gamma_base_url,
                 timeout_secs,
+                proxy_url,
             )?),
             clock: get_atomic_clock_realtime(),
             retry_manager: Arc::new(RetryManager::new(retry_config)),

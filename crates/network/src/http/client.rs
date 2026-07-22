@@ -169,7 +169,7 @@ impl HttpClient {
         // Configure proxy if provided
         if let Some(proxy_url) = proxy_url {
             let proxy = reqwest::Proxy::all(&proxy_url)
-                .map_err(|e| HttpClientError::InvalidProxy(format!("{proxy_url}: {e}")))?;
+                .map_err(|_| HttpClientError::InvalidProxy("proxy URL is malformed".to_string()))?;
             client_builder = client_builder.proxy(proxy);
         }
 
@@ -633,8 +633,13 @@ mod tests {
         routing::{delete, get, patch, post},
         serve,
     };
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use http::status::StatusCode;
     use rstest::rstest;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        sync::oneshot,
+    };
 
     use super::*;
 
@@ -668,6 +673,39 @@ mod tests {
         });
 
         Ok(addr)
+    }
+
+    async fn spawn_rejecting_connect_proxy() -> (SocketAddr, oneshot::Receiver<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                let read = stream.read(&mut chunk).await.unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            request_tx
+                .send(String::from_utf8(request).unwrap())
+                .unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n",
+                )
+                .await
+                .unwrap();
+        });
+
+        (addr, request_rx)
     }
 
     #[tokio::test]
@@ -923,6 +961,110 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[tokio::test]
+    async fn test_http_client_without_proxy_requests_directly() {
+        let addr = start_test_server().await.unwrap();
+        let client = HttpClient::new(HashMap::new(), vec![], vec![], None, Some(2), None).unwrap();
+        let response = client
+            .request(
+                Method::GET,
+                format!("http://{addr}/get"),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("direct request");
+
+        assert_eq!(response.status.as_u16(), StatusCode::OK.as_u16());
+        assert_eq!(response.body.as_ref(), b"hello-world!");
+    }
+
+    #[tokio::test]
+    async fn test_http_client_uses_connect_and_proxy_authorization_for_https() {
+        const USERNAME: &str = "proxytest";
+        const PASSWORD: &str = "fixture42";
+        let (proxy_addr, request_rx) = spawn_rejecting_connect_proxy().await;
+        let client = HttpClient::new(
+            HashMap::new(),
+            vec![],
+            vec![],
+            None,
+            Some(2),
+            Some(format!("http://{USERNAME}:{PASSWORD}@{proxy_addr}")),
+        )
+        .unwrap();
+        let error = client
+            .request(
+                Method::GET,
+                "https://fixture.example.test/path".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect_err("proxy should reject CONNECT");
+        let request = request_rx.await.expect("captured CONNECT request");
+        let mut lines = request.split("\r\n");
+        let request_line = lines.next().expect("CONNECT request line");
+        let auth_value = lines
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("proxy-authorization")
+                    .then_some(value.trim())
+            })
+            .expect("Proxy-Authorization header");
+        let expected_auth = format!("Basic {}", BASE64.encode(format!("{USERNAME}:{PASSWORD}")));
+
+        assert_eq!(request_line, "CONNECT fixture.example.test:443 HTTP/1.1");
+        assert_eq!(auth_value, expected_auth);
+        assert!(!error.to_string().contains(PASSWORD));
+        assert!(!error.to_string().contains(&BASE64.encode(PASSWORD)));
+        assert!(!error.to_string().contains(&expected_auth));
+    }
+
+    #[tokio::test]
+    async fn test_http_client_unreachable_proxy_error_redacts_credentials() {
+        const USERNAME: &str = "proxy-user";
+        const SECRET: &str = "unreachable-proxy-secret";
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        drop(listener);
+        let client = HttpClient::new(
+            HashMap::new(),
+            vec![],
+            vec![],
+            None,
+            Some(1),
+            Some(format!("http://{USERNAME}:{SECRET}@{proxy_addr}")),
+        )
+        .unwrap();
+        let error = client
+            .request(
+                Method::GET,
+                "https://fixture.example.test/".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect_err("unreachable proxy should fail");
+
+        assert!(!error.to_string().contains(SECRET));
+        assert!(!error.to_string().contains(&BASE64.encode(SECRET)));
+        assert!(
+            !error
+                .to_string()
+                .contains(&BASE64.encode(format!("{USERNAME}:{SECRET}")))
+        );
+    }
+
     #[rstest]
     fn test_http_client_with_valid_proxy() {
         // Create client with a valid proxy URL
@@ -969,6 +1111,26 @@ mod tests {
 
         assert!(result.is_err());
         assert!(matches!(result, Err(HttpClientError::InvalidProxy(_))));
+    }
+
+    #[rstest]
+    fn test_http_client_invalid_proxy_error_redacts_credentials() {
+        const SECRET: &str = "unique-proxy-secret";
+        let result = HttpClient::new(
+            HashMap::new(),
+            vec![],
+            vec![],
+            None,
+            None,
+            Some(format!("http://proxytest:{SECRET}@[::1")),
+        );
+        let error = result.expect_err("malformed proxy URL should fail");
+
+        assert_eq!(
+            error.to_string(),
+            "Invalid proxy URL: proxy URL is malformed"
+        );
+        assert!(!error.to_string().contains(SECRET));
     }
 
     #[rstest]

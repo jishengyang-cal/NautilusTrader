@@ -39,7 +39,10 @@
 //! 6. Hand the resulting stream to `tokio-tungstenite`'s `client_async` so the
 //!    WebSocket handshake completes over the tunnel.
 
+use std::fmt::Debug;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use nautilus_core::string::secret::REDACTED;
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_rustls::{TlsConnector, client::TlsStream};
@@ -52,6 +55,41 @@ use crate::{net::TcpStream, transport::TransportError};
 /// Bounds the buffer so a malicious or broken proxy cannot make us allocate
 /// indefinitely while we wait for the header terminator.
 const MAX_PROXY_RESPONSE_BYTES: usize = 16 * 1024;
+
+/// Validated HTTP or HTTPS proxy URL.
+///
+/// The underlying URL is intentionally redacted from [`Debug`] output because
+/// URL user-info can contain proxy credentials.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ProxyUrl(String);
+
+impl ProxyUrl {
+    /// Parses and validates an HTTP or HTTPS proxy URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::InvalidUrl`] when the URL is malformed, has no host, or uses an
+    /// unsupported scheme.
+    pub fn parse(value: impl Into<String>) -> Result<Self, TransportError> {
+        let value = value.into();
+        ProxyTarget::parse(&value)?;
+        Ok(Self(value))
+    }
+
+    /// Returns the validated URL for transport configuration.
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Debug for ProxyUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple(stringify!(ProxyUrl))
+            .field(&REDACTED)
+            .finish()
+    }
+}
 
 /// Stream produced by `tunnel_via_proxy` when the upstream is `ws://`
 /// (no upstream TLS, but the proxy hop itself may have been TLS-protected).
@@ -91,8 +129,8 @@ impl WsTarget {
     /// Returns [`TransportError::InvalidUrl`] when the URL fails to parse,
     /// is missing a hostname, or uses a scheme other than `ws`/`wss`.
     pub fn parse(url: &str) -> Result<Self, TransportError> {
-        let parsed =
-            Url::parse(url).map_err(|e| TransportError::InvalidUrl(format!("{url}: {e}")))?;
+        let parsed = Url::parse(url)
+            .map_err(|e| TransportError::InvalidUrl(format!("invalid WebSocket URL: {e}")))?;
 
         let is_tls = match parsed.scheme() {
             "ws" => false,
@@ -148,8 +186,8 @@ impl ProxyKind {
     ///
     /// See [`ProxyTarget::parse`] for the underlying validation.
     pub fn parse(url: &str) -> Result<Self, TransportError> {
-        let parsed =
-            Url::parse(url).map_err(|e| TransportError::InvalidUrl(format!("{url}: {e}")))?;
+        let parsed = Url::parse(url)
+            .map_err(|e| TransportError::InvalidUrl(format!("invalid proxy URL: {e}")))?;
 
         match parsed.scheme() {
             "http" | "https" => ProxyTarget::parse(url).map(ProxyKind::Http),
@@ -160,7 +198,7 @@ impl ProxyKind {
                 // and hide the typo.
                 if parsed.host_str().is_none_or(str::is_empty) {
                     return Err(TransportError::InvalidUrl(format!(
-                        "proxy URL '{url}' is missing a host (did you mean {scheme}://...)?"
+                        "proxy URL is missing a host (did you mean {scheme}://...)?"
                     )));
                 }
                 Ok(Self::Unsupported {
@@ -175,7 +213,7 @@ impl ProxyKind {
 }
 
 /// Parsed components of a forward proxy URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProxyTarget {
     /// Host name of the proxy (used for both DNS and TLS SNI when
     /// [`ProxyTarget::is_tls`] is `true`).
@@ -187,6 +225,17 @@ pub struct ProxyTarget {
     /// Pre-computed `Proxy-Authorization` header value, if the URL embeds
     /// `user:pass@`.
     pub auth_header: Option<String>,
+}
+
+impl Debug for ProxyTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(ProxyTarget))
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("is_tls", &self.is_tls)
+            .field("auth_header", &self.auth_header.as_ref().map(|_| REDACTED))
+            .finish()
+    }
 }
 
 impl ProxyTarget {
@@ -201,8 +250,8 @@ impl ProxyTarget {
     /// Returns [`TransportError::InvalidUrl`] for malformed URLs, missing
     /// hosts, or any scheme other than `http`/`https`.
     pub fn parse(url: &str) -> Result<Self, TransportError> {
-        let parsed =
-            Url::parse(url).map_err(|e| TransportError::InvalidUrl(format!("{url}: {e}")))?;
+        let parsed = Url::parse(url)
+            .map_err(|e| TransportError::InvalidUrl(format!("invalid proxy URL: {e}")))?;
 
         let is_tls = match parsed.scheme() {
             "http" => false,
@@ -236,7 +285,7 @@ impl ProxyTarget {
 
         let port = parsed.port().unwrap_or(if is_tls { 443 } else { 80 });
 
-        let auth_header = if parsed.username().is_empty() {
+        let auth_header = if parsed.username().is_empty() && parsed.password().is_none() {
             None
         } else {
             let username = decode_userinfo(parsed.username());
@@ -393,17 +442,25 @@ where
     // Expect: `HTTP/1.1 200 Connection established` (or any 2xx).
     let mut parts = status_line.splitn(3, ' ');
     let _version = parts.next().ok_or_else(|| {
-        TransportError::Handshake(format!("malformed status line: {status_line}"))
+        TransportError::Handshake("proxy CONNECT response has a malformed status line".to_string())
     })?;
     let status_code = parts
         .next()
-        .ok_or_else(|| TransportError::Handshake(format!("malformed status line: {status_line}")))?
+        .ok_or_else(|| {
+            TransportError::Handshake(
+                "proxy CONNECT response has a malformed status line".to_string(),
+            )
+        })?
         .parse::<u16>()
-        .map_err(|_| TransportError::Handshake(format!("non-numeric status: {status_line}")))?;
+        .map_err(|_| {
+            TransportError::Handshake(
+                "proxy CONNECT response has a non-numeric status code".to_string(),
+            )
+        })?;
 
     if !(200..300).contains(&status_code) {
         return Err(TransportError::Handshake(format!(
-            "proxy refused CONNECT: {status_line}"
+            "proxy refused CONNECT with status {status_code}"
         )));
     }
 
@@ -510,6 +567,39 @@ mod tests {
         let header = proxy.auth_header.unwrap();
         // base64("us/er:p@ss") == "dXMvZXI6cEBzcw=="
         assert_eq!(header, "Basic dXMvZXI6cEBzcw==");
+    }
+
+    #[rstest]
+    fn proxy_target_basic_auth_with_empty_username() {
+        let proxy = ProxyTarget::parse("http://:fixture42@proxy.example.com:8080").unwrap();
+
+        assert_eq!(proxy.auth_header.unwrap(), "Basic OmZpeHR1cmU0Mg==");
+    }
+
+    #[rstest]
+    fn proxy_debug_redacts_credentials() {
+        const SECRET: &str = "unique-proxy-secret";
+        let url = format!("http://proxytest:{SECRET}@proxy.example.com:8080");
+        let proxy_url = ProxyUrl::parse(url.clone()).unwrap();
+        let target = ProxyTarget::parse(&url).unwrap();
+        let proxy_url_debug = format!("{proxy_url:?}");
+        let target_debug = format!("{target:?}");
+        let encoded_credentials = BASE64.encode(format!("proxytest:{SECRET}"));
+
+        assert_eq!(proxy_url_debug, "ProxyUrl(\"<redacted>\")");
+        assert!(!proxy_url_debug.contains(SECRET));
+        assert!(!target_debug.contains(SECRET));
+        assert!(!target_debug.contains(&encoded_credentials));
+        assert!(target_debug.contains(REDACTED));
+    }
+
+    #[rstest]
+    fn proxy_parse_error_redacts_credentials() {
+        const SECRET: &str = "unique-proxy-secret";
+        let err = ProxyUrl::parse(format!("http://proxytest:{SECRET}@[::1"))
+            .expect_err("malformed proxy URL should fail");
+
+        assert!(!err.to_string().contains(SECRET));
     }
 
     #[tokio::test]
@@ -661,7 +751,7 @@ mod tests {
         let TransportError::Handshake(msg) = err else {
             panic!("expected Handshake error");
         };
-        assert!(msg.contains("403"));
+        assert_eq!(msg, "proxy refused CONNECT with status 403");
     }
 
     /// 300 sits on the upper boundary of the accepted `200..300` range; if
@@ -674,7 +764,7 @@ mod tests {
         &b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic\r\n\r\n"[..],
         "407",
     )]
-    #[case::malformed_status(&b"HTTP/1.1 abc Boom\r\n\r\n"[..], "non-numeric")]
+    #[case::malformed_status(&b"HTTP/1.1 abc Boom\r\n\r\n"[..], "non-numeric status code")]
     #[tokio::test]
     async fn read_connect_response_rejects_non_2xx(
         #[case] response: &'static [u8],
@@ -695,6 +785,28 @@ mod tests {
             msg.contains(expected_msg_substring),
             "expected error message to contain {expected_msg_substring:?}, was {msg:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn read_connect_response_does_not_expose_reason_phrase() {
+        const SECRET: &str = "unique-proxy-secret";
+        let response = format!("HTTP/1.1 407 {SECRET}\r\n\r\n").into_bytes();
+        let response = Box::leak(response.into_boxed_slice());
+        let addr = spawn_fake_proxy(response).await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"CONNECT host:443 HTTP/1.1\r\nHost: host:443\r\n\r\n")
+            .await
+            .unwrap();
+        stream.flush().await.unwrap();
+
+        let err = read_connect_response(&mut stream).await.unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "handshake failed: proxy refused CONNECT with status 407"
+        );
+        assert!(!err.to_string().contains(SECRET));
     }
 
     /// Closing the connection mid-response should produce a clear handshake

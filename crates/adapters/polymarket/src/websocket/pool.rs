@@ -34,7 +34,7 @@ use std::sync::{
 
 use ahash::AHashMap;
 use nautilus_common::live::get_runtime;
-use nautilus_network::websocket::TransportBackend;
+use nautilus_network::websocket::{TransportBackend, proxy::ProxyUrl};
 use ustr::Ustr;
 
 use super::{
@@ -63,6 +63,7 @@ pub struct PolymarketMarketPoolHandle {
 #[derive(Debug)]
 struct PoolInner {
     base_url: Option<String>,
+    proxy_url: Option<ProxyUrl>,
     transport_backend: TransportBackend,
     subscribe_new_markets: bool,
     max_subscriptions: usize,
@@ -122,14 +123,38 @@ impl PolymarketMarketConnectionPool {
         transport_backend: TransportBackend,
         max_subscriptions: usize,
     ) -> Self {
+        Self::new_with_proxy(
+            base_url,
+            subscribe_new_markets,
+            transport_backend,
+            max_subscriptions,
+            None,
+        )
+    }
+
+    /// Creates a new market connection pool with an optional validated proxy URL.
+    #[must_use]
+    pub fn new_with_proxy(
+        base_url: Option<String>,
+        subscribe_new_markets: bool,
+        transport_backend: TransportBackend,
+        max_subscriptions: usize,
+        proxy_url: Option<ProxyUrl>,
+    ) -> Self {
         Self {
-            inner: Arc::new(PoolInner::new(
+            inner: Arc::new(PoolInner::new_with_proxy(
                 base_url,
                 transport_backend,
                 subscribe_new_markets,
                 max_subscriptions,
+                proxy_url,
             )),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn proxy_url(&self) -> Option<&ProxyUrl> {
+        self.inner.proxy_url.as_ref()
     }
 
     /// Returns a cloneable routing handle for use in spawned subscription tasks.
@@ -342,11 +367,28 @@ impl PolymarketMarketPoolHandle {
 }
 
 impl PoolInner {
+    #[cfg(test)]
     fn new(
         base_url: Option<String>,
         transport_backend: TransportBackend,
         subscribe_new_markets: bool,
         max_subscriptions: usize,
+    ) -> Self {
+        Self::new_with_proxy(
+            base_url,
+            transport_backend,
+            subscribe_new_markets,
+            max_subscriptions,
+            None,
+        )
+    }
+
+    fn new_with_proxy(
+        base_url: Option<String>,
+        transport_backend: TransportBackend,
+        subscribe_new_markets: bool,
+        max_subscriptions: usize,
+        proxy_url: Option<ProxyUrl>,
     ) -> Self {
         let max_subscriptions = if max_subscriptions == 0 {
             log::warn!(
@@ -359,6 +401,7 @@ impl PoolInner {
 
         Self {
             base_url,
+            proxy_url,
             transport_backend,
             subscribe_new_markets,
             max_subscriptions,
@@ -464,11 +507,7 @@ impl PoolInner {
         }
 
         let subscribe_new_markets = is_primary && self.subscribe_new_markets;
-        let mut client = PolymarketWebSocketClient::new_market(
-            self.base_url.clone(),
-            subscribe_new_markets,
-            self.transport_backend,
-        );
+        let mut client = self.market_client(subscribe_new_markets);
         client.connect().await?;
 
         let handle = client.clone_subscription_handle();
@@ -498,6 +537,15 @@ impl PoolInner {
 
         log::debug!("Opened Polymarket market shard {id}");
         Ok(id)
+    }
+
+    fn market_client(&self, subscribe_new_markets: bool) -> PolymarketWebSocketClient {
+        PolymarketWebSocketClient::new_market_with_proxy(
+            self.base_url.clone(),
+            subscribe_new_markets,
+            self.transport_backend,
+            self.proxy_url.clone(),
+        )
     }
 
     fn spawn_forwarder(
@@ -637,6 +685,27 @@ mod tests {
     fn zero_max_subscriptions_clamps_to_default() {
         let inner = PoolInner::new(None, TransportBackend::default(), false, 0);
         assert_eq!(inner.max_subscriptions, WS_DEFAULT_SUBSCRIPTIONS);
+    }
+
+    #[rstest]
+    fn pool_retains_proxy_for_lazily_created_shards() {
+        const PROXY_URL: &str = "http://pool-user:pool-proxy-secret@127.0.0.1:18088";
+        let pool = PolymarketMarketConnectionPool::new_with_proxy(
+            Some("ws://market.example/ws".to_string()),
+            true,
+            TransportBackend::Tungstenite,
+            17,
+            Some(ProxyUrl::parse(PROXY_URL).unwrap()),
+        );
+        let primary = pool.inner.market_client(true);
+        let secondary = pool.inner.market_client(false);
+        let debug = format!("{pool:?}");
+
+        assert_eq!(pool.inner.proxy_url.as_ref().unwrap().expose(), PROXY_URL);
+        assert_eq!(primary.proxy_url().unwrap().expose(), PROXY_URL);
+        assert_eq!(secondary.proxy_url().unwrap().expose(), PROXY_URL);
+        assert_eq!(pool.inner.max_subscriptions, 17);
+        assert!(!debug.contains("pool-proxy-secret"));
     }
 
     #[rstest]

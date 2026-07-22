@@ -326,11 +326,12 @@ impl PolymarketDataClient {
         self.pending_snapshot_after_tick_change = std::sync::Arc::new(AtomicSet::new());
         self.new_market_inflight_keys = std::sync::Arc::new(DashMap::new());
         self.ws_open_tokens = std::sync::Arc::new(AtomicSet::new());
-        self.rtds_feed = crate::rtds::PolymarketRtdsFeed::new(
+        self.rtds_feed = crate::rtds::PolymarketRtdsFeed::new_with_proxy(
             self.config.rtds_url(),
             self.config.transport_backend,
             self.clock,
             self.data_sender.clone(),
+            self.proxy_url.clone(),
         );
 
         self.pending_auto_loads
@@ -433,7 +434,10 @@ mod tests {
         orderbook::OrderBook,
         types::{Currency, Price, Quantity},
     };
-    use nautilus_network::{retry::RetryConfig, websocket::TransportBackend};
+    use nautilus_network::{
+        retry::RetryConfig,
+        websocket::{TransportBackend, proxy::ProxyUrl},
+    };
     use rstest::rstest;
     use serde_json::Value;
     use ustr::Ustr;
@@ -452,33 +456,54 @@ mod tests {
     };
 
     fn make_client_for_reset_test() -> PolymarketDataClient {
+        make_client_for_reset_test_with_proxy(None)
+    }
+
+    fn make_client_for_reset_test_with_proxy(proxy_url: Option<ProxyUrl>) -> PolymarketDataClient {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
         replace_data_event_sender(tx);
 
-        let gamma = PolymarketGammaHttpClient::new(
+        let gamma = PolymarketGammaHttpClient::new_with_proxy(
             Some("http://localhost".to_string()),
             1,
             RetryConfig::default(),
+            proxy_url.clone(),
         )
         .expect("gamma client");
-        let clob = PolymarketClobPublicClient::new(Some("http://localhost".to_string()), 1)
-            .expect("clob client");
-        let data_api = PolymarketDataApiHttpClient::new(Some("http://localhost".to_string()), 1)
-            .expect("data api client");
-        let ws = PolymarketMarketConnectionPool::new(
+        let clob = PolymarketClobPublicClient::new_with_proxy(
+            Some("http://localhost".to_string()),
+            1,
+            proxy_url.clone(),
+        )
+        .expect("clob client");
+        let data_api = PolymarketDataApiHttpClient::new_with_proxy(
+            Some("http://localhost".to_string()),
+            1,
+            proxy_url.clone(),
+        )
+        .expect("data api client");
+        let ws = PolymarketMarketConnectionPool::new_with_proxy(
             Some("ws://localhost/ws/market".to_string()),
             false,
             TransportBackend::default(),
             WS_DEFAULT_SUBSCRIPTIONS,
+            proxy_url.clone(),
         );
+        let config = PolymarketDataClientConfig {
+            proxy_url: proxy_url
+                .as_ref()
+                .map(|proxy_url| proxy_url.expose().to_string()),
+            ..PolymarketDataClientConfig::default()
+        };
 
-        PolymarketDataClient::new(
+        PolymarketDataClient::new_with_proxy(
             ClientId::from("POLY-TEST"),
-            PolymarketDataClientConfig::default(),
+            config,
             gamma,
             clob,
             data_api,
             ws,
+            proxy_url,
         )
     }
 
@@ -826,6 +851,22 @@ mod tests {
             1,
             "old-generation RTDS state should remain isolated from the reset generation",
         );
+    }
+
+    #[rstest]
+    fn reset_preserves_rtds_proxy_url() {
+        const PROXY_URL: &str = "http://reset-user:reset-proxy-secret@127.0.0.1:18090";
+        let proxy_url = ProxyUrl::parse(PROXY_URL).unwrap();
+        let mut client = make_client_for_reset_test_with_proxy(Some(proxy_url));
+        let debug = format!("{client:?}");
+
+        assert_eq!(client.rtds_feed.proxy_url().unwrap().expose(), PROXY_URL);
+        assert!(!debug.contains("reset-proxy-secret"));
+
+        client.reset().expect("reset should succeed");
+
+        assert_eq!(client.proxy_url.as_ref().unwrap().expose(), PROXY_URL);
+        assert_eq!(client.rtds_feed.proxy_url().unwrap().expose(), PROXY_URL);
     }
 
     #[rstest]

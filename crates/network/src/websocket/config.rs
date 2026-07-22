@@ -27,6 +27,7 @@
 
 use std::fmt::Debug;
 
+use nautilus_core::string::secret::REDACTED;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{NetworkConfigError, NetworkConfigResult};
@@ -105,7 +106,7 @@ pub enum TransportBackend {
     clippy::unsafe_derive_deserialize,
     reason = "PyO3-backed config still needs serde deserialization for strict config decoding"
 )]
-#[derive(Clone, Debug, Serialize, Deserialize, bon::Builder)]
+#[derive(Clone, Serialize, Deserialize, bon::Builder)]
 #[builder(finish_fn(name = build_inner, vis = ""))]
 #[serde(deny_unknown_fields)]
 pub struct WebSocketConfig {
@@ -173,6 +174,32 @@ pub struct WebSocketConfig {
     /// `http://` and `https://` schemes; SOCKS schemes are not yet supported.
     #[serde(default)]
     pub proxy_url: Option<String>,
+}
+
+impl Debug for WebSocketConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(WebSocketConfig))
+            .field("url", &self.url)
+            .field(
+                "headers",
+                &format_args!("<{} header(s)>", self.headers.len()),
+            )
+            .field("heartbeat", &self.heartbeat)
+            .field("heartbeat_msg", &self.heartbeat_msg)
+            .field("reconnect_timeout_ms", &self.reconnect_timeout_ms)
+            .field(
+                "reconnect_delay_initial_ms",
+                &self.reconnect_delay_initial_ms,
+            )
+            .field("reconnect_delay_max_ms", &self.reconnect_delay_max_ms)
+            .field("reconnect_backoff_factor", &self.reconnect_backoff_factor)
+            .field("reconnect_jitter_ms", &self.reconnect_jitter_ms)
+            .field("reconnect_max_attempts", &self.reconnect_max_attempts)
+            .field("idle_timeout_ms", &self.idle_timeout_ms)
+            .field("backend", &self.backend)
+            .field("proxy_url", &self.proxy_url.as_ref().map(|_| REDACTED))
+            .finish()
+    }
 }
 
 impl<S: web_socket_config_builder::IsComplete> WebSocketConfigBuilder<S> {
@@ -370,5 +397,17 @@ mod tests {
                 panic!("expected Multiple, was {other:?}")
             }
         }
+    }
+
+    #[rstest]
+    fn test_debug_redacts_proxy_credentials() {
+        const SECRET: &str = "unique-proxy-secret";
+        let mut config = valid_config();
+        config.proxy_url = Some(format!("http://proxytest:{SECRET}@proxy.example.com:8080"));
+
+        let debug = format!("{config:?}");
+
+        assert!(debug.contains("proxy_url: Some(\"<redacted>\")"));
+        assert!(!debug.contains(SECRET));
     }
 }

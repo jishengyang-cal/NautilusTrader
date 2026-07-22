@@ -165,6 +165,9 @@ fn validate_data_config(config: &PolymarketDataClientConfig) -> PyResult<()> {
     if let Some(instrument_config) = config.instrument_config.as_ref() {
         validate_provider_config(instrument_config)?;
     }
+    config
+        .validated_proxy_url()
+        .map_err(|e| to_pyvalue_err(format!("Invalid Polymarket proxy URL: {e}")))?;
     Ok(())
 }
 
@@ -267,6 +270,9 @@ fn extract_data_config_from_pyobject(
     let base_url_data_api = getattr_optional(obj, "base_url_data_api")?
         .map(|value| value.extract::<String>())
         .transpose()?;
+    let proxy_url = getattr_optional(obj, "proxy_url")?
+        .map(|value| value.extract::<String>())
+        .transpose()?;
     let http_timeout_secs = getattr_optional(obj, "http_timeout_secs")?
         .map(|value| value.extract::<u64>())
         .transpose()?
@@ -345,6 +351,7 @@ fn extract_data_config_from_pyobject(
         base_url_rtds,
         base_url_gamma,
         base_url_data_api,
+        proxy_url,
         http_timeout_secs,
         ws_timeout_secs,
         ws_max_subscriptions,
@@ -414,7 +421,11 @@ fn extract_polymarket_exec_config(
     config: Py<PyAny>,
 ) -> PyResult<Box<dyn ClientConfig>> {
     match config.extract::<PolymarketExecClientConfig>(py) {
-        Ok(c) => Ok(Box::new(c)),
+        Ok(c) => {
+            c.validated_proxy_url()
+                .map_err(|e| to_pyvalue_err(format!("Invalid Polymarket proxy URL: {e}")))?;
+            Ok(Box::new(c))
+        }
         Err(e) => Err(to_pyvalue_err(format!(
             "Failed to extract PolymarketExecClientConfig: {e}"
         ))),
@@ -560,6 +571,9 @@ mod tests {
             config_kwargs
                 .set_item("base_url_data_api", "https://data.example")
                 .unwrap();
+            config_kwargs
+                .set_item("proxy_url", "http://proxy.example:18085")
+                .unwrap();
             config_kwargs.set_item("ws_timeout_secs", 41).unwrap();
             config_kwargs.set_item("ws_max_subscriptions", 512).unwrap();
             config_kwargs
@@ -638,6 +652,10 @@ mod tests {
             );
             assert_eq!(rust_config.ws_timeout_secs, 41);
             assert_eq!(rust_config.ws_max_subscriptions, 512);
+            assert_eq!(
+                rust_config.proxy_url.as_deref(),
+                Some("http://proxy.example:18085")
+            );
             assert!(!rust_config.resolve_poll_enabled);
             assert_eq!(rust_config.resolve_poll_interval_secs, 45);
             assert_eq!(rust_config.resolve_poll_grace_secs, 12);
