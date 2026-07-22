@@ -19,7 +19,7 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
@@ -37,6 +37,7 @@ use nautilus_binance::{
         BinanceEnvironment, BinanceFuturesOrderType, BinanceProductType, BinanceSide,
         BinanceTimeInForce,
     },
+    config::BinanceInstrumentProviderConfig,
     futures::http::{
         client::{BinanceFuturesHttpClient, BinanceRawFuturesHttpClient},
         query::{BinanceNewOrderParamsBuilder, BinanceOpenInterestHistParams},
@@ -52,7 +53,9 @@ use nautilus_model::{
     types::Quantity,
 };
 use rstest::rstest;
+use rust_decimal_macros::dec;
 use serde_json::json;
+use ustr::Ustr;
 
 #[derive(Debug, Clone, Copy)]
 enum RequiredInstrumentCachePath {
@@ -64,6 +67,7 @@ enum RequiredInstrumentCachePath {
 struct TestServerState {
     request_count: Arc<AtomicUsize>,
     rate_limit_threshold: usize,
+    last_query: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for TestServerState {
@@ -71,6 +75,7 @@ impl Default for TestServerState {
         Self {
             request_count: Arc::new(AtomicUsize::new(0)),
             rate_limit_threshold: usize::MAX,
+            last_query: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -152,7 +157,11 @@ async fn handle_depth() -> Response {
     }))
 }
 
-async fn handle_account(headers: HeaderMap, State(state): State<TestServerState>) -> Response {
+async fn handle_account(
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+    State(state): State<TestServerState>,
+) -> Response {
     if !has_auth_headers(&headers) {
         return unauthorized_response();
     }
@@ -160,7 +169,26 @@ async fn handle_account(headers: HeaderMap, State(state): State<TestServerState>
     if state.increment_and_check() {
         return rate_limit_response();
     }
+    *state.last_query.lock().unwrap() = query;
     json_response(&load_fixture("account_info_v2.json"))
+}
+
+async fn handle_commission_rate(
+    headers: HeaderMap,
+    State(state): State<TestServerState>,
+) -> Response {
+    if !has_auth_headers(&headers) {
+        return unauthorized_response();
+    }
+
+    if state.increment_and_check() {
+        return rate_limit_response();
+    }
+    json_response(&json!({
+        "symbol": "BTCUSDT",
+        "makerCommissionRate": "0.000123",
+        "takerCommissionRate": "0.000456"
+    }))
 }
 
 async fn handle_balance(headers: HeaderMap, State(state): State<TestServerState>) -> Response {
@@ -350,6 +378,7 @@ fn create_router(state: TestServerState) -> Router {
             get(handle_open_interest_hist),
         )
         .route("/fapi/v2/account", get(handle_account))
+        .route("/fapi/v1/commissionRate", get(handle_commission_rate))
         .route("/fapi/v2/balance", get(handle_balance))
         .route("/fapi/v2/positionRisk", get(handle_position_risk))
         .route(
@@ -568,10 +597,85 @@ async fn test_request_delivery_instrument_populates_cache_and_status(
     );
     assert_eq!(future.is_inverse, is_inverse);
     assert_eq!(future.multiplier, multiplier);
+    assert_eq!(future.maker_fee, dec!(0.0002));
+    assert_eq!(future.taker_fee, dec!(0.0005));
     assert_eq!(cached.id().to_string(), expected_id);
     assert_eq!(
         statuses.get(&raw_symbol),
         Some(&MarketStatusAction::Trading),
+    );
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_request_instruments_applies_filters_exact_fees_and_cache_replacement() {
+    let addr = start_test_server(TestServerState::default()).await.unwrap();
+    let client = BinanceFuturesHttpClient::new(
+        BinanceProductType::UsdM,
+        BinanceEnvironment::Live,
+        get_atomic_clock_realtime(),
+        Some("test-key".to_string()),
+        Some("test-secret".to_string()),
+        Some(format!("http://{addr}")),
+        None,
+        Some(60),
+        None,
+        false,
+    )
+    .unwrap();
+    let perpetual_only = BinanceInstrumentProviderConfig {
+        filters: HashMap::from([("contract_types".to_string(), json!(["PERPETUAL"]))]),
+        query_commission_rates: true,
+        ..Default::default()
+    };
+
+    let instruments = client
+        .request_instruments_with_config(&perpetual_only)
+        .await
+        .unwrap();
+
+    assert_eq!(instruments.len(), 1);
+    assert_eq!(
+        instruments[0].id(),
+        InstrumentId::from("BTCUSDT-PERP.BINANCE")
+    );
+    assert_eq!(instruments[0].maker_fee(), dec!(0.000123));
+    assert_eq!(instruments[0].taker_fee(), dec!(0.000456));
+    assert!(
+        client
+            .instruments_cache()
+            .contains_key(&Ustr::from("BTCUSDT"))
+    );
+    assert!(
+        !client
+            .instruments_cache()
+            .contains_key(&Ustr::from("BTCUSDT_260925"))
+    );
+
+    let delivery_only = BinanceInstrumentProviderConfig {
+        load_all: false,
+        load_ids: Some(vec!["BTCUSDT_260925.BINANCE".to_string()]),
+        ..Default::default()
+    };
+    let refreshed = client
+        .request_instruments_with_config(&delivery_only)
+        .await
+        .unwrap();
+
+    assert_eq!(refreshed.len(), 1);
+    assert_eq!(
+        refreshed[0].id(),
+        InstrumentId::from("BTCUSDT_260925.BINANCE")
+    );
+    assert!(
+        !client
+            .instruments_cache()
+            .contains_key(&Ustr::from("BTCUSDT"))
+    );
+    assert!(
+        client
+            .instruments_cache()
+            .contains_key(&Ustr::from("BTCUSDT_260925"))
     );
 }
 
@@ -645,6 +749,35 @@ async fn test_account_with_credentials() {
         .await
         .unwrap();
     assert_eq!(result["canTrade"], true);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_signed_request_includes_configured_recv_window() {
+    let state = TestServerState::default();
+    let addr = start_test_server(state.clone()).await.unwrap();
+    let client = BinanceRawFuturesHttpClient::new(
+        BinanceProductType::UsdM,
+        BinanceEnvironment::Live,
+        Some("test-key".to_string()),
+        Some("test-secret".to_string()),
+        Some(format!("http://{addr}")),
+        Some(42_000),
+        Some(60),
+        None,
+    )
+    .unwrap();
+
+    let _: serde_json::Value = client
+        .get("/fapi/v2/account", None::<&()>, true, false)
+        .await
+        .unwrap();
+    let query = state.last_query.lock().unwrap().clone().unwrap();
+    let params = serde_urlencoded::from_str::<HashMap<String, String>>(&query).unwrap();
+
+    assert_eq!(params.get("recvWindow"), Some(&"42000".to_string()));
+    assert!(params.contains_key("timestamp"));
+    assert!(params.contains_key("signature"));
 }
 
 #[rstest]

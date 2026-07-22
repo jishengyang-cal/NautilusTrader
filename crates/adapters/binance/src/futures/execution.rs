@@ -236,6 +236,7 @@ impl BinanceFuturesExecutionClient {
     /// Returns an error if the HTTP client fails to initialize, credentials are
     /// missing, or the product type is not a futures type (UsdM or CoinM).
     pub fn new(core: ExecutionClientCore, config: BinanceExecClientConfig) -> anyhow::Result<Self> {
+        config.validate()?;
         let product_type = config.product_type;
         match product_type {
             BinanceProductType::UsdM | BinanceProductType::CoinM => {}
@@ -262,9 +263,9 @@ impl BinanceFuturesExecutionClient {
             Some(api_key.clone()),
             Some(api_secret.clone()),
             config.base_url_http.clone(),
-            None, // recv_window
+            Some(config.recv_window_ms),
             None, // timeout_secs
-            None, // proxy_url
+            config.proxy_url.clone(),
             config.treat_expired_as_canceled,
         )
         .context("failed to construct Binance Futures HTTP client")?;
@@ -282,13 +283,17 @@ impl BinanceFuturesExecutionClient {
                         _ => Some(BINANCE_FUTURES_USD_WS_API_URL.to_string()),
                     });
 
-            Some(BinanceFuturesWsTradingClient::new(
-                ws_trading_url,
-                api_key,
-                api_secret,
-                None, // heartbeat
-                config.transport_backend,
-            ))
+            Some(
+                BinanceFuturesWsTradingClient::new(
+                    ws_trading_url,
+                    api_key,
+                    api_secret,
+                    None, // heartbeat
+                    config.transport_backend,
+                )
+                .with_proxy(config.proxy_url.clone())
+                .with_recv_window(Some(config.recv_window_ms)),
+            )
         } else {
             None
         };
@@ -1338,7 +1343,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         } else {
             let instruments = self
                 .http_client
-                .request_instruments()
+                .request_instruments_with_config(&self.config.instrument_provider)
                 .await
                 .context("failed to request Binance Futures instruments")?;
 
@@ -1423,6 +1428,7 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
             api_secret: api_secret.clone(),
             private_base_url: private_base_url.clone(),
             transport_backend: self.config.transport_backend,
+            proxy_url: self.config.proxy_url.clone(),
         };
 
         let ws_client = build_and_connect_user_stream(&ws_build_params, &listen_key).await?;
@@ -1569,6 +1575,30 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
                     );
                 }
             }
+        }
+
+        let refresh_secs = self.config.instrument_refresh_interval_secs;
+        if refresh_secs > 0 {
+            let http_client = self.http_client.clone();
+            let provider = self.config.instrument_provider.clone();
+            self.spawn_task("instrument_refresh", async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(refresh_secs));
+                interval.tick().await;
+
+                loop {
+                    interval.tick().await;
+
+                    match http_client.request_instruments_with_config(&provider).await {
+                        Ok(instruments) => log::debug!(
+                            "Refreshed Binance Futures execution instruments: count={}",
+                            instruments.len()
+                        ),
+                        Err(e) => {
+                            log::warn!("Binance Futures execution instrument refresh failed: {e}");
+                        }
+                    }
+                }
+            });
         }
 
         self.core.set_connected();
@@ -2378,9 +2408,10 @@ impl ExecutionClient for BinanceFuturesExecutionClient {
         self.core.set_started();
 
         let http_client = self.http_client.clone();
+        let provider = self.config.instrument_provider.clone();
 
         get_runtime().spawn(async move {
-            match http_client.request_instruments().await {
+            match http_client.request_instruments_with_config(&provider).await {
                 Ok(instruments) => {
                     if instruments.is_empty() {
                         log::warn!("No instruments returned for Binance Futures");

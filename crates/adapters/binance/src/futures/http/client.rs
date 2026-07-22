@@ -57,24 +57,24 @@ use super::{
         BatchOrderResult, BinanceBookTicker, BinanceCancelAllOrdersResponse, BinanceFundingRate,
         BinanceFuturesAccountInfo, BinanceFuturesAggTrade, BinanceFuturesAlgoOrder,
         BinanceFuturesAlgoOrderCancelResponse, BinanceFuturesCoinExchangeInfo,
-        BinanceFuturesCoinSymbol, BinanceFuturesKline, BinanceFuturesMarkPrice,
-        BinanceFuturesOrder, BinanceFuturesTicker24hr, BinanceFuturesTrade,
-        BinanceFuturesUsdExchangeInfo, BinanceFuturesUsdSymbol, BinanceHedgeModeResponse,
-        BinanceLeverageResponse, BinanceOpenInterest, BinanceOpenInterestHistRecord,
-        BinanceOrderBook, BinancePositionRisk, BinancePriceTicker, BinanceServerTime,
-        BinanceUserTrade, ListenKeyResponse,
+        BinanceFuturesCoinSymbol, BinanceFuturesCommissionRate, BinanceFuturesKline,
+        BinanceFuturesMarkPrice, BinanceFuturesOrder, BinanceFuturesTicker24hr,
+        BinanceFuturesTrade, BinanceFuturesUsdExchangeInfo, BinanceFuturesUsdSymbol,
+        BinanceHedgeModeResponse, BinanceLeverageResponse, BinanceOpenInterest,
+        BinanceOpenInterestHistRecord, BinanceOrderBook, BinancePositionRisk, BinancePriceTicker,
+        BinanceServerTime, BinanceUserTrade, ListenKeyResponse,
     },
     query::{
         BatchCancelItem, BatchModifyItem, BatchOrderItem, BinanceAggTradesParams,
         BinanceAlgoOrderQueryParams, BinanceAllAlgoOrdersParams, BinanceAllOrdersParams,
         BinanceBookTickerParams, BinanceCancelAllAlgoOrdersParams, BinanceCancelAllOrdersParams,
-        BinanceCancelOrderParams, BinanceDepthParams, BinanceFundingRateParams,
-        BinanceKlinesParams, BinanceMarkPriceParams, BinanceModifyOrderParams,
-        BinanceNewAlgoOrderParams, BinanceNewOrderParams, BinanceOpenAlgoOrdersParams,
-        BinanceOpenInterestHistParams, BinanceOpenInterestParams, BinanceOpenOrdersParams,
-        BinanceOrderQueryParams, BinancePositionRiskParams, BinanceSetLeverageParams,
-        BinanceSetMarginTypeParams, BinanceTicker24hrParams, BinanceTradesParams,
-        BinanceUserTradesParams, ListenKeyParams,
+        BinanceCancelOrderParams, BinanceCommissionRateParams, BinanceDepthParams,
+        BinanceFundingRateParams, BinanceKlinesParams, BinanceMarkPriceParams,
+        BinanceModifyOrderParams, BinanceNewAlgoOrderParams, BinanceNewOrderParams,
+        BinanceOpenAlgoOrdersParams, BinanceOpenInterestHistParams, BinanceOpenInterestParams,
+        BinanceOpenOrdersParams, BinanceOrderQueryParams, BinancePositionRiskParams,
+        BinanceSetLeverageParams, BinanceSetMarginTypeParams, BinanceTicker24hrParams,
+        BinanceTradesParams, BinanceUserTradesParams, ListenKeyParams,
     },
 };
 use crate::{
@@ -91,14 +91,17 @@ use crate::{
             BinancePriceMatch, BinanceProductType, BinanceRateLimitInterval, BinanceRateLimitType,
             BinanceSide, BinanceTimeInForce, BinanceWorkingType,
         },
+        fees::futures_fee_tier_rates,
+        instruments::BinanceInstrumentSelector,
         models::BinanceErrorResponse,
         parse::{
-            parse_coinm_instrument, parse_required_price_at_precision,
-            parse_required_quantity_at_precision, parse_usdm_instrument,
+            parse_coinm_instrument_with_fees, parse_required_price_at_precision,
+            parse_required_quantity_at_precision, parse_usdm_instrument_with_fees,
         },
         symbol::{format_binance_symbol, format_instrument_id},
         urls::get_http_base_url,
     },
+    config::BinanceInstrumentProviderConfig,
     futures::conversions::reduce_only_param,
 };
 
@@ -176,6 +179,12 @@ impl BinanceRawFuturesHttpClient {
     #[must_use]
     pub fn http_client(&self) -> &HttpClient {
         &self.client
+    }
+
+    /// Returns whether this client has complete signing credentials.
+    #[must_use]
+    pub const fn has_credentials(&self) -> bool {
+        self.credential.is_some()
     }
 
     /// Creates a new Binance raw futures HTTP client.
@@ -1000,6 +1009,18 @@ impl BinanceRawFuturesHttpClient {
         self.get::<(), _>(path, None, true, false).await
     }
 
+    /// Fetches account-specific maker and taker commission rates for one symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials are missing or the request fails.
+    pub async fn commission_rate(
+        &self,
+        params: &BinanceCommissionRateParams,
+    ) -> BinanceFuturesHttpResult<BinanceFuturesCommissionRate> {
+        self.get("commissionRate", Some(params), true, false).await
+    }
+
     /// Fetches position risk information.
     ///
     /// # Errors
@@ -1480,6 +1501,20 @@ impl BinanceFuturesHttpClient {
         Arc::clone(&self.instruments)
     }
 
+    /// Returns whether this client has complete signing credentials.
+    #[must_use]
+    pub fn has_credentials(&self) -> bool {
+        self.inner.has_credentials()
+    }
+
+    /// Replaces the precision lookup cache after a complete catalogue fetch.
+    pub fn replace_instruments(&self, instruments: Vec<(Ustr, BinanceFuturesInstrument)>) {
+        self.instruments.clear();
+        for (symbol, instrument) in instruments {
+            self.instruments.insert(symbol, instrument);
+        }
+    }
+
     /// Returns server time.
     ///
     /// # Errors
@@ -1644,7 +1679,30 @@ impl BinanceFuturesHttpClient {
     ///
     /// Returns an error if the request fails or the product type is invalid.
     pub async fn request_instruments(&self) -> BinanceFuturesHttpResult<Vec<InstrumentAny>> {
+        self.request_instruments_with_config(&BinanceInstrumentProviderConfig::default())
+            .await
+    }
+
+    /// Fetches, selects, and parses the configured instrument catalogue.
+    ///
+    /// Account-wide Futures VIP rates provide the fallback when credentials are
+    /// present. Exact per-symbol commission queries are opt-in.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if configuration or the catalogue request is invalid.
+    pub async fn request_instruments_with_config(
+        &self,
+        config: &BinanceInstrumentProviderConfig,
+    ) -> BinanceFuturesHttpResult<Vec<InstrumentAny>> {
+        config
+            .validate(self.product_type)
+            .map_err(|e| BinanceFuturesHttpError::ValidationError(e.to_string()))?;
+        let selector = BinanceInstrumentSelector::new(config)
+            .map_err(|e| BinanceFuturesHttpError::ValidationError(e.to_string()))?;
         let ts_init = UnixNanos::default();
+        let fallback_fees = self.futures_fallback_fees(config).await;
+        let mut cache = Vec::new();
 
         let instruments = match self.product_type {
             BinanceProductType::UsdM => {
@@ -1656,21 +1714,36 @@ impl BinanceFuturesHttpClient {
                 let mut instruments = Vec::with_capacity(info.symbols.len());
 
                 for symbol in info.symbols {
-                    // Cache symbol for precision lookups
-                    self.instruments.insert(
-                        symbol.symbol,
-                        BinanceFuturesInstrument::UsdM(symbol.clone()),
-                    );
+                    let instrument_id =
+                        format_instrument_id(&symbol.symbol, BinanceProductType::UsdM);
 
-                    match parse_usdm_instrument(&symbol, ts_init, ts_init) {
+                    if !selector.includes(
+                        instrument_id,
+                        &symbol.symbol,
+                        &symbol.base_asset,
+                        &symbol.quote_asset,
+                        Some(&symbol.contract_type),
+                    ) {
+                        continue;
+                    }
+
+                    let fees = self
+                        .futures_symbol_fees(config, &symbol.symbol, fallback_fees)
+                        .await;
+
+                    match parse_usdm_instrument_with_fees(
+                        &symbol,
+                        Some(fees.0),
+                        Some(fees.1),
+                        ts_init,
+                        ts_init,
+                    ) {
                         Ok(instrument) => instruments.push(instrument),
                         Err(e) => {
-                            log::debug!(
-                                "Skipping symbol during instrument parsing: symbol={}, error={e}",
-                                symbol.symbol
-                            );
+                            log_futures_instrument_parse_error(config, &symbol.symbol, &e);
                         }
                     }
+                    cache.push((symbol.symbol, BinanceFuturesInstrument::UsdM(symbol)));
                 }
 
                 log::debug!(
@@ -1687,21 +1760,36 @@ impl BinanceFuturesHttpClient {
 
                 let mut instruments = Vec::with_capacity(info.symbols.len());
                 for symbol in info.symbols {
-                    // Cache symbol for precision lookups
-                    self.instruments.insert(
-                        symbol.symbol,
-                        BinanceFuturesInstrument::CoinM(symbol.clone()),
-                    );
+                    let instrument_id =
+                        format_instrument_id(&symbol.symbol, BinanceProductType::CoinM);
 
-                    match parse_coinm_instrument(&symbol, ts_init, ts_init) {
+                    if !selector.includes(
+                        instrument_id,
+                        &symbol.symbol,
+                        &symbol.base_asset,
+                        &symbol.quote_asset,
+                        Some(&symbol.contract_type),
+                    ) {
+                        continue;
+                    }
+
+                    let fees = self
+                        .futures_symbol_fees(config, &symbol.symbol, fallback_fees)
+                        .await;
+
+                    match parse_coinm_instrument_with_fees(
+                        &symbol,
+                        Some(fees.0),
+                        Some(fees.1),
+                        ts_init,
+                        ts_init,
+                    ) {
                         Ok(instrument) => instruments.push(instrument),
                         Err(e) => {
-                            log::debug!(
-                                "Skipping symbol during instrument parsing: symbol={}, error={e}",
-                                symbol.symbol
-                            );
+                            log_futures_instrument_parse_error(config, &symbol.symbol, &e);
                         }
                     }
+                    cache.push((symbol.symbol, BinanceFuturesInstrument::CoinM(symbol)));
                 }
 
                 log::debug!(
@@ -1717,7 +1805,55 @@ impl BinanceFuturesHttpClient {
             }
         };
 
+        self.replace_instruments(cache);
         Ok(instruments)
+    }
+
+    async fn futures_fallback_fees(
+        &self,
+        config: &BinanceInstrumentProviderConfig,
+    ) -> (Decimal, Decimal) {
+        if !self.has_credentials() {
+            return futures_fee_tier_rates(0);
+        }
+
+        match self.query_account().await {
+            Ok(account) => futures_fee_tier_rates(account.fee_tier),
+            Err(e) => {
+                if config.log_warnings {
+                    log::warn!("Unable to query Binance Futures fee tier; using VIP 0 rates: {e}");
+                } else {
+                    log::debug!("Unable to query Binance Futures fee tier; using VIP 0 rates: {e}");
+                }
+                futures_fee_tier_rates(0)
+            }
+        }
+    }
+
+    async fn futures_symbol_fees(
+        &self,
+        config: &BinanceInstrumentProviderConfig,
+        symbol: &str,
+        fallback: (Decimal, Decimal),
+    ) -> (Decimal, Decimal) {
+        if !config.query_commission_rates || !self.has_credentials() {
+            return fallback;
+        }
+
+        let params = BinanceCommissionRateParams {
+            symbol: symbol.to_string(),
+        };
+
+        match self.inner.commission_rate(&params).await {
+            Ok(response) => parse_futures_commission_rates(&response).unwrap_or_else(|e| {
+                log_futures_commission_fallback(config, symbol, &e, fallback);
+                fallback
+            }),
+            Err(e) => {
+                log_futures_commission_fallback(config, symbol, &e, fallback);
+                fallback
+            }
+        }
     }
 
     /// Fetches 24hr ticker statistics.
@@ -3149,6 +3285,48 @@ fn parse_futures_funding_rate_update(
         ts_event,
         ts_init,
     ))
+}
+
+fn parse_futures_commission_rates(
+    response: &BinanceFuturesCommissionRate,
+) -> anyhow::Result<(Decimal, Decimal)> {
+    Ok((
+        response.maker_commission_rate.parse()?,
+        response.taker_commission_rate.parse()?,
+    ))
+}
+
+fn log_futures_instrument_parse_error(
+    config: &BinanceInstrumentProviderConfig,
+    symbol: &str,
+    error: &anyhow::Error,
+) {
+    if config.log_warnings {
+        log::warn!("Skipping Binance Futures instrument {symbol}: {error}");
+    } else {
+        log::debug!("Skipping Binance Futures instrument {symbol}: {error}");
+    }
+}
+
+fn log_futures_commission_fallback(
+    config: &BinanceInstrumentProviderConfig,
+    symbol: &str,
+    error: &dyn std::fmt::Display,
+    fallback: (Decimal, Decimal),
+) {
+    if config.log_warnings {
+        log::warn!(
+            "Unable to query Binance Futures commission for {symbol}; using maker={} taker={}: {error}",
+            fallback.0,
+            fallback.1,
+        );
+    } else {
+        log::debug!(
+            "Unable to query Binance Futures commission for {symbol}; using maker={} taker={}: {error}",
+            fallback.0,
+            fallback.1,
+        );
+    }
 }
 
 /// Checks if an order type requires the Binance Algo Service API.

@@ -91,6 +91,8 @@ adapter set. The following limits remain deferred:
 - Added Binance GTD expiry support for USD-M and local expiry mapping for Spot and COIN-M
 - Added Binance v2 extended bars, bounded history, snapshots, tickers, estimated settlement prices, and L1 books
 - Added Binance USD-M (monthly and quarterly) and COIN-M (quarterly) delivery futures support
+- Added Binance v2 instrument filters, fees, scheduled refresh, proxy, and receive-window configuration
+- Added Binance US Spot JSON data and HMAC execution to the Rust-backed v2 adapter
 - Added Blockchain pool analysis to build exact checkpoint snapshots without storing full swap history
 - Added Architect AX dated futures parsing and configurable WebSocket heartbeat and disconnect cancellation
 - Added Hyperliquid fast-cancel payloads for non-trigger order cancels (#4414), thanks for reporting @magnified103

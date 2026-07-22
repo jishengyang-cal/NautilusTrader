@@ -801,6 +801,9 @@ pub struct BinanceUserTrade {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BinanceFuturesAccountInfo {
+    /// Futures VIP fee tier.
+    #[serde(default)]
+    pub fee_tier: u8,
     /// Total initial margin required.
     #[serde(
         default,
@@ -899,6 +902,18 @@ pub struct BinanceFuturesAccountInfo {
     /// Account positions.
     #[serde(default)]
     pub positions: Vec<BinanceAccountPosition>,
+}
+
+/// Account-specific Futures commission rates for one symbol.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinanceFuturesCommissionRate {
+    /// Venue symbol.
+    pub symbol: Ustr,
+    /// Maker commission rate.
+    pub maker_commission_rate: String,
+    /// Taker commission rate.
+    pub taker_commission_rate: String,
 }
 
 impl BinanceFuturesAccountInfo {

@@ -100,6 +100,7 @@ pub struct BinanceFuturesWebSocketClient {
     request_id_counter: Arc<AtomicU64>,
     instruments_cache: Arc<AtomicMap<Ustr, InstrumentAny>>,
     transport_backend: TransportBackend,
+    proxy_url: Option<String>,
 }
 
 impl Debug for BinanceFuturesWebSocketClient {
@@ -160,7 +161,15 @@ impl BinanceFuturesWebSocketClient {
             request_id_counter: Arc::new(AtomicU64::new(1)),
             instruments_cache: Arc::new(AtomicMap::new()),
             transport_backend,
+            proxy_url: None,
         })
+    }
+
+    /// Configures the proxy used by every connection in the stream pool.
+    #[must_use]
+    pub fn with_proxy(mut self, proxy_url: Option<String>) -> Self {
+        self.proxy_url = proxy_url;
+        self
     }
 
     /// Returns the product type (UsdM or CoinM).
@@ -420,6 +429,15 @@ impl BinanceFuturesWebSocketClient {
         });
     }
 
+    /// Replaces the complete instrument cache.
+    pub fn replace_instruments(&self, instruments: &[InstrumentAny]) {
+        let cache = instruments
+            .iter()
+            .map(|instrument| (instrument.raw_symbol().inner(), instrument.clone()))
+            .collect();
+        self.instruments_cache.store(cache);
+    }
+
     /// Update a single instrument in the cache.
     pub fn cache_instrument(&self, instrument: InstrumentAny) {
         self.instruments_cache
@@ -473,7 +491,7 @@ impl BinanceFuturesWebSocketClient {
             reconnect_max_attempts: None,
             idle_timeout_ms: None,
             backend: self.transport_backend,
-            proxy_url: None,
+            proxy_url: self.proxy_url.clone(),
         };
 
         let keyed_quotas = vec![(
@@ -591,5 +609,32 @@ impl BinanceFuturesWebSocketClient {
             cancellation_token,
             connection_mode,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_with_proxy_preserves_proxy_url() {
+        let client = BinanceFuturesWebSocketClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Testnet,
+            None,
+            None,
+            None,
+            None,
+            TransportBackend::default(),
+        )
+        .unwrap()
+        .with_proxy(Some("socks5://proxy.example:1080".to_string()));
+
+        assert_eq!(
+            client.proxy_url.as_deref(),
+            Some("socks5://proxy.example:1080")
+        );
     }
 }

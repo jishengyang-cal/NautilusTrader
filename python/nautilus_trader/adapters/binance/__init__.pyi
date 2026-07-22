@@ -20,6 +20,7 @@ __all__ = [
     "BinanceFuturesOpenInterestHist",
     "BinanceFuturesOpenInterestHistPoint",
     "BinanceFuturesTicker",
+    "BinanceInstrumentProviderConfig",
     "BinanceMarginType",
     "BinancePositionSide",
     "BinanceProductType",
@@ -72,7 +73,15 @@ class BinanceDataClientConfig:
     @property
     def spot_market_data_mode(self) -> BinanceSpotMarketDataMode: ...
     @property
+    def instrument_provider(self) -> BinanceInstrumentProviderConfig: ...
+    @property
+    def instrument_refresh_interval_secs(self) -> int: ...
+    @property
     def instrument_status_poll_secs(self) -> int: ...
+    @property
+    def recv_window_ms(self) -> int: ...
+    @property
+    def us(self) -> bool: ...
     @property
     def transport_backend(self) -> network.TransportBackend: ...
     def __init__(
@@ -84,9 +93,16 @@ class BinanceDataClientConfig:
         api_key: str | None = None,
         api_secret: str | None = None,
         spot_market_data_mode: BinanceSpotMarketDataMode | None = None,
+        instrument_provider: BinanceInstrumentProviderConfig | None = None,
+        instrument_refresh_interval_secs: int | None = None,
         instrument_status_poll_secs: int | None = None,
+        proxy_url: str | None = None,
+        recv_window_ms: int | None = None,
+        us: bool = False,
         transport_backend: network.TransportBackend | None = None,
     ) -> None: ...
+    @property
+    def has_proxy_url(self) -> bool: ...
 
 @typing.final
 class BinanceDataClientFactory:
@@ -112,6 +128,10 @@ class BinanceExecClientConfig:
     @property
     def use_ws_trading(self) -> bool: ...
     @property
+    def instrument_provider(self) -> BinanceInstrumentProviderConfig: ...
+    @property
+    def instrument_refresh_interval_secs(self) -> int: ...
+    @property
     def use_gtd(self) -> bool: ...
     @property
     def use_position_ids(self) -> bool: ...
@@ -119,6 +139,10 @@ class BinanceExecClientConfig:
     def oms_type(self) -> model.OmsType | None: ...
     @property
     def default_taker_fee(self) -> decimal.Decimal: ...
+    @property
+    def recv_window_ms(self) -> int: ...
+    @property
+    def us(self) -> bool: ...
     @property
     def futures_leverages(self) -> dict[str, int] | None: ...
     @property
@@ -141,10 +165,15 @@ class BinanceExecClientConfig:
         base_url_ws: str | None = None,
         base_url_ws_trading: str | None = None,
         use_ws_trading: bool = True,
+        instrument_provider: BinanceInstrumentProviderConfig | None = None,
+        instrument_refresh_interval_secs: int | None = None,
         use_gtd: bool = True,
         use_position_ids: bool = True,
         oms_type: model.OmsType | None = None,
         default_taker_fee: float | None = None,
+        proxy_url: str | None = None,
+        recv_window_ms: int | None = None,
+        us: bool = False,
         api_key: str | None = None,
         api_secret: str | None = None,
         futures_leverages: typing.Mapping[str, int] | None = None,
@@ -154,6 +183,8 @@ class BinanceExecClientConfig:
         bnfcr_currency: model.Currency | None = None,
         transport_backend: network.TransportBackend | None = None,
     ) -> None: ...
+    @property
+    def has_proxy_url(self) -> bool: ...
 
 @typing.final
 class BinanceExecutionClientFactory:
@@ -269,6 +300,30 @@ class BinanceFuturesTicker:
     def ts_event(self) -> int: ...
     @property
     def ts_init(self) -> int: ...
+
+@typing.final
+class BinanceInstrumentProviderConfig:
+    def __init__(
+        self,
+        load_all: bool = True,
+        load_ids: typing.Sequence[str] | None = None,
+        filters: typing.Mapping[str, typing.Any] | None = None,
+        filter_callable: str | None = None,
+        log_warnings: bool = True,
+        query_commission_rates: bool = False,
+    ) -> None: ...
+    @property
+    def load_all(self) -> bool: ...
+    @property
+    def load_ids(self) -> list[str] | None: ...
+    @property
+    def filters(self) -> typing.Any: ...
+    @property
+    def filter_callable(self) -> str | None: ...
+    @property
+    def log_warnings(self) -> bool: ...
+    @property
+    def query_commission_rates(self) -> bool: ...
 
 @typing.final
 class BinanceSpotTicker:

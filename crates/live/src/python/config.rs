@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, hash::BuildHasher, time::Duration};
 
 use nautilus_common::{
     cache::CacheConfig, enums::Environment, logging::logger::LoggerConfig,
@@ -95,8 +95,12 @@ fn py_to_json_value(bound: &pyo3::Bound<'_, PyAny>) -> PyResult<serde_json::Valu
     }
 }
 
-/// Converts a [`serde_json::Value`] into a Python object.
-fn json_value_to_py(py: Python<'_>, value: &serde_json::Value) -> PyResult<Py<PyAny>> {
+/// Converts a JSON configuration value into a Python object.
+///
+/// # Errors
+///
+/// Returns an error if Python object construction fails.
+pub fn json_value_to_py(py: Python<'_>, value: &serde_json::Value) -> PyResult<Py<PyAny>> {
     match value {
         serde_json::Value::Null => Ok(py.None()),
         serde_json::Value::Bool(b) => Ok((*b).into_pyobject(py)?.to_owned().into_any().unbind()),
@@ -128,8 +132,12 @@ fn json_value_to_py(py: Python<'_>, value: &serde_json::Value) -> PyResult<Py<Py
 }
 
 /// Converts Python mapping values into JSON values.
-pub(crate) fn coerce_json_config(
-    raw: HashMap<String, Py<PyAny>>,
+///
+/// # Errors
+///
+/// Returns an error if a Python value cannot be converted.
+pub fn coerce_json_config<S: BuildHasher>(
+    raw: HashMap<String, Py<PyAny>, S>,
 ) -> PyResult<HashMap<String, serde_json::Value>> {
     Python::attach(|py| -> PyResult<HashMap<String, serde_json::Value>> {
         let mut result = HashMap::with_capacity(raw.len());

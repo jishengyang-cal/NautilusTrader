@@ -62,6 +62,7 @@ pub struct BinanceFuturesWsTradingHandler {
     out_tx: tokio::sync::mpsc::UnboundedSender<BinanceFuturesWsTradingMessage>,
     credential: Arc<SigningCredential>,
     pending_requests: AHashMap<String, BinanceFuturesWsTradingRequestMeta>,
+    recv_window_ms: Option<u64>,
 }
 
 impl Debug for BinanceFuturesWsTradingHandler {
@@ -94,7 +95,15 @@ impl BinanceFuturesWsTradingHandler {
             out_tx,
             credential,
             pending_requests: AHashMap::new(),
+            recv_window_ms: None,
         }
+    }
+
+    /// Configures the receive window added before request signing.
+    #[must_use]
+    pub const fn with_recv_window(mut self, recv_window_ms: Option<u64>) -> Self {
+        self.recv_window_ms = recv_window_ms;
+        self
     }
 
     /// Runs the main event loop for commands and raw messages.
@@ -253,6 +262,10 @@ impl BinanceFuturesWsTradingHandler {
                 "apiKey".to_string(),
                 serde_json::json!(self.credential.api_key()),
             );
+
+            if let Some(recv_window_ms) = self.recv_window_ms {
+                obj.insert("recvWindow".to_string(), serde_json::json!(recv_window_ms));
+            }
         }
 
         // Sign over a key-sorted query string: Binance's WS API verifies the
@@ -422,5 +435,54 @@ impl BinanceFuturesWsTradingHandler {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_sign_params_includes_recv_window_in_signature() {
+        let (_cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_raw_tx, raw_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (out_tx, _out_rx) = tokio::sync::mpsc::unbounded_channel();
+        let credential = Arc::new(SigningCredential::new(
+            "api-key".to_string(),
+            "hmac-secret".to_string(),
+        ));
+        let handler = BinanceFuturesWsTradingHandler::new(
+            Arc::new(AtomicBool::new(false)),
+            cmd_rx,
+            raw_rx,
+            out_tx,
+            credential.clone(),
+        )
+        .with_recv_window(Some(30_000));
+
+        let signed = handler
+            .sign_params(serde_json::json!({"symbol": "BTCUSDT"}))
+            .unwrap();
+        let mut unsigned = signed.clone();
+        let signature = unsigned
+            .as_object_mut()
+            .unwrap()
+            .remove("signature")
+            .unwrap();
+        let query = canonical_ws_query_string(
+            unsigned
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(key, value)| (key.as_str(), value)),
+        )
+        .unwrap();
+
+        assert_eq!(signed["recvWindow"], 30_000);
+        assert_eq!(signature, credential.sign(&query));
     }
 }

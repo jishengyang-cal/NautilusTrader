@@ -46,6 +46,9 @@ pub const BINANCE_NAUTILUS_FUTURES_BROKER_ID: &str = "aHRE4BCj";
 /// Binance Spot API base URL (live exchange).
 pub const BINANCE_SPOT_HTTP_URL: &str = "https://api.binance.com";
 
+/// Binance US Spot API base URL.
+pub const BINANCE_US_SPOT_HTTP_URL: &str = "https://api.binance.us";
+
 /// Binance USD-M Futures API base URL (live exchange).
 pub const BINANCE_FUTURES_USD_HTTP_URL: &str = "https://fapi.binance.com";
 
@@ -78,6 +81,12 @@ pub const BINANCE_FUTURES_COIN_DEMO_HTTP_URL: &str = "https://demo-dapi.binance.
 
 /// Binance Spot WebSocket base URL (live exchange).
 pub const BINANCE_SPOT_WS_URL: &str = "wss://stream.binance.com:9443/ws";
+
+/// Binance US Spot public WebSocket base URL.
+pub const BINANCE_US_SPOT_WS_URL: &str = "wss://stream.binance.us:9443/ws";
+
+/// Binance US Spot user data WebSocket root URL.
+pub const BINANCE_US_SPOT_USER_WS_URL: &str = "wss://stream.binance.us:443";
 
 /// Binance USD-M Futures WebSocket base URL (live exchange).
 pub const BINANCE_FUTURES_USD_WS_URL: &str = "wss://fstream.binance.com/market/ws";

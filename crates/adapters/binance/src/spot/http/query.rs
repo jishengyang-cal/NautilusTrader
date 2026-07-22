@@ -724,6 +724,23 @@ pub struct AccountInfoParams {
     pub omit_zero_balances: Option<bool>,
 }
 
+/// Query parameters for account-specific symbol commission rates.
+#[derive(Debug, Clone, Serialize)]
+pub struct AccountCommissionParams {
+    /// Venue symbol.
+    pub symbol: String,
+}
+
+impl AccountCommissionParams {
+    /// Creates commission query parameters for `symbol`.
+    #[must_use]
+    pub fn new(symbol: impl Into<String>) -> Self {
+        Self {
+            symbol: symbol.into(),
+        }
+    }
+}
+
 impl AccountInfoParams {
     /// Create new account info params.
     #[must_use]

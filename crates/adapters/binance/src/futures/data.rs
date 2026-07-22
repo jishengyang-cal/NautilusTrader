@@ -174,6 +174,8 @@ impl BinanceFuturesDataClient {
         config: BinanceDataClientConfig,
         product_type: BinanceProductType,
     ) -> anyhow::Result<Self> {
+        config.validate()?;
+
         match product_type {
             BinanceProductType::UsdM | BinanceProductType::CoinM => {}
             _ => {
@@ -193,9 +195,9 @@ impl BinanceFuturesDataClient {
             config.api_key.clone(),
             config.api_secret.clone(),
             config.base_url_http.clone(),
-            None,  // recv_window
-            None,  // timeout_secs
-            None,  // proxy_url
+            Some(config.recv_window_ms),
+            None, // timeout_secs
+            config.proxy_url.clone(),
             false, // treat_expired_as_canceled
         )?;
 
@@ -217,7 +219,8 @@ impl BinanceFuturesDataClient {
             market_url,
             Some(20), // Heartbeat interval
             config.transport_backend,
-        )?;
+        )?
+        .with_proxy(config.proxy_url.clone());
 
         let public_url = config.base_url_ws.clone().map_or_else(
             || get_ws_public_base_url(product_type, config.environment).to_string(),
@@ -239,7 +242,8 @@ impl BinanceFuturesDataClient {
             Some(public_url),
             Some(20),
             config.transport_backend,
-        )?;
+        )?
+        .with_proxy(config.proxy_url.clone());
 
         Ok(Self {
             clock,
@@ -288,6 +292,67 @@ impl BinanceFuturesDataClient {
                 log::error!("{context}: {e:?}");
             }
         });
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    async fn refresh_instrument_catalogue(
+        http: &BinanceFuturesHttpClient,
+        provider: &crate::config::BinanceInstrumentProviderConfig,
+        instruments_cache: &Arc<AtomicMap<InstrumentId, InstrumentAny>>,
+        status_cache: &Arc<AtomicMap<InstrumentId, MarketStatusAction>>,
+        ws: &BinanceFuturesWebSocketClient,
+        ws_public: &BinanceFuturesWebSocketClient,
+        sender: &tokio::sync::mpsc::UnboundedSender<DataEvent>,
+        clock: &'static AtomicTime,
+        emit_status_changes: bool,
+    ) -> anyhow::Result<Vec<InstrumentAny>> {
+        let instruments = http
+            .request_instruments_with_config(provider)
+            .await
+            .context("failed to request Binance Futures instruments")?;
+        let venue_statuses = http
+            .request_symbol_statuses()
+            .await
+            .context("failed to request Binance Futures instrument statuses")?;
+
+        let instrument_map = instruments
+            .iter()
+            .map(|instrument| (instrument.id(), instrument.clone()))
+            .collect::<AHashMap<_, _>>();
+        let raw_to_id = instrument_map
+            .values()
+            .map(|instrument| (instrument.raw_symbol().inner(), instrument.id()))
+            .collect::<AHashMap<_, _>>();
+        let status_map = venue_statuses
+            .into_iter()
+            .filter_map(|(symbol, action)| {
+                raw_to_id
+                    .get(&symbol)
+                    .copied()
+                    .map(|instrument_id| (instrument_id, action))
+            })
+            .collect::<AHashMap<_, _>>();
+
+        instruments_cache.store(instrument_map);
+        ws.replace_instruments(&instruments);
+        ws_public.replace_instruments(&instruments);
+
+        if emit_status_changes {
+            let mut cached_statuses = (**status_cache.load()).clone();
+            let ts = clock.get_time_ns();
+            diff_and_emit_statuses(&status_map, &mut cached_statuses, sender, ts, ts);
+            status_cache.store(cached_statuses);
+        } else {
+            status_cache.store(status_map);
+        }
+
+        for instrument in &instruments {
+            if let Err(e) = sender.send(DataEvent::Instrument(instrument.clone())) {
+                log::warn!("Failed to send refreshed Binance Futures instrument: {e}");
+            }
+        }
+
+        Ok(instruments)
     }
 
     fn custom_liquidation_instrument_id(
@@ -1365,8 +1430,11 @@ impl DataClient for BinanceFuturesDataClient {
         }
 
         let mut ws = self.ws_client.clone();
+        let mut ws_public = self.ws_public_client.clone();
+
         get_runtime().spawn(async move {
             let _ = ws.close().await;
+            let _ = ws_public.close().await;
         });
 
         // Clear subscription state so resubscribes issue fresh WS subscribes
@@ -1401,53 +1469,18 @@ impl DataClient for BinanceFuturesDataClient {
         // Reinitialize token in case of reconnection after disconnect
         self.cancellation_token = CancellationToken::new();
 
-        let instruments = self
-            .http_client
-            .request_instruments()
-            .await
-            .context("failed to request Binance Futures instruments")?;
-
-        // Seed the status cache from the HTTP client's instruments cache
-        {
-            let mut inst_map = AHashMap::new();
-            let mut status_map = AHashMap::new();
-
-            for instrument in &instruments {
-                inst_map.insert(instrument.id(), instrument.clone());
-            }
-
-            let http_instruments = self.http_client.instruments_cache();
-            for entry in http_instruments.iter() {
-                let raw_symbol = entry.key();
-                let action = match entry.value() {
-                    crate::futures::http::client::BinanceFuturesInstrument::UsdM(s) => {
-                        MarketStatusAction::from(s.status)
-                    }
-                    crate::futures::http::client::BinanceFuturesInstrument::CoinM(s) => s
-                        .contract_status
-                        .map_or(MarketStatusAction::NotAvailableForTrading, Into::into),
-                };
-
-                for instrument in &instruments {
-                    if instrument.raw_symbol().as_str() == raw_symbol.as_str() {
-                        status_map.insert(instrument.id(), action);
-                        break;
-                    }
-                }
-            }
-
-            self.instruments.store(inst_map);
-            self.status_cache.store(status_map);
-        }
-
-        for instrument in instruments.clone() {
-            if let Err(e) = self.data_sender.send(DataEvent::Instrument(instrument)) {
-                log::warn!("Failed to send instrument: {e}");
-            }
-        }
-
-        self.ws_client.cache_instruments(&instruments);
-        self.ws_public_client.cache_instruments(&instruments);
+        Self::refresh_instrument_catalogue(
+            &self.http_client,
+            &self.config.instrument_provider,
+            &self.instruments,
+            &self.status_cache,
+            &self.ws_client,
+            &self.ws_public_client,
+            &self.data_sender,
+            self.clock,
+            false,
+        )
+        .await?;
 
         log::info!("Connecting to Binance Futures market WebSocket...");
         self.ws_client.connect().await.map_err(|e| {
@@ -1620,6 +1653,50 @@ impl DataClient for BinanceFuturesDataClient {
             });
             self.tasks.push(poll_handle);
             log::debug!("Futures instrument status polling started: interval={poll_secs}s");
+        }
+
+        let refresh_secs = self.config.instrument_refresh_interval_secs;
+        if refresh_secs > 0 {
+            let http = self.http_client.clone();
+            let provider = self.config.instrument_provider.clone();
+            let instruments = self.instruments.clone();
+            let statuses = self.status_cache.clone();
+            let ws = self.ws_client.clone();
+            let ws_public = self.ws_public_client.clone();
+            let sender = self.data_sender.clone();
+            let clock = self.clock;
+            let cancel = self.cancellation_token.clone();
+
+            let refresh_handle = get_runtime().spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(refresh_secs));
+                interval.tick().await;
+
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if let Err(e) = Self::refresh_instrument_catalogue(
+                                &http,
+                                &provider,
+                                &instruments,
+                                &statuses,
+                                &ws,
+                                &ws_public,
+                                &sender,
+                                clock,
+                                true,
+                            ).await {
+                                log::warn!("Binance Futures instrument refresh failed: {e}");
+                            }
+                        }
+                        () = cancel.cancelled() => {
+                            log::debug!("Binance Futures instrument refresh task cancelled");
+                            break;
+                        }
+                    }
+                }
+            });
+            self.tasks.push(refresh_handle);
+            log::debug!("Futures instrument refresh started: interval={refresh_secs}s");
         }
 
         self.is_connected.store(true, Ordering::Release);
@@ -2412,11 +2489,12 @@ impl DataClient for BinanceFuturesDataClient {
         let end = request.end;
         let params = request.params;
         let clock = self.clock;
+        let provider = self.config.instrument_provider.clone();
         let start_nanos = datetime_to_unix_nanos(start);
         let end_nanos = datetime_to_unix_nanos(end);
 
         get_runtime().spawn(async move {
-            match http.request_instruments().await {
+            match http.request_instruments_with_config(&provider).await {
                 Ok(instruments) => {
                     for instrument in &instruments {
                         upsert_instrument(&instruments_cache, instrument.clone());
@@ -2455,11 +2533,12 @@ impl DataClient for BinanceFuturesDataClient {
         let end = request.end;
         let params = request.params;
         let clock = self.clock;
+        let provider = self.config.instrument_provider.clone();
         let start_nanos = datetime_to_unix_nanos(start);
         let end_nanos = datetime_to_unix_nanos(end);
 
         get_runtime().spawn(async move {
-            match http.request_instruments().await {
+            match http.request_instruments_with_config(&provider).await {
                 Ok(all_instruments) => {
                     for instrument in &all_instruments {
                         upsert_instrument(&instruments, instrument.clone());

@@ -196,6 +196,14 @@ pub struct BinancePositionRiskParams {
     pub recv_window: Option<u64>,
 }
 
+/// Query parameters for `GET /fapi/v1/commissionRate` or `GET /dapi/v1/commissionRate`.
+#[derive(Clone, Debug, Deserialize, Serialize, Builder)]
+#[builder(setter(into))]
+pub struct BinanceCommissionRateParams {
+    /// Trading symbol.
+    pub symbol: String,
+}
+
 /// Query parameters for `GET /fapi/v1/income` or `GET /dapi/v1/income`.
 #[derive(Clone, Debug, Deserialize, Serialize, Default, Builder)]
 #[builder(default)]

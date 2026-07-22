@@ -215,6 +215,26 @@ order, it uses the standard cancel endpoint.
 | USDT Futures | `DELETE /fapi/v1/allOpenOrders` | `DELETE /fapi/v1/algoOpenOrders` | `DELETE /fapi/v1/algoOrder` |
 | Coin Futures | `DELETE /dapi/v1/allOpenOrders` | `DELETE /dapi/v1/algoOpenOrders` | `DELETE /dapi/v1/algoOrder` |
 
+#### Submit, modify, and cancel retry policy
+
+The Rust-backed v2 execution clients send each submit, modify, or cancel command once. They do not
+blindly retry a command after a timeout, network failure, or Binance unknown-status response because
+the first request may have reached the matching engine. Retrying could create a duplicate order or
+apply a second amendment.
+
+- A definitive local validation error or venue rejection emits the matching rejection event.
+- An ambiguous transport result remains inflight and is resolved by the private stream or REST
+  reconciliation. The adapter does not emit a false rejection while the venue outcome is unknown.
+- A Futures algo cancel may fall back from the pre-trigger algo endpoint to the regular-order
+  endpoint. This changes endpoint after the order triggers; it does not resend the same cancel to
+  the same endpoint.
+- Strategy code must not resubmit a command while its result is ambiguous. Wait for reconciliation
+  or query the order by its client order ID.
+
+The v2 configs intentionally do not expose `max_retries`, `retry_delay_initial_ms`, or
+`retry_delay_max_ms`. Those fields belong to the legacy Python adapter and do not describe v2
+behavior.
+
 ### Position management
 
 | Feature             | Spot | Margin | USDT Futures | Coin Futures | Notes                                       |
@@ -701,9 +721,9 @@ REST endpoint, but the adapter does not consume it.
 
 ## Instrument status polling
 
-:::info[Rust adapter only]
-This feature is available in the Rust data clients (`LiveNode`). The Python
-data clients do not poll for status changes.
+:::info[Rust-backed v2 client]
+This feature is available in the Rust data clients and their Python bindings.
+It does not describe the legacy Python data client.
 :::
 
 The adapter periodically polls Binance `exchangeInfo` to detect changes in
@@ -720,6 +740,13 @@ response without emitting events. Only subsequent polls that detect a status
 change emit `InstrumentStatus` events. If a symbol disappears from exchange
 info (e.g. after delisting or contract expiry), the adapter emits
 `NotAvailableForTrading`.
+
+Status polling does not reload instrument definitions. The separate
+`instrument_refresh_interval_secs` task performs a complete filtered catalogue load, atomically
+replaces the data-client and WebSocket lookup maps, sends the refreshed instruments to the data
+engine, and updates the status snapshot. It also refreshes the execution client precision cache.
+The default full refresh interval is 3600 seconds; set it to `0` to disable it. Disconnect cancels
+the task, and reconnect starts one replacement task with a new cancellation token.
 
 ### Status mapping
 
@@ -853,13 +880,62 @@ For the latest rate limits, query `/api/v3/exchangeInfo` (Spot) or `/fapi/v1/exc
 ## Configuration
 
 :::note
-The configuration tables below describe the **Python adapter**. The Rust adapter
-uses `BinanceDataClientConfig` and `BinanceExecClientConfig` with different field
-names. See the Rust source at `crates/adapters/binance/src/config.rs` for the
-definitive list of Rust config options.
+The first tables describe the Rust-backed v2 clients and their Python bindings. The legacy Python
+tables remain below for users who have not migrated. Do not apply a legacy-only option to v2.
 :::
 
-### Data client configuration options
+### Rust-backed v2 data client
+
+| Option                             | Default       | Description |
+|------------------------------------|---------------|-------------|
+| `product_type`                     | `Spot`        | One of `Spot`, `UsdM`, or `CoinM`. |
+| `environment`                      | `Live`        | One of `Live`, `Testnet`, or `Demo`. |
+| `base_url_http`                    | `None`        | Optional HTTP endpoint override. |
+| `base_url_ws`                      | `None`        | Optional market WebSocket endpoint override. |
+| `api_key` / `api_secret`           | `None`        | Required for Spot SBE; optional for public JSON and Futures data. |
+| `spot_market_data_mode`            | `Sbe`         | `Json` keeps the credential‑free Global Spot path. Binance US requires `Json`. |
+| `instrument_provider`              | default       | Loading, filters, parser‑warning, and commission policy. |
+| `instrument_refresh_interval_secs` | `3600`        | Full catalogue refresh interval; `0` disables it. |
+| `instrument_status_poll_secs`      | `3600`        | Status‑only exchange‑info poll interval; `0` disables it. |
+| `proxy_url`                        | `None`        | Proxy applied to HTTP and every market WebSocket connection. |
+| `recv_window_ms`                   | `5000`        | Signed HTTP receive window, inclusive range `1..=60000`. |
+| `us`                               | `False`       | Route a live Spot JSON client to Binance US. |
+| `transport_backend`                | `Tungstenite` | WebSocket transport backend. |
+
+### Rust-backed v2 execution client
+
+| Option                             | Default       | Description |
+|------------------------------------|---------------|-------------|
+| `trader_id` / `account_id`         | generated IDs | Nautilus execution identity. |
+| `product_type`                     | `Spot`        | One of `Spot`, `UsdM`, or `CoinM`. |
+| `environment`                      | `Live`        | One of `Live`, `Testnet`, or `Demo`. |
+| `base_url_http`                    | `None`        | Optional HTTP endpoint override. |
+| `base_url_ws`                      | `None`        | Optional private stream override. |
+| `base_url_ws_trading`              | `None`        | Optional Global Spot or USD-M WebSocket trading override. |
+| `use_ws_trading`                   | `True`        | Use Global WebSocket order entry where supported; Binance US uses HTTP. |
+| `instrument_provider`              | default       | Loading, filters, parser‑warning, and commission policy. |
+| `instrument_refresh_interval_secs` | `3600`        | Execution precision‑cache refresh interval; `0` disables it. |
+| `proxy_url`                        | `None`        | Proxy applied to HTTP, private streams, and WebSocket trading. |
+| `recv_window_ms`                   | `5000`        | Signed HTTP and WebSocket receive window, inclusive range `1..=60000`. |
+| `us`                               | `False`       | Route a live Spot execution client to Binance US. |
+| `api_key` / `api_secret`           | `None`        | Global uses Ed25519 WebSocket auth; Binance US uses HMAC HTTP signing. |
+| `use_gtd`                          | `True`        | Native USD-M GTD policy described above. |
+| `use_position_ids`                 | `True`        | Expose Futures hedge‑side position IDs. |
+| `oms_type`                         | `None`        | `None` selects Futures netting; use `Hedging` for dual‑side mode. |
+| `default_taker_fee`                | `0.0004`      | Fallback for exchange‑generated Futures fills. |
+| `futures_leverages`                | `None`        | Initial leverage by Futures symbol. |
+| `futures_margin_types`             | `None`        | Initial margin type by Futures symbol. |
+| `treat_expired_as_canceled`        | `False`       | Map `EXPIRED` execution events to canceled events. |
+| `use_trade_lite`                   | `False`       | Use the lower‑latency USD‑M trade‑lite fill stream. |
+| `bnfcr_currency`                   | `USDT`        | Currency used to resolve `BNFCR` balances and fees. |
+| `transport_backend`                | `Tungstenite` | WebSocket transport backend. |
+
+### Legacy Python configuration
+
+The following two tables describe the legacy Python adapter. Fields marked as Rust-only in these
+tables predate the v2 tables above; use the v2 field names and defaults above for new code.
+
+#### Data client configuration options
 
 | Option                             | Default   | Description |
 |------------------------------------|-----------|-------------|
@@ -879,7 +955,7 @@ definitive list of Rust config options.
 | `instrument_status_poll_secs`      | `3600`    | *Rust only.* Interval (seconds) between exchange info polls to detect instrument status changes. Set to `0` to disable. |
 | `transport_backend`                | `Sockudo` | *Rust only.* WebSocket transport backend. |
 
-### Execution client configuration options
+#### Execution client configuration options
 
 | Option                                  | Default   | Description |
 |-----------------------------------------|-----------|-------------|
@@ -1106,9 +1182,26 @@ endpoints.
 
 ### Binance US
 
-Set `us=True` in the config to use Binance US endpoints (`False` by default).
-All functionality available to US accounts behaves identically to standard
-Binance.
+Set `us=True` on the Rust-backed v2 config for first-class Binance US Spot routing. Binance US is
+not a custom-URL alias: the switch selects `api.binance.us`, the public JSON stream, HMAC-signed
+HTTP execution, and the port 443 listen-key private stream with periodic keepalive.
+
+See the official Binance US [REST API](https://github.com/binance-us/binance-us-api-docs/blob/master/rest-api.md),
+[market streams](https://github.com/binance-us/binance-us-api-docs/blob/master/web-socket-streams.md),
+and [user data stream](https://github.com/binance-us/binance-us-api-docs/blob/master/web-socket-api.md)
+documentation for the venue contracts behind this routing.
+
+The supported combinations are deliberate:
+
+- Data: `product_type=Spot`, `environment=Live`, `spot_market_data_mode=Json`.
+- Execution: `product_type=Spot`, `environment=Live`; order entry uses HTTP and private events use
+  the listen-key stream.
+- Futures, Testnet, Demo, and Spot SBE configurations with `us=True` fail validation.
+
+Binance US public JSON covers live market data, depth snapshots, recent and aggregate trade
+history, and kline history. It uses account-wide maker and taker rates. Global Binance keeps its
+existing credential-free Spot JSON behavior with `us=False` and
+`spot_market_data_mode=Json`.
 
 ### Environments
 
@@ -1230,29 +1323,42 @@ the legacy `@trade` stream was undocumented and has been silenced. The HTTP
 
 ### Commission rate queries
 
-By default, Binance Futures instruments use fee tier tables based on your VIP
-level. For market maker accounts with negative maker fees or when precise
-rates are required, enable per-symbol commission rate queries:
+The Rust-backed v2 instrument provider controls both selection and fee policy:
 
 ```python
 from nautilus_trader.adapters.binance import BinanceInstrumentProviderConfig
 
 instrument_provider=BinanceInstrumentProviderConfig(
-    load_all=True,
-    query_commission_rates=True,  # Query accurate rates per symbol
+    load_all=False,
+    load_ids=["BTCUSDT.BINANCE", "ETHUSDT.BINANCE"],
+    filters={"quotes": ["USDT"], "bases": ["BTC", "ETH"]},
+    log_warnings=True,
+    query_commission_rates=True,
 )
 ```
 
-When enabled, the adapter queries Binance's `/fapi/v1/commissionRate` endpoint
-for each symbol in parallel during instrument loading. Useful for:
+`load_all=False` selects only `load_ids`; venue filters then apply as an intersection. Supported
+filters are `symbols`, `bases`, and `quotes`, plus `contract_types` for Futures. Values are a string
+or non-empty list of strings and matching is case-insensitive. The v2 adapter rejects
+`filter_callable`: v1 accepted the field but its Binance provider did not apply the callable.
 
-- Market maker accounts with negative maker fees.
-- Accounts with custom fee arrangements.
-- Exact commission rates for PnL calculations.
+Every parsed instrument receives maker and taker fees:
 
-The adapter uses parallel requests with rate limiting (120 requests/minute,
-accounting for the endpoint's weight of 20). If a query fails, it falls back
-to the fee tier table.
+- Spot uses the account-wide rate when credentials are present, otherwise 0.1% maker and taker.
+- Futures uses the account VIP tier when credentials are present, otherwise VIP 0.
+- `query_commission_rates=True` opts Global Spot and Futures into rate-limited exact per-symbol
+  queries. A failed or invalid query falls back to the account or tier rate for that symbol.
+- Binance US uses its account-wide commission rates because it does not expose the Global
+  `account/commission` endpoint.
+
+The exact-query behavior follows the Global Spot
+[commission FAQ](https://github.com/binance/binance-spot-api-docs/blob/master/faqs/commission_faq.md)
+and the USD-M
+[user commission rate](https://developers.binance.com/docs/derivatives/usds-margined-futures/account/rest-api/User-Commission-Rate)
+endpoint.
+
+Exact queries require credentials. Because they issue one private request per selected symbol,
+combine `load_ids` or filters with this option on large catalogues.
 
 ### Parser warnings
 
@@ -1263,9 +1369,9 @@ with a warning.
 To suppress these warnings:
 
 ```python
-from nautilus_trader.config import InstrumentProviderConfig
+from nautilus_trader.adapters.binance import BinanceInstrumentProviderConfig
 
-instrument_provider=InstrumentProviderConfig(
+instrument_provider=BinanceInstrumentProviderConfig(
     load_all=True,
     log_warnings=False,
 )

@@ -85,6 +85,8 @@ impl DataClientFactory for BinanceDataClientFactory {
 
         let client_id = ClientId::from(name);
 
+        binance_config.validate()?;
+
         let product_type = binance_config.product_type;
 
         match product_type {
@@ -156,6 +158,8 @@ impl ExecutionClientFactory for BinanceExecutionClientFactory {
             .clone();
 
         let product_type = binance_config.product_type;
+
+        binance_config.validate()?;
 
         match product_type {
             BinanceProductType::Spot => {

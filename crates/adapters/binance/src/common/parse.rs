@@ -57,7 +57,8 @@ use crate::{
     spot::{
         http::models::{
             BinanceAccountTrade, BinanceKlines, BinanceLotSizeFilterSbe, BinanceNewOrderResponse,
-            BinanceOrderResponse, BinancePriceFilterSbe, BinanceSymbolSbe, BinanceTrades,
+            BinanceOrderResponse, BinancePriceFilterSbe, BinanceSymbolJson, BinanceSymbolSbe,
+            BinanceTrades,
         },
         sbe::spot::{
             order_side::OrderSide as SbeOrderSide, order_status::OrderStatus as SbeOrderStatus,
@@ -202,6 +203,16 @@ pub fn parse_usdm_instrument(
     ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
+    parse_usdm_instrument_with_fees(symbol, None, None, ts_event, ts_init)
+}
+
+pub(crate) fn parse_usdm_instrument_with_fees(
+    symbol: &BinanceFuturesUsdSymbol,
+    maker_fee: Option<Decimal>,
+    taker_fee: Option<Decimal>,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
     let is_perpetual = symbol.contract_type == CONTRACT_TYPE_PERPETUAL;
     let is_delivery = matches!(
         symbol.contract_type.as_str(),
@@ -281,8 +292,8 @@ pub fn parse_usdm_instrument(
             min_price,
             Some(default_margin),
             Some(default_margin),
-            None,
-            None,
+            maker_fee,
+            taker_fee,
             None,
             None,
             ts_event,
@@ -315,8 +326,8 @@ pub fn parse_usdm_instrument(
             min_price,
             Some(default_margin),
             Some(default_margin),
-            None,
-            None,
+            maker_fee,
+            taker_fee,
             None,
             None,
             ts_event,
@@ -339,6 +350,16 @@ pub fn parse_usdm_instrument(
 /// - The contract is not in TRADING status.
 pub fn parse_coinm_instrument(
     symbol: &BinanceFuturesCoinSymbol,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
+    parse_coinm_instrument_with_fees(symbol, None, None, ts_event, ts_init)
+}
+
+pub(crate) fn parse_coinm_instrument_with_fees(
+    symbol: &BinanceFuturesCoinSymbol,
+    maker_fee: Option<Decimal>,
+    taker_fee: Option<Decimal>,
     ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
@@ -423,8 +444,8 @@ pub fn parse_coinm_instrument(
             min_price,
             Some(default_margin),
             Some(default_margin),
-            None,
-            None,
+            maker_fee,
+            taker_fee,
             None,
             None,
             ts_event,
@@ -457,8 +478,8 @@ pub fn parse_coinm_instrument(
             min_price,
             Some(default_margin),
             Some(default_margin),
-            None,
-            None,
+            maker_fee,
+            taker_fee,
             None,
             None,
             ts_event,
@@ -586,6 +607,16 @@ pub fn parse_spot_instrument_sbe(
     ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
+    parse_spot_instrument_sbe_with_fees(symbol, None, None, ts_event, ts_init)
+}
+
+pub(crate) fn parse_spot_instrument_sbe_with_fees(
+    symbol: &BinanceSymbolSbe,
+    maker_fee: Option<Decimal>,
+    taker_fee: Option<Decimal>,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
     if symbol.status != SBE_STATUS_TRADING {
         anyhow::bail!(
             "Symbol '{}' is not trading (status: {})",
@@ -641,8 +672,8 @@ pub fn parse_spot_instrument_sbe(
         min_price,
         Some(default_margin),
         Some(default_margin),
-        None, // maker_fee
-        None, // taker_fee
+        maker_fee,
+        taker_fee,
         None, // tick_scheme
         None, // info
         ts_event,
@@ -650,6 +681,116 @@ pub fn parse_spot_instrument_sbe(
     );
 
     Ok(InstrumentAny::CurrencyPair(instrument))
+}
+
+pub(crate) fn parse_spot_instrument_json_with_fees(
+    symbol: &BinanceSymbolJson,
+    maker_fee: Option<Decimal>,
+    taker_fee: Option<Decimal>,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
+    anyhow::ensure!(
+        symbol.status == "TRADING",
+        "Symbol '{}' is not trading (status: {})",
+        symbol.symbol,
+        symbol.status,
+    );
+
+    let price_filter = symbol
+        .filters
+        .iter()
+        .find(|filter| filter.filter_type == "PRICE_FILTER")
+        .context("Missing PRICE_FILTER in symbol filters")?;
+    let lot_filter = symbol
+        .filters
+        .iter()
+        .find(|filter| filter.filter_type == "LOT_SIZE")
+        .context("Missing LOT_SIZE in symbol filters")?;
+
+    let tick_size = decimal_price(
+        price_filter
+            .tick_size
+            .as_deref()
+            .context("Missing PRICE_FILTER tickSize")?,
+    )?;
+    anyhow::ensure!(!tick_size.is_zero(), "Invalid tickSize of 0");
+    let step_size = decimal_quantity(
+        lot_filter
+            .step_size
+            .as_deref()
+            .context("Missing LOT_SIZE stepSize")?,
+    )?;
+    anyhow::ensure!(!step_size.is_zero(), "Invalid stepSize of 0");
+
+    let instrument = CurrencyPair::new(
+        InstrumentId::new(
+            Symbol::from_str_unchecked(&symbol.symbol),
+            Venue::new(BINANCE),
+        ),
+        Symbol::new(&symbol.symbol),
+        get_currency(&symbol.base_asset),
+        get_currency(&symbol.quote_asset),
+        tick_size.precision,
+        step_size.precision,
+        tick_size,
+        step_size,
+        None,
+        Some(step_size),
+        optional_decimal_quantity(lot_filter.max_qty.as_deref(), step_size.precision)?,
+        optional_decimal_quantity(lot_filter.min_qty.as_deref(), step_size.precision)?,
+        None,
+        None,
+        optional_decimal_price(price_filter.max_price.as_deref(), tick_size.precision)?,
+        optional_decimal_price(price_filter.min_price.as_deref(), tick_size.precision)?,
+        Some(Decimal::ONE),
+        Some(Decimal::ONE),
+        maker_fee,
+        taker_fee,
+        None,
+        None,
+        ts_event,
+        ts_init,
+    );
+
+    Ok(InstrumentAny::CurrencyPair(instrument))
+}
+
+fn decimal_price(value: &str) -> anyhow::Result<Price> {
+    let decimal = Decimal::from_str_exact(value)?.normalize();
+    let precision = u8::try_from(decimal.scale()).context("price precision exceeds u8")?;
+    Ok(Price::from_decimal_dp(decimal, precision)?)
+}
+
+fn decimal_quantity(value: &str) -> anyhow::Result<Quantity> {
+    let decimal = Decimal::from_str_exact(value)?.normalize();
+    let precision = u8::try_from(decimal.scale()).context("quantity precision exceeds u8")?;
+    Ok(Quantity::from_decimal_dp(decimal, precision)?)
+}
+
+fn optional_decimal_price(value: Option<&str>, precision: u8) -> anyhow::Result<Option<Price>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let decimal = Decimal::from_str_exact(value)?;
+    if decimal.is_zero() {
+        return Ok(None);
+    }
+    Ok(Some(Price::from_decimal_dp(decimal, precision)?))
+}
+
+fn optional_decimal_quantity(
+    value: Option<&str>,
+    precision: u8,
+) -> anyhow::Result<Option<Quantity>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let decimal = Decimal::from_str_exact(value)?;
+    if decimal.is_zero() {
+        return Ok(None);
+    }
+    Ok(Some(Quantity::from_decimal_dp(decimal, precision)?))
 }
 
 /// Parses Binance SBE trades into Nautilus TradeTick objects.
@@ -1579,6 +1720,25 @@ mod tests {
     }
 
     #[rstest]
+    fn test_parse_usdm_perpetual_populates_fees() {
+        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
+        let instrument = parse_usdm_instrument_with_fees(
+            &sample_usdm_symbol(),
+            Some(dec!(0.00016)),
+            Some(dec!(0.0004)),
+            ts,
+            ts,
+        )
+        .unwrap();
+        let InstrumentAny::CryptoPerpetual(perpetual) = instrument else {
+            panic!("expected CryptoPerpetual, was {instrument:?}");
+        };
+
+        assert_eq!(perpetual.maker_fee, dec!(0.00016));
+        assert_eq!(perpetual.taker_fee, dec!(0.0004));
+    }
+
+    #[rstest]
     #[case::current_month(CONTRACT_TYPE_CURRENT_MONTH)]
     #[case::next_month(CONTRACT_TYPE_NEXT_MONTH)]
     #[case::current_quarter(CONTRACT_TYPE_CURRENT_QUARTER)]
@@ -1692,6 +1852,28 @@ mod tests {
     }
 
     #[rstest]
+    fn test_parse_coinm_delivery_populates_fees() {
+        let mut symbol = sample_coinm_symbol();
+        symbol.symbol = Ustr::from("BTCUSD_260925");
+        symbol.contract_type = CONTRACT_TYPE_CURRENT_QUARTER.to_string();
+        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
+        let instrument = parse_coinm_instrument_with_fees(
+            &symbol,
+            Some(dec!(0.00014)),
+            Some(dec!(0.00035)),
+            ts,
+            ts,
+        )
+        .unwrap();
+        let InstrumentAny::CryptoFuture(future) = instrument else {
+            panic!("expected CryptoFuture, was {instrument:?}");
+        };
+
+        assert_eq!(future.maker_fee, dec!(0.00014));
+        assert_eq!(future.taker_fee, dec!(0.00035));
+    }
+
+    #[rstest]
     #[case::current_quarter(CONTRACT_TYPE_CURRENT_QUARTER)]
     #[case::next_quarter(CONTRACT_TYPE_NEXT_QUARTER)]
     fn test_parse_coinm_delivery(#[case] contract_type: &str) {
@@ -1766,6 +1948,25 @@ mod tests {
             }
             other => panic!("Expected CurrencyPair, was {other:?}"),
         }
+    }
+
+    #[rstest]
+    fn test_parse_spot_instrument_populates_fees() {
+        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
+        let instrument = parse_spot_instrument_sbe_with_fees(
+            &sample_spot_symbol_sbe(),
+            Some(dec!(0.0008)),
+            Some(dec!(0.0011)),
+            ts,
+            ts,
+        )
+        .unwrap();
+        let InstrumentAny::CurrencyPair(pair) = instrument else {
+            panic!("expected CurrencyPair, was {instrument:?}");
+        };
+
+        assert_eq!(pair.maker_fee, dec!(0.0008));
+        assert_eq!(pair.taker_fee, dec!(0.0011));
     }
 
     #[rstest]

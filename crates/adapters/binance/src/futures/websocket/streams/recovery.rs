@@ -61,6 +61,7 @@ pub(crate) struct WsBuildParams {
     pub api_secret: String,
     pub private_base_url: String,
     pub transport_backend: TransportBackend,
+    pub proxy_url: Option<String>,
 }
 
 /// Context captured by the recovery driver task. All fields are cheaply
@@ -95,7 +96,8 @@ pub(crate) async fn build_and_connect_user_stream(
         Some(20),
         params.transport_backend,
     )
-    .context("failed to construct Binance Futures private WebSocket client")?;
+    .context("failed to construct Binance Futures private WebSocket client")?
+    .with_proxy(params.proxy_url.clone());
 
     log::debug!("Connecting to Binance Futures user data stream...");
     ws_client.connect().await.map_err(|_| {
