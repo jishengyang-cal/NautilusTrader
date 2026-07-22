@@ -40,6 +40,10 @@ requires the referenced fill locally before reopening and treats `VOIDED` as ter
 v2 order streams that contain a reopened correction before its referenced fill, or a cancel or
 update after `VOIDED`.
 
+The migration guide includes the v1-to-v2 identifier, collection, lifecycle, callback,
+subscription, historical-batch, and removed-hook mappings. Typed historical requests use batch
+callbacks; generic custom data continues through `on_historical_data`.
+
 #### Cutover limits
 
 The supported cutover workflows cover Python strategies, actors, backtests, live nodes, core risk
@@ -74,6 +78,7 @@ adapter set. The following limits remain deferred:
 - Added v2 Cap'n Proto and SQL persistence for order-event activation prices and fill `info`
 - Added v2 `MessageBusConfig.autotrim_maxlen` for Redis stream count retention (#4433), thanks for reporting @gtalknitin
 - Added v2 `OrderBookDepth10` subscriptions and callbacks for Rust and Python actors and strategies (#4439)
+- Added Python v2 historical book-delta and depth batch callbacks for actors and strategies
 - Added v2 `OrderFillVoided`, `OrderStatus.VOIDED`, terminal voiding for unapplied-fill corrections, and strategy and algorithm callbacks
 - Added Python v2 controller subclassing and importable controller configs for backtest/live
 - Added Python v2 subclassable execution algorithms for routed orders
@@ -336,6 +341,7 @@ adapter set. The following limits remain deferred:
 - Upgraded `databento` crate to v0.55.0
 
 ### Documentation Updates
+- Added the v1-to-v2 property, method, and callback migration matrix
 - Added canonical references and doc comments for portfolio statistics
 - Added Binance Futures `/fapi/v1/algoOrder` order-count rate limit docs
 - Added SinoPac Securities community adapter listing (#4324), thanks @Martingale42

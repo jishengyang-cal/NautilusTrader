@@ -82,6 +82,87 @@ V2 shortens common strategy and cache names. The `QuoteTick`, `TradeTick`, and
 | `cache.quote_tick_count`             | `cache.quote_count`            |
 | `cache.trade_tick_count`             | `cache.trade_count`            |
 
+### Public API migration matrix
+
+V2 uses specific names for component and model identities:
+
+| v1 member          | v2 member                              |
+|--------------------|----------------------------------------|
+| `Actor.id`         | `DataActor.actor_id`                   |
+| `Strategy.id`      | `Strategy.strategy_id`                 |
+| `ExecAlgorithm.id` | `ExecutionAlgorithm.exec_algorithm_id` |
+| Event `id`         | `event_id`                             |
+| Report `id`        | `report_id`                            |
+| Account `type`     | `account_type`                         |
+
+Collection and lifecycle inspection also changes shape:
+
+| v1 member                      | v2 member                                                     |
+|--------------------------------|---------------------------------------------------------------|
+| `Order.events`                 | `Order.events()`                                              |
+| `Position.adjustments`         | `Position.adjustments()`                                      |
+| `Position.client_order_ids`    | `Position.client_order_ids()`                                 |
+| `Position.events`              | `Position.events()`                                           |
+| `Position.trade_ids`           | `Position.trade_ids()`                                        |
+| `Position.venue_order_ids`     | `Position.venue_order_ids()`                                  |
+| `OrderList.orders`             | `client_order_ids()`, then resolve each ID through the cache  |
+| `OrderList.first`              | Resolve `first_client_order_id` through the cache             |
+| `Portfolio.initialized`        | `Portfolio.is_initialized()`                                  |
+| `Portfolio.analyzer`           | `statistics()`, `snapshots()`, and `nautilus_trader.analysis` |
+| `Actor.state`/`Strategy.state` | `DataActor.state()`/`Strategy.state()`                        |
+| `ExecAlgorithm.state`          | `ExecutionAlgorithm.state` remains a property                 |
+| `Component.is_running`         | `is_running()`                                                |
+| `Component.is_stopped`         | `is_stopped()`                                                |
+| `Component.is_disposed`        | `is_disposed()`                                               |
+| `Component.is_degraded`        | `is_degraded()`                                               |
+| `Component.is_faulted`         | `is_faulted()`                                                |
+
+V1 `is_initialized` means that a component has advanced beyond `PRE_INITIALIZED`. V2 `is_ready()`
+means exactly `READY`, so it is not an equivalent replacement while a component is running,
+stopped, degraded, disposed, or faulted. Inspect `state()` on `DataActor` and `Strategy`, or the
+`state` property on `ExecutionAlgorithm`, and compare it with `ComponentState.PRE_INITIALIZED`.
+
+Read the v1 `Strategy` runtime properties `order_id_tag`, `oms_type`, `external_order_claims`,
+`manage_contingent_orders`, `manage_gtd_expiry`, `use_uuid_client_order_ids`, and
+`use_hyphens_in_client_order_ids` through the same-name properties on `Strategy.config`. The two
+client-order-ID formatting options on a strategy-owned `OrderFactory` use the same config. A
+standalone factory has no equivalent flag readback.
+
+Historical requests use type-specific batch callbacks in v2:
+
+| v1 data through `on_historical_data` | v2 callback                   | v2 argument                   |
+|--------------------------------------|-------------------------------|-------------------------------|
+| Custom data                          | `on_historical_data`          | One `CustomData`              |
+| Book snapshot                        | `on_book`                     | One `OrderBook`               |
+| Book deltas                          | `on_historical_book_deltas`   | `Sequence[OrderBookDelta]`    |
+| Book depth                           | `on_historical_book_depth`    | `Sequence[OrderBookDepth10]`  |
+| Quote ticks                          | `on_historical_quotes`        | `Sequence[QuoteTick]`         |
+| Trade ticks                          | `on_historical_trades`        | `Sequence[TradeTick]`         |
+| Funding rates                        | `on_historical_funding_rates` | `Sequence[FundingRateUpdate]` |
+| Bars                                 | `on_historical_bars`          | `Sequence[Bar]`               |
+
+Typed historical results no longer fall through to `on_historical_data`; that hook handles custom
+data. `on_historical_mark_prices` and `on_historical_index_prices` are available for native batch
+delivery, but the current public Python API does not initiate those requests.
+
+The generic `on_event` hook is removed. Replace timer handling with `on_time_event`, aggregate order
+handling with `on_order_event`, and aggregate position handling with `on_position_event`. For
+custom messaging, use `on_signal` or a typed data subscription instead of overriding `on_event`.
+
+Python v2 `ExecutionAlgorithm` does not inherit the full actor surface. Move market-data and
+historical callbacks to `DataActor` or `Strategy`. Its inherited v1 `on_save` and `on_load` hooks
+also have no v2 algorithm callback; retain that state in application configuration or move the
+stateful component to `DataActor` or `Strategy`. Change `on_order_list(self, order_list)` to
+`on_order_list(self, order_list, orders)`.
+
+V2 strategy order changes take client order IDs rather than order objects:
+
+| v1 method                    | v2 method                                  |
+|------------------------------|--------------------------------------------|
+| `modify_order(order, ...)`   | `modify_order(order.client_order_id, ...)` |
+| `cancel_order(order, ...)`   | `cancel_order(order.client_order_id, ...)` |
+| `cancel_orders(orders, ...)` | `cancel_orders(client_order_ids, ...)`     |
+
 ### Inspection and state renames
 
 V2 exposes consistent read-only inspection across economic instrument types. Properties include

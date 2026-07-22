@@ -55,7 +55,7 @@ use nautilus_core::{
 use nautilus_model::{
     data::{
         Bar, BarType, CustomData, DataType, FundingRateUpdate, IndexPriceUpdate, InstrumentStatus,
-        MarkPriceUpdate, OrderBookDeltas, OrderBookDepth10, QuoteTick, TradeTick,
+        MarkPriceUpdate, OrderBookDelta, OrderBookDeltas, OrderBookDepth10, QuoteTick, TradeTick,
         close::InstrumentClose,
         option_chain::{OptionChainSlice, OptionGreeks},
     },
@@ -770,6 +770,32 @@ impl PyStrategyInner {
         Ok(())
     }
 
+    fn dispatch_on_historical_book_deltas(&mut self, deltas: Vec<OrderBookDelta>) -> PyResult<()> {
+        if let Some(ref py_self) = self.py_self {
+            Python::attach(|py| {
+                let py_deltas = deltas
+                    .into_iter()
+                    .map(|delta| delta.into_py_any(py))
+                    .collect::<PyResult<Vec<_>>>()?;
+                py_self.call_method1(py, "on_historical_book_deltas", (py_deltas,))
+            })?;
+        }
+        Ok(())
+    }
+
+    fn dispatch_on_historical_book_depth(&mut self, depths: Vec<OrderBookDepth10>) -> PyResult<()> {
+        if let Some(ref py_self) = self.py_self {
+            Python::attach(|py| {
+                let py_depths = depths
+                    .into_iter()
+                    .map(|depth| depth.into_py_any(py))
+                    .collect::<PyResult<Vec<_>>>()?;
+                py_self.call_method1(py, "on_historical_book_depth", (py_depths,))
+            })?;
+        }
+        Ok(())
+    }
+
     fn dispatch_on_historical_quotes(&mut self, quotes: Vec<QuoteTick>) -> PyResult<()> {
         if let Some(ref py_self) = self.py_self {
             Python::attach(|py| {
@@ -1145,6 +1171,16 @@ impl DataActor for PyStrategyInner {
             self.dispatch_on_historical_data(py_data)
                 .map_err(|e| anyhow::anyhow!("Python on_historical_data failed: {e}"))
         })
+    }
+
+    fn on_historical_book_deltas(&mut self, deltas: &[OrderBookDelta]) -> anyhow::Result<()> {
+        self.dispatch_on_historical_book_deltas(deltas.to_vec())
+            .map_err(|e| anyhow::anyhow!("Python on_historical_book_deltas failed: {e}"))
+    }
+
+    fn on_historical_book_depth(&mut self, depths: &[OrderBookDepth10]) -> anyhow::Result<()> {
+        self.dispatch_on_historical_book_depth(depths.to_vec())
+            .map_err(|e| anyhow::anyhow!("Python on_historical_book_depth failed: {e}"))
     }
 
     fn on_historical_quotes(&mut self, quotes: &[QuoteTick]) -> anyhow::Result<()> {
@@ -2173,6 +2209,14 @@ impl PyStrategy {
     fn py_on_historical_data(&mut self, data: Py<PyAny>) {
         // Default implementation - can be overridden in Python subclasses
     }
+
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    #[pyo3(name = "on_historical_book_deltas")]
+    fn py_on_historical_book_deltas(&mut self, deltas: Vec<OrderBookDelta>) {}
+
+    #[allow(unused_variables, clippy::needless_pass_by_value)]
+    #[pyo3(name = "on_historical_book_depth")]
+    fn py_on_historical_book_depth(&mut self, depths: Vec<OrderBookDepth10>) {}
 
     #[allow(unused_variables, clippy::needless_pass_by_value)]
     #[pyo3(name = "on_historical_quotes")]
@@ -3233,7 +3277,7 @@ mod tests {
             close::InstrumentClose,
             greeks::OptionGreekValues,
             option_chain::{OptionChainSlice, OptionGreeks},
-            stubs::{stub_custom_data, stub_depth10},
+            stubs::{stub_custom_data, stub_deltas, stub_depth10},
         },
         enums::{
             AggressorSide, BookType, GreeksConvention, InstrumentCloseType, MarketStatusAction,
@@ -3300,6 +3344,8 @@ class TrackingStrategy:
         "on_option_greeks",
         "on_option_chain",
         "on_historical_data",
+        "on_historical_book_deltas",
+        "on_historical_book_depth",
         "on_historical_quotes",
         "on_historical_trades",
         "on_historical_funding_rates",
@@ -3342,6 +3388,12 @@ class TrackingStrategy:
 
     def call_count(self, method_name):
         return sum(1 for call in self.calls if call[0] == method_name)
+
+    def last_call_args(self, method_name):
+        for called_method, args in reversed(self.calls):
+            if called_method == method_name:
+                return args
+        raise AssertionError(f"{method_name} was not called")
 
     def call_names(self):
         return [call[0] for call in self.calls]
@@ -4082,7 +4134,7 @@ class IndicatorEventStrategy:
         });
     }
 
-    fn assert_python_dispatch<F>(py: Python<'_>, method_name: &str, invoke: F)
+    fn assert_python_dispatch<F>(py: Python<'_>, method_name: &str, invoke: F) -> Py<PyAny>
     where
         F: FnOnce(&mut PyStrategy) -> anyhow::Result<()>,
     {
@@ -4092,6 +4144,8 @@ class IndicatorEventStrategy:
         assert!(result.is_ok());
         assert!(python_method_was_called(&py_strategy, py, method_name));
         assert_eq!(python_method_call_count(&py_strategy, py, method_name), 1);
+
+        py_strategy
     }
 
     #[rstest::rstest]
@@ -4667,6 +4721,8 @@ class IndicatorEventStrategy:
     #[case("on_option_greeks")]
     #[case("on_option_chain")]
     #[case("on_historical_data")]
+    #[case("on_historical_book_deltas")]
+    #[case("on_historical_book_depth")]
     #[case("on_historical_quotes")]
     #[case("on_historical_trades")]
     #[case("on_historical_funding_rates")]
@@ -4749,6 +4805,14 @@ class IndicatorEventStrategy:
                     let data = sample_data();
                     rust_strategy.inner_mut().on_historical_data(&data)
                 }
+                "on_historical_book_deltas" => {
+                    let deltas = sample_book_deltas().deltas;
+                    rust_strategy.inner_mut().on_historical_book_deltas(&deltas)
+                }
+                "on_historical_book_depth" => {
+                    let depths = vec![sample_book_depth()];
+                    rust_strategy.inner_mut().on_historical_book_depth(&depths)
+                }
                 "on_historical_quotes" => {
                     let quotes = vec![sample_quote()];
                     rust_strategy.inner_mut().on_historical_quotes(&quotes)
@@ -4781,6 +4845,61 @@ class IndicatorEventStrategy:
                 }
                 _ => unreachable!("unhandled data callback case: {method_name}"),
             });
+        });
+    }
+
+    #[rstest::rstest]
+    fn test_python_dispatch_historical_book_deltas_preserves_batch() {
+        pyo3::Python::initialize();
+
+        Python::attach(|py| {
+            let expected = stub_deltas().deltas;
+            let py_strategy =
+                assert_python_dispatch(py, "on_historical_book_deltas", |rust_strategy| {
+                    rust_strategy
+                        .inner_mut()
+                        .on_historical_book_deltas(&expected)
+                });
+            let actual = py_strategy
+                .call_method1(py, "last_call_args", ("on_historical_book_deltas",))
+                .unwrap()
+                .bind(py)
+                .get_item(0)
+                .unwrap()
+                .extract::<Vec<OrderBookDelta>>()
+                .unwrap();
+
+            assert_eq!(actual, expected);
+        });
+    }
+
+    #[rstest::rstest]
+    fn test_python_dispatch_historical_book_depth_preserves_batch() {
+        pyo3::Python::initialize();
+
+        Python::attach(|py| {
+            let first = stub_depth10();
+            let mut second = first;
+            second.sequence = 17;
+            second.ts_event = UnixNanos::from(18);
+            second.ts_init = UnixNanos::from(19);
+            let expected = vec![first, second];
+            let py_strategy =
+                assert_python_dispatch(py, "on_historical_book_depth", |rust_strategy| {
+                    rust_strategy
+                        .inner_mut()
+                        .on_historical_book_depth(&expected)
+                });
+            let actual = py_strategy
+                .call_method1(py, "last_call_args", ("on_historical_book_depth",))
+                .unwrap()
+                .bind(py)
+                .get_item(0)
+                .unwrap()
+                .extract::<Vec<OrderBookDepth10>>()
+                .unwrap();
+
+            assert_eq!(actual, expected);
         });
     }
 
