@@ -172,6 +172,15 @@ use crate::{
 
 const BYBIT_HOUR_INTERVALS: &[u64] = &[1, 2, 4, 6, 12];
 
+const BYBIT_POST_ONLY_REJECT_REASON: &str = "EC_PostOnlyWillTakeLiquidity";
+
+/// Returns whether a Bybit rejection reason indicates a post-only order that
+/// would have taken liquidity (crossed the book).
+#[must_use]
+pub fn bybit_rejection_due_post_only(reason: &str) -> bool {
+    reason.contains(BYBIT_POST_ONLY_REJECT_REASON)
+}
+
 /// Extracts the raw symbol from a Bybit symbol by removing the product type suffix.
 #[must_use]
 pub fn extract_raw_symbol(symbol: &str) -> &str {
@@ -1396,6 +1405,15 @@ pub fn parse_order_status_report(
         }
         BybitOrderStatus::PartiallyFilled => OrderStatus::PartiallyFilled,
         BybitOrderStatus::Filled => OrderStatus::Filled,
+        // A post-only order that would take liquidity is reported as Cancelled with
+        // rejectReason=EC_PostOnlyWillTakeLiquidity (not Rejected). Surface it as Rejected
+        // for consistency with the tracked-order event path.
+        BybitOrderStatus::Canceled
+            if filled_qty.is_zero()
+                && bybit_rejection_due_post_only(order.reject_reason.as_str()) =>
+        {
+            OrderStatus::Rejected
+        }
         BybitOrderStatus::Canceled | BybitOrderStatus::PartiallyFilledCanceled => {
             OrderStatus::Canceled
         }
@@ -1883,6 +1901,16 @@ mod tests {
         let instrument = &response.result.list[0];
         let fee_rate = sample_fee_rate("BTCUSDT", "0.00055", "0.0001", Some("BTC"));
         parse_linear_instrument(instrument, &fee_rate, TS, TS).unwrap()
+    }
+
+    #[rstest]
+    #[case::post_only_cross("EC_PostOnlyWillTakeLiquidity", true)]
+    #[case::post_only_cross_with_prefix("Order rejected: EC_PostOnlyWillTakeLiquidity", true)]
+    #[case::other_reason("EC_OrigClOrdIDDoesNotExist", false)]
+    #[case::generic("Order rejected by venue", false)]
+    #[case::empty("", false)]
+    fn test_bybit_rejection_due_post_only(#[case] reason: &str, #[case] expected: bool) {
+        assert_eq!(bybit_rejection_due_post_only(reason), expected);
     }
 
     #[rstest]

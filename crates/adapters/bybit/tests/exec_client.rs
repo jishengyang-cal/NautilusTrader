@@ -246,7 +246,7 @@ async fn handle_get_orders_realtime(
             .and_then(|list| list.first_mut())
             .expect("orders realtime fixture has first order");
         order["orderId"] = json!("test-order-id-12345");
-        order["orderStatus"] = json!("Rejected");
+        order["orderStatus"] = json!("Cancelled");
         order["cumExecQty"] = json!("0");
         order["rejectReason"] = json!("EC_PostOnlyWillTakeLiquidity");
 
@@ -1782,7 +1782,7 @@ async fn test_exec_client_demo_submit_confirmed_rejection_emits_order_rejected()
     assert_eq!(event.client_order_id, cid);
     assert_eq!(event.reason.to_string(), "EC_PostOnlyWillTakeLiquidity");
     assert!(!event.reconciliation);
-    assert!(!event.due_post_only);
+    assert!(event.due_post_only);
 
     client.disconnect().await.unwrap();
 }
