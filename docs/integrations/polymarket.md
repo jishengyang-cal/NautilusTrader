@@ -361,10 +361,9 @@ it with `invalid amount for a marketable BUY order … min size: $1`. Resting
 :::
 
 :::note
-The venue reports `GTD` expiry as an `OrderCanceled` event (not `OrderExpired`),
-and Polymarket applies an internal expiration buffer of roughly one minute, so a
-`GTD` order rests for about a minute less than the requested duration before the
-venue cancels it.
+Set `GTD` expiry at least three minutes after submission. Polymarket applies an expiration buffer of
+roughly one minute, so the order rests for about a minute less than the requested duration. The venue
+reports expiry as an `OrderCanceled` event, not `OrderExpired`.
 :::
 
 ### Advanced order features

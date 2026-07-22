@@ -1117,7 +1117,7 @@ fn test_submit_limit_order_with_expire_time(
     mut config: ExecTesterConfig,
     instrument: InstrumentAny,
 ) {
-    config.order_expire_time_delta_mins = Some(30);
+    config.order_expire_time_delta_mins = Some(3);
     let cache = create_cache_with_instrument(&instrument);
     let mut tester = ExecTester::new(config);
     register_exec_tester(&mut tester, cache);
@@ -1128,7 +1128,10 @@ fn test_submit_limit_order_with_expire_time(
     assert!(result.is_ok());
     let order = tester.buy_order.unwrap();
     assert_eq!(order.time_in_force(), TimeInForce::Gtd);
-    assert!(order.expire_time().is_some());
+    assert_eq!(
+        order.expire_time(),
+        Some(UnixNanos::from(180_000_000_000u64)),
+    );
 }
 
 #[rstest]

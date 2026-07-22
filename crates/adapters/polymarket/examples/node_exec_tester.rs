@@ -130,6 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // .enable_limit_buys(false)
         .use_post_only(true)
         .tob_offset_ticks(5) // 5 ticks = 0.005 offset (price range 0.001-0.999)
+        .order_expire_time_delta_mins(3)
         .enable_limit_sells(false) // Can't sell without inventory on Polymarket
         .reduce_only_on_stop(false) // Polymarket does not support reduce-only orders
         .close_positions_time_in_force(TimeInForce::Ioc)

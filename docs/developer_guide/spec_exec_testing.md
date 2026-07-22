@@ -419,7 +419,7 @@ Test limit order submission, acceptance, and behavior across time-in-force optio
 | TC-E15 | Limit FOK fill             | Limit FOK at aggressive price, expect fill.      | No FOK.            |
 | TC-E16 | Limit FOK no fill          | Limit FOK away from market, expect cancel.       | No FOK.            |
 | TC-E17 | Limit GTD                  | Limit with expiry time, verify accepted.         | No GTD.            |
-| TC-E18 | Limit GTD expiry           | Wait for GTD expiry, verify `OrderExpired`.      | No GTD.            |
+| TC-E18 | Limit GTD expiry           | Verify documented terminal event at expiry.      | No GTD.            |
 | TC-E19 | Limit DAY                  | Limit with DAY TIF, verify accepted.             | No DAY.            |
 
 ### TC-E10: Limit BUY GTC - submit and accept
@@ -636,16 +636,17 @@ ExecTesterConfig::builder()
 
 | Field              | Value                                                                  |
 |--------------------|------------------------------------------------------------------------|
-| **Prerequisite**   | Open GTD limit order from TC-E17 (or use a very short expiry).         |
+| **Prerequisite**   | Open GTD limit order from TC-E17 using the shortest venue‑supported expiry. |
 | **Action**         | Wait for the GTD expiry time to elapse.                                |
-| **Event sequence** | `OrderExpired`.                                                        |
-| **Pass criteria**  | Order transitions to expired status; `OrderExpired` event received.    |
+| **Event sequence** | `OrderExpired` by default, or the terminal event documented by the adapter. |
+| **Pass criteria**  | Order reaches the adapter‑documented terminal status at venue expiry.  |
 | **Skip when**      | Adapter does not support GTD TIF.                                      |
 
 **Considerations:**
 
-- Use a short `order_expire_time_delta_mins` (e.g., 1-2 minutes) to avoid long waits.
-- Some venues may report expiry as a cancel; verify the adapter maps this to `OrderExpired`.
+- Use the shortest expiry accepted by the venue; do not assume one or two minutes is valid.
+- Some venues report GTD expiry as a cancel. Preserve and verify the documented adapter mapping
+  instead of normalizing every venue to `OrderExpired`.
 
 ### TC-E19: Limit DAY - submit and accept
 
@@ -1207,7 +1208,7 @@ Test order cancellation workflows.
 | TC-E41 | Cancel all on stop         | Strategy stop cancels all open orders (default).     | Never.               |
 | TC-E42 | Individual cancels on stop | Cancel orders one‑by‑one on stop.                    | Never.               |
 | TC-E43 | Batch cancel on stop       | Cancel orders via batch API on stop.                 | No batch cancel.     |
-| TC-E44 | Cancel already‑canceled    | Cancel a non‑open order.                             | Never.               |
+| TC-E44 | Cancel already‑canceled    | Verify documented rejection or idempotent result.    | Never.               |
 
 ### TC-E40: Cancel single limit order
 
@@ -1376,14 +1377,16 @@ ExecTesterConfig::builder()
 |--------------------|------------------------------------------------------------------------|
 | **Prerequisite**   | A previously canceled order (from TC-E40).                             |
 | **Action**         | Attempt to cancel the same order again.                                |
-| **Event sequence** | `OrderCancelRejected`.                                                 |
-| **Pass criteria**  | Cancel attempt is rejected; `OrderCancelRejected` event received with reason. |
+| **Event sequence** | `OrderCancelRejected` by default, or no new event for a documented idempotent result. |
+| **Pass criteria**  | Result matches the adapter contract without a duplicate terminal event. |
 | **Skip when**      | Never.                                                                 |
 
 **Considerations:**
 
-- This tests the adapter's error handling for invalid cancel requests.
-- The rejection reason should indicate the order is not in a cancelable state.
+- The default contract tests the adapter's error handling for invalid cancel requests. The
+  rejection reason should indicate the order is not in a cancelable state.
+- A venue may treat an already-terminal cancel as idempotent. Document that disposition and use an
+  adapter-focused test when the generic tester or execution engine filters locally closed orders.
 
 ---
 

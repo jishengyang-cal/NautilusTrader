@@ -66,6 +66,7 @@ adapter set. The following limits remain deferred:
 - Added Polymarket v2 market WebSocket subscription sharding that enforces `ws_max_subscriptions` across a connection pool
 - Added Polymarket v2 singular instrument definition subscriptions through shared live publishers
   and explicit generic subscription capability contracts
+- Added Polymarket v2 GTD expiry and idempotent already-canceled execution test contracts
 - Added v2 `info` fill metadata to `OrderFilled`
 - Added v2 order-event `activation_price` persistence through event and dictionary reconstruction
 - Added v2 trailing stops that activate at market and set prices from the first update
