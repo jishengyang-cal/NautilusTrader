@@ -2,14 +2,14 @@
 
 NautilusTrader v2 is the Rust core and PyO3 Python package under `python/`. It becomes the primary
 Python path when `develop` switches to that package. Until that cutover, the main distribution and
-general documentation still describe the legacy v1 Cython package. Use this guide to test or prepare
-a migration without mixing the two environments.
+general documentation still describe the legacy v1 Cython package. Use this guide to prepare a
+migration.
 
 After cutover, v1 moves to the `develop_v1` branch for approximately three months of critical
 security backports. It does not receive new feature or parity work.
 
-The v1 and v2 packages both install and import as `nautilus_trader`. Use separate virtual
-environments while migrating. Do not install both versions into one environment.
+The v1 and v2 packages both install and import as `nautilus_trader`, so use a separate virtual
+environment for each and never install both into one.
 
 ## Install v2
 
@@ -22,10 +22,9 @@ uv pip install --pre nautilus_trader
 ```
 
 Run this block outside a NautilusTrader source checkout. The repository's `exclude-newer` uv policy
-can filter out newly published release-candidate wheels. Inside a source checkout, use the source
-build below.
+can filter out newly published release-candidate wheels.
 
-Inside a source checkout, build the package from `python/` into its dedicated `python/.venv`:
+To build from source, build the package in its dedicated `python/.venv`:
 
 ```bash
 make build-debug-v2
@@ -38,8 +37,8 @@ See [Installation](docs/getting_started/installation.md) for platform support an
 
 ## Port Python code
 
-The strategy lifecycle and common data, order, risk, portfolio, backtest, and live workflows remain
-available. Update imports and configuration to the new module paths:
+Core strategy, data, order, risk, portfolio, backtest, and live workflows remain available. Update
+imports and configuration to the new module paths:
 
 | v1 path                                                        | v2 path                                                   |
 |----------------------------------------------------------------|-----------------------------------------------------------|
@@ -51,8 +50,8 @@ available. Update imports and configuration to the new module paths:
 
 ### Common API renames
 
-V2 shortens several high-frequency strategy and cache names. The `QuoteTick` and `TradeTick` model
-type names do not change, and the `register_indicator_for_*_ticks` names remain unchanged.
+V2 shortens common strategy and cache names. The `QuoteTick`, `TradeTick`, and
+`register_indicator_for_*_ticks` names do not change.
 
 | v1 name                              | v2 name                        |
 |--------------------------------------|--------------------------------|
@@ -85,11 +84,11 @@ type names do not change, and the `register_indicator_for_*_ticks` names remain 
 
 ### Inspection and state renames
 
-V2 exposes one read-only inspection contract across its economic instrument types. Fields such as
+V2 exposes consistent read-only inspection across economic instrument types. Properties include
 `asset_class`, `instrument_class`, currencies, fees, margins, quantity and price limits,
-`multiplier`, and `tick_scheme` can be read consistently even when their value is `None` or a
-documented default. `SyntheticInstrument` is formula-derived and does not carry that economic
-state; inspect its `id`, `components`, `formula`, price precision and increment, and timestamps.
+`multiplier`, and `tick_scheme`; values may be `None` or a documented default.
+`SyntheticInstrument` is formula-derived, so inspect its `id`, `components`, `formula`, price
+precision and increment, and timestamps instead.
 
 Several v1 inspection names have direct v2 replacements:
 
@@ -118,34 +117,29 @@ never changed from zero, so v2 exposes the meaningful positive and negative outp
 
 ### Config readback and sensitive values
 
-V2 immutable configs expose their non-secret constructor values as read-only properties. This
-includes nested engine configs, backtest venue and run settings, live reconciliation settings, and
-the data and execution tester configs. `LiveRiskEngineConfig.max_notional_per_order` returns the
-validated string values stored by v2, even when the constructor received Python integers or decimal
-values.
+V2 immutable configs expose non-secret constructor values as read-only properties. This includes
+engine, backtest venue and run, live reconciliation, and data/execution tester settings.
+`LiveRiskEngineConfig.max_notional_per_order` returns v2's validated strings even when constructed
+from Python integers or decimal values.
 
 Potential credentials and consumed callbacks use bounded inspection properties instead of raw
 readback:
 
-| Constructor field                                    | Inspection property                         |
-|------------------------------------------------------|---------------------------------------------|
-| `BacktestDataConfig.catalog_fs_storage_options`      | `catalog_fs_storage_option_keys`            |
-| `BacktestDataConfig.catalog_fs_rust_storage_options` | `catalog_fs_rust_storage_option_keys`       |
-| `SocketConfig.handler`                               | `has_handler`                               |
-| `WebSocketConfig.headers`                            | `header_names`                              |
-| `WebSocketConfig.proxy_url`                          | `has_proxy_url`                             |
+| Constructor field                                    | Inspection property                   |
+|------------------------------------------------------|---------------------------------------|
+| `BacktestDataConfig.catalog_fs_storage_options`      | `catalog_fs_storage_option_keys`      |
+| `BacktestDataConfig.catalog_fs_rust_storage_options` | `catalog_fs_rust_storage_option_keys` |
+| `SocketConfig.handler`                               | `has_handler`                         |
+| `WebSocketConfig.headers`                            | `header_names`                        |
+| `WebSocketConfig.proxy_url`                          | `has_proxy_url`                       |
 
-The raw fields in this table are intentionally not properties. Keep the original secret or callback
-in application-owned state if it must be reused.
-
-Adapter credentials remain private after construction. Some configs provide `has_*` checks for
-credential-bearing proxy, database, or gateway settings without returning their values. Keep the
-original value in application-owned state if it must be reused.
+These raw fields and adapter credentials remain private. Some configs provide `has_*` checks for
+credential-bearing proxy, database, or gateway settings without returning their values. Keep
+secrets and callbacks in application-owned state if they must be reused.
 
 Betfair configuration moves and flattens in v2:
 
-- `BetfairDataClientConfig` becomes `BetfairDataConfig`, and `BetfairExecClientConfig` becomes
-  `BetfairExecConfig`.
+- `BetfairDataClientConfig` becomes `BetfairDataConfig`, and `BetfairExecClientConfig` becomes `BetfairExecConfig`.
 - `BetfairInstrumentProviderConfig` no longer exists as a separate config. Its
   `account_currency`, `default_min_notional`, `event_type_ids`, `event_type_names`, `event_ids`,
   `market_ids`, `country_codes`, `market_types`, `min_market_start_time`, and
@@ -161,21 +155,20 @@ Databento configuration also changes shape:
   `use_exchange_as_venue`, `bars_timestamp_on_close`, and `venue_dataset_map`, adds the required
   `publishers_filepath`, and accepts `api_key` as a private constructor value.
 - The v1 startup preload fields `instrument_ids` and `parent_symbols` are removed. V2 handles live
-  subscriptions and historical instrument requests directly instead of configuring an instrument
-  provider preload.
+  subscriptions and historical instrument requests directly instead of configuring an instrument provider preload.
 - `http_gateway`, `live_gateway`, `timeout_initial_load`, `mbo_subscriptions_delay`, and
   `reconnect_timeout_mins` are not accepted by the v2 live-node config. Reconnection remains an
   internal client concern; do not copy those v1 fields into v2 config construction.
 
-In general, v1 types from `nautilus_trader.config` move beside the runtime that owns them. For
-example, v2 exposes `BacktestRunConfig` from `nautilus_trader.backtest` and `PortfolioConfig` from
+V1 types from `nautilus_trader.config` move beside their owning runtime. For example,
+`BacktestRunConfig` comes from `nautilus_trader.backtest` and `PortfolioConfig` from
 `nautilus_trader.portfolio`.
 
 Use the generated type stubs in `python/nautilus_trader/` as the exact Python contract. The
 [Python v2 examples][python-v2-examples] show current live-node builders, adapter factories,
 strategies, actors, and data/execution testers.
 
-Python v2 strategies still subclass `Strategy` and override lifecycle or data callbacks:
+Python v2 strategies subclass `Strategy` and override lifecycle or data callbacks:
 
 ```python
 from nautilus_trader.trading import Strategy
@@ -191,17 +184,16 @@ class MyStrategy(Strategy):
         pass
 ```
 
-v1-style annotated custom fields on a `StrategyConfig` subclass do not carry over. When a v2
-subclass adds custom fields, remove their keyword arguments in `__new__` before the PyO3 base
-validates them, then assign the fields in `__init__`. See the
+Annotated custom fields on a v1 `StrategyConfig` subclass do not carry over. In v2, remove custom
+keyword arguments in `__new__` before the PyO3 base validates them, then assign the fields in
+`__init__`. See the
 [v2 strategy config example][python-v2-strategy-config].
 
 ### Backtest node post-run inspection
 
-V2 keeps `BacktestNode` engines internal instead of returning them from v1-style `get_engine` or
-`get_engines` calls. To inspect state after `run()`, set `dispose_on_completion=False` on the
-`BacktestRunConfig`; the default is `True` and drops engine state. Then use the run config ID with
-the node inspection methods:
+V2 keeps `BacktestNode` engines internal; the v1 `get_engine` and `get_engines` calls are unavailable.
+For post-run inspection, set `BacktestRunConfig.dispose_on_completion=False`; the `True` default
+drops engine state. Then pass the run config ID to the node inspection methods:
 
 ```python
 config = BacktestRunConfig(..., dispose_on_completion=False)
@@ -214,22 +206,68 @@ statistics = portfolio.statistics()
 fills = node.generate_fills_report(config.id)
 ```
 
-The node also provides `generate_orders_report`, `generate_order_fills_report`,
-`generate_positions_report`, and `generate_account_report`; pass the run config ID first.
+These additional reports also take the run config ID first:
+
+- `generate_orders_report`
+- `generate_order_fills_report`
+- `generate_positions_report`
+- `generate_account_report`
+
+### Live node inspection and host-loop integration
+
+V2 exposes the Rust-owned cache and portfolio through `node.cache` and `node.portfolio`. These
+shared wrappers provide normal inspection without exposing runtime internals.
+
+Choose the lifecycle method based on who owns the loop:
+
+| Method    | Contract                                                                                    |
+|-----------|---------------------------------------------------------------------------------------------|
+| `run()`   | Owns the full lifecycle and blocks until shutdown.                                          |
+| `start()` | Completes startup and returns, but does not service post-start channel traffic.             |
+| `poll()`  | Processes traffic queued at call entry, returns its count, and does not wait for more.      |
+| `stop()`  | Blocks through shutdown and services runner traffic during the residual-event grace period. |
+
+`run()` also owns maintenance, external message-bus ingress, signal handling, and automatic
+shutdown. A host that owns its loop must call `start()` once and schedule `poll()` repeatedly:
+
+```python
+import asyncio
+
+
+async def service_live_node(node):
+    node.start()
+    try:
+        while application_running():
+            node.poll()
+            await asyncio.sleep(0.01)
+    finally:
+        node.stop()
+        node.dispose()
+```
+
+`poll()` services time events, execution events, trading commands, data events, and data commands.
+Traffic arriving during a call remains queued for the next host cycle. The host decides when to
+stop a node in polling mode.
 
 ### Order factory configuration readback
 
-Code that reads `trader_id` or `strategy_id` from an `OrderFactory` needs no change in v2. V1 also
-exposed `use_uuid_client_order_ids` and `use_hyphens_in_client_order_ids` on the factory. In a v2
-strategy, read those settings from `Strategy.config` instead. V2 has no equivalent flag readback on
-standalone factories; keep the values in application-owned configuration if code needs them later.
+`OrderFactory.trader_id` and `strategy_id` remain available. For the v1
+`use_uuid_client_order_ids` and `use_hyphens_in_client_order_ids` flags, read `Strategy.config` in a
+v2 strategy. Standalone factories provide no equivalent flag readback; retain those values in
+application configuration if needed.
 
 ### Execution algorithms
 
 Python v2 `ExecutionAlgorithm` remains a routed-order component rather than inheriting the full
-`Actor` authoring surface. Override `on_order`, order and position callbacks, lifecycle callbacks,
-or `on_signal`. The runtime owns command routing and calls `execute`; do not call or override
-`execute` as the algorithm entrypoint.
+`Actor` authoring surface. Supported override points include:
+
+- `on_order`
+- Order and position callbacks
+- Lifecycle callbacks
+- `on_signal`
+
+The runtime owns command routing and calls `execute`; do not call or override `execute` as the
+algorithm entrypoint.
 
 The supported authoring surface has these v1 dispositions:
 
@@ -240,14 +278,19 @@ The supported authoring surface has these v1 dispositions:
 | `greeks`                                | Construct `GreeksCalculator(self.cache, self.clock)` after registration.      |
 | `msgbus`                                | Not exposed; use signals for supported custom messaging.                      |
 | Registered indicators                   | Use `DataActor` or `Strategy` for indicator-driven workflows.                 |
-| Market-data subscriptions and callbacks | Use `DataActor` or `Strategy`; algorithms inspect cache and routed events.     |
+| Market-data subscriptions and callbacks | Use `DataActor` or `Strategy`; algorithms inspect cache and routed events.    |
 | Lifecycle state and control             | Use `is_*()` and lifecycle methods; the Rust component remains authoritative. |
-| Direct `register(...)`                  | Use `BacktestEngine.add_exec_algorithm` or `LiveNode.add_exec_algorithm`.      |
+| Direct `register(...)`                  | Use `BacktestEngine.add_exec_algorithm` or `LiveNode.add_exec_algorithm`.     |
 
 Signals replace direct message-bus access on Python v2 `DataActor`, `Strategy`, and
-`ExecutionAlgorithm`. Call `subscribe_signal(name)` during `on_start`, handle `on_signal(signal)`,
-and call `publish_signal(name, value)`. Signal values use their string representation. Raw
-message-bus endpoints and handlers remain runtime internals.
+`ExecutionAlgorithm`:
+
+- Call `subscribe_signal(name)` during `on_start`.
+- Handle `on_signal(signal)`.
+- Call `publish_signal(name, value)`.
+
+Signal values use their string representation. Raw message-bus endpoints and handlers remain
+runtime internals.
 
 ```python
 from nautilus_trader.common import GreeksCalculator
@@ -268,11 +311,13 @@ class RoutedAlgorithm(ExecutionAlgorithm):
         self.log.info(f"Routing {instrument.id}; portfolio ready={portfolio_ready}")
 ```
 
-Constructed instances and importable configs are supported in backtest and live workflows.
-`LiveNode.add_exec_algorithm` accepts v2 `ExecutionAlgorithm` instances; DataActor-based
-compatibility algorithms use `add_exec_algorithm_from_config`. Nodes normally drive lifecycle
-transitions; direct lifecycle methods remain available for control-plane integrations and dispatch
-the same Python lifecycle callbacks.
+Constructed instances and importable configs work in backtest and live workflows:
+
+- Register v2 `ExecutionAlgorithm` instances with `LiveNode.add_exec_algorithm`.
+- Register DataActor-based compatibility algorithms with `add_exec_algorithm_from_config`.
+
+Nodes normally drive lifecycle transitions. Direct lifecycle methods remain available for
+control-plane integrations and dispatch the same Python callbacks.
 
 Port one workflow at a time and verify the generated stub before replacing a v1 convenience method.
 Do not assume that a v1 adapter config field also exists on its v2 Rust config.
@@ -282,31 +327,32 @@ Do not assume that a v1 adapter config field also exists on its v2 Rust config.
 The cutover accepts these differences from v1:
 
 - Custom data flows as native `CustomData` without the v1 wrapper semantics.
-- v2 caches `OptionGreeks` for option fee calculation; this is an extension rather than v1 parity.
+- v2 caches `OptionGreeks` for option fee calculation; this extends v1.
 - `Bar.is_revision` is not exposed on the v2 Python surface. Do not depend on it during migration.
 - A direct `Position.apply` fill that crosses zero resets the open entry price to the flipping fill.
   v1 retains the old side's entry price; the v2 behavior is the go-forward contract.
 - `PortfolioConfig.use_mark_prices` defaults to `true`; v1 defaulted to `false`. Set it to `false` to
   skip mark prices.
-- v2 `OrderList` stores client order IDs instead of order objects. Replace `order_list.orders` with
-  `order_list.client_order_ids()` and resolve each ID through `cache.order(client_order_id)`. Replace
-  `order_list.first` with `cache.order(order_list.first_client_order_id)` after checking the ID is not
-  `None`.
+- v2 `OrderList` stores client order IDs instead of order objects:
+  - Replace `order_list.orders` with `order_list.client_order_ids()`, then resolve each ID through
+    `cache.order(client_order_id)`.
+  - Replace `order_list.first` with `cache.order(order_list.first_client_order_id)` after checking
+    the ID is not `None`.
 - Catalog order-event data written before `activation_price` and `OrderFilled.info` were added cannot
   be read by the new schema. Regenerate or migrate that data before upgrading a catalog in place.
 
 ## Deferred limits
 
-These gaps do not block the supported cutover workflows, but they can affect a migration:
+These gaps can affect migration but do not block supported cutover workflows:
 
 - Python request callback, join, and pending-request convenience semantics are not complete.
-- Direct Python injection of Redis cache databases and external message-bus backing factories into
-  `LiveNode` is not exposed. The backing implementations remain available to Rust builders.
+- Python cannot inject Redis cache databases or external message-bus backing factories into
+  `LiveNode`; Rust builders still expose those backings.
 - SQL cache position and synthetic loads, actor and strategy state persistence, and heartbeat remain
   incomplete. The audited restart workflow uses the Redis backing through Rust builders; Python
   `LiveNode` configuration cannot select that backing yet.
-- Serialized order and position snapshot publishing to external message-bus topics remains deferred.
-- The v2 `BacktestNode` does not yet wire the v1 `StreamingConfig` and `DataCatalogConfig` iterator
+- External message-bus publishing of serialized order and position snapshots remains deferred.
+- V2 `BacktestNode` does not yet support the v1 `StreamingConfig` and `DataCatalogConfig` iterator
   workflow.
 - Instrument-provider filter dictionaries are not a common v2 adapter contract. Hyperliquid v2
   loads its configured instrument universe and does not accept the v1 `instrument_provider` field.

@@ -15,6 +15,7 @@
 
 import pytest
 
+from nautilus_trader.common import Cache
 from nautilus_trader.common import CacheConfig
 from nautilus_trader.common import ComponentState
 from nautilus_trader.common import DataActor
@@ -30,6 +31,7 @@ from nautilus_trader.live import LiveRiskEngineConfig
 from nautilus_trader.live import PortfolioConfig
 from nautilus_trader.model import ExecAlgorithmId
 from nautilus_trader.model import TraderId
+from nautilus_trader.portfolio import Portfolio
 from nautilus_trader.trading import ExecutionAlgorithm
 from nautilus_trader.trading import ExecutionAlgorithmConfig
 from nautilus_trader.trading import ImportableControllerConfig
@@ -143,6 +145,53 @@ def test_live_node_config_registers_importable_controller():
     assert node.trader_id == trader_id
     assert ControllerRegistrationProbe.constructed == 1
     assert ControllerRegistrationProbe.received_actor_id == "Controller-001"
+
+
+def test_live_node_exposes_cache_and_portfolio_inspection():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-010"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+        ),
+    )
+
+    try:
+        assert isinstance(node.cache, Cache)
+        assert node.cache.instrument_ids() == []
+        assert node.cache.orders() == []
+        assert node.cache.positions() == []
+        assert isinstance(node.portfolio, Portfolio)
+        assert node.portfolio.is_initialized() is False
+    finally:
+        node.dispose()
+
+
+def test_live_node_poll_requires_running_node_and_returns_processed_count():
+    node = LiveNode.build(
+        "TEST",
+        LiveNodeConfig(
+            trader_id=TraderId("TESTER-011"),
+            environment=Environment.SANDBOX,
+            exec_engine=LiveExecEngineConfig(reconciliation=False),
+            timeout_connection_secs=0,
+            timeout_reconciliation_secs=0,
+            timeout_portfolio_secs=0,
+            timeout_disconnection_secs=0,
+            delay_post_stop_secs=0,
+            timeout_shutdown_secs=0,
+        ),
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="LiveNode is not running"):
+            node.poll()
+
+        node.start()
+        assert node.poll() == 0
+    finally:
+        node.dispose()
 
 
 @pytest.mark.parametrize(

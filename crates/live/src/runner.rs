@@ -156,6 +156,14 @@ pub struct AsyncRunnerChannels {
     pub data_cmd_rx: tokio::sync::mpsc::UnboundedReceiver<DataCommand>,
 }
 
+pub(crate) enum PendingRunnerEvent {
+    Time(TimeEventMessage),
+    ExecEvent(ExecutionEvent),
+    ExecCommand(TradingCommand),
+    DataEvent(DataEvent),
+    DataCommand(DataCommand),
+}
+
 pub struct AsyncRunner {
     channels: AsyncRunnerChannels,
     time_evt_tx: tokio::sync::mpsc::UnboundedSender<TimeEventMessage>,
@@ -270,6 +278,73 @@ impl AsyncRunner {
     #[must_use]
     pub fn take_channels(self) -> AsyncRunnerChannels {
         self.channels
+    }
+
+    pub(crate) fn poll_pending(&mut self, mut process: impl FnMut(PendingRunnerEvent)) -> usize {
+        self.bind_senders();
+
+        let pending = (
+            self.channels.time_evt_rx.len(),
+            self.channels.exec_evt_rx.len(),
+            self.channels.exec_cmd_rx.len(),
+            self.channels.data_evt_rx.len(),
+            self.channels.data_cmd_rx.len(),
+        );
+        let mut processed = 0;
+        processed += poll_channel(
+            &mut self.channels.time_evt_rx,
+            pending.0,
+            PendingRunnerEvent::Time,
+            &mut process,
+        );
+        processed += poll_channel(
+            &mut self.channels.exec_evt_rx,
+            pending.1,
+            PendingRunnerEvent::ExecEvent,
+            &mut process,
+        );
+        processed += poll_channel(
+            &mut self.channels.exec_cmd_rx,
+            pending.2,
+            PendingRunnerEvent::ExecCommand,
+            &mut process,
+        );
+        processed += poll_channel(
+            &mut self.channels.data_evt_rx,
+            pending.3,
+            PendingRunnerEvent::DataEvent,
+            &mut process,
+        );
+        processed += poll_channel(
+            &mut self.channels.data_cmd_rx,
+            pending.4,
+            PendingRunnerEvent::DataCommand,
+            &mut process,
+        );
+        processed
+    }
+
+    pub(crate) async fn recv(&mut self) -> Option<PendingRunnerEvent> {
+        tokio::select! {
+            biased;
+
+            Some(message) = self.channels.time_evt_rx.recv() => {
+                Some(PendingRunnerEvent::Time(message))
+            }
+            Some(event) = self.channels.exec_evt_rx.recv() => {
+                Some(PendingRunnerEvent::ExecEvent(event))
+            }
+            Some(command) = self.channels.exec_cmd_rx.recv() => {
+                Some(PendingRunnerEvent::ExecCommand(command))
+            }
+            Some(event) = self.channels.data_evt_rx.recv() => {
+                Some(PendingRunnerEvent::DataEvent(event))
+            }
+            Some(command) = self.channels.data_cmd_rx.recv() => {
+                Some(PendingRunnerEvent::DataCommand(command))
+            }
+            else => None,
+        }
     }
 
     /// Flushes all pending data events and commands from the channels.
@@ -449,6 +524,26 @@ impl AsyncRunner {
     }
 }
 
+fn poll_channel<T>(
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<T>,
+    pending: usize,
+    event: impl Fn(T) -> PendingRunnerEvent,
+    process: &mut impl FnMut(PendingRunnerEvent),
+) -> usize {
+    let mut processed = 0;
+
+    for _ in 0..pending {
+        let Ok(message) = receiver.try_recv() else {
+            break;
+        };
+
+        process(event(message));
+        processed += 1;
+    }
+
+    processed
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -537,6 +632,97 @@ mod tests {
             signal_rx,
             signal_tx,
         }
+    }
+
+    #[rstest]
+    fn test_poll_pending_processes_entry_snapshot_across_channels() {
+        let (time_evt_tx, time_evt_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (data_evt_tx, data_evt_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (data_cmd_tx, data_cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (exec_evt_tx, exec_evt_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (exec_cmd_tx, exec_cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (signal_tx, signal_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let time_event = TimeEvent::new(
+            Ustr::from("test"),
+            UUID4::new(),
+            UnixNanos::from(1),
+            UnixNanos::from(2),
+        );
+        time_evt_tx
+            .send(TimeEventMessage::new(
+                time_event,
+                TimeEventCallback::from(|_: TimeEvent| {}),
+            ))
+            .unwrap();
+        exec_evt_tx
+            .send(ExecutionEvent::Order(OrderEventAny::Submitted(
+                OrderSubmittedSpec::builder()
+                    .client_order_id(ClientOrderId::from("O-POLL-001"))
+                    .build(),
+            )))
+            .unwrap();
+        exec_cmd_tx
+            .send(TradingCommand::CancelAllOrders(CancelAllOrders::new(
+                TraderId::from("TRADER-001"),
+                None,
+                StrategyId::from("S-POLL-001"),
+                InstrumentId::from("EUR/USD.SIM"),
+                OrderSide::Buy,
+                UUID4::new(),
+                UnixNanos::from(3),
+                None,
+                None,
+            )))
+            .unwrap();
+        data_evt_tx
+            .send(DataEvent::Data(Data::Quote(test_quote())))
+            .unwrap();
+        data_cmd_tx
+            .send(DataCommand::Subscribe(SubscribeCommand::Data(
+                SubscribeCustomData {
+                    client_id: Some(ClientId::from("POLL")),
+                    venue: None,
+                    data_type: DataType::new("QuoteTick", None, None),
+                    command_id: UUID4::new(),
+                    ts_init: UnixNanos::from(4),
+                    correlation_id: None,
+                    params: None,
+                },
+            )))
+            .unwrap();
+
+        let mut runner = create_test_runner(
+            time_evt_rx,
+            data_evt_rx,
+            data_cmd_rx,
+            exec_evt_rx,
+            exec_cmd_rx,
+            signal_rx,
+            signal_tx,
+        );
+        let mut processed_by_channel = [0; 5];
+
+        let first = runner.poll_pending(|event| match event {
+            PendingRunnerEvent::Time(_) => processed_by_channel[0] += 1,
+            PendingRunnerEvent::ExecEvent(_) => processed_by_channel[1] += 1,
+            PendingRunnerEvent::ExecCommand(_) => processed_by_channel[2] += 1,
+            PendingRunnerEvent::DataEvent(_) => {
+                processed_by_channel[3] += 1;
+                data_evt_tx
+                    .send(DataEvent::Data(Data::Quote(test_quote())))
+                    .unwrap();
+            }
+            PendingRunnerEvent::DataCommand(_) => processed_by_channel[4] += 1,
+        });
+        let second = runner.poll_pending(|event| match event {
+            PendingRunnerEvent::DataEvent(_) => processed_by_channel[3] += 1,
+            _ => panic!("Unexpected runner event"),
+        });
+
+        assert_eq!(first, 5);
+        assert_eq!(second, 1);
+        assert_eq!(processed_by_channel, [1, 1, 1, 2, 1]);
     }
 
     #[rstest]

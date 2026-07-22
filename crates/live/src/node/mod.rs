@@ -124,7 +124,7 @@ use crate::{
             TargetedOrderQuery, TargetedOrderReportResult, request_targeted_order_reports,
         },
     },
-    runner::{AsyncRunner, AsyncRunnerChannels},
+    runner::{AsyncRunner, AsyncRunnerChannels, PendingRunnerEvent},
 };
 
 pub mod builder;
@@ -450,6 +450,30 @@ impl LiveNode {
         Ok(())
     }
 
+    /// Processes the live-node channel traffic queued when this method is called.
+    ///
+    /// This provides a non-blocking integration for host loops after [`start`](Self::start).
+    /// Events that arrive while polling remain queued for the next call.
+    /// Use [`run`](Self::run) when the node should also own maintenance, external
+    /// ingress, signal handling, and automatic shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is not running or its runner is unavailable.
+    pub fn poll(&mut self) -> anyhow::Result<usize> {
+        if !self.state().is_running() {
+            anyhow::bail!("LiveNode is not running");
+        }
+
+        let Some(mut runner) = self.runner.take() else {
+            anyhow::bail!("LiveNode runner is unavailable");
+        };
+
+        let processed = runner.poll_pending(|event| self.process_runner_event(event));
+        self.runner = Some(runner);
+        Ok(processed)
+    }
+
     /// Stop the live node.
     ///
     /// This method stops the trader, waits for the configured grace period to allow
@@ -474,8 +498,17 @@ impl LiveNode {
         let delay = self.kernel.delay_post_stop();
         log::info!("Awaiting residual events ({delay:?})...");
 
-        dst::time::sleep(delay).await;
+        let residual_events = self.process_runner_for(delay).await;
+        if residual_events > 0 {
+            log::debug!("Processed {residual_events} residual events during shutdown");
+        }
+
         let stop_result = self.finalize_stop().await;
+        let drained_events = self.drain_runner_pending();
+        if drained_events > 0 {
+            log::info!("Drained {drained_events} remaining events during shutdown");
+        }
+
         match (controller_stop_result, stop_result) {
             (Ok(()), Ok(())) => Ok(()),
             (Err(controller_err), Ok(())) => Err(controller_err),
@@ -492,6 +525,59 @@ impl LiveNode {
         self.close_external_ingress();
         self.kernel.dispose();
         self.handle.set_state(NodeState::Stopped);
+    }
+
+    async fn process_runner_for(&mut self, duration: Duration) -> usize {
+        let Some(mut runner) = self.runner.take() else {
+            dst::time::sleep(duration).await;
+            return 0;
+        };
+
+        runner.bind_senders();
+        let deadline = dst::time::Instant::now() + duration;
+        let mut processed = 0;
+
+        loop {
+            tokio::select! {
+                biased;
+
+                () = dst::time::sleep_until(deadline) => break,
+                event = runner.recv() => {
+                    let Some(event) = event else {
+                        dst::time::sleep_until(deadline).await;
+                        break;
+                    };
+
+                    self.process_runner_event(event);
+                    processed += 1;
+                }
+            }
+        }
+
+        self.runner = Some(runner);
+        processed
+    }
+
+    fn drain_runner_pending(&mut self) -> usize {
+        let Some(mut runner) = self.runner.take() else {
+            return 0;
+        };
+
+        let processed = runner.poll_pending(|event| self.process_runner_event(event));
+        self.runner = Some(runner);
+        processed
+    }
+
+    fn process_runner_event(&mut self, event: PendingRunnerEvent) {
+        match event {
+            PendingRunnerEvent::Time(message) => {
+                let _ = AsyncRunner::handle_time_event(message);
+            }
+            PendingRunnerEvent::ExecEvent(event) => self.process_exec_event(event),
+            PendingRunnerEvent::ExecCommand(command) => self.process_exec_command(command),
+            PendingRunnerEvent::DataEvent(event) => AsyncRunner::handle_data_event(event),
+            PendingRunnerEvent::DataCommand(command) => AsyncRunner::handle_data_command(command),
+        }
     }
 
     /// Awaits engine clients to connect with timeout.
@@ -1278,26 +1364,7 @@ impl LiveNode {
                         residual_events += 1;
                     }
 
-                    let Some(close_ids) = self.observe_exec_event_before_dispatch(&evt) else {
-                        record_runner_dispatch(
-                            &metrics,
-                            RunnerMetricChannel::ExecEvents,
-                            dispatch_start,
-                            metrics_start,
-                        );
-                        continue;
-                    };
-
-                    self.dispatch_exec_event_and_commit_fill(evt);
-
-                    // Post-dispatch: clear tracking when order closes
-                    for coid in &close_ids {
-                        let is_closed = self.kernel.cache().borrow()
-                            .order(coid).is_some_and(|o| o.is_closed());
-                        if is_closed {
-                            self.exec_manager.clear_recon_tracking(coid, true);
-                        }
-                    }
+                    self.process_exec_event(evt);
                     record_runner_dispatch(
                         &metrics,
                         RunnerMetricChannel::ExecEvents,
@@ -1313,8 +1380,7 @@ impl LiveNode {
                         residual_events += 1;
                     }
 
-                    self.observe_exec_command_before_dispatch(&cmd);
-                    AsyncRunner::handle_exec_command(cmd);
+                    self.process_exec_command(cmd);
                     record_runner_dispatch(
                         &metrics,
                         RunnerMetricChannel::ExecCommands,
@@ -1486,6 +1552,32 @@ impl LiveNode {
                 self.exec_manager.commit_recent_fill_if_applied(fill);
             }
         }
+    }
+
+    fn process_exec_event(&mut self, event: ExecutionEvent) {
+        let Some(close_ids) = self.observe_exec_event_before_dispatch(&event) else {
+            return;
+        };
+
+        self.dispatch_exec_event_and_commit_fill(event);
+
+        for client_order_id in &close_ids {
+            let is_closed = self
+                .kernel
+                .cache()
+                .borrow()
+                .order(client_order_id)
+                .is_some_and(|order| order.is_closed());
+            if is_closed {
+                self.exec_manager
+                    .clear_recon_tracking(client_order_id, true);
+            }
+        }
+    }
+
+    fn process_exec_command(&mut self, command: TradingCommand) {
+        self.observe_exec_command_before_dispatch(&command);
+        AsyncRunner::handle_exec_command(command);
     }
 
     /// Dispatches a normal-ingress execution event, then commits a direct
@@ -2585,6 +2677,7 @@ mod tests {
         cache::Cache,
         clock::{Clock, TestClock},
         enums::SerializationEncoding,
+        live::runner::{get_data_event_sender, get_exec_event_sender},
         messages::execution::{SubmitOrder, TradingCommand},
         msgbus::{
             self, BusMessage, BusPayloadType, MessageBusBacking, MessageBusBackingFactory,
@@ -3641,6 +3734,193 @@ mod tests {
         assert_eq!(handle.state(), NodeState::Stopped);
         assert!(handle.should_stop());
         assert!(!handle.is_running());
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_poll_processes_post_start_data_and_exec_events_without_waiting() {
+        let config = LiveNodeConfig {
+            exec_engine: crate::config::LiveExecEngineConfig {
+                reconciliation: false,
+                ..Default::default()
+            },
+            timeout_connection: Duration::ZERO,
+            timeout_reconciliation: Duration::ZERO,
+            timeout_portfolio: Duration::ZERO,
+            timeout_disconnection: Duration::ZERO,
+            delay_post_stop: Duration::ZERO,
+            timeout_shutdown: Duration::ZERO,
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("TestNode".to_string(), Some(config)).unwrap();
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
+        let instrument_id = instrument.id();
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument_id)
+            .quantity(Quantity::from("1"))
+            .build();
+        let client_order_id = order.client_order_id();
+        let submitted = TestOrderEventStubs::submitted(&order, AccountId::from("POLL-001"));
+
+        node.kernel
+            .cache()
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+
+        node.start().await.unwrap();
+        get_data_event_sender()
+            .send(DataEvent::Instrument(instrument))
+            .unwrap();
+        get_exec_event_sender()
+            .send(ExecutionEvent::Order(submitted))
+            .unwrap();
+
+        assert!(
+            node.kernel
+                .cache()
+                .borrow()
+                .instrument(&instrument_id)
+                .is_none()
+        );
+        assert_eq!(
+            node.kernel
+                .cache()
+                .borrow()
+                .order(&client_order_id)
+                .unwrap()
+                .status(),
+            OrderStatus::Initialized
+        );
+
+        assert_eq!(node.poll().unwrap(), 2);
+
+        assert!(
+            node.kernel
+                .cache()
+                .borrow()
+                .instrument(&instrument_id)
+                .is_some()
+        );
+        assert_eq!(
+            node.kernel
+                .cache()
+                .borrow()
+                .order(&client_order_id)
+                .unwrap()
+                .status(),
+            OrderStatus::Submitted
+        );
+        assert_eq!(node.poll().unwrap(), 0);
+
+        node.stop().await.unwrap();
+        node.dispose();
+    }
+
+    #[rstest]
+    #[tokio::test(start_paused = true)]
+    async fn test_stop_processes_residual_exec_event_during_grace_period() {
+        let config = LiveNodeConfig {
+            exec_engine: crate::config::LiveExecEngineConfig {
+                reconciliation: false,
+                ..Default::default()
+            },
+            timeout_connection: Duration::ZERO,
+            timeout_reconciliation: Duration::ZERO,
+            timeout_portfolio: Duration::ZERO,
+            timeout_disconnection: Duration::ZERO,
+            delay_post_stop: Duration::from_millis(20),
+            timeout_shutdown: Duration::ZERO,
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("TestNode".to_string(), Some(config)).unwrap();
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(InstrumentId::from("EUR/USD.SIM"))
+            .quantity(Quantity::from("2"))
+            .build();
+        let client_order_id = order.client_order_id();
+        let submitted = TestOrderEventStubs::submitted(&order, AccountId::from("POLL-STOP-001"));
+
+        node.kernel
+            .cache()
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+
+        node.start().await.unwrap();
+        let exec_event_sender = get_exec_event_sender();
+
+        let send_residual = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+            exec_event_sender
+                .send(ExecutionEvent::Order(submitted))
+                .unwrap();
+        });
+
+        node.stop().await.unwrap();
+        send_residual.await.unwrap();
+
+        assert_eq!(
+            node.kernel
+                .cache()
+                .borrow()
+                .order(&client_order_id)
+                .unwrap()
+                .status(),
+            OrderStatus::Submitted
+        );
+
+        node.dispose();
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_stop_drains_queued_exec_event_after_zero_grace() {
+        let config = LiveNodeConfig {
+            exec_engine: crate::config::LiveExecEngineConfig {
+                reconciliation: false,
+                ..Default::default()
+            },
+            timeout_connection: Duration::ZERO,
+            timeout_reconciliation: Duration::ZERO,
+            timeout_portfolio: Duration::ZERO,
+            timeout_disconnection: Duration::ZERO,
+            delay_post_stop: Duration::ZERO,
+            timeout_shutdown: Duration::ZERO,
+            ..Default::default()
+        };
+        let mut node = LiveNode::build("TestNode".to_string(), Some(config)).unwrap();
+        let order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(InstrumentId::from("GBP/USD.SIM"))
+            .quantity(Quantity::from("3"))
+            .build();
+        let client_order_id = order.client_order_id();
+        let submitted = TestOrderEventStubs::submitted(&order, AccountId::from("POLL-DRAIN-001"));
+
+        node.kernel
+            .cache()
+            .borrow_mut()
+            .add_order(order, None, None, false)
+            .unwrap();
+
+        node.start().await.unwrap();
+        get_exec_event_sender()
+            .send(ExecutionEvent::Order(submitted))
+            .unwrap();
+
+        node.stop().await.unwrap();
+
+        assert_eq!(
+            node.kernel
+                .cache()
+                .borrow()
+                .order(&client_order_id)
+                .unwrap()
+                .status(),
+            OrderStatus::Submitted
+        );
+
+        node.dispose();
     }
 
     #[rstest]
