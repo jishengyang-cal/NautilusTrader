@@ -260,12 +260,11 @@ impl PolymarketClobHttpClient {
             .map_err(Error::from_http_client)?;
 
         if response.status.is_success() {
-            if response.body.is_empty() || response.body.as_ref() == b"null" {
+            let body = response.body.as_ref().trim_ascii();
+            if body.is_empty() || body == b"null" {
                 Ok(None)
             } else {
-                serde_json::from_slice(&response.body)
-                    .map(Some)
-                    .map_err(Error::Serde)
+                serde_json::from_slice(body).map(Some).map_err(Error::Serde)
             }
         } else {
             Err(Error::from_status_code(

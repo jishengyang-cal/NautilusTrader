@@ -115,6 +115,7 @@ struct TestServerState {
     gamma_tags_response: Arc<tokio::sync::Mutex<Option<Value>>>,
     gamma_search_response: Arc<tokio::sync::Mutex<Option<Value>>>,
     gamma_clob_token_responses: Arc<tokio::sync::Mutex<AHashMap<String, Value>>>,
+    single_order_raw_response: Arc<tokio::sync::Mutex<Option<String>>>,
     single_order_response: Arc<tokio::sync::Mutex<Option<Value>>>,
     data_api_position_pages: Arc<tokio::sync::Mutex<VecDeque<Value>>>,
     data_api_position_query_log: Arc<tokio::sync::Mutex<Vec<HashMap<String, String>>>>,
@@ -166,6 +167,7 @@ impl Default for TestServerState {
             gamma_tags_response: Arc::new(tokio::sync::Mutex::new(None)),
             gamma_search_response: Arc::new(tokio::sync::Mutex::new(None)),
             gamma_clob_token_responses: Arc::new(tokio::sync::Mutex::new(AHashMap::new())),
+            single_order_raw_response: Arc::new(tokio::sync::Mutex::new(None)),
             single_order_response: Arc::new(tokio::sync::Mutex::new(None)),
             data_api_position_pages: Arc::new(tokio::sync::Mutex::new(VecDeque::new())),
             data_api_position_query_log: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -704,6 +706,10 @@ async fn handle_data_api_positions(
 }
 
 async fn handle_get_order(State(state): State<TestServerState>) -> Response {
+    if let Some(response) = state.single_order_raw_response.lock().await.clone() {
+        return (StatusCode::OK, response).into_response();
+    }
+
     let resp = state.single_order_response.lock().await;
     match resp.as_ref() {
         Some(v) => Json(v.clone()).into_response(),
@@ -4617,6 +4623,18 @@ async fn test_get_order_optional_null_body_returns_none() {
     let state = TestServerState::default();
     // Store literal JSON null
     *state.single_order_response.lock().await = Some(json!(null));
+    let addr = start_mock_server(state.clone()).await;
+    let client = create_clob_client(&addr);
+
+    let result = client.get_order_optional("test-order-id").await.unwrap();
+    assert!(result.is_none());
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_get_order_optional_whitespace_padded_null_body_returns_none() {
+    let state = TestServerState::default();
+    *state.single_order_raw_response.lock().await = Some(" \nnull\t".to_string());
     let addr = start_mock_server(state.clone()).await;
     let client = create_clob_client(&addr);
 

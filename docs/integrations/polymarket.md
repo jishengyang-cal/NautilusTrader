@@ -347,11 +347,25 @@ as an `OrderCanceled` event, not `OrderExpired`.
 
 ### Advanced order features
 
-| Feature            | Binary Options | Notes                            |
-| ------------------ | -------------- | -------------------------------- |
-| Order modification | -              | Cancellation functionality only. |
-| Bracket/OCO orders | -              | *Not supported by Polymarket.*   |
-| Iceberg orders     | -              | *Not supported by Polymarket.*   |
+| Feature            | Binary Options | Notes                                                   |
+| ------------------ | -------------- | ------------------------------------------------------- |
+| Order modification | Yes            | Adapter-managed cancel-replace for open `LIMIT` orders. |
+| Bracket/OCO orders | -              | *Not supported by Polymarket.*                          |
+| Iceberg orders     | -              | *Not supported by Polymarket.*                          |
+
+Polymarket has no in-place modify endpoint. The execution client cancels the current venue order,
+reconciles its final confirmed fills, and signs a replacement for the remaining quantity. The
+`ModifyOrder.quantity` value is the absolute target for the logical order, not the replacement leg.
+The replacement keeps the `ClientOrderId` and receives a new `VenueOrderId`. The resulting logical
+quantity reflects the exact signed base quantity after venue precision normalization, so it can be
+slightly lower than the requested target.
+
+The adapter submits no replacement unless the cancel response, canceled order state, and confirmed
+trade totals agree. An ambiguous cancel emits `OrderModifyRejected`. An ambiguous replacement stays
+in flight under its deterministic signed order hash so a later order update, fill, or order
+reconciliation can establish the replacement without emitting a second `OrderAccepted`. Later
+modify and cancel commands remain blocked until that happens. This recovery state is not persisted
+across an execution-client process restart.
 
 ### Batch operations
 

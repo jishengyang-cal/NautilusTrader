@@ -296,6 +296,13 @@ impl PolymarketOrderBuilder {
         let price = order
             .price()
             .ok_or_else(|| validation_failed("Limit orders require a price"))?;
+        Self::validate_limit_price_value(price, tick_size)
+    }
+
+    pub(crate) fn validate_limit_price_value(
+        price: Price,
+        tick_size: Price,
+    ) -> Result<(), OrderDeniedReason> {
         let tick = tick_size.as_decimal();
         let price_decimal = price.as_decimal();
 

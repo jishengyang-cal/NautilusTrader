@@ -17,11 +17,12 @@ Released on TBD (UTC).
 - Added Python `OrderBookDelta.is_add`, `is_update`, `is_delete`, `is_clear`, and `OrderBookDeltas.is_snapshot`
 - Added Python `activation_utc` and `expiration_utc` properties to expiring instruments
 - Added Python `symbol` and `venue` properties to regular and synthetic instruments
-- Added Bybit self-match prevention, set with `smp_type` on the execution client config or per order
-- Added Polymarket collateral-sized limit BUY orders with exact limit price preservation
 - Added `BacktestEngine::add_data_batch` for typed data batches that replay without per-item `Data` values, thanks @faysou
 - Added typed external MessageBus streaming for control, execution, and reconciliation messages
 - Added cache-backed claims that route external orders, fills, and reconciliation activity to the strategy
+- Added Bybit self-match prevention, set with `smp_type` on the execution client config or per order
+- Added Polymarket collateral-sized limit BUY orders with exact limit price preservation
+- Added Polymarket limit order modification support
 
 ### Breaking Changes
 

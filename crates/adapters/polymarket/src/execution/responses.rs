@@ -26,6 +26,7 @@ use nautilus_model::{
     reports::{FillReport, OrderStatusReport},
     types::{Price, Quantity},
 };
+use parking_lot::Mutex;
 use rust_decimal::Decimal;
 
 use super::{
@@ -41,10 +42,13 @@ use super::{
     },
     types::{BatchLimitOrderContext, classify_http_command_failure},
 };
-use crate::http::{
-    error::{sanitize_error_text, strategy_rejection_reason},
-    models::PolymarketOpenOrder,
-    query::{OrderResponse, OrderResponseStatus},
+use crate::{
+    http::{
+        error::{sanitize_error_text, strategy_rejection_reason},
+        models::PolymarketOpenOrder,
+        query::{OrderResponse, OrderResponseStatus},
+    },
+    websocket::dispatch::WsDispatchState,
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -57,6 +61,7 @@ pub(super) async fn handle_batch_order_responses(
     clock: &'static AtomicTime,
     fill_tracker: &Arc<OrderFillTrackerMap>,
     order_identities: &Arc<OrderIdentityRegistry>,
+    ws_dispatch_state: &Arc<Mutex<WsDispatchState>>,
     pending_submits: &PendingSubmitTracker,
     pending_cancels: &PendingCancelTracker,
     account_id: AccountId,
@@ -155,6 +160,7 @@ pub(super) async fn handle_batch_order_responses(
             let emitter = emitter.clone();
             let fill_tracker = fill_tracker.clone();
             let order_identities = order_identities.clone();
+            let ws_dispatch_state = ws_dispatch_state.clone();
             let pending_cancels = pending_cancels.clone();
 
             async move {
@@ -178,6 +184,7 @@ pub(super) async fn handle_batch_order_responses(
                         &batch_order.order,
                         &fill_tracker,
                         &order_identities,
+                        &ws_dispatch_state,
                         &emitter,
                         account_id,
                         batch_order.request.size_precision,
@@ -281,6 +288,60 @@ pub(super) fn emit_signed_base_quantity_update(
     }
 }
 
+pub(super) fn confirm_modify_replacement(
+    order: &OrderAny,
+    venue_order_id: VenueOrderId,
+    emitter: &ExecutionEventEmitter,
+    clock: &'static AtomicTime,
+    fill_tracker: &Arc<OrderFillTrackerMap>,
+    order_identities: &OrderIdentityRegistry,
+    ws_dispatch_state: &Arc<Mutex<WsDispatchState>>,
+) -> bool {
+    let mut state = ws_dispatch_state.lock();
+    let Some(promotion) = state.claim_modify_replacement(venue_order_id) else {
+        return false;
+    };
+
+    let identity = OrderIdentity::from_order(order);
+    order_identities.register_order_identity(promotion.venue_order_id, identity);
+    order_identities.mark_accepted(promotion.venue_order_id);
+
+    emitter.emit_order_updated(
+        order,
+        promotion.venue_order_id,
+        promotion.quantity,
+        Some(promotion.price),
+        None,
+        None,
+        clock.get_time_ns(),
+    );
+
+    let fills = fill_tracker.register_and_take_pending_fills(
+        promotion.venue_order_id,
+        Some(promotion.client_order_id),
+        promotion.leg_quantity,
+        identity.order_side,
+    );
+    let buffered = fill_tracker.take_pending_reports(&promotion.venue_order_id);
+    for report in buffered
+        .iter()
+        .filter(|report| report.order_status == OrderStatus::Canceled)
+    {
+        state.record_terminal_cancel_report(report.clone());
+    }
+
+    emit_drained_activity(
+        order,
+        promotion.venue_order_id,
+        fills,
+        &buffered,
+        fill_tracker,
+        emitter,
+        clock,
+    );
+    true
+}
+
 #[expect(clippy::too_many_arguments)]
 pub(super) async fn handle_single_order_response(
     result: crate::http::error::Result<OrderResponse>,
@@ -291,6 +352,7 @@ pub(super) async fn handle_single_order_response(
     clock: &'static AtomicTime,
     fill_tracker: &Arc<OrderFillTrackerMap>,
     order_identities: &OrderIdentityRegistry,
+    ws_dispatch_state: &Arc<Mutex<WsDispatchState>>,
     pending_submits: &PendingSubmitTracker,
     pending_cancels: &PendingCancelTracker,
     account_id: AccountId,
@@ -329,6 +391,7 @@ pub(super) async fn handle_single_order_response(
                     &batch_order.order,
                     fill_tracker,
                     order_identities,
+                    ws_dispatch_state,
                     emitter,
                     account_id,
                     batch_order.request.size_precision,
@@ -910,6 +973,7 @@ pub(super) async fn check_fok_status(
     order: &OrderAny,
     fill_tracker: &Arc<OrderFillTrackerMap>,
     order_identities: &OrderIdentityRegistry,
+    ws_dispatch_state: &Arc<Mutex<WsDispatchState>>,
     emitter: &ExecutionEventEmitter,
     account_id: AccountId,
     size_precision: u8,
@@ -947,6 +1011,7 @@ pub(super) async fn check_fok_status(
         order,
         fill_tracker,
         order_identities,
+        ws_dispatch_state,
         emitter,
         account_id,
         size_precision,
@@ -960,6 +1025,7 @@ struct FokRestStatusContext<'a> {
     order: &'a OrderAny,
     fill_tracker: &'a OrderFillTrackerMap,
     order_identities: &'a OrderIdentityRegistry,
+    ws_dispatch_state: &'a Mutex<WsDispatchState>,
     emitter: &'a ExecutionEventEmitter,
     account_id: AccountId,
     size_precision: u8,
@@ -976,7 +1042,7 @@ fn handle_fok_rest_status(
 
     if ctx.order.order_type() == OrderType::Limit
         && !ctx.order.is_quote_quantity()
-        && let Err(e) = validate_client_bound_order_quantity(venue_order, ctx.order)
+        && let Err(e) = validate_client_bound_order_quantity(venue_order, ctx.order.quantity())
     {
         log::warn!("FOK status check rejected contradictory order {order_id}: {e}");
         return;
@@ -984,6 +1050,14 @@ fn handle_fok_rest_status(
 
     let order_status = OrderStatus::from(venue_order.status);
     let ts_now = ctx.clock.get_time_ns();
+
+    if order_status == OrderStatus::Canceled {
+        let mut state = ctx.ws_dispatch_state.lock();
+        if state.suppress_modify_cancel_reemit(venue_order_id) {
+            state.confirm_modify_cancel(ctx.order.client_order_id(), venue_order_id, ts_now);
+            return;
+        }
+    }
 
     if matches!(
         order_status,
@@ -1302,11 +1376,13 @@ mod tests {
         let venue_order_id = VenueOrderId::from(venue_order.id.as_str());
         let fill_tracker = OrderFillTrackerMap::new();
         let order_identities = OrderIdentityRegistry::default();
+        let ws_dispatch_state = Mutex::new(WsDispatchState::default());
         let (emitter, mut receiver) = test_emitter();
         let ctx = FokRestStatusContext {
             order: &order,
             fill_tracker: &fill_tracker,
             order_identities: &order_identities,
+            ws_dispatch_state: &ws_dispatch_state,
             emitter: &emitter,
             account_id: AccountId::from("POLY-001"),
             size_precision: instrument.size_precision(),
