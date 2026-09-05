@@ -33,10 +33,11 @@ use nautilus_betfair::{
             BETFAIR_CLIENT_ID, BETFAIR_VENUE, METHOD_CANCEL_ORDERS, METHOD_GET_ACCOUNT_FUNDS,
             METHOD_LIST_CURRENT_ORDERS, METHOD_PLACE_ORDERS, METHOD_REPLACE_ORDERS,
         },
-        parse::make_customer_order_ref,
+        parse::{make_customer_order_ref, parse_betfair_timestamp},
     },
     config::BetfairExecutionClientConfig,
     execution::BetfairExecutionClient,
+    http::parse::parse_current_order_report,
     stream::config::BetfairStreamConfig,
 };
 use nautilus_common::{
@@ -3084,6 +3085,85 @@ async fn test_generate_order_status_reports() {
 }
 
 #[rstest]
+#[case::unfiltered(false, None, None, None, &[0, 1, 2])]
+#[case::open_only(true, None, None, None, &[0])]
+#[case::selection(false, Some("1.180575118-217709.BETFAIR"), None, None, &[1])]
+#[case::handicap(false, Some("1.180575118-217709-1.5.BETFAIR"), None, None, &[2])]
+#[case::no_match(false, Some("1.176791264-58805.BETFAIR"), None, None, &[])]
+#[case::start(false, None, Some("2021-03-24T06:51:50Z"), None, &[0, 2])]
+#[case::end(false, None, None, Some("2021-03-24T06:49:41Z"), &[0, 1])]
+#[case::window(
+    false,
+    None,
+    Some("2021-03-24T06:49:41Z"),
+    Some("2021-03-24T06:49:41Z"),
+    &[0, 1],
+)]
+#[case::open_after_end(false, None, None, Some("2021-03-24T06:46:00Z"), &[0])]
+#[case::instrument_and_time(
+    false,
+    Some("1.180575118-217709.BETFAIR"),
+    Some("2021-03-24T06:49:42Z"),
+    None,
+    &[],
+)]
+#[tokio::test]
+async fn test_generate_order_status_reports_filters(
+    #[case] open_only: bool,
+    #[case] instrument_id: Option<&str>,
+    #[case] start: Option<&str>,
+    #[case] end: Option<&str>,
+    #[case] expected_indices: &[usize],
+) {
+    let (addr, state) = start_mock_http().await;
+    let mut response = load_json_fixture("rest/list_current_orders_execution_complete.json");
+    response["result"]["currentOrders"][2]["handicap"] = Value::from(1.5);
+    state.betting_overrides.lock().insert(
+        METHOD_LIST_CURRENT_ORDERS.to_string(),
+        response["result"].clone(),
+    );
+    let (stream_port, listener) = start_mock_stream().await;
+    let (mut client, _rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);
+    let (server_done_tx, server_done_rx) = tokio::sync::oneshot::channel();
+
+    let server = tokio::spawn(async move {
+        let (_reader, write_half) = accept_and_activate(&listener).await;
+        let _ = server_done_rx.await;
+        drop(write_half);
+    });
+
+    connect_execution_ready(&mut client).await;
+
+    let command = GenerateOrderStatusReportsBuilder::default()
+        .ts_init(UnixNanos::default())
+        .open_only(open_only)
+        .instrument_id(instrument_id.map(InstrumentId::from))
+        .start(start.map(|s| parse_betfair_timestamp(s).unwrap()))
+        .end(end.map(|s| parse_betfair_timestamp(s).unwrap()))
+        .build()
+        .unwrap();
+    let reports = client
+        .generate_order_status_reports(&command)
+        .await
+        .unwrap();
+
+    client.disconnect().await.unwrap();
+    let _ = server_done_tx.send(());
+    server.await.unwrap();
+
+    assert_eq!(reports.len(), expected_indices.len());
+    for (report, index) in reports.iter().zip(expected_indices) {
+        let order =
+            serde_json::from_value(response["result"]["currentOrders"][*index].clone()).unwrap();
+        let mut expected =
+            parse_current_order_report(&order, AccountId::from("BETFAIR-001"), report.ts_init)
+                .unwrap();
+        expected.report_id = report.report_id;
+        assert_eq!(*report, expected);
+    }
+}
+
+#[rstest]
 #[tokio::test]
 async fn test_generate_fill_reports() {
     let (addr, state) = start_mock_http().await;
@@ -3140,6 +3220,95 @@ async fn test_generate_fill_reports() {
     client.disconnect().await.unwrap();
     let _ = server_done_tx.send(());
     server.await.unwrap();
+}
+
+#[rstest]
+#[case::order(true, false, false)]
+#[case::instrument(false, true, false)]
+#[case::order_and_instrument(true, true, false)]
+#[case::mass_status(true, true, true)]
+#[tokio::test]
+async fn test_generate_fill_reports_preserves_unrequested_fill_state(
+    #[case] filter_order: bool,
+    #[case] filter_instrument: bool,
+    #[case] mass_status: bool,
+) {
+    let (addr, state) = start_mock_http().await;
+    let mut response = load_json_fixture("rest/list_current_orders_execution_complete.json");
+    response["result"]["currentOrders"][2]["selectionId"] = Value::from(39980);
+    state.betting_overrides.lock().insert(
+        METHOD_LIST_CURRENT_ORDERS.to_string(),
+        response["result"].clone(),
+    );
+    let (stream_port, listener) = start_mock_stream().await;
+    let (mut client, _rx, _data_rx, _cache) = create_test_execution_client(addr, stream_port);
+    let (server_done_tx, server_done_rx) = tokio::sync::oneshot::channel();
+
+    let server = tokio::spawn(async move {
+        let (_reader, write_half) = accept_and_activate(&listener).await;
+        let _ = server_done_rx.await;
+        drop(write_half);
+    });
+    connect_execution_ready(&mut client).await;
+    let command = GenerateFillReports::new(
+        UUID4::new(),
+        UnixNanos::default(),
+        filter_instrument.then_some(InstrumentId::from("1.180575118-217709.BETFAIR")),
+        filter_order.then_some(VenueOrderId::from("228059821049")),
+        None,
+        None,
+        None,
+        None,
+    );
+    let requested = client.generate_fill_reports(command).await.unwrap();
+    let remaining = if mass_status {
+        client
+            .generate_mass_status(None)
+            .await
+            .unwrap()
+            .unwrap()
+            .fill_reports()
+            .into_values()
+            .flatten()
+            .collect::<Vec<_>>()
+    } else {
+        client
+            .generate_fill_reports(
+                GenerateFillReportsBuilder::default()
+                    .ts_init(UnixNanos::default())
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    };
+
+    client.disconnect().await.unwrap();
+    let _ = server_done_tx.send(());
+    server.await.unwrap();
+
+    assert_eq!(requested.len(), 1);
+    assert_eq!(
+        requested[0].venue_order_id,
+        VenueOrderId::from("228059821049")
+    );
+    assert_eq!(
+        requested[0].instrument_id,
+        InstrumentId::from("1.180575118-217709.BETFAIR")
+    );
+    assert_eq!(requested[0].last_qty, Quantity::from("10.00"));
+    assert_eq!(requested[0].last_px, Price::from("1.90"));
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(
+        remaining[0].venue_order_id,
+        VenueOrderId::from("228059869313")
+    );
+    assert_eq!(
+        remaining[0].instrument_id,
+        InstrumentId::from("1.180575118-39980.BETFAIR")
+    );
+    assert_eq!(remaining[0].last_qty, Quantity::from("10.00"));
+    assert_eq!(remaining[0].last_px, Price::from("1.92"));
 }
 
 #[rstest]
@@ -5677,6 +5846,16 @@ async fn test_startup_restored_modify_quantity_ambiguous_5xx_resolves_from_http_
         .open_only(false)
         .build()
         .unwrap();
+    let mut unrelated = reconcile.clone();
+    unrelated.instrument_id = Some(InstrumentId::from("1.179082386-39980.BETFAIR"));
+    let unrelated_reports = client
+        .generate_order_status_reports(&unrelated)
+        .await
+        .unwrap();
+
+    assert!(unrelated_reports.is_empty());
+    assert!(rx.try_recv().is_err());
+
     let reports = client
         .generate_order_status_reports(&reconcile)
         .await

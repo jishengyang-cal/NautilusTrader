@@ -83,7 +83,7 @@ use nautilus_core::{
 };
 use nautilus_live::{
     ExecutionClientCore, ExecutionEventEmitter, SocketControl,
-    execution::failure::CommandFailure,
+    execution::{failure::CommandFailure, reports::retain_order_status_reports},
     task::{TaskGroup, TaskGroupGuard},
 };
 use nautilus_model::{
@@ -1988,7 +1988,7 @@ impl ExecutionClient for BetfairExecutionClient {
                 self.core.account_id,
                 self.clock.get_time_ns(),
                 market_ids.clone(),
-                false,
+                None,
                 &self.ocm_state,
                 Some(&self.emitter),
                 stream_session,
@@ -2001,6 +2001,7 @@ impl ExecutionClient for BetfairExecutionClient {
                 self.clock.get_time_ns(),
                 market_ids,
                 date_range,
+                None,
                 &self.ocm_state,
                 stream_session,
                 &mut fill_refresh,
@@ -2053,7 +2054,7 @@ impl ExecutionClient for BetfairExecutionClient {
             self.core.account_id,
             self.clock.get_time_ns(),
             self.reconcile_market_ids(),
-            cmd.open_only,
+            Some(cmd),
             &self.ocm_state,
             Some(&self.emitter),
             stream_session,
@@ -2097,6 +2098,7 @@ impl ExecutionClient for BetfairExecutionClient {
             self.clock.get_time_ns(),
             self.reconcile_market_ids(),
             date_range,
+            Some(&cmd),
             &self.ocm_state,
             stream_session,
             &mut session_refresh,
@@ -3725,7 +3727,7 @@ async fn fetch_order_status_reports_http(
     account_id: AccountId,
     ts_init: UnixNanos,
     market_ids: Option<Vec<String>>,
-    open_only: bool,
+    filter: Option<&GenerateOrderStatusReports>,
     ocm_state: &Arc<Mutex<OcmState>>,
     emitter: Option<&ExecutionEventEmitter>,
     stream_session: StreamSession<'_>,
@@ -3736,12 +3738,22 @@ async fn fetch_order_status_reports_http(
         account_id,
         ts_init,
         market_ids,
-        open_only,
+        filter.is_some_and(|filter| filter.open_only),
         ocm_state,
         stream_session,
         session_refresh,
     )
     .await?;
+
+    if let Some(filter) = filter {
+        fetched.reports.retain(|report| {
+            filter
+                .instrument_id
+                .is_none_or(|instrument_id| report.instrument_id == instrument_id)
+        });
+
+        retain_order_status_reports(&mut fetched.reports, filter);
+    }
 
     if let Some(emitter) = emitter {
         resolve_pending_modifies(
@@ -4091,11 +4103,12 @@ async fn fetch_fill_reports_http(
     ts_init: UnixNanos,
     market_ids: Option<Vec<String>>,
     date_range: Option<TimeRange>,
+    filter: Option<&GenerateFillReports>,
     ocm_state: &Arc<Mutex<OcmState>>,
     stream_session: StreamSession<'_>,
     session_refresh: &mut SessionRefresh,
 ) -> anyhow::Result<Vec<FillReport>> {
-    let orders = fetch_fill_orders_http(
+    let mut orders = fetch_fill_orders_http(
         http_client,
         market_ids,
         date_range,
@@ -4103,6 +4116,19 @@ async fn fetch_fill_reports_http(
         session_refresh,
     )
     .await?;
+
+    if let Some(filter) = filter {
+        orders.retain(|order| {
+            filter
+                .venue_order_id
+                .is_none_or(|venue_order_id| venue_order_id.as_str() == order.bet_id)
+                && filter.instrument_id.is_none_or(|instrument_id| {
+                    make_instrument_id(&order.market_id, order.selection_id, order.handicap)
+                        == instrument_id
+                })
+        });
+    }
+
     let mut state = ocm_state.lock();
     let customer_order_refs = state.customer_order_refs.clone();
     let mut fill_tracker = state.fill_tracker.clone();
