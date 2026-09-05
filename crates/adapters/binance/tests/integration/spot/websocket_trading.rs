@@ -40,7 +40,10 @@ use nautilus_binance::{
     },
     spot::{
         enums::{BinanceCancelReplaceMode, BinanceSpotOrderType},
-        http::query::{CancelOrderParams, CancelReplaceOrderParams, NewOrderParams},
+        http::{
+            models::BinanceCancelOpenOrdersResponse,
+            query::{CancelOrderParams, CancelReplaceOrderParams, NewOrderParams},
+        },
         websocket::trading::{
             client::BinanceSpotWsTradingClient,
             handler::BinanceSpotWsTradingHandler,
@@ -58,6 +61,8 @@ const SBE_SCHEMA_ID: u16 = 3;
 const SBE_SCHEMA_VERSION: u16 = 2;
 const WEBSOCKET_RESPONSE_TEMPLATE_ID: u16 = 50;
 const WEBSOCKET_RESPONSE_BLOCK_LENGTH: u16 = 3;
+const CANCEL_OPEN_ORDERS_TEMPLATE_ID: u16 = 306;
+const CANCEL_ORDER_LIST_TEMPLATE_ID: u16 = 312;
 
 // Test server state for tracking WebSocket connections
 #[derive(Clone)]
@@ -235,6 +240,66 @@ fn build_new_order_full_response(order_id: u64, client_order_id: &str, symbol: &
     buf
 }
 
+fn build_cancel_open_orders_response() -> Vec<u8> {
+    let order_list = build_cancel_order_list_response();
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&create_sbe_header(0, CANCEL_OPEN_ORDERS_TEMPLATE_ID));
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    buf.extend_from_slice(&1u32.to_le_bytes());
+    buf.extend_from_slice(&(order_list.len() as u16).to_le_bytes());
+    buf.extend_from_slice(&order_list);
+    buf
+}
+
+fn build_cancel_order_list_response() -> Vec<u8> {
+    const REPORT_BLOCK_LENGTH: usize = 135;
+    let orders = [(12345i64, "order-list-1"), (12346i64, "order-list-2")];
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&create_sbe_header(21, CANCEL_ORDER_LIST_TEMPLATE_ID));
+    buf.extend_from_slice(&44i64.to_le_bytes());
+    buf.push(1); // contingency_type (OCO)
+    buf.push(2); // list_status_type (ALL_DONE)
+    buf.push(2); // list_order_status (ALL_DONE)
+    buf.extend_from_slice(&1_734_300_000_000_000i64.to_le_bytes());
+    buf.push((-8i8) as u8);
+    buf.push((-8i8) as u8);
+
+    buf.extend_from_slice(&8u16.to_le_bytes());
+    buf.extend_from_slice(&(orders.len() as u16).to_le_bytes());
+    for (order_id, client_order_id) in orders {
+        buf.extend_from_slice(&order_id.to_le_bytes());
+        write_var_string(&mut buf, "BTCUSDT");
+        write_var_string(&mut buf, client_order_id);
+    }
+
+    buf.extend_from_slice(&(REPORT_BLOCK_LENGTH as u16).to_le_bytes());
+    buf.extend_from_slice(&(orders.len() as u16).to_le_bytes());
+    for (order_id, orig_client_order_id) in orders {
+        let report_start = buf.len();
+        buf.extend_from_slice(&order_id.to_le_bytes());
+        buf.extend_from_slice(&44i64.to_le_bytes());
+        buf.extend_from_slice(&1_734_300_000_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&100_000_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&10_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&0i64.to_le_bytes());
+        buf.extend_from_slice(&0i64.to_le_bytes());
+        buf.push(3); // status (CANCELED)
+        buf.push(0); // time_in_force (GTC)
+        buf.push(1); // order_type (LIMIT)
+        buf.push(1); // side (SELL)
+        while buf.len() - report_start < REPORT_BLOCK_LENGTH {
+            buf.push(0);
+        }
+        write_var_string(&mut buf, "BTCUSDT");
+        write_var_string(&mut buf, orig_client_order_id);
+        write_var_string(&mut buf, "cancel-list");
+    }
+
+    write_var_string(&mut buf, "list-cancel");
+    write_var_string(&mut buf, "BTCUSDT");
+    buf
+}
+
 // WebSocket handler
 async fn handle_websocket(ws: WebSocketUpgrade, State(state): State<TestServerState>) -> Response {
     ws.on_upgrade(|socket| handle_socket(socket, state))
@@ -334,6 +399,13 @@ async fn handle_socket(mut socket: WebSocket, state: TestServerState) {
                             .await
                             .is_err()
                         {
+                            break;
+                        }
+                    }
+                    Some("openOrders.cancelAll") => {
+                        let response = build_cancel_open_orders_response();
+                        let envelope = build_ws_response_envelope(200, request_id, &response);
+                        if socket.send(Message::Binary(envelope.into())).await.is_err() {
                             break;
                         }
                     }
@@ -569,6 +641,54 @@ async fn test_order_rejection_via_json_error() {
             _ => panic!("Expected OrderRejected or Connected, was {msg:?}"),
         }
     }
+
+    client.disconnect().await.unwrap();
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_cancel_all_orders_decodes_wrapped_order_list_response() {
+    let (addr, state) = start_test_server().await.unwrap();
+    let mut client = create_test_client(&addr);
+    client.connect().await.unwrap();
+    wait_until_async(
+        || async { *state.connection_count.lock().await > 0 },
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let request_id = client.cancel_all_orders("BTCUSDT").await.unwrap();
+    let response = loop {
+        let message = tokio::time::timeout(Duration::from_secs(5), client.recv())
+            .await
+            .expect("Timed out waiting for cancel-all response")
+            .expect("Cancel-all response stream ended");
+
+        if let BinanceSpotWsTradingMessage::AllOrdersCanceled {
+            request_id: response_id,
+            responses,
+        } = message
+        {
+            assert_eq!(response_id, request_id);
+            break responses;
+        }
+    };
+
+    assert_eq!(response.len(), 1);
+    let BinanceCancelOpenOrdersResponse::OrderList(order_list) = &response[0] else {
+        panic!("Expected wrapped order-list response");
+    };
+    assert_eq!(order_list.order_list_id, 44);
+    assert_eq!(order_list.orders.len(), 2);
+    assert_eq!(order_list.order_reports.len(), 2);
+    assert_eq!(
+        order_list.order_reports[0].orig_client_order_id,
+        "order-list-1"
+    );
+    assert_eq!(
+        order_list.order_reports[1].orig_client_order_id,
+        "order-list-2"
+    );
 
     client.disconnect().await.unwrap();
 }

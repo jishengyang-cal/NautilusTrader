@@ -65,6 +65,7 @@ Released on TBD (UTC).
 - Fixed TWD, 1INCH, CAKE, and SHIB currency lookup panics
 - Fixed order-status report windows filtering resting orders instead of closed history
 - Fixed foreign account events panicking and reservation failures leaving balances or margins in an inconsistent state
+- Fixed Binance Spot cancel-all decoding and lifecycle handling for OCO order lists
 - Fixed OKX retries to honor `Retry-After`, preserve request identity, and avoid ambiguous order replay
 
 ### Internal Improvements

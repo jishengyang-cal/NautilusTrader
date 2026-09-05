@@ -39,9 +39,12 @@ use axum::{
     routing::{delete, get, post},
 };
 use nautilus_binance::{
-    common::consts::{
-        BINANCE_CLIENT_ID, BINANCE_STATUS_UNKNOWN_CODE, BINANCE_UNEXPECTED_RESPONSE_CODE,
-        BINANCE_VENUE,
+    common::{
+        consts::{
+            BINANCE_CLIENT_ID, BINANCE_NAUTILUS_SPOT_BROKER_ID, BINANCE_STATUS_UNKNOWN_CODE,
+            BINANCE_UNEXPECTED_RESPONSE_CODE, BINANCE_VENUE,
+        },
+        encoder::encode_broker_id,
     },
     config::BinanceExecutionClientConfig,
     spot::{
@@ -90,6 +93,7 @@ const EXCHANGE_INFO_TEMPLATE_ID: u16 = 103;
 const NEW_ORDER_FULL_TEMPLATE_ID: u16 = 302;
 const CANCEL_ORDER_TEMPLATE_ID: u16 = 305;
 const CANCEL_OPEN_ORDERS_TEMPLATE_ID: u16 = 306;
+const CANCEL_ORDER_LIST_TEMPLATE_ID: u16 = 312;
 const ACCOUNT_TEMPLATE_ID: u16 = 400;
 const ACCOUNT_TRADES_TEMPLATE_ID: u16 = 401;
 const ORDERS_TEMPLATE_ID: u16 = 308;
@@ -328,8 +332,8 @@ fn build_cancel_order_response(
     buf.extend_from_slice(&qty.to_le_bytes());
     buf.extend_from_slice(&executed_qty.to_le_bytes());
     buf.extend_from_slice(&(price * executed_qty).to_le_bytes()); // cummulative_quote_qty
-    buf.push(4); // status (CANCELED)
-    buf.push(1); // time_in_force (GTC)
+    buf.push(3); // status (CANCELED)
+    buf.push(0); // time_in_force (GTC)
     buf.push(1); // order_type (LIMIT)
     buf.push(1); // side (BUY)
     buf.push(0); // self_trade_prevention_mode
@@ -365,6 +369,72 @@ fn build_cancel_open_orders_response(orders: &[(i64, &str, &str, &str, i64, i64)
         buf.extend_from_slice(&embedded);
     }
 
+    buf
+}
+
+fn build_cancel_order_list_response(
+    order_list_id: i64,
+    symbol: &str,
+    orders: &[(i64, &str)],
+) -> Vec<u8> {
+    const REPORT_BLOCK_LENGTH: usize = 135;
+
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&create_sbe_header(21, CANCEL_ORDER_LIST_TEMPLATE_ID));
+    buf.extend_from_slice(&order_list_id.to_le_bytes());
+    buf.push(1); // contingency_type (OCO)
+    buf.push(2); // list_status_type (ALL_DONE)
+    buf.push(2); // list_order_status (ALL_DONE)
+    buf.extend_from_slice(&1_734_300_000_000_000i64.to_le_bytes());
+    buf.push((-8i8) as u8);
+    buf.push((-8i8) as u8);
+
+    buf.extend_from_slice(&8u16.to_le_bytes());
+    buf.extend_from_slice(&(orders.len() as u16).to_le_bytes());
+    for (order_id, client_order_id) in orders {
+        buf.extend_from_slice(&order_id.to_le_bytes());
+        write_var_string(&mut buf, symbol);
+        write_var_string(&mut buf, client_order_id);
+    }
+
+    buf.extend_from_slice(&(REPORT_BLOCK_LENGTH as u16).to_le_bytes());
+    buf.extend_from_slice(&(orders.len() as u16).to_le_bytes());
+    for (order_id, orig_client_order_id) in orders {
+        let report_start = buf.len();
+        buf.extend_from_slice(&order_id.to_le_bytes());
+        buf.extend_from_slice(&order_list_id.to_le_bytes());
+        buf.extend_from_slice(&1_734_300_000_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&100_000_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&10_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&0i64.to_le_bytes());
+        buf.extend_from_slice(&0i64.to_le_bytes());
+        buf.push(3); // status (CANCELED)
+        buf.push(0); // time_in_force (GTC)
+        buf.push(1); // order_type (LIMIT)
+        buf.push(1); // side (SELL)
+        while buf.len() - report_start < REPORT_BLOCK_LENGTH {
+            buf.push(0);
+        }
+        write_var_string(&mut buf, symbol);
+        write_var_string(&mut buf, orig_client_order_id);
+        write_var_string(&mut buf, "cancel-list");
+    }
+
+    write_var_string(&mut buf, "list-cancel");
+    write_var_string(&mut buf, symbol);
+    buf
+}
+
+fn build_mixed_cancel_open_orders_response(
+    orders: &[(i64, &str, &str, &str, i64, i64)],
+    order_list: &[u8],
+) -> Vec<u8> {
+    let ordinary = build_cancel_open_orders_response(orders);
+    let mut buf = ordinary[..8].to_vec();
+    buf.extend_from_slice(&create_group_header(0, orders.len() as u32 + 1));
+    buf.extend_from_slice(&ordinary[14..]);
+    buf.extend_from_slice(&(order_list.len() as u16).to_le_bytes());
+    buf.extend_from_slice(order_list);
     buf
 }
 
@@ -680,7 +750,27 @@ fn create_exec_test_router_with_fill_fixture(
                         100_000_000_000i64,
                         10_000_000i64,
                     )];
-                    sbe_response(build_cancel_open_orders_response(&orders)).into_response()
+                    let take_profit_id = encode_broker_id(
+                        &ClientOrderId::new("spot-oco-tp"),
+                        BINANCE_NAUTILUS_SPOT_BROKER_ID,
+                    );
+                    let stop_loss_id = encode_broker_id(
+                        &ClientOrderId::new("spot-oco-sl"),
+                        BINANCE_NAUTILUS_SPOT_BROKER_ID,
+                    );
+                    let order_list = build_cancel_order_list_response(
+                        42,
+                        symbol.as_str(),
+                        &[
+                            (12346, take_profit_id.as_str()),
+                            (12347, stop_loss_id.as_str()),
+                        ],
+                    );
+                    sbe_response(build_mixed_cancel_open_orders_response(
+                        &orders,
+                        &order_list,
+                    ))
+                    .into_response()
                 },
             ),
         )
@@ -2645,6 +2735,26 @@ async fn test_cancel_all_orders_generates_canceled_events() {
     client.connect().await.unwrap();
 
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
+    let orders = add_spot_oco_orders_to_cache(&cache);
+    let child_ids: Vec<_> = orders.iter().map(Order::client_order_id).collect();
+    client
+        .submit_order_list(submit_order_list_command(&orders))
+        .unwrap();
+
+    for client_order_id in &child_ids {
+        let event = recv_until(&mut rx, |event| {
+            matches!(
+                event,
+                ExecutionEvent::Order(OrderEventAny::Submitted(submitted))
+                    if submitted.client_order_id == *client_order_id
+            )
+        })
+        .await;
+        let ExecutionEvent::Order(order_event) = event else {
+            unreachable!();
+        };
+        cache.borrow_mut().update_order(&order_event).unwrap();
+    }
 
     let cancel_all_cmd = CancelAllOrders::new(
         TraderId::from("TESTER-001"),
@@ -2660,15 +2770,63 @@ async fn test_cancel_all_orders_generates_canceled_events() {
 
     client.cancel_all_orders(cancel_all_cmd).unwrap();
 
-    wait_until_async(
-        || {
-            let found = rx
-                .try_recv()
-                .is_ok_and(|e| matches!(e, ExecutionEvent::Order(OrderEventAny::Canceled(_))));
-            async move { found }
-        },
-        Duration::from_secs(5),
-    )
+    let child_events = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut events = Vec::new();
+        while events.len() < 4 {
+            let event = rx.recv().await.expect("Execution event channel closed");
+            let ExecutionEvent::Order(order_event) = event else {
+                continue;
+            };
+            let client_order_id = match &order_event {
+                OrderEventAny::Accepted(event) => event.client_order_id,
+                OrderEventAny::Canceled(event) => event.client_order_id,
+                _ => continue,
+            };
+
+            if child_ids.contains(&client_order_id) {
+                cache.borrow_mut().update_order(&order_event).unwrap();
+                events.push(order_event);
+            }
+        }
+        events
+    })
+    .await
+    .expect("Timed out waiting for order-list lifecycle events");
+
+    for (index, client_order_id) in child_ids.iter().enumerate() {
+        assert!(matches!(
+            &child_events[index * 2],
+            OrderEventAny::Accepted(event) if event.client_order_id == *client_order_id
+        ));
+        assert!(matches!(
+            &child_events[index * 2 + 1],
+            OrderEventAny::Canceled(event) if event.client_order_id == *client_order_id
+        ));
+        assert!(
+            cache
+                .borrow()
+                .order(client_order_id)
+                .expect("Cached OCO child")
+                .is_closed()
+        );
+    }
+
+    client
+        .cancel_all_orders(CancelAllOrders::new(
+            TraderId::from("TESTER-001"),
+            Some(*BINANCE_CLIENT_ID),
+            StrategyId::from("TEST-STRATEGY"),
+            instrument_id,
+            None,
+            nautilus_core::UUID4::new(),
+            UnixNanos::default(),
+            None,
+            None,
+        ))
+        .unwrap();
+    assert_no_order_event_matching(&mut rx, |event| {
+        matches!(event, OrderEventAny::Canceled(event) if child_ids.contains(&event.client_order_id))
+    })
     .await;
 }
 

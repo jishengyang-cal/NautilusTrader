@@ -37,8 +37,10 @@ use crate::{
         parse::parse_micros_or_init,
     },
     spot::sbe::spot::{
-        order_side::OrderSide, order_status::OrderStatus, order_type::OrderType,
-        self_trade_prevention_mode::SelfTradePreventionMode, time_in_force::TimeInForce,
+        contingency_type::ContingencyType, list_order_status::ListOrderStatus,
+        list_status_type::ListStatusType, order_side::OrderSide, order_status::OrderStatus,
+        order_type::OrderType, self_trade_prevention_mode::SelfTradePreventionMode,
+        time_in_force::TimeInForce,
     },
 };
 
@@ -227,6 +229,49 @@ pub struct BinanceCancelOrderResponse {
     pub orig_client_order_id: String,
     /// Symbol.
     pub symbol: String,
+}
+
+/// One order identity in a canceled order list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceCancelOrderListOrder {
+    /// Trading pair symbol.
+    pub symbol: String,
+    /// Exchange order ID.
+    pub order_id: i64,
+    /// Original client order ID.
+    pub client_order_id: String,
+}
+
+/// Cancel order-list response.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinanceCancelOrderListResponse {
+    /// Exchange order-list ID.
+    pub order_list_id: i64,
+    /// Contingency type.
+    pub contingency_type: ContingencyType,
+    /// List status type.
+    pub list_status_type: ListStatusType,
+    /// Aggregate list order status.
+    pub list_order_status: ListOrderStatus,
+    /// Transaction time in microseconds.
+    pub transaction_time: i64,
+    /// Client order ID for the order list.
+    pub list_client_order_id: String,
+    /// Trading pair symbol.
+    pub symbol: String,
+    /// Orders in the list.
+    pub orders: Vec<BinanceCancelOrderListOrder>,
+    /// Canceled child order reports.
+    pub order_reports: Vec<BinanceCancelOrderResponse>,
+}
+
+/// One item returned by canceling all open orders.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BinanceCancelOpenOrdersResponse {
+    /// An ordinary canceled order.
+    Order(BinanceCancelOrderResponse),
+    /// A canceled order list and its child reports.
+    OrderList(BinanceCancelOrderListResponse),
 }
 
 /// Query order response.

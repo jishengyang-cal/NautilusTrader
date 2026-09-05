@@ -32,6 +32,7 @@ use nautilus_binance::{
         enums::BinanceSpotOrderType,
         http::{
             client::{BinanceRawSpotHttpClient, BinanceSpotHttpClient},
+            models::BinanceCancelOpenOrdersResponse,
             query::{AccountInfoParams, DepthParams},
         },
         sbe::spot::{SBE_SCHEMA_ID, SBE_SCHEMA_VERSION},
@@ -61,6 +62,7 @@ const NEW_ORDER_FULL_TEMPLATE_ID: u16 = 302;
 const ORDER_TEMPLATE_ID: u16 = 304;
 const CANCEL_ORDER_TEMPLATE_ID: u16 = 305;
 const CANCEL_OPEN_ORDERS_TEMPLATE_ID: u16 = 306;
+const CANCEL_ORDER_LIST_TEMPLATE_ID: u16 = 312;
 const ACCOUNT_TEMPLATE_ID: u16 = 400;
 const ORDERS_TEMPLATE_ID: u16 = 308;
 const ACCOUNT_TRADES_TEMPLATE_ID: u16 = 401;
@@ -546,8 +548,8 @@ fn build_cancel_order_response(
     buf.extend_from_slice(&qty.to_le_bytes()); // orig_qty_mantissa
     buf.extend_from_slice(&executed_qty.to_le_bytes()); // executed_qty_mantissa
     buf.extend_from_slice(&(price * executed_qty).to_le_bytes()); // cummulative_quote_qty
-    buf.push(4); // status (CANCELED)
-    buf.push(1); // time_in_force (GTC)
+    buf.push(3); // status (CANCELED)
+    buf.push(0); // time_in_force (GTC)
     buf.push(1); // order_type (LIMIT)
     buf.push(1); // side (BUY)
     buf.push(0); // self_trade_prevention_mode
@@ -587,6 +589,72 @@ fn build_cancel_open_orders_response(orders: &[(i64, &str, &str, &str, i64, i64)
         buf.extend_from_slice(&embedded);
     }
 
+    buf
+}
+
+fn build_cancel_order_list_response(
+    order_list_id: i64,
+    symbol: &str,
+    orders: &[(i64, &str)],
+) -> Vec<u8> {
+    const REPORT_BLOCK_LENGTH: usize = 135;
+
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&create_sbe_header(21, CANCEL_ORDER_LIST_TEMPLATE_ID));
+    buf.extend_from_slice(&order_list_id.to_le_bytes());
+    buf.push(1); // contingency_type (OCO)
+    buf.push(2); // list_status_type (ALL_DONE)
+    buf.push(2); // list_order_status (ALL_DONE)
+    buf.extend_from_slice(&1_734_300_000_000_000i64.to_le_bytes());
+    buf.push((-8i8) as u8);
+    buf.push((-8i8) as u8);
+
+    buf.extend_from_slice(&8u16.to_le_bytes());
+    buf.extend_from_slice(&(orders.len() as u16).to_le_bytes());
+    for (order_id, client_order_id) in orders {
+        buf.extend_from_slice(&order_id.to_le_bytes());
+        write_var_string(&mut buf, symbol);
+        write_var_string(&mut buf, client_order_id);
+    }
+
+    buf.extend_from_slice(&(REPORT_BLOCK_LENGTH as u16).to_le_bytes());
+    buf.extend_from_slice(&(orders.len() as u16).to_le_bytes());
+    for (order_id, orig_client_order_id) in orders {
+        let report_start = buf.len();
+        buf.extend_from_slice(&order_id.to_le_bytes());
+        buf.extend_from_slice(&order_list_id.to_le_bytes());
+        buf.extend_from_slice(&1_734_300_000_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&100_000_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&10_000_000i64.to_le_bytes());
+        buf.extend_from_slice(&0i64.to_le_bytes());
+        buf.extend_from_slice(&0i64.to_le_bytes());
+        buf.push(3); // status (CANCELED)
+        buf.push(0); // time_in_force (GTC)
+        buf.push(1); // order_type (LIMIT)
+        buf.push(1); // side (SELL)
+        while buf.len() - report_start < REPORT_BLOCK_LENGTH {
+            buf.push(0);
+        }
+        write_var_string(&mut buf, symbol);
+        write_var_string(&mut buf, orig_client_order_id);
+        write_var_string(&mut buf, "cancel-list");
+    }
+
+    write_var_string(&mut buf, "list-cancel");
+    write_var_string(&mut buf, symbol);
+    buf
+}
+
+fn build_mixed_cancel_open_orders_response(
+    orders: &[(i64, &str, &str, &str, i64, i64)],
+    order_list: &[u8],
+) -> Vec<u8> {
+    let ordinary = build_cancel_open_orders_response(orders);
+    let mut buf = ordinary[..8].to_vec();
+    buf.extend_from_slice(&create_group_header(0, orders.len() as u32 + 1));
+    buf.extend_from_slice(&ordinary[14..]);
+    buf.extend_from_slice(&(order_list.len() as u16).to_le_bytes());
+    buf.extend_from_slice(order_list);
     buf
 }
 
@@ -1133,7 +1201,16 @@ fn create_router(state: Arc<TestServerState>) -> Router {
                                 20_000_000i64,
                             ),
                         ];
-                        sbe_response(build_cancel_open_orders_response(&orders)).into_response()
+                        let order_list = build_cancel_order_list_response(
+                            9001,
+                            symbol.as_str(),
+                            &[(12347, "order-3"), (12348, "order-4")],
+                        );
+                        sbe_response(build_mixed_cancel_open_orders_response(
+                            &orders,
+                            &order_list,
+                        ))
+                        .into_response()
                     }
                 },
             ),
@@ -1730,11 +1807,33 @@ async fn test_cancel_all_orders_with_credentials_succeeds() {
     )
     .unwrap();
 
+    let orders = client.cancel_open_order_responses("BTCUSDT").await.unwrap();
+
+    assert_eq!(orders.len(), 3);
+    assert!(matches!(
+        &orders[0],
+        BinanceCancelOpenOrdersResponse::Order(order) if order.order_id == 12345
+    ));
+    assert!(matches!(
+        &orders[1],
+        BinanceCancelOpenOrdersResponse::Order(order) if order.order_id == 12346
+    ));
+    let BinanceCancelOpenOrdersResponse::OrderList(order_list) = &orders[2] else {
+        panic!("Expected typed order-list response");
+    };
+    assert_eq!(order_list.order_list_id, 9001);
+    assert_eq!(order_list.orders.len(), 2);
+    assert_eq!(order_list.order_reports.len(), 2);
+
     let orders = client.cancel_open_orders("BTCUSDT").await.unwrap();
 
-    assert_eq!(orders.len(), 2);
-    assert_eq!(orders[0].order_id, 12345);
-    assert_eq!(orders[1].order_id, 12346);
+    assert_eq!(
+        orders
+            .iter()
+            .map(|order| order.order_id)
+            .collect::<Vec<_>>(),
+        vec![12345, 12346, 12347, 12348],
+    );
 }
 
 async fn create_domain_client_with_instruments(
@@ -1940,11 +2039,13 @@ async fn test_domain_cancel_all_orders() {
     .await;
     let instrument_id = InstrumentId::from("BTCUSDT.BINANCE");
 
-    let venue_order_ids = client.cancel_all_orders(instrument_id).await.unwrap();
+    let canceled_orders = client.cancel_all_orders(instrument_id).await.unwrap();
 
-    assert_eq!(venue_order_ids.len(), 2);
-    assert_eq!(venue_order_ids[0].0, VenueOrderId::from("12345"));
-    assert_eq!(venue_order_ids[1].0, VenueOrderId::from("12346"));
+    assert_eq!(canceled_orders.len(), 4);
+    assert_eq!(canceled_orders[0].0, VenueOrderId::from("12345"));
+    assert_eq!(canceled_orders[1].0, VenueOrderId::from("12346"));
+    assert_eq!(canceled_orders[2].0, VenueOrderId::from("12347"));
+    assert_eq!(canceled_orders[3].0, VenueOrderId::from("12348"));
 }
 
 #[rstest]
