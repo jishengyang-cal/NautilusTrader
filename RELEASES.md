@@ -10,6 +10,7 @@ Released on TBD (UTC).
 - Added `due_post_only` to the `OrderRejected` constructor, defaulting to `false`
 - Added remote resolution for `TestDataProvider` CSV loaders so they work from an installed wheel
 - Added user-defined portfolio statistics via `Portfolio.register_statistic()` and Python `PortfolioStatistic`
+- Added rolling `ZScore` indicator for Rust and Python (#4868), thanks @graceyangfan
 - Added named task identity and lifecycle observation to live `TaskGroup`
 - Added Python enum surface (`from_str`, `name`, `value`, `variants`) to `BarIntervalType`
 - Added Python `OrderBook.to_deltas(...)` and `OrderBook.get_all_crossed_levels(...)`
@@ -19,10 +20,12 @@ Released on TBD (UTC).
 - Added Python `symbol` and `venue` properties to regular and synthetic instruments
 - Added `BacktestEngine::add_data_batch` for typed data batches that replay without per-item `Data` values, thanks @faysou
 - Added typed external MessageBus streaming for control, execution, and reconciliation messages
+- Added public `ExecutionEventEmitter.try_send_account_state(...)` (#4907), thanks @folknor
 - Added cache-backed claims that route external orders, fills, and reconciliation activity to the strategy
 - Added Bybit self-match prevention, set with `smp_type` on the execution client config or per order
 - Added Polymarket collateral-sized limit BUY orders with exact limit price preservation
 - Added Polymarket limit order modification support
+- Added Polymarket resolution subscriptions for data-only clients (#4895), thanks @mystic-io
 
 ### Breaking Changes
 
@@ -53,6 +56,7 @@ Released on TBD (UTC).
 
 ### Fixes
 
+- Fixed `AroonOscillator` oldest-low scans and tied extremes (#4914), thanks @haeganm
 - Fixed engine panic on startup when the PostgreSQL cache held an `OrderCanceled`, `OrderDenied`, `OrderEmulated`, `OrderExpired`, `OrderPendingCancel`, `OrderPendingUpdate`, `OrderRejected`, `OrderReleased`, `OrderTriggered`, or `OrderUpdated` event (#4917)
 - Fixed PostgreSQL cache load failing on a persisted `OrderFillVoided` event
 - Fixed `reconciliation` being persisted as `false` for every order event that carries the flag, so reconciled orders no longer restore as though they were not reconciled
@@ -69,6 +73,8 @@ Released on TBD (UTC).
 - Fixed Betfair fill report queries ignoring instrument and order filters
 - Fixed Betfair order status queries ignoring instrument filters and time bounds for closed orders
 - Fixed Binance Spot cancel-all decoding and lifecycle handling for OCO order lists
+- Fixed Kraken Spot available balances excluding funds held by the venue (#4922), thanks @zhaow-de
+- Fixed OKX mass status succeeding with incomplete pending algo-order coverage (#4924), thanks @silarin
 - Fixed OKX retries to honor `Retry-After`, preserve request identity, and avoid ambiguous order replay
 
 ### Internal Improvements
@@ -96,6 +102,8 @@ Released on TBD (UTC).
 - Optimized DataEngine and backtest dispatch through borrowed data views (#4900), thanks @faysou
 - Standardized repository Python text reads on UTF-8 across supported platforms
 - Standardized uv commands, CI, Docker, and documentation on the default `python/.venv` project environment
+- Upgraded `prek` tool to v0.5.2
+- Upgraded `uv` tool to v0.12.9
 - Upgraded `typos` pre-commit hook to v1.50.1
 - Upgraded `flate2` crate to v1.1.10
 - Upgraded `indexmap` crate to v2.14.1
@@ -106,9 +114,9 @@ Released on TBD (UTC).
 - Upgraded `rust_decimal` crate to v1.43.0
 - Upgraded `smallvec` crate to v1.16.0
 - Upgraded `toml` crate to v1.1.5
-- Upgraded `linkify-it-py` package to v2.1.1
+- Upgraded `linkify-it-py` package to v2.2.0
 - Upgraded `plotly` package to v7.0.0
-- Upgraded `ruff` package to v0.16.5
+- Upgraded `ruff` package (dev) and pre-commit hook to v0.16.5
 - Upgraded `simplejson` package to v4.1.2
 - Upgraded `ty` package to v0.0.75
 

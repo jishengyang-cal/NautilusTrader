@@ -853,6 +853,12 @@ criteria = "safe-to-deploy"
 delta = "0.4.42 -> 0.4.43"
 notes = "Fixes a hang when a corrupt later zstd frame leaves unread input by polling again only after the input is consumed. No new unsafe or ambient capabilities."
 
+[[audits.async-compression]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.4.43 -> 0.4.44"
+notes = "Updates only the compression-core and compression-codecs package versions. No source, unsafe, build script, or ambient capability changes."
+
 [[audits.async-trait]]
 who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
@@ -1142,6 +1148,18 @@ who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
 delta = "4.6.7 -> 4.6.8"
 notes = "Reviewed 4.6.7 -> 4.6.8: parser compatibility fixes, buffer initialization, and packaging changes"
+
+[[audits.compression-codecs]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.4.38 -> 0.4.39"
+notes = "Updates only the compression-core package version. No source, unsafe, build script, or ambient capability changes."
+
+[[audits.compression-core]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.4.32 -> 0.4.33"
+notes = "Corrects WriteBuffer initialization tracking and replaces debug-only unsafe bounds checks with release assertions. Reviewed the unsafe delta; no new dependencies, build script, or ambient capabilities."
 
 [[audits.const-hex]]
 who = "Nautech Systems <info@nautechsystems.io>"
@@ -1772,6 +1790,18 @@ who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
 delta = "0.11.0 -> 0.11.1"
 notes = "Fixes retain removal to match nodes by pointer identity and makes unsafe value-node dropping panic-safe. Reviewed unsafe linked-list delta; no new dependencies, build script, filesystem, or network behavior."
+
+[[audits.hermit-abi]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.5.2 -> 0.5.3"
+notes = "Adds the Hermit fsync syscall declaration and fixes documentation examples. No implementation, build script, or ambient capability changes outside the declared platform ABI."
+
+[[audits.hex-conservative]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "0.2.2 -> 0.2.3"
+notes = "Fixes human-readable Serde decoding to use the string visitor and adds round-trip tests. No unsafe, build script, dependency, or ambient capability changes."
 
 [[audits.http]]
 who = "Nautech Systems <info@nautechsystems.io>"
@@ -2663,6 +2693,12 @@ who = "Nautech Systems <info@nautechsystems.io>"
 criteria = "safe-to-deploy"
 delta = "1.13.1 -> 1.13.2"
 notes = "Removes redundant boxing from owned serde buffering. No new unsafe, build script, or ambient capabilities."
+
+[[audits.value-bag]]
+who = "Nautech Systems <info@nautechsystems.io>"
+criteria = "safe-to-deploy"
+delta = "1.13.2 -> 1.14.1"
+notes = "Extends error capture to core::error behind a new feature and updates feature gates consistently. No unsafe, build script, dependency, or ambient capability changes."
 
 [[audits.wasm-bindgen]]
 who = "Nautech Systems <info@nautechsystems.io>"

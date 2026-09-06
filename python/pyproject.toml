@@ -140,7 +140,6 @@ no-build-package = [
   "ty",
   "typing-extensions",
   "tzdata",
-  "uc-micro-py",
   "urllib3",
   "uvicorn",
   "uvloop",
