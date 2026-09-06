@@ -67,6 +67,23 @@ configured for a single `product_type` (`SPOT` or `FUTURES`); a single client
 does not span both markets.
 :::
 
+## Spot instrument fees
+
+When both `api_key` and `api_secret` are configured, the adapter loads the
+account's current maker and taker rates for currency pairs and tokenized assets
+from Kraken's
+[`TradeVolume` endpoint](https://docs.kraken.com/api-reference/account-data/get-trade-volume).
+The API key must include the `Funds permissions - Query` permission, shown as
+**Query Funds** when creating the key.
+
+If `TradeVolume` fails or omits any requested pair, the Spot data or execution
+client cannot connect. The adapter does not silently publish instruments with
+public base-tier fees. For pairs without a maker/taker schedule, Kraken returns
+one fee, which the adapter applies to both maker and taker activity.
+
+Without Spot API credentials, the adapter uses the public base-tier rates from
+`AssetPairs`. These rates can differ from the account's actual fee tier.
+
 ## Bar streaming
 
 ### Supported intervals
@@ -684,8 +701,8 @@ The product type for each client is specified via the `product_type` option.
 | ------------------------- | --------- | -------------------------------------------------------------- |
 | `product_type`            | `SPOT`    | Product type for this client (`SPOT` or `FUTURES`).            |
 | `environment`             | `LIVE`    | Trading environment (`LIVE` or `DEMO`); demo only for Futures. |
-| `api_key`                 | `None`    | API key for authenticated Spot data such as L3.                |
-| `api_secret`              | `None`    | API secret for authenticated Spot data such as L3.             |
+| `api_key`                 | `None`    | API key for Spot L3 data and account fee rates.                |
+| `api_secret`              | `None`    | API secret for Spot L3 data and account fee rates.             |
 | `base_url`                | `None`    | Override for the Kraken REST base URL.                         |
 | `ws_public_url`           | `None`    | Override for the public WebSocket URL.                         |
 | `ws_private_url`          | `None`    | Override for the private WebSocket URL.                        |
@@ -755,8 +772,9 @@ execution clients.
 
 Live-node configuration objects do not read credential environment variables
 automatically. Pass `api_key` and `api_secret` explicitly to
-`KrakenExecutionClientConfig` and, for Spot L3 data, to `KrakenDataClientConfig`.
-Public market data does not require credentials.
+`KrakenExecutionClientConfig` and, for Spot L3 data or account-specific
+instrument fees, to `KrakenDataClientConfig`. Public market data does not
+require credentials.
 
 The lower-level Python HTTP and WebSocket clients load the following variables
 when their credential arguments are omitted. Rust applications can use

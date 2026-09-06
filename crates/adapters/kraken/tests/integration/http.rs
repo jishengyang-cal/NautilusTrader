@@ -99,7 +99,13 @@ struct TestServerState {
     open_positions_empty: Arc<AtomicBool>,
     /// When set, `/0/private/OpenPositions` returns this JSON string instead of the fixture file.
     open_positions_json: Arc<tokio::sync::Mutex<Option<String>>>,
+    trade_volume_request_count: Arc<AtomicUsize>,
+    trade_volume_failures_remaining: Arc<AtomicUsize>,
+    trade_volume_bodies: Arc<tokio::sync::Mutex<Vec<Value>>>,
+    trade_volume_omitted_fee: Arc<tokio::sync::Mutex<Option<String>>>,
+    trade_volume_omitted_maker_fee: Arc<tokio::sync::Mutex<Option<String>>>,
     spot_asset_pairs_empty: Arc<AtomicBool>,
+    spot_asset_pairs_tokenized_duplicate: Arc<AtomicBool>,
     spot_asset_pairs_request_count: Arc<AtomicUsize>,
     futures_instruments_empty: Arc<AtomicBool>,
     futures_instruments_over_precision: Arc<AtomicBool>,
@@ -122,7 +128,13 @@ impl Default for TestServerState {
             balance_ex_json: Arc::new(tokio::sync::Mutex::new(None)),
             open_positions_empty: Arc::new(AtomicBool::new(false)),
             open_positions_json: Arc::new(tokio::sync::Mutex::new(None)),
+            trade_volume_request_count: Arc::new(AtomicUsize::new(0)),
+            trade_volume_failures_remaining: Arc::new(AtomicUsize::new(0)),
+            trade_volume_bodies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            trade_volume_omitted_fee: Arc::new(tokio::sync::Mutex::new(None)),
+            trade_volume_omitted_maker_fee: Arc::new(tokio::sync::Mutex::new(None)),
             spot_asset_pairs_empty: Arc::new(AtomicBool::new(false)),
+            spot_asset_pairs_tokenized_duplicate: Arc::new(AtomicBool::new(false)),
             spot_asset_pairs_request_count: Arc::new(AtomicUsize::new(0)),
             futures_instruments_empty: Arc::new(AtomicBool::new(false)),
             futures_instruments_over_precision: Arc::new(AtomicBool::new(false)),
@@ -227,7 +239,16 @@ async fn mock_asset_pairs(aclass_base: Option<&str>, state: Arc<TestServerState>
         Some("tokenized_asset") => "http_asset_pairs_tokenized.json",
         _ => "http_asset_pairs.json",
     };
-    let data = load_test_data(filename);
+    let mut data = load_test_data(filename);
+
+    if aclass_base == Some("tokenized_asset")
+        && state
+            .spot_asset_pairs_tokenized_duplicate
+            .load(Ordering::Relaxed)
+    {
+        let duplicate = data["result"]["AAPLxUSD"].clone();
+        data["result"]["AAPLSPVUSD"] = duplicate;
+    }
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "application/json")
@@ -631,6 +652,7 @@ async fn mock_handler(req: Request, state: Arc<TestServerState>) -> Response {
                 mock_spot_trade_balance().await
             }
         }
+        "/0/private/TradeVolume" => mock_spot_trade_volume(req, state.clone()).await,
         "/0/private/OpenPositions" => {
             if state.open_positions_empty.load(Ordering::Relaxed) {
                 Response::builder()
@@ -733,6 +755,79 @@ async fn mock_spot_trade_balance() -> Response {
         .status(StatusCode::OK)
         .header("content-type", "application/json")
         .body(Body::from(data))
+        .unwrap()
+}
+
+async fn mock_spot_trade_volume(req: Request, state: Arc<TestServerState>) -> Response {
+    state
+        .trade_volume_request_count
+        .fetch_add(1, Ordering::Relaxed);
+
+    if !has_auth_headers(req.headers()) {
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .body(Body::from("Missing authentication headers"))
+            .unwrap();
+    }
+
+    let body = axum::body::to_bytes(req.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    state.trade_volume_bodies.lock().await.push(body.clone());
+
+    if state
+        .trade_volume_failures_remaining
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+            remaining.checked_sub(1)
+        })
+        .is_ok()
+    {
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Temporary server error"))
+            .unwrap();
+    }
+
+    let result = if let Some(pairs) = body["pair"].as_array() {
+        let mut fees = serde_json::Map::new();
+        let mut fees_maker = serde_json::Map::new();
+        let omitted_fee = state.trade_volume_omitted_fee.lock().await.clone();
+        let omitted_maker_fee = state.trade_volume_omitted_maker_fee.lock().await.clone();
+
+        for pair in pairs {
+            let asset = pair["asset"].as_str().unwrap();
+            let fee_key = match asset {
+                "AAPL/USD" => "AAPLZUSD.EQ",
+                _ => asset,
+            };
+
+            if omitted_fee.as_deref() == Some(fee_key) {
+                continue;
+            }
+            fees.insert(fee_key.to_string(), serde_json::json!({"fee": "0.1900"}));
+            if omitted_maker_fee.as_deref() != Some(fee_key) {
+                fees_maker.insert(fee_key.to_string(), serde_json::json!({"fee": "0.0300"}));
+            }
+        }
+        serde_json::json!({
+            "error": [],
+            "result": {"fees": fees, "fees_maker": fees_maker}
+        })
+    } else {
+        serde_json::json!({
+            "error": [],
+            "result": {
+                "fees": {"XBTUSDT": {"fee": "0.2900"}},
+                "fees_maker": {"XBTUSDT": {"fee": "0.1700"}}
+            }
+        })
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .body(Body::from(result.to_string()))
         .unwrap()
 }
 
@@ -856,6 +951,46 @@ async fn test_spot_data_client_request_instrument_refetches_when_cached() {
         instrument_response(&events).is_none(),
         "request_instrument must not emit a stale cached response when Kraken Spot returns no instruments; events were: {events:?}",
     );
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_spot_data_client_publishes_account_fee_rates() {
+    let (addr, state) = start_test_server().await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+    replace_data_event_sender(tx);
+    let mut config = create_data_config(addr, KrakenProductType::Spot);
+    config.api_key = Some("test_api_key".into());
+    config.api_secret = Some("dGVzdF9hcGlfc2VjcmV0X2Jhc2U2NA==".into());
+    let client =
+        KrakenSpotDataClient::new(*KRAKEN_CLIENT_ID, config).expect("Kraken spot data client");
+    let instrument_id = InstrumentId::from("BTC/USDT.KRAKEN");
+
+    client
+        .request_instrument(RequestInstrument::new(
+            instrument_id,
+            None,
+            None,
+            Some(*KRAKEN_CLIENT_ID),
+            UUID4::new(),
+            UnixNanos::default(),
+            None,
+        ))
+        .expect("request_instrument");
+
+    wait_until_async(
+        || async {
+            state.trade_volume_request_count.load(Ordering::Relaxed) == 2 && !rx.is_empty()
+        },
+        Duration::from_secs(5),
+    )
+    .await;
+    let events = drain_data_events(&mut rx, Duration::from_millis(200)).await;
+    let response = instrument_response(&events).expect("instrument response");
+
+    assert_eq!(response.instrument_id, instrument_id);
+    assert_eq!(response.data.maker_fee(), dec!(0.0017));
+    assert_eq!(response.data.taker_fee(), dec!(0.0029));
 }
 
 #[rstest]
@@ -1187,18 +1322,137 @@ async fn test_spot_domain_request_instruments() {
     let result = client.request_instruments(None).await;
     assert!(result.is_ok(), "Failed to request instruments: {result:?}");
 
-    let instruments: Vec<InstrumentAny> = result.unwrap();
-    assert!(!instruments.is_empty());
-
-    let has_currency_pair = instruments
+    let instruments = result.unwrap();
+    let currency_pair = instruments
         .iter()
-        .any(|i| matches!(i, InstrumentAny::CurrencyPair(_)));
-    let has_tokenized = instruments
+        .find(|instrument| instrument.raw_symbol().as_str() == "XBTUSDT")
+        .expect("XBTUSDT instrument");
+    let tokenized = instruments
         .iter()
-        .any(|i| matches!(i, InstrumentAny::TokenizedAsset(_)));
+        .find(|instrument| instrument.raw_symbol().as_str() == "AAPLxUSD")
+        .expect("AAPLxUSD instrument");
 
-    assert!(has_currency_pair, "Expected at least one CurrencyPair");
-    assert!(has_tokenized, "Expected at least one TokenizedAsset");
+    assert!(matches!(currency_pair, InstrumentAny::CurrencyPair(_)));
+    assert_eq!(currency_pair.maker_fee(), dec!(0.0025));
+    assert_eq!(currency_pair.taker_fee(), dec!(0.004));
+    assert!(matches!(tokenized, InstrumentAny::TokenizedAsset(_)));
+    assert_eq!(tokenized.maker_fee(), dec!(-0.0002));
+    assert_eq!(tokenized.taker_fee(), dec!(0.001));
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_spot_domain_request_instruments_uses_account_fee_rates_and_retries() {
+    let (addr, state) = start_test_server().await;
+    state
+        .trade_volume_failures_remaining
+        .store(1, Ordering::Relaxed);
+    state
+        .spot_asset_pairs_tokenized_duplicate
+        .store(true, Ordering::Relaxed);
+    let client = KrakenSpotHttpClient::with_credentials(
+        "test_api_key".to_string(),
+        "dGVzdF9hcGlfc2VjcmV0X2Jhc2U2NA==".to_string(),
+        KrakenEnvironment::Live,
+        Some(format!("http://{addr}")),
+        10,
+        Some(1),
+        Some(1),
+        Some(1),
+        None,
+        5,
+    )
+    .unwrap();
+
+    let instruments = client.request_instruments(None).await.unwrap();
+    let currency_pair = instruments
+        .iter()
+        .find(|instrument| instrument.raw_symbol().as_str() == "XBTUSDT")
+        .expect("XBTUSDT instrument");
+    let tokenized = instruments
+        .iter()
+        .find(|instrument| instrument.raw_symbol().as_str() == "AAPLxUSD")
+        .expect("AAPLxUSD instrument");
+    let tokenized_spv = instruments
+        .iter()
+        .find(|instrument| instrument.raw_symbol().as_str() == "AAPLSPVUSD")
+        .expect("AAPLSPVUSD instrument");
+    let bodies = state.trade_volume_bodies.lock().await;
+
+    assert_eq!(currency_pair.maker_fee(), dec!(0.0017));
+    assert_eq!(currency_pair.taker_fee(), dec!(0.0029));
+    assert_eq!(tokenized.maker_fee(), dec!(0.0003));
+    assert_eq!(tokenized.taker_fee(), dec!(0.0019));
+    assert_eq!(tokenized_spv.maker_fee(), dec!(0.0003));
+    assert_eq!(tokenized_spv.taker_fee(), dec!(0.0019));
+    assert_eq!(state.trade_volume_request_count.load(Ordering::Relaxed), 3);
+    assert_eq!(bodies.len(), 3);
+    assert_eq!(bodies[0]["pair"], serde_json::json!("XBTUSDT"));
+    assert_eq!(bodies[1]["pair"], serde_json::json!("XBTUSDT"));
+    assert_ne!(bodies[0]["nonce"], bodies[1]["nonce"]);
+    assert_eq!(
+        bodies[2]["pair"],
+        serde_json::json!([
+            {"asset": "AAPL/USD", "aclass": "equity_pair"}
+        ])
+    );
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_spot_domain_request_instruments_rejects_missing_account_fee() {
+    let (addr, state) = start_test_server().await;
+    *state.trade_volume_omitted_fee.lock().await = Some("AAPLZUSD.EQ".to_string());
+    let client = KrakenSpotHttpClient::with_credentials(
+        "test_api_key".to_string(),
+        "dGVzdF9hcGlfc2VjcmV0X2Jhc2U2NA==".to_string(),
+        KrakenEnvironment::Live,
+        Some(format!("http://{addr}")),
+        10,
+        None,
+        None,
+        None,
+        None,
+        5,
+    )
+    .unwrap();
+
+    let result = client.request_instruments(None).await;
+
+    assert!(matches!(
+        result,
+        Err(KrakenHttpError::ParseError(ref message))
+            if message == "TradeVolume response missing taker fee for AAPLxUSD"
+    ));
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_spot_domain_request_instruments_uses_taker_fee_when_maker_fee_missing() {
+    let (addr, state) = start_test_server().await;
+    *state.trade_volume_omitted_maker_fee.lock().await = Some("AAPLZUSD.EQ".to_string());
+    let client = KrakenSpotHttpClient::with_credentials(
+        "test_api_key".to_string(),
+        "dGVzdF9hcGlfc2VjcmV0X2Jhc2U2NA==".to_string(),
+        KrakenEnvironment::Live,
+        Some(format!("http://{addr}")),
+        10,
+        None,
+        None,
+        None,
+        None,
+        5,
+    )
+    .unwrap();
+
+    let instruments = client.request_instruments(None).await.unwrap();
+    let tokenized = instruments
+        .iter()
+        .find(|instrument| instrument.raw_symbol().as_str() == "AAPLxUSD")
+        .expect("AAPLxUSD instrument");
+
+    assert_eq!(tokenized.maker_fee(), dec!(0.0019));
+    assert_eq!(tokenized.taker_fee(), dec!(0.0019));
 }
 
 #[rstest]

@@ -17,6 +17,7 @@
 
 use std::{
     cell::RefCell,
+    collections::HashMap,
     net::SocketAddr,
     path::PathBuf,
     rc::Rc,
@@ -31,7 +32,7 @@ use axum::{
     Router,
     body::{Body, to_bytes},
     extract::{
-        Request, State,
+        Query, Request, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::StatusCode,
@@ -361,7 +362,19 @@ async fn handle_http_request(State(state): State<TestServerState>, req: Request)
                 ),
             }
         }
-        "/0/public/AssetPairs" => json_response(load_test_data("http_asset_pairs.json")),
+        "/0/public/AssetPairs" => {
+            let query = Query::<HashMap<String, String>>::try_from_uri(req.uri())
+                .unwrap_or_default();
+            let filename = match query.get("aclass_base").map(String::as_str) {
+                Some("tokenized_asset") => "http_asset_pairs_tokenized.json",
+                _ => "http_asset_pairs.json",
+            };
+            json_response(load_test_data(filename))
+        }
+        "/0/private/TradeVolume" => json_response(
+            r#"{"error":[],"result":{"fees":{"XBTUSDT":{"fee":"0.2900"},"AAPLZUSD.EQ":{"fee":"0.1900"}},"fees_maker":{"XBTUSDT":{"fee":"0.1700"},"AAPLZUSD.EQ":{"fee":"0.0300"}}}}"#
+                .to_string(),
+        ),
         "/0/private/GetWebSocketsToken" => json_response(
             r#"{"error":[],"result":{"token":"TEST-TOKEN","expires":900}}"#.to_string(),
         ),

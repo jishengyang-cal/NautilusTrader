@@ -185,6 +185,16 @@ pub fn parse_spot_instrument(
     ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
+    parse_spot_instrument_with_fee_rates(pair_name, definition, None, ts_event, ts_init)
+}
+
+pub(crate) fn parse_spot_instrument_with_fee_rates(
+    pair_name: &str,
+    definition: &AssetPairInfo,
+    fee_rates: Option<(Decimal, Decimal)>,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
     let symbol_str = definition.wsname.as_ref().unwrap_or(&definition.altname);
     let normalized_symbol = normalize_spot_symbol(symbol_str);
     let instrument_id = InstrumentId::new(Symbol::new(&normalized_symbol), *KRAKEN_VENUE);
@@ -214,13 +224,7 @@ pub fn parse_spot_instrument(
         .map(|s| parse_quantity(s, "ordermin"))
         .transpose()?;
 
-    // Use base tier fees, convert from percentage
-    let taker_fee = definition.fees.first().map(|(_, fee)| *fee / dec!(100));
-
-    let maker_fee = definition
-        .fees_maker
-        .first()
-        .map(|(_, fee)| *fee / dec!(100));
+    let (maker_fee, taker_fee) = resolve_fee_rates(definition, fee_rates);
 
     let instrument = CurrencyPair::builder()
         .instrument_id(instrument_id)
@@ -256,6 +260,16 @@ pub fn parse_tokenized_instrument(
     ts_event: UnixNanos,
     ts_init: UnixNanos,
 ) -> anyhow::Result<InstrumentAny> {
+    parse_tokenized_instrument_with_fee_rates(pair_name, definition, None, ts_event, ts_init)
+}
+
+pub(crate) fn parse_tokenized_instrument_with_fee_rates(
+    pair_name: &str,
+    definition: &AssetPairInfo,
+    fee_rates: Option<(Decimal, Decimal)>,
+    ts_event: UnixNanos,
+    ts_init: UnixNanos,
+) -> anyhow::Result<InstrumentAny> {
     let symbol_str = definition.wsname.as_ref().unwrap_or(&definition.altname);
     let normalized_symbol = normalize_spot_symbol(symbol_str);
     let instrument_id = InstrumentId::new(Symbol::new(&normalized_symbol), *KRAKEN_VENUE);
@@ -284,12 +298,7 @@ pub fn parse_tokenized_instrument(
         .map(|s| parse_quantity(s, "ordermin"))
         .transpose()?;
 
-    let taker_fee = definition.fees.first().map(|(_, fee)| *fee / dec!(100));
-
-    let maker_fee = definition
-        .fees_maker
-        .first()
-        .map(|(_, fee)| *fee / dec!(100));
+    let (maker_fee, taker_fee) = resolve_fee_rates(definition, fee_rates);
 
     let instrument = TokenizedAsset::builder()
         .instrument_id(instrument_id)
@@ -310,6 +319,24 @@ pub fn parse_tokenized_instrument(
         .unwrap();
 
     Ok(InstrumentAny::TokenizedAsset(instrument))
+}
+
+fn resolve_fee_rates(
+    definition: &AssetPairInfo,
+    account_fee_rates: Option<(Decimal, Decimal)>,
+) -> (Option<Decimal>, Option<Decimal>) {
+    account_fee_rates.map_or_else(
+        || {
+            (
+                definition
+                    .fees_maker
+                    .first()
+                    .map(|(_, fee)| *fee / dec!(100)),
+                definition.fees.first().map(|(_, fee)| *fee / dec!(100)),
+            )
+        },
+        |(maker, taker)| (Some(maker), Some(taker)),
+    )
 }
 
 /// Parses a Kraken futures instrument definition into a Nautilus crypto perpetual instrument.
@@ -1301,6 +1328,31 @@ mod tests {
     }
 
     #[rstest]
+    fn test_parse_spot_instrument_with_account_fee_rates() {
+        let json = load_test_json("http_asset_pairs.json");
+        let response: KrakenResponse<AssetPairsResponse> = serde_json::from_str(&json).unwrap();
+        let pairs = response.result.unwrap();
+        let (pair_name, definition) = pairs.iter().next().unwrap();
+
+        let instrument = parse_spot_instrument_with_fee_rates(
+            pair_name,
+            definition,
+            Some((dec!(0.0017), dec!(0.0029))),
+            TS,
+            TS,
+        )
+        .unwrap();
+
+        match instrument {
+            InstrumentAny::CurrencyPair(pair) => {
+                assert_eq!(pair.maker_fee, dec!(0.0017));
+                assert_eq!(pair.taker_fee, dec!(0.0029));
+            }
+            _ => panic!("Expected CurrencyPair"),
+        }
+    }
+
+    #[rstest]
     fn test_parse_futures_instrument_inverse() {
         let json = load_test_json("http_futures_instruments.json");
         let response: crate::http::models::FuturesInstrumentsResponse =
@@ -2198,6 +2250,31 @@ mod tests {
                 assert!(ta.min_quantity.is_some());
                 assert_eq!(ta.maker_fee, dec!(-0.0002));
                 assert_eq!(ta.taker_fee, dec!(0.001));
+            }
+            _ => panic!("Expected TokenizedAsset, received {instrument:?}"),
+        }
+    }
+
+    #[rstest]
+    fn test_parse_tokenized_instrument_with_account_fee_rates() {
+        let json = load_test_json("http_asset_pairs_tokenized.json");
+        let response: KrakenResponse<AssetPairsResponse> = serde_json::from_str(&json).unwrap();
+        let pairs = response.result.unwrap();
+        let (pair_name, definition) = pairs.iter().next().unwrap();
+
+        let instrument = parse_tokenized_instrument_with_fee_rates(
+            pair_name,
+            definition,
+            Some((dec!(0.0003), dec!(0.0019))),
+            TS,
+            TS,
+        )
+        .unwrap();
+
+        match instrument {
+            InstrumentAny::TokenizedAsset(asset) => {
+                assert_eq!(asset.maker_fee, dec!(0.0003));
+                assert_eq!(asset.taker_fee, dec!(0.0019));
             }
             _ => panic!("Expected TokenizedAsset, received {instrument:?}"),
         }

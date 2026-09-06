@@ -114,18 +114,33 @@ impl KrakenSpotDataClient {
             .as_ref()
             .map(|value| value.expose_secret().to_owned());
 
-        let http = KrakenSpotHttpClient::new(
-            config.environment,
-            config.base_url.clone(),
-            config.timeout_secs,
-            None,
-            None,
-            None,
-            proxy_url.clone(),
-            config
-                .max_requests_per_second
-                .unwrap_or(KRAKEN_SPOT_DEFAULT_RATE_LIMIT_PER_SECOND),
-        )?;
+        let max_requests_per_second = config
+            .max_requests_per_second
+            .unwrap_or(KRAKEN_SPOT_DEFAULT_RATE_LIMIT_PER_SECOND);
+        let http = match (&config.api_key, &config.api_secret) {
+            (Some(api_key), Some(api_secret)) => KrakenSpotHttpClient::with_credentials(
+                api_key.expose_secret().to_owned(),
+                api_secret.expose_secret().to_owned(),
+                config.environment,
+                config.base_url.clone(),
+                config.timeout_secs,
+                None,
+                None,
+                None,
+                proxy_url.clone(),
+                max_requests_per_second,
+            )?,
+            _ => KrakenSpotHttpClient::new(
+                config.environment,
+                config.base_url.clone(),
+                config.timeout_secs,
+                None,
+                None,
+                None,
+                proxy_url.clone(),
+                max_requests_per_second,
+            )?,
+        };
 
         let ws =
             KrakenSpotWebSocketClient::new(config.clone(), cancellation_token.clone(), proxy_url)

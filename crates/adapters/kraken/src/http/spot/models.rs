@@ -32,7 +32,7 @@ use crate::common::{
         KrakenAssetClass, KrakenOrderSide, KrakenOrderStatus, KrakenOrderType, KrakenPairStatus,
         KrakenSpotTrigger, KrakenSystemStatus,
     },
-    serialization::decimal_pairs,
+    serialization::{decimal, decimal_pairs},
 };
 
 /// Wrapper for Kraken API responses.
@@ -198,6 +198,19 @@ pub struct AssetPairInfo {
 }
 
 pub type AssetPairsResponse = IndexMap<String, AssetPairInfo>;
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SpotTradeVolumeFee {
+    #[serde(with = "decimal")]
+    pub fee: Decimal,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SpotTradeVolumeResponse {
+    pub fees: IndexMap<String, SpotTradeVolumeFee>,
+    #[serde(default)]
+    pub fees_maker: IndexMap<String, SpotTradeVolumeFee>,
+}
 
 // Ticker Models
 
