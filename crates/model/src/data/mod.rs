@@ -176,10 +176,9 @@ impl<'de> Deserialize<'de> for Data {
         let type_name = value
             .get("type")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| D::Error::custom("Missing 'type' field in Data"))?
-            .to_string();
+            .ok_or_else(|| D::Error::custom("Missing 'type' field in Data"))?;
 
-        match type_name.as_str() {
+        match type_name {
             "OrderBookDelta" => Ok(Self::BookDelta(
                 serde_json::from_value(value).map_err(D::Error::custom)?,
             )),
@@ -218,7 +217,7 @@ impl<'de> Deserialize<'de> for Data {
             )),
             _ => {
                 if let Some(data) =
-                    deserialize_custom_from_json(&type_name, &value).map_err(D::Error::custom)?
+                    deserialize_custom_from_json(type_name, &value).map_err(D::Error::custom)?
                 {
                     Ok(data)
                 } else {
@@ -301,7 +300,7 @@ impl Serialize for Data {
     }
 }
 
-macro_rules! impl_try_from_data {
+macro_rules! impl_data_conversions {
     ($variant:ident, $type:ty) => {
         impl TryFrom<Data> for $type {
             type Error = ();
@@ -311,6 +310,12 @@ macro_rules! impl_try_from_data {
                     Data::$variant(x) => Ok(x),
                     _ => Err(()),
                 }
+            }
+        }
+
+        impl From<$type> for Data {
+            fn from(value: $type) -> Self {
+                Self::$variant(value)
             }
         }
     };
@@ -338,16 +343,16 @@ impl TryFrom<Data> for OrderBookDeltas {
     }
 }
 
-impl_try_from_data!(Quote, QuoteTick);
-impl_try_from_data!(BookDelta, OrderBookDelta);
-impl_try_from_data!(Trade, TradeTick);
-impl_try_from_data!(Bar, Bar);
-impl_try_from_data!(MarkPrice, MarkPriceUpdate);
-impl_try_from_data!(IndexPrice, IndexPriceUpdate);
-impl_try_from_data!(FundingRate, FundingRateUpdate);
-impl_try_from_data!(OptionGreeks, OptionGreeks);
-impl_try_from_data!(InstrumentStatus, InstrumentStatus);
-impl_try_from_data!(InstrumentClose, InstrumentClose);
+impl_data_conversions!(Quote, QuoteTick);
+impl_data_conversions!(BookDelta, OrderBookDelta);
+impl_data_conversions!(Trade, TradeTick);
+impl_data_conversions!(Bar, Bar);
+impl_data_conversions!(MarkPrice, MarkPriceUpdate);
+impl_data_conversions!(IndexPrice, IndexPriceUpdate);
+impl_data_conversions!(FundingRate, FundingRateUpdate);
+impl_data_conversions!(OptionGreeks, OptionGreeks);
+impl_data_conversions!(InstrumentStatus, InstrumentStatus);
+impl_data_conversions!(InstrumentClose, InstrumentClose);
 
 /// Converts a vector of `Data` items to a specific variant type.
 ///
@@ -506,12 +511,6 @@ pub fn is_monotonically_increasing_by_init<T: HasTsInit>(data: &[T]) -> bool {
         .all(|[a, b]| a.ts_init() <= b.ts_init())
 }
 
-impl From<OrderBookDelta> for Data {
-    fn from(value: OrderBookDelta) -> Self {
-        Self::BookDelta(value)
-    }
-}
-
 impl From<OrderBookDeltas> for Data {
     fn from(value: OrderBookDeltas) -> Self {
         Self::BookDeltas(Box::new(value))
@@ -521,60 +520,6 @@ impl From<OrderBookDeltas> for Data {
 impl From<OrderBookDepth10> for Data {
     fn from(value: OrderBookDepth10) -> Self {
         Self::BookDepth10(Box::new(value))
-    }
-}
-
-impl From<QuoteTick> for Data {
-    fn from(value: QuoteTick) -> Self {
-        Self::Quote(value)
-    }
-}
-
-impl From<TradeTick> for Data {
-    fn from(value: TradeTick) -> Self {
-        Self::Trade(value)
-    }
-}
-
-impl From<Bar> for Data {
-    fn from(value: Bar) -> Self {
-        Self::Bar(value)
-    }
-}
-
-impl From<MarkPriceUpdate> for Data {
-    fn from(value: MarkPriceUpdate) -> Self {
-        Self::MarkPrice(value)
-    }
-}
-
-impl From<IndexPriceUpdate> for Data {
-    fn from(value: IndexPriceUpdate) -> Self {
-        Self::IndexPrice(value)
-    }
-}
-
-impl From<FundingRateUpdate> for Data {
-    fn from(value: FundingRateUpdate) -> Self {
-        Self::FundingRate(value)
-    }
-}
-
-impl From<OptionGreeks> for Data {
-    fn from(value: OptionGreeks) -> Self {
-        Self::OptionGreeks(value)
-    }
-}
-
-impl From<InstrumentStatus> for Data {
-    fn from(value: InstrumentStatus) -> Self {
-        Self::InstrumentStatus(value)
-    }
-}
-
-impl From<InstrumentClose> for Data {
-    fn from(value: InstrumentClose) -> Self {
-        Self::InstrumentClose(value)
     }
 }
 
@@ -864,8 +809,7 @@ impl DataType {
         let type_name = obj
             .get("type_name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("data_type must have type_name"))?
-            .to_string();
+            .ok_or_else(|| anyhow::anyhow!("data_type must have type_name"))?;
         let metadata = obj.get("metadata").and_then(|m| {
             if m.is_null() {
                 None
@@ -878,7 +822,7 @@ impl DataType {
             .get("identifier")
             .and_then(|v| v.as_str())
             .map(String::from);
-        Ok(Self::new(&type_name, metadata, identifier))
+        Ok(Self::new(type_name, metadata, identifier))
     }
 
     /// Returns the type name for the data type.
