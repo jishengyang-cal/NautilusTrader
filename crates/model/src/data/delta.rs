@@ -753,7 +753,7 @@ mod tests {
         let json = serde_json::to_string(&delta).unwrap();
         let deserialized: OrderBookDelta = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(delta, deserialized);
+        assert_order_book_delta_fields(&delta, &deserialized);
     }
 
     #[rstest]
@@ -761,7 +761,7 @@ mod tests {
         let delta = stub_delta;
         let serialized = delta.to_json_bytes().unwrap();
         let deserialized = OrderBookDelta::from_json_bytes(serialized.as_ref()).unwrap();
-        assert_eq!(deserialized, delta);
+        assert_order_book_delta_fields(&delta, &deserialized);
     }
 
     #[rstest]
@@ -769,6 +769,19 @@ mod tests {
         let delta = stub_delta;
         let serialized = delta.to_msgpack_bytes().unwrap();
         let deserialized = OrderBookDelta::from_msgpack_bytes(serialized.as_ref()).unwrap();
-        assert_eq!(deserialized, delta);
+        assert_order_book_delta_fields(&delta, &deserialized);
+    }
+
+    fn assert_order_book_delta_fields(expected: &OrderBookDelta, actual: &OrderBookDelta) {
+        assert_eq!(expected.instrument_id, actual.instrument_id);
+        assert_eq!(expected.action, actual.action);
+        assert_eq!(expected.order.side, actual.order.side);
+        assert_eq!(expected.order.price, actual.order.price);
+        assert_eq!(expected.order.size, actual.order.size);
+        assert_eq!(expected.order.order_id, actual.order.order_id);
+        assert_eq!(expected.flags, actual.flags);
+        assert_eq!(expected.sequence, actual.sequence);
+        assert_eq!(expected.ts_event, actual.ts_event);
+        assert_eq!(expected.ts_init, actual.ts_init);
     }
 }

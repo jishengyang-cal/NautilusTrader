@@ -1183,6 +1183,31 @@ mod tests {
         }
     }
 
+    #[rstest]
+    #[case(Vec::new(), true)]
+    #[case(vec![1], true)]
+    #[case(vec![1, 1, 2], true)]
+    #[case(vec![2, 1], false)]
+    fn test_is_monotonically_increasing_by_init(
+        #[case] timestamps: Vec<u64>,
+        #[case] expected: bool,
+    ) {
+        let instrument_id = InstrumentId::from("ETHUSDT-PERP.BINANCE");
+        let data: Vec<IndexPriceUpdate> = timestamps
+            .into_iter()
+            .map(|ts_init| {
+                IndexPriceUpdate::new(
+                    instrument_id,
+                    Price::from("100.00"),
+                    UnixNanos::from(0),
+                    UnixNanos::from(ts_init),
+                )
+            })
+            .collect();
+
+        assert_eq!(is_monotonically_increasing_by_init(&data), expected);
+    }
+
     #[cfg(feature = "defi")]
     #[rstest]
     fn test_data_ref_maps_defi_without_copying_payload() {
