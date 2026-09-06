@@ -47,6 +47,7 @@ from nautilus_trader.trading import ImportableExecutionAlgorithmConfig
 from nautilus_trader.trading import ImportableStrategyConfig
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading import StrategyConfig
+from tests.unit.common.actor import ConfiguredIdProbeStrategy
 from tests.unit.common.actor import ControllerRegistrationProbe
 from tests.unit.common.actor import LifecycleProbeStrategy
 
@@ -692,6 +693,36 @@ def test_add_strategy_from_config_rejects_nonexistent_module(live_node: LiveNode
     )
 
     with pytest.raises(RuntimeError, match="Failed to import module"):
+        live_node.add_strategy_from_config(config)
+
+
+def test_add_strategy_from_config_accepts_string_strategy_id(live_node: LiveNode) -> None:
+    """
+    Test add strategy from config accepts a string strategy ID.
+    """
+    ConfiguredIdProbeStrategy.reset()
+    config = ImportableStrategyConfig(
+        strategy_path="tests.unit.common.actor:ConfiguredIdProbeStrategy",
+        config_path="tests.unit.common.actor:CustomFieldStrategyConfig",
+        config={"strategy_id": "LIVE-STRAT-001", "custom_field": "x"},
+    )
+
+    live_node.add_strategy_from_config(config)
+
+    assert ConfiguredIdProbeStrategy.config_strategy_id == StrategyId("LIVE-STRAT-001")
+
+
+def test_add_strategy_from_config_with_unsettable_field_raises(live_node: LiveNode) -> None:
+    """
+    Test add strategy from config raises when a field cannot be set.
+    """
+    config = ImportableStrategyConfig(
+        strategy_path="tests.unit.common.actor:ConfiguredIdProbeStrategy",
+        config_path="nautilus_trader.trading:StrategyConfig",
+        config={"log_events": "not_a_bool"},
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to set attribute log_events"):
         live_node.add_strategy_from_config(config)
 
 

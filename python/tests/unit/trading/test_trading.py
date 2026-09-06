@@ -116,6 +116,7 @@ from nautilus_trader.trading import fx_next_start
 from nautilus_trader.trading import fx_prev_end
 from nautilus_trader.trading import fx_prev_start
 from tests.providers import TestInstrumentProvider
+from tests.unit.common.actor import ConfiguredIdProbeStrategy
 from tests.unit.common.actor import OrderFactoryConfigProbeStrategy
 from tests.unit.common.actor import OrderFactoryProbeStrategy
 from tests.unit.common.actor import OrderListCacheProbeStrategy
@@ -600,6 +601,67 @@ def test_strategy_order_factory_returns_registered_factory() -> None:
         assert OrderFactoryProbeStrategy.observed_next_client_order_id != order.client_order_id
         assert OrderFactoryProbeStrategy.observed_client_order_id_count == 3
         assert OrderFactoryProbeStrategy.observed_order_list_id_count == 0
+    finally:
+        engine.dispose()
+
+
+def test_importable_strategy_config_accepts_string_strategy_id() -> None:
+    """
+    Test importable strategy config accepts a string strategy ID.
+    """
+    ConfiguredIdProbeStrategy.reset()
+    engine = BacktestEngine(BacktestEngineConfig(bypass_logging=True, run_analysis=False))
+
+    try:
+        engine.add_strategy_from_config(
+            ImportableStrategyConfig(
+                strategy_path="tests.unit.common.actor:ConfiguredIdProbeStrategy",
+                config_path="tests.unit.common.actor:CustomFieldStrategyConfig",
+                config={"strategy_id": "STRAT-001", "custom_field": "x"},
+            ),
+        )
+        engine.run()
+
+        assert ConfiguredIdProbeStrategy.config_strategy_id == StrategyId("STRAT-001")
+        assert ConfiguredIdProbeStrategy.started_strategy_id == StrategyId("STRAT-001")
+    finally:
+        engine.dispose()
+
+
+def test_importable_strategy_config_with_unsettable_field_raises() -> None:
+    """
+    Test importable strategy config raises when a field cannot be set.
+    """
+    engine = BacktestEngine(BacktestEngineConfig(bypass_logging=True, run_analysis=False))
+
+    try:
+        with pytest.raises(RuntimeError, match="Failed to set attribute log_events"):
+            engine.add_strategy_from_config(
+                ImportableStrategyConfig(
+                    strategy_path="tests.unit.common.actor:ConfiguredIdProbeStrategy",
+                    config_path="nautilus_trader.trading:StrategyConfig",
+                    config={"log_events": "not_a_bool"},
+                ),
+            )
+    finally:
+        engine.dispose()
+
+
+def test_importable_strategy_config_with_invalid_strategy_id_raises() -> None:
+    """
+    Test importable strategy config raises for an invalid string strategy ID.
+    """
+    engine = BacktestEngine(BacktestEngineConfig(bypass_logging=True, run_analysis=False))
+
+    try:
+        with pytest.raises(RuntimeError, match="did not contain '-'"):
+            engine.add_strategy_from_config(
+                ImportableStrategyConfig(
+                    strategy_path="tests.unit.common.actor:ConfiguredIdProbeStrategy",
+                    config_path="nautilus_trader.trading:StrategyConfig",
+                    config={"strategy_id": "NOHYPHEN"},
+                ),
+            )
     finally:
         engine.dispose()
 

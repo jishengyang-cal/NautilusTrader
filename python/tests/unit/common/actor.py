@@ -391,6 +391,96 @@ class NonStartingStrategyCreatingController(StrategyCreatingController):
         )
 
 
+class CustomFieldStrategyConfig(StrategyConfig):
+    """
+    Strategy config with a custom field and deliberately no `__new__` override.
+    """
+
+    def __init__(self, *, custom_field: str = "default", **_kwargs: object) -> None:
+        """
+        Initialize the instance.
+        """
+        self.custom_field = custom_field
+
+
+class ConfiguredIdProbeStrategy(Strategy):
+    """
+    Records the config strategy ID at construction and the registered ID on start.
+    """
+
+    config_strategy_id = None
+    started_strategy_id = None
+
+    @classmethod
+    def reset(cls) -> None:
+        """
+        Reset.
+        """
+        cls.config_strategy_id = None
+        cls.started_strategy_id = None
+
+    def __init__(self, config: StrategyConfig) -> None:
+        """
+        Initialize the instance.
+        """
+        super().__init__(config)
+        type(self).config_strategy_id = config.strategy_id
+
+    def on_start(self) -> None:
+        """
+        On start.
+        """
+        type(self).started_strategy_id = self.strategy_id
+
+
+class CustomFieldStrategyCreatingController(Controller):
+    """
+    Creates a strategy whose config declares a custom field and no `__new__` override.
+    """
+
+    created_strategy_id = None
+
+    @classmethod
+    def reset(cls) -> None:
+        """
+        Reset.
+        """
+        cls.created_strategy_id = None
+
+    def on_start(self) -> None:
+        """
+        On start.
+        """
+        type(self).created_strategy_id = self.create_strategy_from_config(
+            ImportableStrategyConfig(
+                strategy_path="tests.unit.common.actor:ConfiguredIdProbeStrategy",
+                config_path="tests.unit.common.actor:CustomFieldStrategyConfig",
+                config={
+                    "strategy_id": "ConfiguredIdProbeStrategy-001",
+                    "custom_field": "x",
+                },
+            ),
+        )
+
+
+class UnsettableFieldStrategyCreatingController(Controller):
+    """
+    Attempts to create a strategy whose config field cannot be set.
+    """
+
+    def on_start(self) -> None:
+        """
+        On start.
+        """
+        self.create_strategy_from_config(
+            ImportableStrategyConfig(
+                strategy_path="tests.unit.common.actor:ConfiguredIdProbeStrategy",
+                config_path="nautilus_trader.trading:StrategyConfig",
+                config={"log_events": "not_a_bool"},
+            ),
+        )
+
+
 class PortfolioProbeStrategy(Strategy):
     """
     Collect portfolio probe strategy tests.

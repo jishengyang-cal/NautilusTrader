@@ -70,6 +70,8 @@ Released on TBD (UTC).
 - Fixed TWD, 1INCH, CAKE, and SHIB currency lookup panics
 - Fixed order-status report windows filtering resting orders instead of closed history
 - Fixed foreign account events panicking and reservation failures leaving balances or margins in an inconsistent state
+- Fixed importable strategy configs ignoring a string `strategy_id` in favor of the class-derived default ID
+- Fixed importable config construction leaving a partial config on attribute failure; now raises `RuntimeError`
 - Fixed Betfair fill report queries ignoring instrument and order filters
 - Fixed Betfair order status queries ignoring instrument filters and time bounds for closed orders
 - Fixed Binance Spot cancel-all decoding and lifecycle handling for OCO order lists
