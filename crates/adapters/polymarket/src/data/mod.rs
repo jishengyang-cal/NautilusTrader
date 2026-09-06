@@ -512,36 +512,14 @@ impl PolymarketDataClient {
     }
 
     fn sync_ws_subscription_for_token(&self, instrument_id: InstrumentId, token_id_str: String) {
-        let active_quote_subs = self.active_quote_subs.clone();
-        let active_delta_subs = self.active_delta_subs.clone();
-        let active_trade_subs = self.active_trade_subs.clone();
-        let active_instrument_status_subs = self.active_instrument_status_subs.clone();
-        let active_instrument_close_subs = self.active_instrument_close_subs.clone();
-        let closed_condition_ids = self.closed_condition_ids.clone();
-        let ws_open_tokens = self.ws_open_tokens.clone();
-        let ws_sub_mutex = self.ws_sub_mutex.clone();
-        let ws = self.ws_client.handle();
-        let watchlist = self.resolve_poll_watchlist.clone();
-        let subscribe_new_markets = self.config.subscribe_new_markets;
+        let resolve_ctx = self.resolution_context();
+        let future = async move {
+            resolve_ctx
+                .sync_ws_subscription(instrument_id, token_id_str)
+                .await;
+        };
 
-        if let Err(e) = self
-            .tasks
-            .spawn(sync_ws_subscription_with_resolution_and_terminal_async(
-                instrument_id,
-                token_id_str,
-                active_quote_subs,
-                active_delta_subs,
-                active_trade_subs,
-                active_instrument_status_subs,
-                active_instrument_close_subs,
-                closed_condition_ids,
-                ws_open_tokens,
-                ws_sub_mutex,
-                ws,
-                watchlist,
-                subscribe_new_markets,
-            ))
-        {
+        if let Err(e) = self.tasks.spawn(future) {
             log::debug!("Skipping Polymarket data task after shutdown began: {e}");
         }
     }

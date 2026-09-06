@@ -173,6 +173,27 @@ pub(crate) struct ResolveContext {
     pub(crate) cancellation_token: CancellationToken,
 }
 
+impl ResolveContext {
+    pub(crate) async fn sync_ws_subscription(&self, instrument_id: InstrumentId, token_id: String) {
+        crate::data::sync_ws_subscription_with_resolution_and_terminal_async(
+            instrument_id,
+            token_id,
+            self.active_quote_subs.clone(),
+            self.active_delta_subs.clone(),
+            self.active_trade_subs.clone(),
+            self.active_status_subs.clone(),
+            self.active_close_subs.clone(),
+            self.closed_condition_ids.clone(),
+            self.ws_open_tokens.clone(),
+            self.ws_sub_mutex.clone(),
+            self.ws.clone(),
+            self.watchlist.clone(),
+            self.subscribe_new_markets,
+        )
+        .await;
+    }
+}
+
 pub(crate) async fn pause_and_reconcile_resolve_watch_entries(
     ctx: &ResolveContext,
     condition_ids: &[String],
@@ -197,22 +218,7 @@ pub(crate) async fn pause_and_reconcile_resolve_watch_entries(
     targets.sort_unstable_by(|left, right| left.1.cmp(&right.1));
 
     for (instrument_id, token_id) in targets {
-        crate::data::sync_ws_subscription_with_resolution_and_terminal_async(
-            instrument_id,
-            token_id,
-            ctx.active_quote_subs.clone(),
-            ctx.active_delta_subs.clone(),
-            ctx.active_trade_subs.clone(),
-            ctx.active_status_subs.clone(),
-            ctx.active_close_subs.clone(),
-            ctx.closed_condition_ids.clone(),
-            ctx.ws_open_tokens.clone(),
-            ctx.ws_sub_mutex.clone(),
-            ctx.ws.clone(),
-            ctx.watchlist.clone(),
-            ctx.subscribe_new_markets,
-        )
-        .await;
+        ctx.sync_ws_subscription(instrument_id, token_id).await;
     }
 }
 
@@ -802,6 +808,7 @@ async fn apply_condition_resolution_inner(
         }
         (reconciliation_targets, emitted_closes)
     };
+
     drop(reconcile_guard);
 
     let mut reconciliation_targets: Vec<(InstrumentId, String)> =
@@ -812,22 +819,8 @@ async fn apply_condition_resolution_inner(
         if !ctx.ws_open_tokens.contains(&Ustr::from(token_id.as_str())) {
             continue;
         }
-        crate::data::sync_ws_subscription_with_resolution_and_terminal_async(
-            instrument_id,
-            token_id,
-            ctx.active_quote_subs.clone(),
-            ctx.active_delta_subs.clone(),
-            ctx.active_trade_subs.clone(),
-            ctx.active_status_subs.clone(),
-            ctx.active_close_subs.clone(),
-            ctx.closed_condition_ids.clone(),
-            ctx.ws_open_tokens.clone(),
-            ctx.ws_sub_mutex.clone(),
-            ctx.ws.clone(),
-            ctx.watchlist.clone(),
-            ctx.subscribe_new_markets,
-        )
-        .await;
+
+        ctx.sync_ws_subscription(instrument_id, token_id).await;
     }
 
     ResolveApplyResult::Applied { emitted_closes }
