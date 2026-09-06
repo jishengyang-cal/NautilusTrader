@@ -329,6 +329,12 @@ execution engine treats them as external and assigns them through the
 instrument's active external order claim, configured initially with
 `external_order_instrument_ids`, or to the `EXTERNAL` strategy by default.
 
+Funding settlements use `execType=Funding`, but they are balance adjustments rather than fills.
+The adapter ignores them in historical fill reports and standard private `execution` messages, so
+it emits neither a `FillReport` nor an `OrderFilled` event and does not change local position
+quantity. During reconciliation, funding records do not count toward the requested fill-report
+limit.
+
 Bybit also publishes an ADL ranking on position updates via the
 `adlRankIndicator` field. The range is 0 (flat / no position) to 5 (next to
 deleverage). The adapter logs a warning whenever an open position carries a

@@ -222,6 +222,21 @@ async fn handle_get_trades(query: Query<HashMap<String, String>>) -> impl IntoRe
 }
 
 #[allow(dead_code)]
+async fn handle_get_executions(Query(query): Query<HashMap<String, String>>) -> impl IntoResponse {
+    let mut executions = load_test_data("http_get_executions_funding.json");
+    let (index, next_cursor) = if query.contains_key("cursor") {
+        (0, "")
+    } else {
+        (1, "trade-page")
+    };
+    let execution = executions["result"]["list"][index].clone();
+    executions["result"]["list"] = json!([execution]);
+    executions["result"]["nextPageCursor"] = json!(next_cursor);
+
+    Json(executions)
+}
+
+#[allow(dead_code)]
 async fn handle_get_orders(
     State(state): State<TestServerState>,
     headers: axum::http::HeaderMap,
@@ -1022,6 +1037,7 @@ fn create_test_router(state: TestServerState) -> Router {
         .route("/v5/market/instruments-info", get(handle_get_instruments))
         .route("/v5/market/kline", get(handle_get_klines))
         .route("/v5/market/recent-trade", get(handle_get_trades))
+        .route("/v5/execution/list", get(handle_get_executions))
         .route("/v5/order/history", get(handle_get_orders))
         .route("/v5/order/realtime", get(handle_get_orders))
         .route("/v5/order/create", post(handle_post_order))
@@ -1210,6 +1226,51 @@ async fn test_custom_base_url() {
     .unwrap();
 
     assert_eq!(client.base_url(), custom_url);
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_request_fill_reports_excludes_funding_executions() {
+    let (addr, _state) = start_test_server().await.unwrap();
+    let base_url = format!("http://{addr}");
+    let client = BybitHttpClient::with_credentials(
+        "test_api_key".to_string(),
+        "test_api_secret".to_string(),
+        Some(base_url),
+        60,
+        3,
+        1000,
+        10_000,
+        5_000,
+        None,
+    )
+    .unwrap();
+    let instruments = client
+        .request_instruments(BybitProductType::Linear, None, None)
+        .await
+        .unwrap();
+
+    for instrument in instruments {
+        client.cache_instrument(instrument);
+    }
+
+    let reports = client
+        .request_fill_reports(
+            AccountId::from("BYBIT-UNIFIED"),
+            BybitProductType::Linear,
+            Some(InstrumentId::from("BTCUSDT-LINEAR.BYBIT")),
+            None,
+            None,
+            Some(1),
+        )
+        .await
+        .unwrap();
+    let trade_ids: Vec<String> = reports
+        .iter()
+        .map(|report| report.trade_id.to_string())
+        .collect();
+
+    assert_eq!(trade_ids, vec!["bf13bd10-fe15-4ad4-a6bf-c388e3104f75"]);
 }
 
 #[rstest]

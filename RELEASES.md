@@ -76,6 +76,7 @@ Released on TBD (UTC).
 - Fixed Betfair fill report queries ignoring instrument and order filters
 - Fixed Betfair order status queries ignoring instrument filters and time bounds for closed orders
 - Fixed Binance Spot cancel-all decoding and lifecycle handling for OCO order lists
+- Fixed Bybit funding settlements being treated as fills (#4937), thanks for reporting @luk911
 - Fixed Kraken Spot available balances excluding funds held by the venue (#4922), thanks @zhaow-de
 - Fixed OKX mass status succeeding with incomplete pending algo-order coverage (#4924), thanks @silarin
 - Fixed OKX retries to honor `Retry-After`, preserve request identity, and avoid ambiguous order replay
