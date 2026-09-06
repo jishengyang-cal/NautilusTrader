@@ -52,15 +52,21 @@ use nautilus_common::{
         DataEvent, SystemEvent,
         data::{
             DataResponse, RequestBookSnapshot, RequestFundingRates, RequestInstrument,
-            RequestInstruments, SubscribeBookDeltas, SubscribeQuotes, SubscribeTrades,
+            RequestInstruments, RequestOptionChainReferencePrice, SubscribeBookDeltas,
+            SubscribeQuotes, SubscribeTrades,
         },
         system::SocketState,
     },
     testing::wait_until_async,
 };
-use nautilus_core::{UUID4, UnixNanos};
+use nautilus_core::{Params, UUID4, UnixNanos, time::get_atomic_clock_realtime};
 use nautilus_live::{SocketReconnectRegistry, SocketReconnectRequestOutcome};
-use nautilus_model::{data::Data, enums::BookType, identifiers::InstrumentId};
+use nautilus_model::{
+    data::Data,
+    enums::BookType,
+    identifiers::{InstrumentId, OptionSeriesId},
+    types::Price,
+};
 use nautilus_network::http::HttpClient;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -73,6 +79,8 @@ struct TestServerState {
     subscription_events: Arc<tokio::sync::Mutex<Vec<(String, bool)>>>,
     disconnect_trigger: Arc<AtomicBool>,
     ping_count: Arc<AtomicUsize>,
+    ticker_queries: Arc<tokio::sync::Mutex<Vec<HashMap<String, String>>>>,
+    ticker_response: Arc<tokio::sync::Mutex<Option<Value>>>,
 }
 
 impl Default for TestServerState {
@@ -83,6 +91,8 @@ impl Default for TestServerState {
             subscription_events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             disconnect_trigger: Arc::new(AtomicBool::new(false)),
             ping_count: Arc::new(AtomicUsize::new(0)),
+            ticker_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            ticker_response: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 }
@@ -144,6 +154,21 @@ async fn handle_get_orderbook() -> impl IntoResponse {
 async fn handle_get_funding_history() -> impl IntoResponse {
     let funding = load_test_data("http_get_funding_history.json");
     Json(funding).into_response()
+}
+
+async fn handle_get_tickers(
+    State(state): State<TestServerState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    state.ticker_queries.lock().await.push(query);
+    Json(
+        state
+            .ticker_response
+            .lock()
+            .await
+            .clone()
+            .expect("ticker response must be configured"),
+    )
 }
 
 async fn handle_websocket(ws: WebSocketUpgrade, State(state): State<TestServerState>) -> Response {
@@ -343,6 +368,7 @@ fn create_test_router(state: TestServerState) -> Router {
             "/v5/market/funding/history",
             get(handle_get_funding_history),
         )
+        .route("/v5/market/tickers", get(handle_get_tickers))
         .route("/v5/account/fee-rate", get(handle_get_fee_rate))
         .route("/v3/public/time", get(handle_get_server_time))
         .route("/v5/public/linear", get(handle_websocket))
@@ -396,6 +422,110 @@ fn create_test_config(addr: SocketAddr) -> BybitDataClientConfig {
         instrument_poll_interval_secs: None,
         transport_backend: Default::default(),
     }
+}
+
+#[rstest]
+#[case::valid(0, "97000.125", Some("97000.125"))]
+#[case::zero(0, "0", None)]
+#[case::negative(0, "-1", None)]
+#[case::invalid(0, "not_a_number", None)]
+#[case::venue_error(10001, "97000.125", None)]
+#[tokio::test]
+async fn test_option_chain_reference_price_response(
+    #[case] ret_code: i64,
+    #[case] value: &str,
+    #[case] expected: Option<&str>,
+) {
+    let (addr, state) = start_test_server().await.unwrap();
+    *state.ticker_response.lock().await = Some(json!({
+        "retCode": ret_code,
+        "retMsg": if ret_code == 0 { "OK" } else { "Invalid request" },
+        "result": {
+            "category": "option",
+            "nextPageCursor": "",
+            "list": [{
+                "symbol": "BTC-28MAR25-90000-C",
+                "bid1Price": "1",
+                "bid1Size": "2",
+                "bid1Iv": "0.4",
+                "ask1Price": "3",
+                "ask1Size": "4",
+                "ask1Iv": "0.5",
+                "lastPrice": "2",
+                "highPrice24h": "4",
+                "lowPrice24h": "1",
+                "markPrice": "2.5",
+                "indexPrice": "96900",
+                "markIv": "0.45",
+                "underlyingPrice": value,
+                "openInterest": "10",
+                "turnover24h": "20",
+                "volume24h": "30",
+                "totalVolume": "40",
+                "totalTurnover": "50",
+                "delta": "0.5",
+                "gamma": "0.01",
+                "vega": "0.1",
+                "theta": "-0.1",
+                "predictedDeliveryPrice": "97100",
+                "change24h": "0.01"
+            }]
+        },
+        "retExtInfo": {},
+        "time": 1704470400123_i64
+    }));
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DataEvent>();
+    set_data_event_sender(tx);
+    let client = BybitDataClient::new(*BYBIT_CLIENT_ID, create_test_config(addr)).unwrap();
+    let series_id = OptionSeriesId::new(
+        *BYBIT_VENUE,
+        Ustr::from("BTC"),
+        Ustr::from("USDC"),
+        UnixNanos::from(1_743_120_000_000_000_000),
+    );
+    let instrument_id = InstrumentId::from("BTC-28MAR25-90000-C-OPTION.BYBIT");
+    let mut params = Params::new();
+    params.insert("test-case".to_string(), json!(ret_code));
+    let request = RequestOptionChainReferencePrice::new(
+        series_id,
+        instrument_id,
+        Some(*BYBIT_CLIENT_ID),
+        UUID4::new(),
+        UnixNanos::from(42),
+        Some(params.clone()),
+    );
+    let request_id = request.request_id;
+    let clock = get_atomic_clock_realtime();
+    let before_ns = clock.get_time_ns();
+
+    client
+        .request_option_chain_reference_price(request)
+        .expect("request option-chain reference price");
+    let event = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("timeout waiting for option-chain reference price")
+        .expect("data event channel closed");
+    let after_ns = clock.get_time_ns();
+    let DataEvent::Response(DataResponse::OptionChainReferencePrice(response)) = event else {
+        panic!("expected option-chain reference price response, received {event:?}");
+    };
+    let queries = state.ticker_queries.lock().await;
+
+    assert_eq!(response.correlation_id, request_id);
+    assert_eq!(response.client_id, *BYBIT_CLIENT_ID);
+    assert_eq!(response.series_id, series_id);
+    assert_eq!(response.price, expected.map(Price::from));
+    assert!(response.ts_init >= before_ns && response.ts_init <= after_ns);
+    assert_eq!(response.params, Some(params));
+    assert_eq!(queries.len(), 1);
+    assert_eq!(
+        queries[0].get("category").map(String::as_str),
+        Some("option")
+    );
+    assert_eq!(
+        queries[0].get("symbol").map(String::as_str),
+        Some("BTC-28MAR25-90000-C")
+    );
 }
 
 #[rstest]

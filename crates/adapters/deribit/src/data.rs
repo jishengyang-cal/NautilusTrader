@@ -34,17 +34,17 @@ use nautilus_common::{
     messages::{
         DataEvent, DataResponse,
         data::{
-            BarsResponse, BookResponse, CustomDataResponse, ForwardPricesResponse,
-            InstrumentResponse, InstrumentsResponse, RequestBars, RequestBookSnapshot,
-            RequestCustomData, RequestForwardPrices, RequestInstrument, RequestInstruments,
-            RequestTrades, SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10,
-            SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
-            SubscribeInstrumentStatus, SubscribeInstruments, SubscribeMarkPrices,
-            SubscribeOptionGreeks, SubscribeQuotes, SubscribeTrades, TradesResponse,
-            UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeCustomData,
-            UnsubscribeFundingRates, UnsubscribeIndexPrices, UnsubscribeInstrument,
-            UnsubscribeInstrumentStatus, UnsubscribeInstruments, UnsubscribeMarkPrices,
-            UnsubscribeOptionGreeks, UnsubscribeQuotes, UnsubscribeTrades,
+            BarsResponse, BookResponse, CustomDataResponse, InstrumentResponse,
+            InstrumentsResponse, OptionChainReferencePriceResponse, RequestBars,
+            RequestBookSnapshot, RequestCustomData, RequestInstrument, RequestInstruments,
+            RequestOptionChainReferencePrice, RequestTrades, SubscribeBars, SubscribeBookDeltas,
+            SubscribeBookDepth10, SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices,
+            SubscribeInstrument, SubscribeInstrumentStatus, SubscribeInstruments,
+            SubscribeMarkPrices, SubscribeOptionGreeks, SubscribeQuotes, SubscribeTrades,
+            TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeBookDepth10,
+            UnsubscribeCustomData, UnsubscribeFundingRates, UnsubscribeIndexPrices,
+            UnsubscribeInstrument, UnsubscribeInstrumentStatus, UnsubscribeInstruments,
+            UnsubscribeMarkPrices, UnsubscribeOptionGreeks, UnsubscribeQuotes, UnsubscribeTrades,
         },
     },
 };
@@ -58,11 +58,13 @@ use nautilus_live::{
     task::{TaskGroup, TaskGroupGuard},
 };
 use nautilus_model::{
-    data::{CustomData, Data, DataType, ForwardPrice},
+    data::{CustomData, Data, DataType},
     enums::BookType,
-    identifiers::{ClientId, InstrumentId, Symbol, Venue},
+    identifiers::{ClientId, InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
+    types::Price,
 };
+use rust_decimal::Decimal;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -2184,8 +2186,11 @@ impl DataClient for DeribitDataClient {
         Ok(())
     }
 
-    fn request_forward_prices(&self, request: RequestForwardPrices) -> anyhow::Result<()> {
-        let currency = request.underlying.to_string();
+    fn request_option_chain_reference_price(
+        &self,
+        request: RequestOptionChainReferencePrice,
+    ) -> anyhow::Result<()> {
+        let series_id = request.series_id;
         let instrument_id = request.instrument_id;
         let http_client = self.http_client.clone();
         let sender = self.data_sender.clone();
@@ -2193,100 +2198,45 @@ impl DataClient for DeribitDataClient {
         let client_id = request.client_id.unwrap_or(self.client_id());
         let params = request.params;
         let clock = self.clock;
-        let venue = *DERIBIT_VENUE;
 
         self.spawn_command(async move {
-            let result = if let Some(inst_id) = instrument_id {
-                // Single-instrument path: 1 HTTP call to public/ticker
-                let instrument_name = inst_id.symbol.to_string();
-                log::debug!(
-                    "Requesting forward price for {currency} (single instrument: {instrument_name})"
-                );
-
-                match http_client.request_ticker(&instrument_name).await {
-                    Ok(ticker) => {
-                        let ts = clock.get_time_ns();
-                        let forward_prices: Vec<ForwardPrice> = ticker
-                            .underlying_price
-                            .map(|up| {
-                                vec![ForwardPrice::new(
-                                    inst_id,
-                                    up,
-                                    ticker.underlying_index.filter(|s| !s.is_empty()),
-                                    ts,
-                                    ts,
-                                )]
-                            })
-                            .unwrap_or_default();
-
-                        log::debug!(
-                            "Fetched {} forward price for {currency} (single instrument: {instrument_name})",
-                            forward_prices.len(),
-                        );
-                        Ok((forward_prices, ts))
+            let instrument_name = instrument_id.symbol.to_string();
+            let price = match http_client.request_ticker(&instrument_name).await {
+                Ok(ticker) => ticker.underlying_price.and_then(|decimal| {
+                    if decimal <= Decimal::ZERO {
+                        return None;
                     }
-                    Err(e) => Err(e),
-                }
-            } else {
-                // Bulk path: fetch all book summaries
-                log::debug!("Requesting option forward prices for currency={currency} (bulk)");
 
-                match http_client.request_book_summaries(&currency).await {
-                    Ok(summaries) => {
-                        let ts = clock.get_time_ns();
-
-                        // Deduplicate: all options at the same expiry share the same
-                        // forward price, so keep only one entry per underlying_index.
-                        let mut seen_indices = std::collections::HashSet::new();
-                        let forward_prices: Vec<ForwardPrice> = summaries
-                            .into_iter()
-                            .filter_map(|s| {
-                                let up = s.underlying_price?;
-                                let idx = s.underlying_index.clone().unwrap_or_default();
-                                if !seen_indices.insert(idx.clone()) {
-                                    return None;
-                                }
-                                Some(ForwardPrice::new(
-                                    InstrumentId::new(
-                                        Symbol::new(&s.instrument_name),
-                                        *DERIBIT_VENUE,
-                                    ),
-                                    up,
-                                    Some(idx).filter(|s| !s.is_empty()),
-                                    ts,
-                                    ts,
-                                ))
-                            })
-                            .collect();
-
-                        log::debug!(
-                            "Fetched {} forward prices (per-expiry) for {currency}",
-                            forward_prices.len(),
-                        );
-                        Ok((forward_prices, ts))
+                    match Price::from_decimal(decimal) {
+                        Ok(price) => Some(price),
+                        Err(e) => {
+                            log::warn!(
+                                "Invalid Deribit option-chain reference price for {instrument_id}: {e}"
+                            );
+                            None
+                        }
                     }
-                    Err(e) => Err(e),
+                }),
+                Err(e) => {
+                    log::error!(
+                        "Option-chain reference price request failed for {series_id}: {e:?}"
+                    );
+                    None
                 }
             };
+            let response = DataResponse::OptionChainReferencePrice(
+                OptionChainReferencePriceResponse::new(
+                    request_id,
+                    client_id,
+                    series_id,
+                    price,
+                    clock.get_time_ns(),
+                    params,
+                ),
+            );
 
-            match result {
-                Ok((forward_prices, ts)) => {
-                    let response = DataResponse::ForwardPrices(ForwardPricesResponse::new(
-                        request_id,
-                        client_id,
-                        venue,
-                        forward_prices,
-                        ts,
-                        params,
-                    ));
-
-                    if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        log::error!("Failed to send forward prices response: {e}");
-                    }
-                }
-                Err(e) => {
-                    log::error!("Forward prices request failed for {currency}: {e:?}");
-                }
+            if let Err(e) = sender.send(DataEvent::Response(response)) {
+                log::error!("Failed to send option-chain reference price response: {e}");
             }
         });
 

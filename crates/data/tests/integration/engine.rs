@@ -37,17 +37,18 @@ use nautilus_common::{
     clock::{Clock, TestClock},
     messages::data::{
         BarsResponse, BookDeltasResponse, BookDepthResponse, BookResponse, CustomDataResponse,
-        DataCommand, DataResponse, ForwardPricesResponse, FundingRatesResponse, InstrumentResponse,
-        InstrumentsResponse, PARAMS_IS_PARENT, QuotesResponse, RequestBars, RequestBookDeltas,
-        RequestBookDepth, RequestBookSnapshot, RequestCommand, RequestCustomData,
-        RequestForwardPrices, RequestFundingRates, RequestInstrument, RequestInstruments,
-        RequestJoin, RequestQuotes, RequestTrades, SubscribeBars, SubscribeBookDeltas,
-        SubscribeBookDepth10, SubscribeBookSnapshots, SubscribeCommand, SubscribeCustomData,
-        SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument, SubscribeInstrumentClose,
-        SubscribeInstrumentStatus, SubscribeInstruments, SubscribeMarkPrices, SubscribeOptionChain,
-        SubscribeOptionGreeks, SubscribeQuotes, SubscribeTrades, TradesResponse, UnsubscribeBars,
-        UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeBookSnapshots,
-        UnsubscribeCommand, UnsubscribeCustomData, UnsubscribeFundingRates, UnsubscribeIndexPrices,
+        DataCommand, DataResponse, FundingRatesResponse, InstrumentResponse, InstrumentsResponse,
+        OptionChainReferencePriceResponse, PARAMS_IS_PARENT, QuotesResponse, RequestBars,
+        RequestBookDeltas, RequestBookDepth, RequestBookSnapshot, RequestCommand,
+        RequestCustomData, RequestFundingRates, RequestInstrument, RequestInstruments, RequestJoin,
+        RequestOptionChainReferencePrice, RequestQuotes, RequestTrades, SubscribeBars,
+        SubscribeBookDeltas, SubscribeBookDepth10, SubscribeBookSnapshots, SubscribeCommand,
+        SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
+        SubscribeInstrumentClose, SubscribeInstrumentStatus, SubscribeInstruments,
+        SubscribeMarkPrices, SubscribeOptionChain, SubscribeOptionGreeks, SubscribeQuotes,
+        SubscribeTrades, TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas,
+        UnsubscribeBookDepth10, UnsubscribeBookSnapshots, UnsubscribeCommand,
+        UnsubscribeCustomData, UnsubscribeFundingRates, UnsubscribeIndexPrices,
         UnsubscribeInstrument, UnsubscribeInstrumentClose, UnsubscribeInstrumentStatus,
         UnsubscribeMarkPrices, UnsubscribeOptionChain, UnsubscribeOptionGreeks, UnsubscribeQuotes,
         UnsubscribeTrades,
@@ -60,7 +61,7 @@ use nautilus_common::{
     },
     testing::wait_until,
 };
-use nautilus_core::{Params, UUID4, UnixNanos};
+use nautilus_core::{Params, UUID4, UnixNanos, datetime::NANOSECONDS_IN_SECOND};
 use nautilus_data::{
     client::DataClientAdapter,
     engine::{DataEngine, config::DataEngineConfig},
@@ -270,6 +271,13 @@ impl DataClient for FailingRequestDataClient {
     }
 
     fn request_book_deltas(&self, _request: RequestBookDeltas) -> anyhow::Result<()> {
+        anyhow::bail!("{}", self.error_message)
+    }
+
+    fn request_option_chain_reference_price(
+        &self,
+        _request: RequestOptionChainReferencePrice,
+    ) -> anyhow::Result<()> {
         anyhow::bail!("{}", self.error_message)
     }
 }
@@ -13638,6 +13646,27 @@ fn make_btc_option(strike: &str, kind: OptionKind) -> InstrumentAny {
     make_crypto_option(&symbol, "BTC", "BTC", strike, kind, expiration_ns)
 }
 
+fn make_option_chain_greeks(instrument_id: InstrumentId, underlying_price: f64) -> OptionGreeks {
+    OptionGreeks {
+        instrument_id,
+        convention: GreeksConvention::BlackScholes,
+        greeks: OptionGreekValues {
+            delta: 0.55,
+            gamma: 0.001,
+            vega: 15.0,
+            theta: -5.0,
+            rho: 0.02,
+        },
+        mark_iv: Some(0.65),
+        bid_iv: Some(0.63),
+        ask_iv: Some(0.67),
+        underlying_price: Some(underlying_price),
+        open_interest: Some(1000.0),
+        ts_event: UnixNanos::from(1u64),
+        ts_init: UnixNanos::from(1u64),
+    }
+}
+
 fn make_series_id() -> OptionSeriesId {
     OptionSeriesId::new(
         Venue::new("DERIBIT"),
@@ -13681,19 +13710,46 @@ fn make_unsubscribe_option_chain(
     ))
 }
 
+fn make_subscribe_option_chain_atm(
+    series_id: OptionSeriesId,
+    client_id: ClientId,
+    venue: Venue,
+) -> DataCommand {
+    DataCommand::Subscribe(SubscribeCommand::OptionChain(SubscribeOptionChain::new(
+        series_id,
+        StrikeRange::AtmRelative {
+            strikes_above: 1,
+            strikes_below: 1,
+        },
+        None,
+        UUID4::new(),
+        UnixNanos::default(),
+        Some(client_id),
+        Some(venue),
+        None,
+    )))
+}
+
+fn option_chain_reference_price_request_id(recorder: &Rc<RefCell<Vec<DataCommand>>>) -> UUID4 {
+    recorder
+        .borrow()
+        .iter()
+        .find_map(|cmd| match cmd {
+            DataCommand::Request(RequestCommand::OptionChainReferencePrice(request)) => {
+                Some(request.request_id)
+            }
+            _ => None,
+        })
+        .expect("reference price request should be recorded")
+}
+
 /// Creates a data engine that shares the provided cache and clock.
 fn make_option_chain_engine(
     clock: Rc<RefCell<TestClock>>,
     cache: Rc<RefCell<Cache>>,
 ) -> Rc<RefCell<DataEngine>> {
     let data_engine = Rc::new(RefCell::new(DataEngine::new(clock, cache, None)));
-
-    let data_engine_clone = data_engine.clone();
-    let handler = TypedIntoHandler::from(move |cmd: DataCommand| {
-        data_engine_clone.borrow_mut().execute(cmd);
-    });
-    let endpoint = MessagingSwitchboard::data_engine_execute();
-    msgbus::register_data_command_endpoint(endpoint, handler);
+    DataEngine::register_msgbus_handlers(&data_engine);
 
     data_engine
 }
@@ -13810,6 +13866,110 @@ fn test_subscribe_option_chain_filters_by_underlying(
         .filter(|cmd| matches!(cmd, DataCommand::Subscribe(SubscribeCommand::Quotes(_))))
         .count();
     assert_eq!(subscribe_count, 1, "Only BTC option should be subscribed");
+}
+
+#[rstest]
+fn test_option_chain_new_instrument_uses_subscription_client(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let explicit_client_id = ClientId::new("DERIBIT-EXPLICIT");
+    let routed_client_id = ClientId::new("DERIBIT-ROUTED");
+    let venue = Venue::new("DERIBIT");
+    let explicit_recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    let routed_recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        explicit_client_id,
+        venue,
+        None,
+        &explicit_recorder,
+        &mut data_engine.borrow_mut(),
+    );
+    register_mock_client(
+        clock,
+        cache.clone(),
+        routed_client_id,
+        venue,
+        Some(venue),
+        &routed_recorder,
+        &mut data_engine.borrow_mut(),
+    );
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(make_btc_option("50000.000", OptionKind::Call));
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain(
+            series_id,
+            vec![Price::from("50000.000")],
+            Some(explicit_client_id),
+            Some(venue),
+        ));
+    explicit_recorder.borrow_mut().clear();
+    routed_recorder.borrow_mut().clear();
+
+    let put = make_btc_option("50000.000", OptionKind::Put);
+    let put_id = put.id();
+    data_engine.borrow_mut().process(&put);
+
+    let recorded = explicit_recorder.borrow();
+    assert_eq!(recorded.len(), 3);
+    assert!(recorded.iter().any(|cmd| matches!(
+        cmd,
+        DataCommand::Subscribe(SubscribeCommand::Quotes(cmd)) if cmd.instrument_id == put_id
+    )));
+    assert!(recorded.iter().any(|cmd| matches!(
+        cmd,
+        DataCommand::Subscribe(SubscribeCommand::OptionGreeks(cmd))
+            if cmd.instrument_id == put_id
+    )));
+    assert!(recorded.iter().any(|cmd| matches!(
+        cmd,
+        DataCommand::Subscribe(SubscribeCommand::InstrumentStatus(cmd))
+            if cmd.instrument_id == put_id
+    )));
+    drop(recorded);
+    assert!(routed_recorder.borrow().is_empty());
+    explicit_recorder.borrow_mut().clear();
+
+    data_engine
+        .borrow_mut()
+        .process_data(Data::InstrumentStatus(InstrumentStatus::new(
+            put_id,
+            MarketStatusAction::Close,
+            UnixNanos::from(1),
+            UnixNanos::from(2),
+            None,
+            None,
+            Some(false),
+            Some(false),
+            None,
+        )));
+
+    let recorded = explicit_recorder.borrow();
+    assert_eq!(recorded.len(), 3);
+    assert!(recorded.iter().any(|cmd| matches!(
+        cmd,
+        DataCommand::Unsubscribe(UnsubscribeCommand::Quotes(cmd))
+            if cmd.instrument_id == put_id
+    )));
+    assert!(recorded.iter().any(|cmd| matches!(
+        cmd,
+        DataCommand::Unsubscribe(UnsubscribeCommand::OptionGreeks(cmd))
+            if cmd.instrument_id == put_id
+    )));
+    assert!(recorded.iter().any(|cmd| matches!(
+        cmd,
+        DataCommand::Unsubscribe(UnsubscribeCommand::InstrumentStatus(cmd))
+            if cmd.instrument_id == put_id
+    )));
+    assert!(routed_recorder.borrow().is_empty());
 }
 
 #[rstest]
@@ -14232,7 +14392,7 @@ fn test_process_option_greeks_caches_and_publishes(
 }
 
 #[rstest]
-fn test_subscribe_option_chain_atm_relative_requests_forward_prices(
+fn test_subscribe_option_chain_atm_relative_requests_reference_price(
     clock: Rc<RefCell<TestClock>>,
     cache: Rc<RefCell<Cache>>,
 ) {
@@ -14253,9 +14413,33 @@ fn test_subscribe_option_chain_atm_relative_requests_forward_prices(
         &mut data_engine.borrow_mut(),
     );
 
-    // Add an instrument to cache so sample_instrument_id lookup succeeds
+    // Add multiple instruments so sample selection must be stable.
     let call = make_btc_option("50000.000", OptionKind::Call);
+    let put = make_btc_option("50000.000", OptionKind::Put);
+    let call_id = call.id();
+    let put_id = put.id();
+    let future = FuturesContract::builder()
+        .instrument_id(InstrumentId::from("AAA.DERIBIT"))
+        .raw_symbol(Symbol::from("AAA"))
+        .asset_class(AssetClass::Cryptocurrency)
+        .exchange(Ustr::from("DERIBIT"))
+        .underlying(Ustr::from("BTC"))
+        .activation_ns(UnixNanos::default())
+        .expiration_ns(make_series_id().expiration_ns)
+        .currency(Currency::from("BTC"))
+        .price_precision(2)
+        .price_increment(Price::from("0.01"))
+        .multiplier(Quantity::from(1))
+        .lot_size(Quantity::from(1))
+        .ts_event(UnixNanos::default())
+        .ts_init(UnixNanos::default())
+        .build()
+        .unwrap();
     let _ = cache.borrow_mut().add_instrument(call);
+    let _ = cache.borrow_mut().add_instrument(put);
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(InstrumentAny::FuturesContract(future));
 
     // Subscribe with ATM-relative range (not Fixed)
     let series_id = make_series_id();
@@ -14274,27 +14458,691 @@ fn test_subscribe_option_chain_atm_relative_requests_forward_prices(
     )));
     data_engine.borrow_mut().execute(cmd);
 
-    // ATM-relative should trigger a forward price request instead of immediate subscriptions
+    // ATM-relative should trigger a reference price request instead of immediate subscriptions
     let recorded = recorder.borrow();
-    let forward_requests = recorded
+    let reference_price_requests: Vec<&RequestOptionChainReferencePrice> = recorded
         .iter()
-        .filter(|cmd| matches!(cmd, DataCommand::Request(RequestCommand::ForwardPrices(_))))
-        .count();
+        .filter_map(|cmd| match cmd {
+            DataCommand::Request(RequestCommand::OptionChainReferencePrice(request)) => {
+                Some(request)
+            }
+            _ => None,
+        })
+        .collect();
 
-    assert_eq!(
-        forward_requests, 1,
-        "ATM-relative range should request forward prices"
-    );
+    assert_eq!(reference_price_requests.len(), 1);
+    let request = reference_price_requests[0];
+    assert_eq!(request.series_id, series_id);
+    assert_eq!(request.instrument_id, std::cmp::min(call_id, put_id));
+    assert_eq!(request.client_id, Some(client_id));
+    assert_eq!(request.params, None);
 
-    // No direct quote subscriptions yet, deferred until forward price response
+    // No direct quote subscriptions yet, deferred until the reference price response
     let quote_subs = recorded
         .iter()
         .filter(|cmd| matches!(cmd, DataCommand::Subscribe(SubscribeCommand::Quotes(_))))
         .count();
     assert_eq!(
         quote_subs, 0,
-        "No quote subscriptions before forward price bootstrap"
+        "No quote subscriptions before reference price bootstrap"
     );
+}
+
+#[rstest]
+#[case::atm_relative(StrikeRange::AtmRelative {
+    strikes_above: 1,
+    strikes_below: 1,
+})]
+#[case::delta(StrikeRange::Delta {
+    target: 0.25,
+    tolerance: 0.05,
+})]
+fn test_option_chain_reference_price_response_bootstraps_dynamic_range(
+    #[case] strike_range: StrikeRange,
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    for strike in ["45000.000", "50000.000", "55000.000"] {
+        let _ = cache
+            .borrow_mut()
+            .add_instrument(make_btc_option(strike, OptionKind::Call));
+        let _ = cache
+            .borrow_mut()
+            .add_instrument(make_btc_option(strike, OptionKind::Put));
+    }
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Subscribe(SubscribeCommand::OptionChain(
+            SubscribeOptionChain::new(
+                series_id,
+                strike_range,
+                None,
+                UUID4::new(),
+                UnixNanos::default(),
+                Some(client_id),
+                Some(venue),
+                None,
+            ),
+        )));
+    let request_id = option_chain_reference_price_request_id(&recorder);
+    recorder.borrow_mut().clear();
+
+    data_engine
+        .borrow_mut()
+        .response(DataResponse::OptionChainReferencePrice(
+            OptionChainReferencePriceResponse::new(
+                request_id,
+                client_id,
+                series_id,
+                Some(Price::from("50000.000")),
+                UnixNanos::from(1),
+                None,
+            ),
+        ));
+
+    let quote_subscriptions = recorder
+        .borrow()
+        .iter()
+        .filter(|cmd| matches!(cmd, DataCommand::Subscribe(SubscribeCommand::Quotes(_))))
+        .count();
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 0);
+    assert!(data_engine.borrow().has_option_chain_manager(&series_id));
+    assert_eq!(clock.borrow().timer_count(), 0);
+    assert_eq!(quote_subscriptions, 6);
+}
+
+#[rstest]
+fn test_option_chain_without_sample_bootstraps_from_live_data(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock.clone(),
+        cache,
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(series_id, client_id, venue));
+
+    assert!(recorder.borrow().is_empty());
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 0);
+    assert!(data_engine.borrow().has_option_chain_manager(&series_id));
+    assert_eq!(clock.borrow().timer_count(), 0);
+}
+
+#[rstest]
+fn test_unsubscribe_option_chain_cancels_pending_reference_price_request(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(make_btc_option("50000.000", OptionKind::Call));
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(series_id, client_id, venue));
+    let request_id = option_chain_reference_price_request_id(&recorder);
+    let other_series_id = OptionSeriesId::new(
+        venue,
+        Ustr::from("BTC"),
+        Ustr::from("BTC"),
+        UnixNanos::from(series_id.expiration_ns.as_u64() + 1),
+    );
+    data_engine
+        .borrow_mut()
+        .response(DataResponse::OptionChainReferencePrice(
+            OptionChainReferencePriceResponse::new(
+                request_id,
+                client_id,
+                other_series_id,
+                Some(Price::from("50000.000")),
+                UnixNanos::from(1),
+                None,
+            ),
+        ));
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 1);
+    assert!(!data_engine.borrow().has_option_chain_manager(&series_id));
+
+    data_engine
+        .borrow_mut()
+        .execute(make_unsubscribe_option_chain(
+            series_id,
+            Some(client_id),
+            Some(venue),
+        ));
+    data_engine
+        .borrow_mut()
+        .response(DataResponse::OptionChainReferencePrice(
+            OptionChainReferencePriceResponse::new(
+                request_id,
+                client_id,
+                series_id,
+                Some(Price::from("50000.000")),
+                UnixNanos::from(1),
+                None,
+            ),
+        ));
+
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 0);
+    assert!(!data_engine.borrow().has_option_chain_manager(&series_id));
+    assert_eq!(clock.borrow().timer_count(), 0);
+}
+
+#[rstest]
+fn test_option_chain_reference_price_timeout_bootstraps_from_live_data(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(make_btc_option("50000.000", OptionKind::Call));
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(series_id, client_id, venue));
+    let timer_name = clock
+        .borrow()
+        .timer_names()
+        .first()
+        .map(|name| (*name).to_owned())
+        .expect("reference price timeout should be scheduled");
+    let timeout_ns = clock
+        .borrow()
+        .next_time_ns(&timer_name)
+        .expect("reference price timeout should be scheduled");
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 1);
+
+    let advance_ns = timeout_ns.as_u64() - clock.borrow().timestamp_ns().as_u64();
+    advance_clock_and_dispatch(&clock, advance_ns);
+
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 0);
+    assert!(data_engine.borrow().has_option_chain_manager(&series_id));
+    assert_eq!(
+        recorder
+            .borrow()
+            .iter()
+            .filter(|cmd| matches!(
+                cmd,
+                DataCommand::Subscribe(SubscribeCommand::OptionGreeks(_))
+            ))
+            .count(),
+        1
+    );
+}
+
+#[rstest]
+fn test_option_chain_reference_price_request_error_subscribes_bootstrap_greeks(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock, cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let failing_client =
+        FailingRequestDataClient::new(client_id, Some(venue), "request dispatch failed");
+    let adapter =
+        DataClientAdapter::new(client_id, Some(venue), true, true, Box::new(failing_client));
+    data_engine
+        .borrow_mut()
+        .register_client(adapter, Some(venue));
+    let sample_id = InstrumentId::from("BTC-20240101-50000.000-C.DERIBIT");
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(make_btc_option("50000.000", OptionKind::Call));
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(series_id, client_id, venue));
+
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 0);
+    assert!(data_engine.borrow().has_option_chain_manager(&series_id));
+    assert_eq!(
+        msgbus::exact_subscriber_count_option_greeks(switchboard::get_option_greeks_topic(
+            sample_id
+        )),
+        1
+    );
+    let sample_is_subscribed = data_engine
+        .borrow_mut()
+        .get_client(Some(&client_id), Some(&venue))
+        .is_some_and(|client| client.subscriptions_option_greeks.contains(&sample_id));
+    assert!(sample_is_subscribed);
+}
+
+#[rstest]
+fn test_option_chain_reference_price_timeout_tracks_concurrent_requests(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock.clone(),
+        cache.clone(),
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    let first_series = make_series_id();
+    let second_expiration = first_series.expiration_ns + 5 * NANOSECONDS_IN_SECOND;
+    let second_series = OptionSeriesId::new(
+        venue,
+        Ustr::from("BTC"),
+        Ustr::from("BTC"),
+        second_expiration,
+    );
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(make_btc_option("50000.000", OptionKind::Call));
+    let _ = cache.borrow_mut().add_instrument(make_crypto_option(
+        "BTC-20240102-50000-C.DERIBIT",
+        "BTC",
+        "BTC",
+        "50000.000",
+        OptionKind::Call,
+        second_expiration,
+    ));
+
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(
+            first_series,
+            client_id,
+            venue,
+        ));
+    let timer_name = clock
+        .borrow()
+        .timer_names()
+        .first()
+        .map(|name| (*name).to_owned())
+        .expect("first timeout should be scheduled");
+    let first_deadline = clock
+        .borrow()
+        .next_time_ns(&timer_name)
+        .expect("first timeout should be scheduled");
+
+    advance_clock_and_dispatch(&clock, 10 * NANOSECONDS_IN_SECOND);
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(
+            second_series,
+            client_id,
+            venue,
+        ));
+
+    assert_eq!(clock.borrow().timer_count(), 1);
+    assert_eq!(
+        clock.borrow().next_time_ns(&timer_name),
+        Some(first_deadline)
+    );
+
+    let advance_ns = first_deadline.as_u64() - clock.borrow().timestamp_ns().as_u64();
+    advance_clock_and_dispatch(&clock, advance_ns);
+
+    assert!(data_engine.borrow().has_option_chain_manager(&first_series));
+    assert!(
+        !data_engine
+            .borrow()
+            .has_option_chain_manager(&second_series)
+    );
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 1);
+    assert_eq!(clock.borrow().timer_count(), 1);
+
+    let second_deadline = clock
+        .borrow()
+        .next_time_ns(&timer_name)
+        .expect("second timeout should be scheduled");
+    let advance_ns = second_deadline.as_u64() - clock.borrow().timestamp_ns().as_u64();
+    advance_clock_and_dispatch(&clock, advance_ns);
+
+    assert!(
+        data_engine
+            .borrow()
+            .has_option_chain_manager(&second_series)
+    );
+    assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 0);
+    assert_eq!(clock.borrow().timer_count(), 0);
+}
+
+#[rstest]
+fn test_option_chain_greeks_bootstrap_releases_inactive_sample(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock,
+        cache.clone(),
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+
+    for strike in ["45000.000", "50000.000", "55000.000"] {
+        let _ = cache
+            .borrow_mut()
+            .add_instrument(make_btc_option(strike, OptionKind::Call));
+        let _ = cache
+            .borrow_mut()
+            .add_instrument(make_btc_option(strike, OptionKind::Put));
+    }
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Subscribe(SubscribeCommand::OptionChain(
+            SubscribeOptionChain::new(
+                series_id,
+                StrikeRange::AtmRelative {
+                    strikes_above: 0,
+                    strikes_below: 0,
+                },
+                None,
+                UUID4::new(),
+                UnixNanos::default(),
+                Some(client_id),
+                Some(venue),
+                None,
+            ),
+        )));
+    let request_id = option_chain_reference_price_request_id(&recorder);
+    recorder.borrow_mut().clear();
+
+    data_engine
+        .borrow_mut()
+        .response(DataResponse::OptionChainReferencePrice(
+            OptionChainReferencePriceResponse::new(
+                request_id,
+                client_id,
+                series_id,
+                None,
+                UnixNanos::default(),
+                None,
+            ),
+        ));
+    let sample_id = InstrumentId::from("BTC-20240101-45000.000-C.DERIBIT");
+    assert!(recorder.borrow().iter().any(|cmd| {
+        matches!(
+            cmd,
+            DataCommand::Subscribe(SubscribeCommand::OptionGreeks(cmd))
+                if cmd.instrument_id == sample_id && cmd.client_id == Some(client_id)
+        )
+    }));
+    recorder.borrow_mut().clear();
+
+    data_engine
+        .borrow_mut()
+        .process_data(Data::OptionGreeks(make_option_chain_greeks(
+            sample_id, 50000.0,
+        )));
+
+    let recorded = recorder.borrow();
+    let quote_subscriptions = recorded
+        .iter()
+        .filter(|cmd| matches!(cmd, DataCommand::Subscribe(SubscribeCommand::Quotes(_))))
+        .count();
+    let greeks_subscriptions = recorded
+        .iter()
+        .filter(|cmd| {
+            matches!(
+                cmd,
+                DataCommand::Subscribe(SubscribeCommand::OptionGreeks(_))
+            )
+        })
+        .count();
+    let greeks_unsubscriptions: Vec<InstrumentId> = recorded
+        .iter()
+        .filter_map(|cmd| match cmd {
+            DataCommand::Unsubscribe(UnsubscribeCommand::OptionGreeks(cmd)) => {
+                Some(cmd.instrument_id)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(quote_subscriptions, 2);
+    assert_eq!(greeks_subscriptions, 2);
+    assert_eq!(greeks_unsubscriptions, vec![sample_id]);
+}
+
+#[rstest]
+fn test_option_chain_greeks_bootstrap_holds_subscription_ownership(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock,
+        cache.clone(),
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+    let sample_id = InstrumentId::from("BTC-20240101-50000.000-C.DERIBIT");
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(make_btc_option("50000.000", OptionKind::Call));
+
+    let topic = switchboard::get_option_greeks_topic(sample_id);
+    let (handler, _) = get_typed_message_saving_handler::<OptionGreeks>(None);
+    msgbus::subscribe_option_greeks(topic.into(), handler.clone(), None);
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Subscribe(SubscribeCommand::OptionGreeks(
+            SubscribeOptionGreeks::new(
+                sample_id,
+                Some(client_id),
+                Some(venue),
+                UUID4::new(),
+                UnixNanos::default(),
+                None,
+                None,
+            ),
+        )));
+    recorder.borrow_mut().clear();
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(series_id, client_id, venue));
+    let request_id = option_chain_reference_price_request_id(&recorder);
+    data_engine
+        .borrow_mut()
+        .response(DataResponse::OptionChainReferencePrice(
+            OptionChainReferencePriceResponse::new(
+                request_id,
+                client_id,
+                series_id,
+                None,
+                UnixNanos::default(),
+                None,
+            ),
+        ));
+    recorder.borrow_mut().clear();
+
+    msgbus::unsubscribe_option_greeks(topic.into(), &handler);
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Unsubscribe(UnsubscribeCommand::OptionGreeks(
+            UnsubscribeOptionGreeks::new(
+                sample_id,
+                Some(client_id),
+                Some(venue),
+                UUID4::new(),
+                UnixNanos::default(),
+                None,
+                None,
+            ),
+        )));
+
+    assert!(recorder.borrow().is_empty());
+    data_engine
+        .borrow_mut()
+        .process_data(Data::OptionGreeks(make_option_chain_greeks(
+            sample_id, 50000.0,
+        )));
+    assert!(data_engine.borrow().has_option_chain_manager(&series_id));
+    assert!(
+        recorder
+            .borrow()
+            .iter()
+            .all(|cmd| !matches!(cmd, DataCommand::Unsubscribe(_)))
+    );
+}
+
+#[rstest]
+fn test_unsubscribe_option_chain_preserves_user_owned_bootstrap_greeks(
+    clock: Rc<RefCell<TestClock>>,
+    cache: Rc<RefCell<Cache>>,
+) {
+    let _ = msgbus::get_message_bus();
+    let data_engine = make_option_chain_engine(clock.clone(), cache.clone());
+    let client_id = ClientId::new("DERIBIT");
+    let venue = Venue::new("DERIBIT");
+    let recorder = Rc::new(RefCell::new(Vec::<DataCommand>::new()));
+    register_mock_client(
+        clock,
+        cache.clone(),
+        client_id,
+        venue,
+        Some(venue),
+        &recorder,
+        &mut data_engine.borrow_mut(),
+    );
+    let sample_id = InstrumentId::from("BTC-20240101-50000.000-C.DERIBIT");
+    let _ = cache
+        .borrow_mut()
+        .add_instrument(make_btc_option("50000.000", OptionKind::Call));
+
+    let topic = switchboard::get_option_greeks_topic(sample_id);
+    let (handler, _) = get_typed_message_saving_handler::<OptionGreeks>(None);
+    msgbus::subscribe_option_greeks(topic.into(), handler, None);
+    data_engine
+        .borrow_mut()
+        .execute(DataCommand::Subscribe(SubscribeCommand::OptionGreeks(
+            SubscribeOptionGreeks::new(
+                sample_id,
+                Some(client_id),
+                Some(venue),
+                UUID4::new(),
+                UnixNanos::default(),
+                None,
+                None,
+            ),
+        )));
+
+    let series_id = make_series_id();
+    data_engine
+        .borrow_mut()
+        .execute(make_subscribe_option_chain_atm(series_id, client_id, venue));
+    let request_id = option_chain_reference_price_request_id(&recorder);
+    data_engine
+        .borrow_mut()
+        .response(DataResponse::OptionChainReferencePrice(
+            OptionChainReferencePriceResponse::new(
+                request_id,
+                client_id,
+                series_id,
+                None,
+                UnixNanos::default(),
+                None,
+            ),
+        ));
+    recorder.borrow_mut().clear();
+
+    data_engine
+        .borrow_mut()
+        .execute(make_unsubscribe_option_chain(
+            series_id,
+            Some(client_id),
+            Some(venue),
+        ));
+
+    assert!(recorder.borrow().is_empty());
+    let sample_is_subscribed = data_engine
+        .borrow_mut()
+        .get_client(Some(&client_id), Some(&venue))
+        .is_some_and(|client| client.subscriptions_option_greeks.contains(&sample_id));
+    assert!(sample_is_subscribed);
 }
 
 #[derive(Clone, Copy)]
@@ -14362,45 +15210,48 @@ fn test_option_chain_deferred_bootstrap_from_greeks_keeps_bootstrap_event(
         .borrow()
         .iter()
         .find_map(|cmd| match cmd {
-            DataCommand::Request(RequestCommand::ForwardPrices(req)) => Some(req.request_id),
+            DataCommand::Request(RequestCommand::OptionChainReferencePrice(req)) => {
+                Some(req.request_id)
+            }
             _ => None,
         })
-        .expect("forward price request should be recorded");
+        .expect("reference price request should be recorded");
 
     data_engine
         .borrow_mut()
-        .response(DataResponse::ForwardPrices(ForwardPricesResponse::new(
-            request_id,
-            client_id,
-            venue,
-            Vec::new(),
-            UnixNanos::default(),
-            None,
-        )));
+        .response(DataResponse::OptionChainReferencePrice(
+            OptionChainReferencePriceResponse::new(
+                request_id,
+                client_id,
+                series_id,
+                None,
+                UnixNanos::default(),
+                None,
+            ),
+        ));
     assert!(data_engine.borrow().has_option_chain_manager(&series_id));
     assert_eq!(data_engine.borrow().pending_option_chain_request_count(), 0);
+
+    let bootstrap_instrument_id = InstrumentId::from("BTC-20240101-45000.000-C.DERIBIT");
+    let bootstrap_subscriptions: Vec<SubscribeOptionGreeks> = recorder
+        .borrow()
+        .iter()
+        .filter_map(|cmd| match cmd {
+            DataCommand::Subscribe(SubscribeCommand::OptionGreeks(cmd)) => Some(cmd.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(bootstrap_subscriptions.len(), 1);
+    assert_eq!(
+        bootstrap_subscriptions[0].instrument_id,
+        bootstrap_instrument_id
+    );
+    assert_eq!(bootstrap_subscriptions[0].client_id, Some(client_id));
 
     recorder.borrow_mut().clear();
 
     let call_id = InstrumentId::from("BTC-20240101-50000.000-C.DERIBIT");
-    let greeks = OptionGreeks {
-        instrument_id: call_id,
-        convention: GreeksConvention::BlackScholes,
-        greeks: OptionGreekValues {
-            delta: 0.55,
-            gamma: 0.001,
-            vega: 15.0,
-            theta: -5.0,
-            rho: 0.02,
-        },
-        mark_iv: Some(0.65),
-        bid_iv: Some(0.63),
-        ask_iv: Some(0.67),
-        underlying_price: Some(50000.0),
-        open_interest: Some(1000.0),
-        ts_event: UnixNanos::from(1u64),
-        ts_init: UnixNanos::from(1u64),
-    };
+    let greeks = make_option_chain_greeks(call_id, 50000.0);
 
     match dispatch {
         OptionGreeksDispatch::DataOwned => data_engine
@@ -14436,7 +15287,7 @@ fn test_option_chain_deferred_bootstrap_from_greeks_keeps_bootstrap_event(
         })
         .count();
     assert_eq!(quote_subs, 6);
-    assert_eq!(greeks_subs, 6);
+    assert_eq!(greeks_subs, 5);
     assert_eq!(status_subs, 6);
     drop(recorded);
 
@@ -18455,35 +19306,43 @@ fn test_pipeline_unsupported_variant_drops_response(
     let parent_id = UUID4::new();
     let leg_id = UUID4::new();
 
-    let parent_request = RequestCommand::ForwardPrices(RequestForwardPrices::new(
+    let series_id = OptionSeriesId::new(
         venue,
         Ustr::from("ES"),
-        None,
-        Some(client_id),
-        parent_id,
-        UnixNanos::default(),
-        None,
-    ));
+        Ustr::from("USD"),
+        UnixNanos::from(100),
+    );
+    let parent_request =
+        RequestCommand::OptionChainReferencePrice(RequestOptionChainReferencePrice::new(
+            series_id,
+            InstrumentId::from("ES-TEST-5000-C.SIM"),
+            Some(client_id),
+            parent_id,
+            UnixNanos::default(),
+            None,
+        ));
     data_engine.new_request_pipeline(parent_request, 1);
     data_engine.register_request_pipeline_leg(leg_id, parent_id);
 
-    let (parent_handler, parent_saver) = get_any_saving_handler::<ForwardPricesResponse>(Some(
-        Ustr::from("pipeline-unsupported-parent"),
-    ));
+    let (parent_handler, parent_saver) = get_any_saving_handler::<OptionChainReferencePriceResponse>(
+        Some(Ustr::from("pipeline-unsupported-parent")),
+    );
     msgbus::register_response_handler(&parent_id, parent_handler);
-    let (leg_handler, leg_saver) = get_any_saving_handler::<ForwardPricesResponse>(Some(
-        Ustr::from("pipeline-unsupported-leg"),
-    ));
+    let (leg_handler, leg_saver) = get_any_saving_handler::<OptionChainReferencePriceResponse>(
+        Some(Ustr::from("pipeline-unsupported-leg")),
+    );
     msgbus::register_response_handler(&leg_id, leg_handler);
 
-    data_engine.response(DataResponse::ForwardPrices(ForwardPricesResponse::new(
-        leg_id,
-        client_id,
-        venue,
-        Vec::new(),
-        UnixNanos::default(),
-        None,
-    )));
+    data_engine.response(DataResponse::OptionChainReferencePrice(
+        OptionChainReferencePriceResponse::new(
+            leg_id,
+            client_id,
+            series_id,
+            None,
+            UnixNanos::default(),
+            None,
+        ),
+    ));
 
     assert!(
         parent_saver.get_messages().is_empty(),

@@ -539,7 +539,7 @@ channel:
 | Greeks                     | Delta, gamma, vega, theta, plus bid/ask/mark IV. Bybit publishes no rho. |
 | Mark price                 | Exchange mark price for each option contract.                            |
 | Index price                | Underlying index price.                                                  |
-| Underlying (forward) price | Per-expiry forward price, used for ATM determination.                    |
+| Underlying reference price | Per-expiry venue reference used for ATM determination.                   |
 | Open interest              | Per-contract open interest.                                              |
 | Order book deltas          | L2 MBP updates from the option orderbook stream.                         |
 

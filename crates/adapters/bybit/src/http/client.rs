@@ -3714,7 +3714,6 @@ impl BybitHttpClient {
     /// Requests raw option tickers for a given base coin.
     ///
     /// Returns `Vec<BybitTickerOption>` with the raw fields including `underlying_price`.
-    /// Used for fetching forward prices for option chain bootstrap.
     ///
     /// # Errors
     ///

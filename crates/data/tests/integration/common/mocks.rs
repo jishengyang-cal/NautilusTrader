@@ -36,16 +36,17 @@ use nautilus_common::{
     clock::Clock,
     messages::data::{
         DataCommand, RequestBars, RequestBookDeltas, RequestBookDepth, RequestBookSnapshot,
-        RequestCommand, RequestCustomData, RequestForwardPrices, RequestFundingRates,
-        RequestInstrument, RequestInstruments, RequestQuotes, RequestTrades, SubscribeBars,
-        SubscribeBookDeltas, SubscribeBookDepth10, SubscribeCommand, SubscribeCustomData,
-        SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument, SubscribeInstrumentClose,
-        SubscribeInstrumentStatus, SubscribeInstruments, SubscribeMarkPrices,
-        SubscribeOptionGreeks, SubscribeQuotes, SubscribeTrades, UnsubscribeBars,
-        UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeCommand, UnsubscribeCustomData,
-        UnsubscribeFundingRates, UnsubscribeIndexPrices, UnsubscribeInstrument,
-        UnsubscribeInstrumentClose, UnsubscribeInstrumentStatus, UnsubscribeInstruments,
-        UnsubscribeMarkPrices, UnsubscribeOptionGreeks, UnsubscribeQuotes, UnsubscribeTrades,
+        RequestCommand, RequestCustomData, RequestFundingRates, RequestInstrument,
+        RequestInstruments, RequestOptionChainReferencePrice, RequestQuotes, RequestTrades,
+        SubscribeBars, SubscribeBookDeltas, SubscribeBookDepth10, SubscribeCommand,
+        SubscribeCustomData, SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
+        SubscribeInstrumentClose, SubscribeInstrumentStatus, SubscribeInstruments,
+        SubscribeMarkPrices, SubscribeOptionGreeks, SubscribeQuotes, SubscribeTrades,
+        UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeBookDepth10, UnsubscribeCommand,
+        UnsubscribeCustomData, UnsubscribeFundingRates, UnsubscribeIndexPrices,
+        UnsubscribeInstrument, UnsubscribeInstrumentClose, UnsubscribeInstrumentStatus,
+        UnsubscribeInstruments, UnsubscribeMarkPrices, UnsubscribeOptionGreeks, UnsubscribeQuotes,
+        UnsubscribeTrades,
     },
 };
 use nautilus_model::identifiers::{ClientId, Venue};
@@ -619,10 +620,14 @@ impl DataClient for MockDataClient {
         Ok(())
     }
 
-    fn request_forward_prices(&self, request: RequestForwardPrices) -> anyhow::Result<()> {
+    fn request_option_chain_reference_price(
+        &self,
+        request: RequestOptionChainReferencePrice,
+    ) -> anyhow::Result<()> {
         if let Some(rec) = &self.recorder {
-            rec.borrow_mut()
-                .push(DataCommand::Request(RequestCommand::ForwardPrices(request)));
+            rec.borrow_mut().push(DataCommand::Request(
+                RequestCommand::OptionChainReferencePrice(request),
+            ));
         }
         Ok(())
     }

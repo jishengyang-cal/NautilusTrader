@@ -1871,7 +1871,7 @@ impl DeribitHttpClient {
 
     /// Requests ticker data for a single instrument.
     ///
-    /// Returns the `DeribitTicker` which includes `underlying_price` (forward price).
+    /// Returns the `DeribitTicker` including its option-chain reference price.
     ///
     /// # Errors
     ///

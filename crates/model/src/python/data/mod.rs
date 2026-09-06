@@ -21,7 +21,6 @@ pub mod close;
 pub mod delta;
 pub mod deltas;
 pub mod depth;
-pub mod forward;
 pub mod funding;
 pub mod greeks;
 pub mod option_chain;

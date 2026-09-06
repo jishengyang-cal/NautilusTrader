@@ -1373,7 +1373,7 @@ pub fn send_response(correlation_id: &UUID4, message: &DataResponse) {
             DataResponse::Quotes(resp) => handler.0.handle(resp),
             DataResponse::Trades(resp) => handler.0.handle(resp),
             DataResponse::FundingRates(resp) => handler.0.handle(resp),
-            DataResponse::ForwardPrices(resp) => handler.0.handle(resp),
+            DataResponse::OptionChainReferencePrice(resp) => handler.0.handle(resp),
             DataResponse::Bars(resp) => handler.0.handle(resp),
         }
     } else {
@@ -1617,8 +1617,8 @@ mod tests {
         },
         events::{OrderEventAny, PositionEvent, PositionOpened, order::spec::OrderDeniedSpec},
         identifiers::{
-            AccountId, ClientId, ClientOrderId, InstrumentId, PositionId, StrategyId, TradeId,
-            TraderId, Venue, VenueOrderId,
+            AccountId, ClientId, ClientOrderId, InstrumentId, OptionSeriesId, PositionId,
+            StrategyId, TradeId, TraderId, Venue, VenueOrderId,
         },
         instruments::{InstrumentAny, stubs::audusd_sim},
         orderbook::OrderBook,
@@ -1638,10 +1638,10 @@ mod tests {
         messages::{
             data::{
                 BarsResponse, BookDeltasResponse, BookDepthResponse, BookResponse,
-                CustomDataResponse, DataCommand, DataResponse, ForwardPricesResponse,
-                FundingRatesResponse, InstrumentResponse, InstrumentsResponse, QuotesResponse,
-                RequestCommand, RequestQuotes, SubscribeCommand, SubscribeQuotes, TradesResponse,
-                UnsubscribeCommand, UnsubscribeQuotes,
+                CustomDataResponse, DataCommand, DataResponse, FundingRatesResponse,
+                InstrumentResponse, InstrumentsResponse, OptionChainReferencePriceResponse,
+                QuotesResponse, RequestCommand, RequestQuotes, SubscribeCommand, SubscribeQuotes,
+                TradesResponse, UnsubscribeCommand, UnsubscribeQuotes,
             },
             execution::{CancelAllOrders, GenerateExecutionMassStatus, TradingCommand},
         },
@@ -3934,16 +3934,21 @@ mod tests {
         ));
 
         let correlation_id = UUID4::new();
-        assert_response_handler_is_consumed::<ForwardPricesResponse>(&DataResponse::ForwardPrices(
-            ForwardPricesResponse::new(
+        assert_response_handler_is_consumed::<OptionChainReferencePriceResponse>(
+            &DataResponse::OptionChainReferencePrice(OptionChainReferencePriceResponse::new(
                 correlation_id,
                 client_id,
-                venue,
-                Vec::new(),
+                OptionSeriesId::new(
+                    venue,
+                    Ustr::from("BTC"),
+                    Ustr::from("BTC"),
+                    UnixNanos::from(100),
+                ),
+                Some(Price::from("50123.45")),
                 UnixNanos::default(),
                 None,
-            ),
-        ));
+            )),
+        );
 
         let correlation_id = UUID4::new();
         assert_response_handler_is_consumed::<BarsResponse>(&DataResponse::Bars(

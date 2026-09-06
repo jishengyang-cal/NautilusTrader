@@ -336,9 +336,6 @@ class BybitHttpClient:
         product_type: BybitProductType,
         instrument_id: model.InstrumentId | None = None,
     ) -> typing.Any: ...
-    def request_forward_prices(
-        self, base_coin: str, instrument_id: model.InstrumentId | None = None
-    ) -> typing.Any: ...
 
 @typing.final
 class BybitMarginBorrowResult:

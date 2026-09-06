@@ -57,7 +57,7 @@ use nautilus_core::{
 use nautilus_model::{
     data::{
         Bar, BarType, BookOrder, FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate,
-        OrderBookDelta, OrderBookDeltas, TradeTick, forward::ForwardPrice,
+        OrderBookDelta, OrderBookDeltas, TradeTick,
     },
     enums::{
         AggregationSource, BarAggregation, BookAction, BookType, OrderSide, OrderStatus, OrderType,
@@ -132,12 +132,11 @@ use crate::{
             extract_inst_family, is_okx_spread_symbol, is_order_status_report_more_advanced,
             okx_instrument_type, okx_instrument_type_from_symbol, parse_account_state,
             parse_base_quote_from_symbol, parse_candlestick, parse_fill_report, parse_funding_rate,
-            parse_index_price_update, parse_instrument_any, parse_instrument_id,
-            parse_mark_price_update, parse_millisecond_timestamp, parse_order_status_report,
-            parse_position_status_report, parse_price, parse_quantity,
-            parse_spot_margin_position_from_balance, parse_spread_fill_report,
-            parse_spread_instrument, parse_spread_order_status_report, parse_trade_tick,
-            prefer_rpi_response_fields,
+            parse_index_price_update, parse_instrument_any, parse_mark_price_update,
+            parse_millisecond_timestamp, parse_order_status_report, parse_position_status_report,
+            parse_price, parse_quantity, parse_spot_margin_position_from_balance,
+            parse_spread_fill_report, parse_spread_instrument, parse_spread_order_status_report,
+            parse_trade_tick, prefer_rpi_response_fields,
         },
     },
     http::models::{OKXCandlestick, OKXTrade},
@@ -459,27 +458,6 @@ mod tests {
             OKXHttpError::RequestSerialization(message)
                 if message.contains("intentional serialization failure")
         ));
-    }
-
-    #[rstest]
-    #[case("BTC-USD")]
-    #[case("BTC-USD-241217")]
-    #[case("BTC-USD-241217-92000")]
-    fn test_option_summary_expiry_key_rejects_short_symbol(#[case] symbol: &str) {
-        let result = super::OKXHttpClient::option_summary_expiry_key(symbol);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Expected OKX option symbol with expiry"),
-            "unexpected error: {err}"
-        );
-    }
-
-    #[rstest]
-    fn test_option_summary_expiry_key_extracts_base_quote_expiry() {
-        let result =
-            super::OKXHttpClient::option_summary_expiry_key("BTC-USD-241217-92000-C").unwrap();
-        assert_eq!(result, "BTC-USD-241217");
     }
 
     #[rstest]
@@ -2762,82 +2740,44 @@ impl OKXHttpClient {
         self.inner.get_event_contract_markets(params).await
     }
 
-    /// Requests forward prices for OKX options using the option summary endpoint.
+    /// Requests the reference price for an OKX option-chain bootstrap.
     ///
     /// # Errors
     ///
-    /// Returns an error if the HTTP request fails or no usable instrument family can be resolved.
-    pub async fn request_forward_prices(
+    /// Returns an error if the HTTP request fails or the option symbol is invalid.
+    pub(crate) async fn request_option_chain_reference_price(
         &self,
-        underlying: &str,
-        instrument_id: Option<InstrumentId>,
-    ) -> anyhow::Result<Vec<ForwardPrice>> {
-        let requests = self.resolve_forward_price_requests(underlying, instrument_id.as_ref())?;
-        let requested_symbol = instrument_id.as_ref().map(|id| id.symbol.inner());
-        let requested_instrument_id = instrument_id.as_ref();
-        let ts_init = self.generate_ts_init();
-        let mut forward_prices = Vec::new();
-        let mut seen_expiries = AHashSet::new();
+        instrument_id: InstrumentId,
+    ) -> anyhow::Result<Option<Price>> {
+        let symbol = instrument_id.symbol.inner().as_str();
+        let inst_family = extract_inst_family(symbol)?.to_string();
+        let exp_time = Self::option_summary_exp_time(symbol)?;
+        let summaries = self
+            .inner
+            .get_option_summary(GetOptionSummaryParams {
+                inst_family,
+                exp_time,
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
 
-        for (inst_family, exp_time) in requests {
-            let summaries = self
-                .inner
-                .get_option_summary(GetOptionSummaryParams {
-                    inst_family,
-                    exp_time,
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!(e))?;
-
-            for summary in summaries {
-                if summary.inst_type != OKXInstrumentType::Option {
-                    continue;
-                }
-
-                if let Some(symbol) = requested_symbol
-                    && summary.inst_id != symbol
-                {
-                    continue;
-                }
-
-                let forward_price = match Decimal::from_str(&summary.fwd_px) {
-                    Ok(price) if !price.is_zero() => price,
-                    Ok(_) => continue,
-                    Err(e) => {
-                        log::warn!(
-                            "Skipping invalid OKX forward price for {}: {e}",
-                            summary.inst_id
-                        );
-                        continue;
-                    }
-                };
-
-                if requested_symbol.is_none() {
-                    let expiry_key = Self::option_summary_expiry_key(summary.inst_id.as_str())?;
-                    if !seen_expiries.insert(expiry_key) {
-                        continue;
-                    }
-                }
-
-                let ts_event =
-                    UnixNanos::from(summary.ts.saturating_mul(NANOSECONDS_IN_MILLISECOND));
-                let instrument_id = if let Some(inst_id) = requested_instrument_id {
-                    *inst_id
-                } else {
-                    parse_instrument_id(summary.inst_id)
-                };
-
-                forward_prices.push(ForwardPrice::new(
-                    instrument_id,
-                    forward_price,
-                    Some(summary.uly.to_string()),
-                    ts_event,
-                    ts_init,
-                ));
+        for summary in summaries {
+            if summary.inst_type != OKXInstrumentType::Option || summary.inst_id != symbol {
+                continue;
             }
+
+            let decimal = match Decimal::from_str(&summary.fwd_px) {
+                Ok(decimal) if decimal > Decimal::ZERO => decimal,
+                Ok(_) => return Ok(None),
+                Err(e) => {
+                    log::warn!("Invalid OKX option-chain reference price for {instrument_id}: {e}");
+                    return Ok(None);
+                }
+            };
+            return Price::from_decimal(decimal).map(Some).map_err(Into::into);
         }
 
-        Ok(forward_prices)
+        Ok(None)
     }
 
     /// Requests the latest mark price for the `instrument_type` from OKX.
@@ -2894,54 +2834,6 @@ impl OKXHttpClient {
         resp.first()
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("No price limit returned from OKX"))
-    }
-
-    fn resolve_forward_price_requests(
-        &self,
-        underlying: &str,
-        instrument_id: Option<&InstrumentId>,
-    ) -> anyhow::Result<Vec<(String, Option<String>)>> {
-        if let Some(inst_id) = instrument_id {
-            let symbol = inst_id.symbol.inner().as_str();
-            let inst_family = extract_inst_family(symbol)?.to_string();
-            let exp_time = Self::option_summary_exp_time(symbol)?;
-            return Ok(vec![(inst_family, exp_time)]);
-        }
-
-        let underlying = Ustr::from(underlying);
-        let mut families = AHashSet::new();
-
-        for instrument in self.instruments_cache.load().values() {
-            let InstrumentAny::CryptoOption(option) = instrument else {
-                continue;
-            };
-
-            if option.underlying.code != underlying {
-                continue;
-            }
-
-            let inst_family = extract_inst_family(option.id.symbol.inner().as_str())?;
-            families.insert(inst_family.to_string());
-        }
-
-        let mut families: Vec<String> = families.into_iter().collect();
-        families.sort_unstable();
-
-        anyhow::ensure!(
-            !families.is_empty(),
-            "No cached OKX option families for underlying {underlying}; provide a sample instrument or pre-load option instruments"
-        );
-
-        Ok(families.into_iter().map(|family| (family, None)).collect())
-    }
-
-    fn option_summary_expiry_key(symbol: &str) -> anyhow::Result<String> {
-        let parts: Vec<&str> = symbol.split('-').collect();
-        anyhow::ensure!(
-            parts.len() >= 5,
-            "Expected OKX option symbol with expiry, received {symbol}"
-        );
-        Ok(format!("{}-{}-{}", parts[0], parts[1], parts[2]))
     }
 
     fn option_summary_exp_time(symbol: &str) -> anyhow::Result<Option<String>> {

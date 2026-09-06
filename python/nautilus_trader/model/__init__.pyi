@@ -1959,27 +1959,6 @@ class FillReport:
     def to_dict(self) -> typing.Any: ...
 
 @typing.final
-class ForwardPrice:
-    def __init__(
-        self,
-        instrument_id: InstrumentId,
-        forward_price: str,
-        underlying_index: str | None = None,
-        ts_event: int = 0,
-        ts_init: int = 0,
-    ) -> None: ...
-    @property
-    def instrument_id(self) -> InstrumentId: ...
-    @property
-    def forward_price(self) -> str: ...
-    @property
-    def underlying_index(self) -> str | None: ...
-    @property
-    def ts_event(self) -> int: ...
-    @property
-    def ts_init(self) -> int: ...
-
-@typing.final
 class FundingRateUpdate:
     def __init__(
         self,

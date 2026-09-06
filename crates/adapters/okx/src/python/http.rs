@@ -20,7 +20,7 @@ use nautilus_core::python::{
     IntoPyObjectNautilusExt, params::value_to_pyobject, to_pyruntime_err, to_pyvalue_err,
 };
 use nautilus_model::{
-    data::{BarType, forward::ForwardPrice},
+    data::BarType,
     enums::{OrderSide, OrderType, PositionSide, TimeInForce, TriggerType},
     identifiers::{AccountId, ClientOrderId, InstrumentId, StrategyId, TraderId, VenueOrderId},
     python::instruments::{instrument_any_to_pyobject, pyobject_to_instrument_any},
@@ -663,38 +663,6 @@ impl OKXHttpClient {
                     .map(|rate| rate.into_py_any(py))
                     .collect::<PyResult<Vec<_>>>()?;
                 let pylist = PyList::new(py, py_rates)?;
-                Ok(pylist.into_py_any_unwrap(py))
-            })
-        })
-    }
-
-    /// Requests forward prices for OKX options using the option summary endpoint.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the HTTP request fails or no usable instrument family can be resolved.
-    #[pyo3(name = "request_forward_prices")]
-    #[pyo3(signature = (underlying, instrument_id=None))]
-    fn py_request_forward_prices<'py>(
-        &self,
-        py: Python<'py>,
-        underlying: String,
-        instrument_id: Option<InstrumentId>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let client = self.clone();
-
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let forward_prices: Vec<ForwardPrice> = client
-                .request_forward_prices(&underlying, instrument_id)
-                .await
-                .map_err(to_pyvalue_err)?;
-
-            Python::attach(|py| {
-                let py_prices = forward_prices
-                    .into_iter()
-                    .map(|price| price.into_py_any(py))
-                    .collect::<PyResult<Vec<_>>>()?;
-                let pylist = PyList::new(py, py_prices)?;
                 Ok(pylist.into_py_any_unwrap(py))
             })
         })

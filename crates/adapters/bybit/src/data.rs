@@ -33,16 +33,17 @@ use nautilus_common::{
     messages::{
         DataEvent,
         data::{
-            BarsResponse, BookResponse, DataResponse, ForwardPricesResponse, FundingRatesResponse,
-            InstrumentResponse, InstrumentsResponse, RequestBars, RequestBookSnapshot,
-            RequestForwardPrices, RequestFundingRates, RequestInstrument, RequestInstruments,
-            RequestTrades, SubscribeBars, SubscribeBookDeltas, SubscribeFundingRates,
-            SubscribeIndexPrices, SubscribeInstrument, SubscribeInstrumentStatus,
-            SubscribeInstruments, SubscribeMarkPrices, SubscribeOptionGreeks, SubscribeQuotes,
-            SubscribeTrades, TradesResponse, UnsubscribeBars, UnsubscribeBookDeltas,
-            UnsubscribeFundingRates, UnsubscribeIndexPrices, UnsubscribeInstrument,
-            UnsubscribeInstrumentStatus, UnsubscribeInstruments, UnsubscribeMarkPrices,
-            UnsubscribeOptionGreeks, UnsubscribeQuotes, UnsubscribeTrades,
+            BarsResponse, BookResponse, DataResponse, FundingRatesResponse, InstrumentResponse,
+            InstrumentsResponse, OptionChainReferencePriceResponse, RequestBars,
+            RequestBookSnapshot, RequestFundingRates, RequestInstrument, RequestInstruments,
+            RequestOptionChainReferencePrice, RequestTrades, SubscribeBars, SubscribeBookDeltas,
+            SubscribeFundingRates, SubscribeIndexPrices, SubscribeInstrument,
+            SubscribeInstrumentStatus, SubscribeInstruments, SubscribeMarkPrices,
+            SubscribeOptionGreeks, SubscribeQuotes, SubscribeTrades, TradesResponse,
+            UnsubscribeBars, UnsubscribeBookDeltas, UnsubscribeFundingRates,
+            UnsubscribeIndexPrices, UnsubscribeInstrument, UnsubscribeInstrumentStatus,
+            UnsubscribeInstruments, UnsubscribeMarkPrices, UnsubscribeOptionGreeks,
+            UnsubscribeQuotes, UnsubscribeTrades,
         },
     },
 };
@@ -56,11 +57,12 @@ use nautilus_live::{
     task::{TaskGroup, TaskGroupGuard},
 };
 use nautilus_model::{
-    data::{BarType, Data, ForwardPrice, QuoteTick},
+    data::{BarType, Data, QuoteTick},
     enums::{BookType, MarketStatusAction},
     identifiers::{ClientId, InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
     orderbook::book::OrderBook,
+    types::Price,
 };
 use rust_decimal::Decimal;
 use tokio_util::sync::CancellationToken;
@@ -73,7 +75,6 @@ use crate::{
         instruments::diff_and_emit_instruments,
         parse::{extract_raw_symbol, make_bybit_symbol},
         status::{diff_and_emit_statuses, emit_status},
-        symbol::BybitSymbol,
     },
     config::BybitDataClientConfig,
     http::client::BybitHttpClient,
@@ -1964,123 +1965,64 @@ impl DataClient for BybitDataClient {
         Ok(())
     }
 
-    fn request_forward_prices(&self, request: RequestForwardPrices) -> anyhow::Result<()> {
-        let underlying = request.underlying.to_string();
+    fn request_option_chain_reference_price(
+        &self,
+        request: RequestOptionChainReferencePrice,
+    ) -> anyhow::Result<()> {
+        let series_id = request.series_id;
         let instrument_id = request.instrument_id;
         let http_client = self.http_client.clone();
         let sender = self.data_sender.clone();
         let request_id = request.request_id;
-        let client_id = self.client_id();
+        let client_id = request.client_id.unwrap_or(self.client_id());
         let params = request.params;
         let clock = self.clock;
-        let venue = *BYBIT_VENUE;
 
         self.spawn_command(async move {
-            let result = if let Some(inst_id) = instrument_id {
-                // Single-instrument path: fetch ticker for one symbol
-                let raw_symbol = extract_raw_symbol(inst_id.symbol.as_str()).to_string();
-                log::debug!(
-                    "Requesting forward price for {underlying} (single instrument: {raw_symbol})"
-                );
-
-                let params = crate::http::query::BybitTickersParams {
-                    category: BybitProductType::Option,
-                    symbol: Some(raw_symbol.clone()),
-                    base_coin: None,
-                    exp_date: None,
-                };
-
-                match http_client.request_option_tickers_raw_with_params(&params).await {
-                    Ok(tickers) => {
-                        let ts = clock.get_time_ns();
-                        let forward_prices: Vec<ForwardPrice> = tickers
-                            .into_iter()
-                            .filter_map(|t| {
-                                let up: Decimal = t.underlying_price.parse().ok()?;
-                                if up.is_zero() {
-                                    return None;
-                                }
-                                Some(ForwardPrice::new(inst_id, up, None, ts, ts))
-                            })
-                            .collect();
-
-                        log::debug!(
-                            "Fetched {} forward price for {underlying} (single instrument: {raw_symbol})",
-                            forward_prices.len(),
-                        );
-                        Ok((forward_prices, ts))
+            let raw_symbol = extract_raw_symbol(instrument_id.symbol.as_str()).to_string();
+            let query = crate::http::query::BybitTickersParams {
+                category: BybitProductType::Option,
+                symbol: Some(raw_symbol),
+                base_coin: None,
+                exp_date: None,
+            };
+            let price = match http_client.request_option_tickers_raw_with_params(&query).await {
+                Ok(tickers) => tickers.into_iter().find_map(|ticker| {
+                    let decimal = ticker.underlying_price.parse::<Decimal>().ok()?;
+                    if decimal <= Decimal::ZERO {
+                        return None;
                     }
-                    Err(e) => Err(e),
-                }
-            } else {
-                // Bulk path: fetch all option tickers
-                log::debug!("Requesting option forward prices for base_coin={underlying} (bulk)");
 
-                match http_client.request_option_tickers_raw(&underlying).await {
-                    Ok(tickers) => {
-                        let ts = clock.get_time_ns();
-
-                        // Deduplicate: all options at the same expiry share the same
-                        // forward price. Extract expiry prefix (e.g. "BTC-28FEB26" from
-                        // "BTC-28FEB26-65000-C") and keep only one entry per expiry.
-                        let mut seen_expiries = std::collections::HashSet::new();
-                        let forward_prices: Vec<ForwardPrice> = tickers
-                            .into_iter()
-                            .filter_map(|t| {
-                                let up: Decimal = t.underlying_price.parse().ok()?;
-                                if up.is_zero() {
-                                    return None;
-                                }
-                                let parts: Vec<&str> = t.symbol.splitn(3, '-').collect();
-                                let expiry_key = if parts.len() >= 2 {
-                                    format!("{}-{}", parts[0], parts[1])
-                                } else {
-                                    t.symbol.to_string()
-                                };
-
-                                if !seen_expiries.insert(expiry_key) {
-                                    return None;
-                                }
-                                Some(ForwardPrice::new(
-                                    BybitSymbol::new(format!("{}-OPTION", t.symbol))
-                                        .map(|s| s.to_instrument_id())
-                                        .ok()?,
-                                    up,
-                                    None,
-                                    ts,
-                                    ts,
-                                ))
-                            })
-                            .collect();
-
-                        log::debug!(
-                            "Fetched {} forward prices (per-expiry) for {underlying}",
-                            forward_prices.len(),
-                        );
-                        Ok((forward_prices, ts))
+                    match Price::from_decimal(decimal) {
+                        Ok(price) => Some(price),
+                        Err(e) => {
+                            log::warn!(
+                                "Invalid Bybit option-chain reference price for {instrument_id}: {e}"
+                            );
+                            None
+                        }
                     }
-                    Err(e) => Err(e),
+                }),
+                Err(e) => {
+                    log::error!(
+                        "Option-chain reference price request failed for {series_id}: {e:?}"
+                    );
+                    None
                 }
             };
+            let response = DataResponse::OptionChainReferencePrice(
+                OptionChainReferencePriceResponse::new(
+                    request_id,
+                    client_id,
+                    series_id,
+                    price,
+                    clock.get_time_ns(),
+                    params,
+                ),
+            );
 
-            match result {
-                Ok((forward_prices, ts)) => {
-                    let response = DataResponse::ForwardPrices(ForwardPricesResponse::new(
-                        request_id,
-                        client_id,
-                        venue,
-                        forward_prices,
-                        ts,
-                        params,
-                    ));
-
-                    if let Err(e) = sender.send(DataEvent::Response(response)) {
-                        log::error!("Failed to send forward prices response: {e}");
-                    }
-                }
-                Err(e) => {
-                    log::error!("Forward prices request failed for {underlying}: {e:?}");
-                }
+            if let Err(e) = sender.send(DataEvent::Response(response)) {
+                log::error!("Failed to send option-chain reference price response: {e}");
             }
         });
 
