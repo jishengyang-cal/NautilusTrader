@@ -17,11 +17,11 @@
 //!
 //! # What this measures
 //!
-//! Each scenario stands up a real `LiveNode` (kernel, message bus, data engine,
-//! risk engine, execution engine) with no data or execution clients attached,
-//! then drives synthetic traffic directly into the runner's mpsc channels and
-//! reads `MessageBus` counters and `LiveNodeHandle` runner metrics before and
-//! after.
+//! Each scenario stands up a real `LiveNode` with its kernel and engines. The
+//! performance scenarios attach no clients and drive synthetic traffic directly
+//! into the runner's mpsc channels. The reconciliation scenario attaches a
+//! deterministic execution client and uses normal report and execution-event
+//! channels.
 //!
 //! - `trade_burst`: pushes `TRADE_BURST_COUNT` `TradeTick`s into the data event
 //!   channel as fast as possible, drains, and reports end-to-end throughput
@@ -33,18 +33,21 @@
 //!   Reports cancel observation latency percentiles, timed
 //!   `now - cancel.ts_init` (see "How the cancel latency is measured" below
 //!   for the precise meaning).
+//! - `bounded_reconciliation_backlog`: interleaves duplicate streamed fills
+//!   with terminal reports across eight orders and a 256-event backlog, then
+//!   checks bounded queries, complete queue drainage, and exact order and
+//!   position economics.
 //!
-//! Output is a single `key=value` line per scenario (no JSON, no extra log
-//! noise: the node is configured with `bypass_logging`).
+//! The performance scenarios emit one `key=value` line. The reconciliation
+//! scenario reports failures through assertions. All scenarios bypass logging.
 //!
 //! # How it stays single-threaded
 //!
 //! `MessageBus`, the engines, and the TLS-bound channel senders all live on
 //! one thread. The harness uses `#[tokio::test(flavor = "current_thread")]`
 //! and `tokio::join!` (not `tokio::spawn`) so the driver future and
-//! `LiveNode::run` are polled cooperatively on the same thread. The driver
-//! pushes events synchronously, then yields with `tokio::task::yield_now`
-//! to let the runner drain.
+//! `LiveNode::run` are polled cooperatively on the same thread. Drivers yield
+//! through bounded waits or `tokio::task::yield_now` so the runner can drain.
 //!
 //! # How the cancel latency is measured
 //!
@@ -67,8 +70,9 @@
 //!
 //! # Running
 //!
-//! These tests are `#[ignore]` so default `cargo test` does not run them.
-//! Always use `--release`: a debug build is not representative.
+//! These tests are `#[ignore]` so default `cargo test` does not run them. Use
+//! `--release` for performance measurements because a debug build is not
+//! representative.
 //!
 //! ```bash
 //! cargo test --release -p nautilus-live --test integration \
@@ -555,4 +559,15 @@ async fn stress_cancel_starvation() {
     tokio::join!(driver, async {
         node.run().await.unwrap();
     });
+}
+
+#[ignore]
+#[tokio::test(flavor = "current_thread")]
+async fn stress_bounded_reconciliation_backlog() {
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        super::node::serial_tests::run_bounded_reconciliation_backlog(),
+    )
+    .await
+    .expect("bounded reconciliation stress exceeded 5 seconds");
 }

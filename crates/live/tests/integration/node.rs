@@ -20,6 +20,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::VecDeque,
     fmt::Debug,
     rc::Rc,
     sync::{
@@ -38,11 +39,13 @@ use nautilus_common::{
     component::Component,
     enums::Environment,
     factories::{ClientConfig, DataClientFactory, ExecutionClientFactory},
-    live::dst,
+    live::{dst, runner::get_exec_event_sender},
+    logging::logger::LoggerConfig,
     messages::{
+        ExecutionEvent,
         execution::{
-            CancelOrder, GenerateOrderStatusReport, GenerateOrderStatusReports,
-            GeneratePositionStatusReports, QueryOrder,
+            CancelOrder, GenerateFillReports, GenerateOrderStatusReport,
+            GenerateOrderStatusReports, GeneratePositionStatusReports, QueryOrder,
         },
         system::{QueueStateChanged, ShutdownSystem},
     },
@@ -57,17 +60,20 @@ use nautilus_live::{
     node::{LiveNode, LiveNodeHandle, NodeState},
 };
 use nautilus_model::{
-    accounts::AccountAny,
-    enums::{OmsType, OrderSide, OrderStatus, OrderType, TimeInForce},
-    events::OrderEventAny,
+    accounts::{AccountAny, MarginAccount},
+    enums::{AccountType, LiquiditySide, OmsType, OrderSide, OrderStatus, OrderType, TimeInForce},
+    events::{OrderEventAny, account::state::AccountState},
     identifiers::{
-        AccountId, ClientId, ClientOrderId, ExecAlgorithmId, InstrumentId, StrategyId, TraderId,
-        Venue, VenueOrderId,
+        AccountId, ClientId, ClientOrderId, ExecAlgorithmId, InstrumentId, StrategyId, TradeId,
+        TraderId, Venue, VenueOrderId,
     },
     instruments::{Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt},
-    orders::{Order, OrderAny, OrderTestBuilder, stubs::TestOrderEventStubs},
-    reports::{ExecutionMassStatus, OrderStatusReport, PositionStatusReport},
-    types::{AccountBalance, MarginBalance, Price, Quantity},
+    orders::{
+        Order, OrderAny, OrderTestBuilder,
+        stubs::{OrderFilledTestBuilder, TestOrderEventStubs},
+    },
+    reports::{ExecutionMassStatus, FillReport, OrderStatusReport, PositionStatusReport},
+    types::{AccountBalance, Currency, MarginBalance, Money, Price, Quantity},
 };
 use nautilus_trading::{
     ExecutionAlgorithmConfig, ExecutionAlgorithmCore, nautilus_execution_algorithm,
@@ -75,7 +81,12 @@ use nautilus_trading::{
     strategy::{Strategy, StrategyConfig, StrategyCore},
 };
 use parking_lot::Mutex;
+use proptest::{
+    prelude::*,
+    test_runner::{Config as ProptestConfig, FileFailurePersistence, RngSeed},
+};
 use rstest::rstest;
+use rust_decimal::Decimal;
 
 #[derive(Debug)]
 struct TestActor {
@@ -295,7 +306,7 @@ fn test_builder_accepts_live() {
 // These tests initialize global logging state and require isolated processes.
 // Run with: cargo nextest run -p nautilus-live --test integration node::
 
-mod serial_tests {
+pub(crate) mod serial_tests {
     use super::*;
 
     #[derive(Clone, Debug, Default)]
@@ -1013,6 +1024,7 @@ mod serial_tests {
         query_order_ids: Arc<Mutex<Vec<ClientOrderId>>>,
         bulk_order_report_requested: Arc<AtomicBool>,
         bulk_order_report_count: Arc<AtomicUsize>,
+        fill_report_count: Arc<AtomicUsize>,
         targeted_order_report_ids: Arc<Mutex<Vec<ClientOrderId>>>,
         position_report_requested: Arc<AtomicBool>,
         position_report_count: Arc<AtomicUsize>,
@@ -1025,10 +1037,13 @@ mod serial_tests {
         account_id: AccountId,
         venue: Venue,
         state: BlockingReportClientState,
+        fill_report_release: Option<Arc<tokio::sync::Notify>>,
+        fill_report_responses: Arc<Mutex<VecDeque<Vec<FillReport>>>>,
         order_reports: Vec<OrderStatusReport>,
         order_reports_complete: bool,
         block_every_second_order_report: bool,
         position_reports_complete: bool,
+        targeted_order_report: Option<OrderStatusReport>,
         block_every_second_targeted_report: bool,
         report_release: Option<Arc<tokio::sync::Notify>>,
     }
@@ -1041,10 +1056,13 @@ mod serial_tests {
                 account_id: factory.account_id,
                 venue: factory.venue,
                 state: factory.state.clone(),
+                fill_report_release: factory.fill_report_release.clone(),
+                fill_report_responses: factory.fill_report_responses.clone(),
                 order_reports: factory.order_reports.clone(),
                 order_reports_complete: factory.order_reports_complete,
                 block_every_second_order_report: factory.block_every_second_order_report,
                 position_reports_complete: factory.position_reports_complete,
+                targeted_order_report: factory.targeted_order_report.clone(),
                 block_every_second_targeted_report: factory.block_every_second_targeted_report,
                 report_release: factory.report_release.clone(),
             }
@@ -1066,10 +1084,13 @@ mod serial_tests {
         account_id: AccountId,
         venue: Venue,
         state: BlockingReportClientState,
+        fill_report_release: Option<Arc<tokio::sync::Notify>>,
+        fill_report_responses: Arc<Mutex<VecDeque<Vec<FillReport>>>>,
         order_reports: Vec<OrderStatusReport>,
         order_reports_complete: bool,
         block_every_second_order_report: bool,
         position_reports_complete: bool,
+        targeted_order_report: Option<OrderStatusReport>,
         block_every_second_targeted_report: bool,
         report_release: Option<Arc<tokio::sync::Notify>>,
     }
@@ -1093,10 +1114,13 @@ mod serial_tests {
                     instrument_received,
                     ..Default::default()
                 },
+                fill_report_release: None,
+                fill_report_responses: Arc::new(Mutex::new(VecDeque::new())),
                 order_reports: Vec::new(),
                 order_reports_complete: false,
                 block_every_second_order_report: false,
                 position_reports_complete: false,
+                targeted_order_report: None,
                 block_every_second_targeted_report: false,
                 report_release,
             }
@@ -1112,10 +1136,13 @@ mod serial_tests {
                 account_id,
                 venue: crypto_perpetual_ethusdt().id().venue,
                 state,
+                fill_report_release: None,
+                fill_report_responses: Arc::new(Mutex::new(VecDeque::new())),
                 order_reports: Vec::new(),
                 order_reports_complete: false,
                 block_every_second_order_report: false,
                 position_reports_complete: false,
+                targeted_order_report: None,
                 block_every_second_targeted_report: false,
                 report_release: None,
             }
@@ -1124,6 +1151,21 @@ mod serial_tests {
         fn with_order_reports(mut self, reports: Vec<OrderStatusReport>) -> Self {
             self.order_reports = reports;
             self.order_reports_complete = true;
+            self
+        }
+
+        fn with_fill_report_responses(
+            mut self,
+            responses: impl IntoIterator<Item = Vec<FillReport>>,
+            release: Option<Arc<tokio::sync::Notify>>,
+        ) -> Self {
+            self.fill_report_responses = Arc::new(Mutex::new(responses.into_iter().collect()));
+            self.fill_report_release = release;
+            self
+        }
+
+        fn with_targeted_order_report(mut self, report: OrderStatusReport) -> Self {
+            self.targeted_order_report = Some(report);
             self
         }
 
@@ -1313,7 +1355,29 @@ mod serial_tests {
                 return std::future::pending::<anyhow::Result<Option<OrderStatusReport>>>().await;
             }
 
-            Ok(None)
+            Ok(self.targeted_order_report.clone())
+        }
+
+        async fn generate_fill_reports(
+            &self,
+            _cmd: GenerateFillReports,
+        ) -> anyhow::Result<Vec<FillReport>> {
+            let request_count = self.state.fill_report_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+            if request_count == 1
+                && let Some(release) = &self.fill_report_release
+            {
+                release.notified().await;
+            }
+
+            let mut responses = self.fill_report_responses.lock();
+            let reports = if responses.len() > 1 {
+                responses.pop_front().unwrap()
+            } else {
+                responses.front().cloned().unwrap_or_default()
+            };
+
+            Ok(reports)
         }
 
         async fn generate_position_status_reports(
@@ -1383,6 +1447,96 @@ mod serial_tests {
             .unwrap();
     }
 
+    fn add_reconciliation_test_account(node: &LiveNode) {
+        let account_id = AccountId::from("BLOCKING-REPORT-001");
+        let account = MarginAccount::new(
+            AccountState::new(
+                account_id,
+                AccountType::Margin,
+                vec![AccountBalance::new(
+                    Money::from("1000000 USDT"),
+                    Money::from("0 USDT"),
+                    Money::from("1000000 USDT"),
+                )],
+                Vec::new(),
+                true,
+                UUID4::new(),
+                UnixNanos::default(),
+                UnixNanos::default(),
+                Some(Currency::USDT()),
+            ),
+            true,
+        );
+        node.kernel()
+            .cache()
+            .borrow_mut()
+            .add_account(AccountAny::Margin(account))
+            .unwrap();
+    }
+
+    fn reconciliation_node_config(max_targeted_queries: u32) -> LiveNodeConfig {
+        LiveNodeConfig {
+            exec_engine: LiveExecutionEngineConfig {
+                reconciliation: false,
+                inflight_check_interval_ms: 0,
+                open_check_interval_secs: Some(0.1),
+                open_check_lookback_mins: None,
+                open_check_threshold_ms: 0,
+                open_check_missing_retries: 1,
+                open_check_open_only: false,
+                max_single_order_queries_per_cycle: max_targeted_queries,
+                single_order_query_delay_ms: 0,
+                ..Default::default()
+            },
+            timeout_reconciliation: Duration::from_secs(5),
+            delay_post_stop: Duration::ZERO,
+            logging: LoggerConfig {
+                bypass_logging: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn reconciliation_node(
+        name: &str,
+        config: LiveNodeConfig,
+        factory: BlockingReportExecutionClientFactory,
+    ) -> LiveNode {
+        let node = LiveNodeBuilder::from_config(config)
+            .unwrap()
+            .with_name(name)
+            .add_exec_client(
+                Some("blocking-report".to_string()),
+                Box::new(factory),
+                Box::new(BlockingReportExecutionClientConfig),
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+        add_reconciliation_test_state(&node);
+        node
+    }
+
+    fn add_reconciliation_test_state(node: &LiveNode) {
+        node.kernel()
+            .cache()
+            .borrow_mut()
+            .add_instrument(InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt()))
+            .unwrap();
+        add_reconciliation_test_account(node);
+    }
+
+    fn apply_reconciliation_events(node: &mut LiveNode, events: &[OrderEventAny]) {
+        let exec_engine = node.kernel().exec_engine().clone();
+        for event in events {
+            exec_engine.borrow_mut().process(event);
+            if let OrderEventAny::Filled(fill) = event {
+                node.exec_manager_mut().commit_recent_fill_if_applied(fill);
+            }
+        }
+    }
+
     fn canceled_order_report(
         client_order_id: ClientOrderId,
         venue_order_id: VenueOrderId,
@@ -1393,6 +1547,74 @@ mod serial_tests {
             venue_order_id,
             OrderStatus::Canceled,
         )
+    }
+
+    fn terminal_order_report(
+        client_order_id: ClientOrderId,
+        venue_order_id: VenueOrderId,
+        order_status: OrderStatus,
+        filled_qty: Quantity,
+    ) -> OrderStatusReport {
+        let mut report = test_order_report(
+            AccountId::from("BLOCKING-REPORT-001"),
+            client_order_id,
+            venue_order_id,
+            order_status,
+        );
+        report.filled_qty = filled_qty;
+        report
+    }
+
+    fn reconciliation_fill_report(
+        client_order_id: ClientOrderId,
+        venue_order_id: VenueOrderId,
+        trade_id: TradeId,
+        last_px: Price,
+        commission: Money,
+        ts_event: UnixNanos,
+    ) -> FillReport {
+        FillReport::new(
+            AccountId::from("BLOCKING-REPORT-001"),
+            crypto_perpetual_ethusdt().id(),
+            venue_order_id,
+            trade_id,
+            OrderSide::Buy,
+            Quantity::from("1.0"),
+            last_px,
+            commission,
+            LiquiditySide::Maker,
+            Some(client_order_id),
+            None,
+            ts_event,
+            ts_event,
+            None,
+        )
+    }
+
+    fn streamed_fill(
+        node: &LiveNode,
+        client_order_id: ClientOrderId,
+        trade_id: TradeId,
+        last_px: Price,
+        commission: Money,
+        ts_event: UnixNanos,
+    ) -> OrderEventAny {
+        let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
+        let order = node
+            .kernel()
+            .cache()
+            .borrow()
+            .order_owned(&client_order_id)
+            .unwrap();
+
+        OrderFilledTestBuilder::new(&order, &instrument)
+            .trade_id(trade_id)
+            .last_qty(Quantity::from("1.0"))
+            .last_px(last_px)
+            .commission(commission)
+            .ts_event(ts_event)
+            .without_position_id()
+            .build()
     }
 
     fn test_order_report(
@@ -3938,5 +4160,599 @@ mod serial_tests {
         assert!(state.bulk_order_report_requested.load(Ordering::Relaxed));
         assert!(state.instrument_received.load(Ordering::Relaxed));
         assert_eq!(handle.state(), NodeState::Stopped);
+    }
+
+    #[rstest]
+    #[case::stream_before_bulk_canceled(true, false, false, OrderStatus::Canceled)]
+    #[case::report_before_targeted_expired(false, true, false, OrderStatus::Expired)]
+    #[case::fill_query_timeout_retries(false, false, true, OrderStatus::Canceled)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_live_node_terminal_fill_race_converges_exactly(
+        #[case] stream_first: bool,
+        #[case] targeted: bool,
+        #[case] timeout_retry: bool,
+        #[case] terminal_status: OrderStatus,
+    ) {
+        let client_order_id = ClientOrderId::from("O-TERMINAL-RACE");
+        let venue_order_id = VenueOrderId::from("V-TERMINAL-RACE");
+        let state = BlockingReportClientState::default();
+        let report = terminal_order_report(
+            client_order_id,
+            venue_order_id,
+            terminal_status,
+            Quantity::from("2.0"),
+        );
+        let first_fill = reconciliation_fill_report(
+            client_order_id,
+            venue_order_id,
+            TradeId::from("T-TERMINAL-RACE-1"),
+            Price::from("100.0"),
+            Money::from("0.25 USDT"),
+            UnixNanos::from(1_000_000),
+        );
+        let second_fill = reconciliation_fill_report(
+            client_order_id,
+            venue_order_id,
+            TradeId::from("T-TERMINAL-RACE-2"),
+            Price::from("110.0"),
+            Money::from("0.50 USDT"),
+            UnixNanos::from(2_000_000),
+        );
+        let fill_release = Arc::new(tokio::sync::Notify::new());
+        let mut factory = BlockingReportExecutionClientFactory::configurable(
+            ClientId::from("BLOCKING-REPORT"),
+            AccountId::from("BLOCKING-REPORT-001"),
+            state.clone(),
+        )
+        .with_fill_report_responses(
+            [vec![first_fill.clone(), second_fill]],
+            Some(fill_release.clone()),
+        );
+        factory = if targeted {
+            factory
+                .with_order_reports(Vec::new())
+                .with_targeted_order_report(report)
+        } else {
+            factory.with_order_reports(vec![report])
+        };
+        let mut config = reconciliation_node_config(1);
+        if timeout_retry {
+            config.timeout_reconciliation = Duration::from_millis(100);
+        }
+        let mut node = reconciliation_node("TerminalFillRaceNode", config, factory);
+        add_accepted_test_order(
+            &node,
+            client_order_id,
+            venue_order_id,
+            ClientId::from("BLOCKING-REPORT"),
+        );
+        let streamed = streamed_fill(
+            &node,
+            client_order_id,
+            first_fill.trade_id,
+            first_fill.last_px,
+            first_fill.commission,
+            first_fill.ts_event,
+        );
+        let cache = node.kernel().cache();
+        let handle = node.handle();
+        let driver_handle = handle.clone();
+        let fill_report_count = state.fill_report_count.clone();
+
+        let driver = async move {
+            wait_until_async(
+                || async { driver_handle.is_running() },
+                Duration::from_secs(2),
+            )
+            .await;
+            wait_until_async(
+                || async { fill_report_count.load(Ordering::Relaxed) >= 1 },
+                Duration::from_secs(2),
+            )
+            .await;
+            let sender = get_exec_event_sender();
+
+            if timeout_retry {
+                wait_until_async(
+                    || async { fill_report_count.load(Ordering::Relaxed) >= 2 },
+                    Duration::from_secs(2),
+                )
+                .await;
+            } else if stream_first {
+                sender
+                    .send(ExecutionEvent::Order(streamed.clone()))
+                    .unwrap();
+                sender
+                    .send(ExecutionEvent::Order(streamed.clone()))
+                    .unwrap();
+                wait_until_async(
+                    || async {
+                        cache
+                            .borrow()
+                            .order(&client_order_id)
+                            .is_some_and(|order| order.filled_qty() == Quantity::from("1.0"))
+                    },
+                    Duration::from_secs(2),
+                )
+                .await;
+                fill_release.notify_one();
+            } else {
+                fill_release.notify_one();
+                sender
+                    .send(ExecutionEvent::Order(streamed.clone()))
+                    .unwrap();
+                sender.send(ExecutionEvent::Order(streamed)).unwrap();
+            }
+
+            wait_until_async(
+                || async {
+                    cache.borrow().order(&client_order_id).is_some_and(|order| {
+                        order.status() == terminal_status
+                            && order.filled_qty() == Quantity::from("2.0")
+                    })
+                },
+                Duration::from_secs(2),
+            )
+            .await;
+            driver_handle.stop();
+        };
+
+        let ((), result) = tokio::join!(driver, node.run());
+        result.unwrap();
+        let cache = node.kernel().cache();
+        let cache = cache.borrow();
+        let order = cache.order(&client_order_id).unwrap();
+        let position_id = cache.position_id(&client_order_id).unwrap();
+        let position = cache.position(position_id).unwrap();
+
+        assert_eq!(order.status(), terminal_status);
+        assert_eq!(order.filled_qty(), Quantity::from("2.0"));
+        assert_eq!(order.avg_px(), Some(Decimal::from(105)));
+        assert_eq!(
+            order.trade_ids(),
+            vec![
+                &TradeId::from("T-TERMINAL-RACE-1"),
+                &TradeId::from("T-TERMINAL-RACE-2"),
+            ],
+        );
+        assert_eq!(
+            order.commissions().get(&Currency::USDT()),
+            Some(&Money::from("0.75 USDT")),
+        );
+        assert_eq!(position.quantity, Quantity::from("2.0"));
+        assert_eq!(
+            state.fill_report_count.load(Ordering::Relaxed),
+            if timeout_retry { 2 } else { 1 },
+        );
+        let targeted_ids = state.targeted_order_report_ids.lock();
+        assert_eq!(targeted_ids.len(), usize::from(targeted));
+        assert_eq!(
+            targeted_ids.first().copied(),
+            targeted.then_some(client_order_id)
+        );
+        assert_eq!(handle.state(), NodeState::Stopped);
+    }
+
+    #[rstest]
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_live_node_startup_recovers_terminal_fill_exactly() {
+        let source_client_id = ClientId::from("STARTUP-RECOVERY");
+        let account_id = AccountId::from("BLOCKING-REPORT-001");
+        let venue = crypto_perpetual_ethusdt().id().venue;
+        let client_order_id = ClientOrderId::from("O-STARTUP-RECOVERY");
+        let venue_order_id = VenueOrderId::from("V-STARTUP-RECOVERY");
+        let state = StartupMassStatusClientState::default();
+        let report = terminal_order_report(
+            client_order_id,
+            venue_order_id,
+            OrderStatus::Expired,
+            Quantity::from("1.0"),
+        );
+        let fill = reconciliation_fill_report(
+            client_order_id,
+            venue_order_id,
+            TradeId::from("T-STARTUP-RECOVERY"),
+            Price::from("107.0"),
+            Money::from("0.75 USDT"),
+            UnixNanos::from(1_000_000),
+        );
+        let mut mass_status = ExecutionMassStatus::new(
+            source_client_id,
+            account_id,
+            venue,
+            UnixNanos::default(),
+            None,
+        );
+        mass_status.add_order_reports(vec![report]);
+        mass_status.add_fill_reports(vec![fill]);
+        *state.mass_status.lock() = Some(mass_status);
+        let mut node = live_node_with_available_mass_status(
+            "StartupTerminalFillNode",
+            state.clone(),
+            source_client_id,
+            account_id,
+            venue,
+        );
+        add_reconciliation_test_account(&node);
+        add_accepted_test_order(&node, client_order_id, venue_order_id, source_client_id);
+        let cache = node.kernel().cache();
+        let handle = node.handle();
+        let driver_handle = handle.clone();
+
+        let driver = async move {
+            wait_until_async(
+                || async {
+                    driver_handle.is_running()
+                        && cache.borrow().order(&client_order_id).is_some_and(|order| {
+                            order.status() == OrderStatus::Expired
+                                && order.filled_qty() == Quantity::from("1.0")
+                        })
+                },
+                Duration::from_secs(2),
+            )
+            .await;
+            driver_handle.stop();
+        };
+
+        let ((), result) = tokio::join!(driver, node.run());
+        result.unwrap();
+        let cache = node.kernel().cache();
+        let cache = cache.borrow();
+        let order = cache.order(&client_order_id).unwrap();
+        let position_id = cache.position_id(&client_order_id).unwrap();
+        let position = cache.position(position_id).unwrap();
+
+        assert!(state.mass_status_requested.load(Ordering::Relaxed));
+        assert_eq!(order.status(), OrderStatus::Expired);
+        assert_eq!(order.filled_qty(), Quantity::from("1.0"));
+        assert_eq!(order.avg_px(), Some(Decimal::from(107)));
+        assert_eq!(
+            order.trade_ids(),
+            vec![&TradeId::from("T-STARTUP-RECOVERY")]
+        );
+        assert_eq!(
+            order.commissions().get(&Currency::USDT()),
+            Some(&Money::from("0.75 USDT")),
+        );
+        assert_eq!(position.quantity, Quantity::from("1.0"));
+        assert_eq!(handle.state(), NodeState::Stopped);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 24,
+            failure_persistence: Some(Box::new(FileFailurePersistence::Direct(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/proptest-regressions/live_reconciliation.txt",
+            )))),
+            max_shrink_iters: 1_024,
+            rng_seed: RngSeed::Fixed(0x5eed_cafe_2026_0906),
+            ..ProptestConfig::default()
+        })]
+
+        #[rstest]
+        fn prop_terminal_fill_histories_match_unique_trade_ledger(
+            canonical in proptest::collection::vec((90u16..=110, 1u8..=5), 1..=3),
+            delivery in proptest::collection::vec(0u8..=11, 1..=10),
+            expired in any::<bool>(),
+        ) {
+            let client_order_id = ClientOrderId::from("O-PROP-TERMINAL");
+            let venue_order_id = VenueOrderId::from("V-PROP-TERMINAL");
+            let terminal_status = if expired {
+                OrderStatus::Expired
+            } else {
+                OrderStatus::Canceled
+            };
+            let fills = canonical
+                .iter()
+                .enumerate()
+                .map(|(index, (price, commission))| {
+                    let price = price.to_string();
+                    let commission = commission.to_string();
+                    reconciliation_fill_report(
+                        client_order_id,
+                        venue_order_id,
+                        TradeId::from(format!("T-PROP-{index}").as_str()),
+                        Price::from(price.as_str()),
+                        Money::from(format!("{commission} USDT").as_str()),
+                        UnixNanos::from((index as u64 + 1) * 1_000_000),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let delivered = delivery
+                .iter()
+                .map(|index| fills[usize::from(*index) % fills.len()].clone())
+                .collect::<Vec<_>>();
+            let mut seen = vec![false; fills.len()];
+            for index in &delivery {
+                seen[usize::from(*index) % fills.len()] = true;
+            }
+            let ledger = |included: &[bool]| {
+                fills
+                    .iter()
+                    .zip(included)
+                    .filter(|(_, included)| **included)
+                    .fold(
+                        (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+                        |(quantity, value, commission), (fill, _)| {
+                            (
+                                quantity + fill.last_qty.as_decimal(),
+                                value + fill.last_qty.as_decimal() * fill.last_px.as_decimal(),
+                                commission + fill.commission.as_decimal(),
+                            )
+                        },
+                    )
+            };
+            let all_seen = vec![true; fills.len()];
+            let (full_quantity, full_value, full_commission) = ledger(&all_seen);
+            let (initial_quantity, initial_value, initial_commission) = ledger(&seen);
+            let mut report = terminal_order_report(
+                client_order_id,
+                venue_order_id,
+                terminal_status,
+                Quantity::from(full_quantity.to_string()),
+            );
+            report.avg_px = Some(full_value / full_quantity);
+            let state = BlockingReportClientState::default();
+            let factory = BlockingReportExecutionClientFactory::configurable(
+                ClientId::from("BLOCKING-REPORT"),
+                AccountId::from("BLOCKING-REPORT-001"),
+                state,
+            )
+            .with_order_reports(vec![report.clone()])
+            .with_fill_report_responses([delivered], None);
+            let client = BlockingReportExecutionClient::new(&factory);
+            let mut node = LiveNode::build(
+                "PropertyTerminalFillNode".to_string(),
+                Some(reconciliation_node_config(1)),
+            )
+            .unwrap();
+            add_reconciliation_test_state(&node);
+            add_accepted_test_order(
+                &node,
+                client_order_id,
+                venue_order_id,
+                ClientId::from("BLOCKING-REPORT"),
+            );
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            let events = runtime.block_on(node.exec_manager_mut().check_open_orders(&[&client]));
+            apply_reconciliation_events(&mut node, &events);
+
+            {
+                let cache = node.kernel().cache();
+                let cache = cache.borrow();
+                let order = cache.order(&client_order_id).unwrap();
+                let position_id = cache.position_id(&client_order_id).unwrap();
+                let position = cache.position(position_id).unwrap();
+                let expected_status = if seen.iter().all(|seen| *seen) {
+                    terminal_status
+                } else {
+                    OrderStatus::PartiallyFilled
+                };
+
+                prop_assert_eq!(order.status(), expected_status);
+                prop_assert_eq!(order.filled_qty().as_decimal(), initial_quantity);
+                prop_assert_eq!(order.avg_px(), Some(initial_value / initial_quantity));
+                prop_assert_eq!(
+                    order.commissions().get(&Currency::USDT()).map(Money::as_decimal),
+                    Some(initial_commission),
+                );
+                prop_assert_eq!(position.quantity.as_decimal(), initial_quantity);
+                prop_assert_eq!(order.trade_ids().len(), seen.iter().filter(|seen| **seen).count());
+                for (index, included) in seen.iter().enumerate() {
+                    let trade_id = TradeId::from(format!("T-PROP-{index}").as_str());
+                    prop_assert_eq!(order.trade_ids().contains(&&trade_id), *included);
+                }
+            }
+
+            if !seen.iter().all(|seen| *seen) {
+                let retry_factory = BlockingReportExecutionClientFactory::configurable(
+                    ClientId::from("BLOCKING-REPORT"),
+                    AccountId::from("BLOCKING-REPORT-001"),
+                    BlockingReportClientState::default(),
+                )
+                .with_order_reports(vec![report])
+                .with_fill_report_responses([fills], None);
+                let retry_client = BlockingReportExecutionClient::new(&retry_factory);
+                let retry_events = runtime.block_on(
+                    node.exec_manager_mut().check_open_orders(&[&retry_client]),
+                );
+                apply_reconciliation_events(&mut node, &retry_events);
+            }
+
+            let cache = node.kernel().cache();
+            let cache = cache.borrow();
+            let order = cache.order(&client_order_id).unwrap();
+            let position_id = cache.position_id(&client_order_id).unwrap();
+            let position = cache.position(position_id).unwrap();
+
+            prop_assert_eq!(order.status(), terminal_status);
+            prop_assert_eq!(order.filled_qty().as_decimal(), full_quantity);
+            prop_assert_eq!(order.avg_px(), Some(full_value / full_quantity));
+            prop_assert_eq!(
+                order.commissions().get(&Currency::USDT()).map(Money::as_decimal),
+                Some(full_commission),
+            );
+            prop_assert_eq!(position.quantity.as_decimal(), full_quantity);
+            prop_assert_eq!(order.trade_ids().len(), canonical.len());
+        }
+    }
+
+    pub(crate) async fn run_bounded_reconciliation_backlog() {
+        const SEED: u64 = 0x5eed_cafe_2026_0906;
+        const ORDER_COUNT: usize = 8;
+        const STREAMED_ORDER_COUNT: usize = 4;
+        const EXEC_BACKLOG: usize = 256;
+        const MAX_TARGETED_PER_CYCLE: u32 = 4;
+
+        let state = BlockingReportClientState::default();
+        let fill_release = Arc::new(tokio::sync::Notify::new());
+        let mut order_reports = Vec::with_capacity(ORDER_COUNT);
+        let mut fill_reports = Vec::with_capacity(ORDER_COUNT);
+        let mut order_ids = Vec::with_capacity(ORDER_COUNT);
+
+        for index in 0..ORDER_COUNT {
+            let client_order_id = ClientOrderId::from(format!("O-STRESS-{index:02}").as_str());
+            let venue_order_id = VenueOrderId::from(format!("V-STRESS-{index:02}").as_str());
+            let trade_id = TradeId::from(format!("T-STRESS-{index:02}").as_str());
+            let price = Price::from(format!("{}", 100 + index).as_str());
+            let commission = Money::from("1 USDT");
+            let ts_event = UnixNanos::from((index as u64 + 1) * 1_000_000);
+            let report = terminal_order_report(
+                client_order_id,
+                venue_order_id,
+                OrderStatus::Canceled,
+                Quantity::from("1.0"),
+            );
+            let fill = reconciliation_fill_report(
+                client_order_id,
+                venue_order_id,
+                trade_id,
+                price,
+                commission,
+                ts_event,
+            );
+            order_ids.push(client_order_id);
+            order_reports.push(report);
+            fill_reports.push(fill);
+        }
+
+        let factory = BlockingReportExecutionClientFactory::configurable(
+            ClientId::from("BLOCKING-REPORT"),
+            AccountId::from("BLOCKING-REPORT-001"),
+            state.clone(),
+        )
+        .with_order_reports(order_reports)
+        .with_fill_report_responses([fill_reports], Some(fill_release.clone()));
+        let mut node = reconciliation_node(
+            "BoundedReconciliationBacklogNode",
+            reconciliation_node_config(MAX_TARGETED_PER_CYCLE),
+            factory,
+        );
+        let mut streamed = Vec::with_capacity(STREAMED_ORDER_COUNT);
+
+        for (index, client_order_id) in order_ids.iter().copied().enumerate() {
+            let venue_order_id = VenueOrderId::from(format!("V-STRESS-{index:02}").as_str());
+            add_accepted_test_order(
+                &node,
+                client_order_id,
+                venue_order_id,
+                ClientId::from("BLOCKING-REPORT"),
+            );
+
+            if index < STREAMED_ORDER_COUNT {
+                streamed.push(streamed_fill(
+                    &node,
+                    client_order_id,
+                    TradeId::from(format!("T-STRESS-{index:02}").as_str()),
+                    Price::from(format!("{}", 100 + index).as_str()),
+                    Money::from("1 USDT"),
+                    UnixNanos::from((index as u64 + 1) * 1_000_000),
+                ));
+            }
+        }
+        let cache = node.kernel().cache();
+        let handle = node.handle();
+        let driver_handle = handle.clone();
+        let driver_order_ids = order_ids.clone();
+        let fill_report_count = state.fill_report_count.clone();
+
+        let driver = async move {
+            wait_until_async(
+                || async { driver_handle.is_running() },
+                Duration::from_secs(2),
+            )
+            .await;
+            let sender = get_exec_event_sender();
+            let mut sample = SEED;
+            for index in 0..EXEC_BACKLOG {
+                sample ^= sample << 13;
+                sample ^= sample >> 7;
+                sample ^= sample << 17;
+                let stream_index = if index < STREAMED_ORDER_COUNT {
+                    index
+                } else {
+                    sample as usize % STREAMED_ORDER_COUNT
+                };
+                sender
+                    .send(ExecutionEvent::Order(streamed[stream_index].clone()))
+                    .unwrap();
+            }
+            wait_until_async(
+                || async { fill_report_count.load(Ordering::Relaxed) >= 1 },
+                Duration::from_secs(2),
+            )
+            .await;
+            fill_release.notify_one();
+            wait_until_async(
+                || async {
+                    driver_order_ids.iter().all(|client_order_id| {
+                        cache.borrow().order(client_order_id).is_some_and(|order| {
+                            order.status() == OrderStatus::Canceled
+                                && order.filled_qty() == Quantity::from("1.0")
+                        })
+                    })
+                },
+                Duration::from_secs(2),
+            )
+            .await;
+            wait_until_async(
+                || async { driver_handle.metrics_snapshot().exec_events.queue_depth == 0 },
+                Duration::from_secs(2),
+            )
+            .await;
+            driver_handle.stop();
+        };
+
+        let ((), result) = tokio::join!(driver, node.run());
+        result.unwrap();
+        let metrics = handle.metrics_snapshot();
+        let cache = node.kernel().cache();
+        let cache = cache.borrow();
+        let mut aggregate_quantity = Decimal::ZERO;
+        let mut aggregate_commission = Decimal::ZERO;
+
+        for (index, client_order_id) in order_ids.iter().enumerate() {
+            let order = cache.order(client_order_id).unwrap();
+            let position_id = cache.position_id(client_order_id).unwrap();
+            let position = cache.position(position_id).unwrap();
+
+            assert_eq!(order.status(), OrderStatus::Canceled, "seed={SEED:#x}");
+            assert_eq!(order.filled_qty(), Quantity::from("1.0"), "seed={SEED:#x}");
+            assert_eq!(
+                order.avg_px(),
+                Some(Decimal::from(100 + index)),
+                "seed={SEED:#x}",
+            );
+            assert_eq!(order.trade_ids().len(), 1, "seed={SEED:#x}");
+            assert_eq!(position.quantity, Quantity::from("1.0"), "seed={SEED:#x}");
+            aggregate_quantity += order.filled_qty().as_decimal();
+            aggregate_commission += order
+                .commissions()
+                .get(&Currency::USDT())
+                .unwrap()
+                .as_decimal();
+        }
+
+        assert_eq!(
+            aggregate_quantity,
+            Decimal::from(ORDER_COUNT),
+            "seed={SEED:#x}"
+        );
+        assert_eq!(
+            aggregate_commission,
+            Decimal::from(ORDER_COUNT),
+            "seed={SEED:#x}"
+        );
+        let fill_report_count = state.fill_report_count.load(Ordering::Relaxed);
+        assert!(
+            (ORDER_COUNT - STREAMED_ORDER_COUNT..=ORDER_COUNT).contains(&fill_report_count),
+            "seed={SEED:#x}, fill_report_count={fill_report_count}",
+        );
+        assert_eq!(metrics.exec_events.queue_depth, 0, "seed={SEED:#x}");
+        assert_eq!(handle.state(), NodeState::Stopped, "seed={SEED:#x}");
     }
 }

@@ -125,6 +125,7 @@ nautilus-testkit = { workspace = true, default-features = false, features = [
 bytes = { workspace = true }
 criterion = { workspace = true }
 madsim = { workspace = true }
+proptest = { workspace = true }
 rstest = { workspace = true }
 rust_decimal_macros = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
