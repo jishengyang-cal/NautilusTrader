@@ -29,7 +29,7 @@ use std::{
 use axum::{
     Router,
     extract::State,
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Json, Response},
     routing::post,
 };
@@ -116,6 +116,7 @@ async fn handle_info(State(state): State<TestServerState>, body: axum::body::Byt
     if *count > limit_after {
         return (
             StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, "0")],
             Json(json!({
                 "error": "Rate limit exceeded"
             })),
@@ -1201,14 +1202,23 @@ async fn test_rate_limit_triggers_429_response() {
     state.rate_limit_after.store(2, Ordering::Relaxed);
     let addr = start_mock_server(state.clone()).await;
 
-    let client = create_test_client(&addr);
+    let mut client = HyperliquidHttpClient::new(HyperliquidEnvironment::Mainnet, 60, None)
+        .expect("failed to create Hyperliquid HTTP client");
+    client.set_base_info_url(format!("http://{addr}/info"));
 
     assert!(client.info_meta().await.is_ok());
     assert!(client.info_meta().await.is_ok());
 
-    // Third triggers rate limit
     let result = client.info_meta().await;
-    assert!(result.is_err());
+    assert!(matches!(
+        result,
+        Err(Error::RateLimit {
+            scope: "info",
+            weight: 20,
+            retry_after_ms: Some(0),
+        })
+    ));
+    assert_eq!(*state.request_count.lock().await, 6);
 }
 
 #[rstest]

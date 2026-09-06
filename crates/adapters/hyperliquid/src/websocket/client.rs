@@ -18,7 +18,7 @@ use std::{
     str::FromStr,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -61,7 +61,7 @@ use ustr::Ustr;
 
 use crate::{
     common::{
-        consts::{HTTP_TIMEOUT, ws_url},
+        consts::{HEARTBEAT_INTERVAL, HTTP_TIMEOUT, ws_url},
         enums::{HyperliquidBarInterval, HyperliquidEnvironment},
         parse::{
             bar_type_to_interval, clamp_price_to_precision, derive_limit_from_trigger,
@@ -83,7 +83,7 @@ use crate::{
             HyperliquidExchangeTif, HyperliquidExchangeTpSl, HyperliquidExchangeTriggerParams,
             RESPONSE_STATUS_OK,
         },
-        rate_limits::{WeightedLimiter, exec_action_weight},
+        rate_limits::exec_action_weight,
     },
     websocket::{
         book::{BookStreamOptions, BookStreamRegistry, BookStreamRelease, BookStreamUse},
@@ -93,11 +93,12 @@ use crate::{
             NautilusWsMessage, PostRequest, PostResponse, PostResponsePayload, SubscriptionRequest,
         },
         post::{PostIds, PostRouter},
+        rate_limits::{WebSocketRateLimits, shared_websocket_limits},
         trades::{TradeStreamRegistry, TradeStreamUse},
     },
 };
 
-const HYPERLIQUID_HEARTBEAT_MSG: &str = r#"{"method":"ping"}"#;
+static NEXT_WEBSOCKET_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// FIFO bound on the cloid -> `ClientOrderId` resolution cache so missed
 /// evictions self-recover (see GH-3972 cancel-replace drain path).
@@ -139,7 +140,9 @@ pub struct HyperliquidWebSocketClient {
     cloid_cache: CloidCache,
     post_router: Arc<PostRouter>,
     post_ids: Arc<PostIds>,
-    post_limiter: Arc<WeightedLimiter>,
+    rate_limits: Arc<WebSocketRateLimits>,
+    client_id: u64,
+    connection_permit: Arc<Mutex<Option<tokio::sync::OwnedSemaphorePermit>>>,
     post_timeout: Duration,
     task_handle: Arc<SharedTaskSlot<()>>,
     connect_lock: Arc<tokio::sync::Mutex<()>>,
@@ -171,7 +174,9 @@ impl Clone for HyperliquidWebSocketClient {
             cloid_cache: Arc::clone(&self.cloid_cache),
             post_router: Arc::clone(&self.post_router),
             post_ids: Arc::clone(&self.post_ids),
-            post_limiter: Arc::clone(&self.post_limiter),
+            rate_limits: Arc::clone(&self.rate_limits),
+            client_id: self.client_id,
+            connection_permit: Arc::clone(&self.connection_permit),
             post_timeout: self.post_timeout,
             task_handle: Arc::clone(&self.task_handle),
             connect_lock: Arc::clone(&self.connect_lock),
@@ -200,6 +205,7 @@ impl HyperliquidWebSocketClient {
         proxy_url: Option<String>,
     ) -> Self {
         let url = url.unwrap_or_else(|| ws_url(environment).to_string());
+        let rate_limits = shared_websocket_limits(environment, &url, proxy_url.as_deref());
         let connection_mode = Arc::new(ArcSwap::new(Arc::new(AtomicU8::new(
             ConnectionMode::Closed as u8,
         ))));
@@ -218,9 +224,11 @@ impl HyperliquidWebSocketClient {
             asset_context_subs: Arc::new(DashMap::new()),
             all_dex_asset_ctxs_instrument_ids: Arc::new(AtomicMap::new()),
             cloid_cache: Arc::new(Mutex::new(FifoCacheMap::new())),
-            post_router: PostRouter::new(),
+            post_router: PostRouter::with_inflight(Arc::clone(&rate_limits.post_slots)),
             post_ids: Arc::new(PostIds::new(1)),
-            post_limiter: Arc::new(WeightedLimiter::per_minute(1200)),
+            rate_limits,
+            client_id: NEXT_WEBSOCKET_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
+            connection_permit: Arc::new(Mutex::new(None)),
             post_timeout: HTTP_TIMEOUT,
             cmd_tx: {
                 // Placeholder channel until connect() creates the real handler and replays queued instruments
@@ -269,6 +277,18 @@ impl HyperliquidWebSocketClient {
             self.disconnect_locked().await?;
         }
 
+        if self.connection_permit.lock().is_none() {
+            let permit = Arc::clone(&self.rate_limits.connection_slots)
+                .try_acquire_owned()
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "Hyperliquid allows at most {} WebSocket connections per route",
+                        crate::common::consts::HYPERLIQUID_WS_CONNECTIONS_MAX,
+                    )
+                })?;
+            *self.connection_permit.lock() = Some(permit);
+        }
+
         // A fresh socket has no venue-side subscriptions; stale book stream
         // entries must not gate the venue subscribe for re-subscriptions
         self.book_streams.clear();
@@ -277,15 +297,15 @@ impl HyperliquidWebSocketClient {
         let cfg = WebSocketConfig {
             url: self.url.clone(),
             headers: vec![],
-            heartbeat_interval_secs: Some(30),
-            heartbeat_payload: Some(HYPERLIQUID_HEARTBEAT_MSG.to_string()),
+            heartbeat_interval_secs: None,
+            heartbeat_payload: None,
             connect_timeout_ms: Some(15_000),
             reconnect_delay_initial_ms: Some(250),
             reconnect_delay_max_ms: Some(5_000),
             reconnect_backoff_factor: Some(2.0),
             reconnect_jitter_ms: Some(200),
             reconnect_max_attempts: None,
-            heartbeat_timeout_secs: None,
+            heartbeat_timeout_secs: Some(HEARTBEAT_INTERVAL.as_secs() * 3),
             idle_timeout_ms: None,
             backend: self.transport_backend,
             proxy_url: self
@@ -293,9 +313,13 @@ impl HyperliquidWebSocketClient {
                 .as_ref()
                 .map(|value| value.expose_secret().to_owned()),
         };
-        let client = WebSocketClient::builder()
+        let connection_rate_keys: Arc<[Ustr]> = Arc::from([self.rate_limits.connection_key()]);
+        let client_result = WebSocketClient::builder()
             .config(cfg)
             .message_handler(message_handler)
+            .rate_limiter(Arc::clone(&self.rate_limits.messages))
+            .connection_rate_limiter(Arc::clone(&self.rate_limits.connections))
+            .connection_rate_keys(connection_rate_keys)
             .maybe_state_sink(
                 self.socket_control
                     .as_ref()
@@ -303,7 +327,14 @@ impl HyperliquidWebSocketClient {
                     .or_else(|| self.socket_sink.clone()),
             )
             .connect()
-            .await?;
+            .await;
+        let client = match client_result {
+            Ok(client) => client,
+            Err(e) => {
+                self.connection_permit.lock().take();
+                return Err(e.into());
+            }
+        };
 
         if let Some(control) = &self.socket_control {
             let handle = client.reconnect_handle();
@@ -324,6 +355,7 @@ impl HyperliquidWebSocketClient {
 
         // Send SetClient command immediately
         if let Err(e) = cmd_tx.send(HandlerCommand::SetClient(client)) {
+            self.release_limit_reservations();
             anyhow::bail!("Failed to send SetClient command: {e}");
         }
 
@@ -364,6 +396,9 @@ impl HyperliquidWebSocketClient {
         let cmd_tx_for_reconnect = cmd_tx.clone();
         let cloid_cache = Arc::clone(&self.cloid_cache);
         let post_router = Arc::clone(&self.post_router);
+        let rate_limits = Arc::clone(&self.rate_limits);
+        let client_id = self.client_id;
+        let connection_permit = Arc::clone(&self.connection_permit);
 
         if let Err(e) = self.task_handle.spawn(async move {
             let mut handler = FeedHandler::new(
@@ -375,6 +410,8 @@ impl HyperliquidWebSocketClient {
                 subscriptions.clone(),
                 cloid_cache,
                 post_router,
+                Arc::clone(&rate_limits),
+                client_id,
             );
 
             let resubscribe_all = || {
@@ -424,6 +461,11 @@ impl HyperliquidWebSocketClient {
                 match handler.next().await {
                     Some(NautilusWsMessage::Reconnected) => {
                         log::info!("WebSocket reconnected");
+                        let pending_unsubscribe = subscriptions.pending_unsubscribe_topics();
+                        rate_limits.release_subscriptions(
+                            client_id,
+                            pending_unsubscribe.iter().map(String::as_str),
+                        );
                         subscriptions.reset_after_reconnect();
                         resubscribe_all();
 
@@ -456,9 +498,12 @@ impl HyperliquidWebSocketClient {
                     }
                 }
             }
+            rate_limits.release_client(client_id);
+            connection_permit.lock().take();
             log::debug!("Handler task completed");
         }) {
             self.out_rx = None;
+            self.release_limit_reservations();
             anyhow::bail!("Failed to start Hyperliquid WebSocket handler task: {e}");
         }
         Ok(())
@@ -478,6 +523,7 @@ impl HyperliquidWebSocketClient {
     /// shared containers, rather than clearing them, prevents old clones or
     /// in-flight work from mutating a subsequent connection generation.
     pub(crate) fn reset_runtime_state(&mut self) {
+        self.release_limit_reservations();
         self.subscriptions = SubscriptionState::new(':');
         self.book_streams = BookStreamRegistry::default();
         self.trade_streams = TradeStreamRegistry::default();
@@ -532,14 +578,17 @@ impl HyperliquidWebSocketClient {
                 match outcome {
                     TaskJoinOutcome::Completed(()) | TaskJoinOutcome::Aborted => {}
                     TaskJoinOutcome::Failed(error) => {
+                        self.release_limit_reservations();
                         anyhow::bail!("Hyperliquid WebSocket handler failed: {error}");
                     }
                     TaskJoinOutcome::Incomplete => {
+                        self.release_limit_reservations();
                         anyhow::bail!("Hyperliquid WebSocket handler did not stop after abort");
                     }
                 }
             }
         }
+        self.release_limit_reservations();
         log::debug!("Disconnected");
         Ok(())
     }
@@ -578,7 +627,6 @@ impl HyperliquidWebSocketClient {
         expires_after: Option<u64>,
     ) -> HyperliquidResult<HyperliquidExchangeResponse> {
         let weight = exec_action_weight(action);
-        self.post_limiter.acquire(weight).await;
 
         let payload = signer.sign_action_exec_request(action, expires_after)?;
         let response = self
@@ -965,7 +1013,6 @@ impl HyperliquidWebSocketClient {
         action: &HyperliquidExchangeAction,
     ) -> HyperliquidResult<HyperliquidExchangeResponse> {
         let weight = exec_action_weight(action);
-        self.post_limiter.acquire(weight).await;
 
         let payload = signer.sign_action_exec_request(action, None)?;
         let response = self
@@ -1403,11 +1450,9 @@ impl HyperliquidWebSocketClient {
 
         let subscription = SubscriptionRequest::Bbo { coin };
 
-        if let Err(e) = cmd_tx.send(HandlerCommand::Subscribe {
-            subscriptions: vec![subscription],
-        }) {
+        if let Err(e) = self.send_subscription(&cmd_tx, subscription) {
             self.quote_streams.remove(&coin);
-            anyhow::bail!("Failed to send subscribe command: {e}");
+            return Err(e);
         }
         Ok(())
     }
@@ -1419,13 +1464,10 @@ impl HyperliquidWebSocketClient {
 
     /// Subscribe to aggregate asset contexts across all perp dexes.
     pub async fn subscribe_all_dexs_asset_ctxs(&self) -> anyhow::Result<()> {
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![SubscriptionRequest::AllDexsAssetCtxs],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        self.send_subscription(
+            &*self.cmd_tx.read().await,
+            SubscriptionRequest::AllDexsAssetCtxs,
+        )?;
         Ok(())
     }
 
@@ -1437,11 +1479,7 @@ impl HyperliquidWebSocketClient {
             dex: dex.map(ToString::to_string),
         };
 
-        cmd_tx
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        self.send_subscription(&cmd_tx, subscription)?;
         Ok(())
     }
 
@@ -1452,13 +1490,10 @@ impl HyperliquidWebSocketClient {
 
     /// Unsubscribe from aggregate asset contexts across all perp dexes.
     pub async fn unsubscribe_all_dexs_asset_ctxs(&self) -> anyhow::Result<()> {
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Unsubscribe {
-                subscriptions: vec![SubscriptionRequest::AllDexsAssetCtxs],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+        self.send_unsubscription(
+            &*self.cmd_tx.read().await,
+            SubscriptionRequest::AllDexsAssetCtxs,
+        )?;
         Ok(())
     }
 
@@ -1470,11 +1505,7 @@ impl HyperliquidWebSocketClient {
             dex: dex.map(ToString::to_string),
         };
 
-        cmd_tx
-            .send(HandlerCommand::Unsubscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+        self.send_unsubscription(&cmd_tx, subscription)?;
         Ok(())
     }
 
@@ -1518,12 +1549,15 @@ impl HyperliquidWebSocketClient {
             })
             .map_err(|e| anyhow::anyhow!("Failed to send UpdateTradeSubs command: {e}"))?;
 
-        if registration.subscribe {
-            cmd_tx
-                .send(HandlerCommand::Subscribe {
-                    subscriptions: vec![SubscriptionRequest::Trades { coin }],
-                })
-                .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        if registration.subscribe
+            && let Err(e) = self.send_subscription(&cmd_tx, SubscriptionRequest::Trades { coin })
+        {
+            let rollback = self.trade_streams.release(&coin, stream_use);
+            let _ = cmd_tx.send(HandlerCommand::UpdateTradeSubs {
+                coin,
+                uses: rollback.uses,
+            });
+            return Err(e);
         }
         Ok(())
     }
@@ -1561,14 +1595,17 @@ impl HyperliquidWebSocketClient {
             .map_err(|e| anyhow::anyhow!("Failed to send UpdateInstrument command: {e}"))?;
 
         cmd_tx
-            .send(HandlerCommand::AddBarType { key, bar_type })
+            .send(HandlerCommand::AddBarType {
+                key: key.clone(),
+                bar_type,
+            })
             .map_err(|e| anyhow::anyhow!("Failed to send AddBarType command: {e}"))?;
 
-        cmd_tx
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        if let Err(e) = self.send_subscription(&cmd_tx, subscription) {
+            self.bar_types.remove(&key);
+            let _ = cmd_tx.send(HandlerCommand::RemoveBarType { key });
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -1589,13 +1626,7 @@ impl HyperliquidWebSocketClient {
         let subscription = SubscriptionRequest::OrderUpdates {
             user: user.to_string(),
         };
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        self.send_subscription(&*self.cmd_tx.read().await, subscription)?;
         Ok(())
     }
 
@@ -1604,13 +1635,7 @@ impl HyperliquidWebSocketClient {
         let subscription = SubscriptionRequest::UserEvents {
             user: user.to_string(),
         };
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        self.send_subscription(&*self.cmd_tx.read().await, subscription)?;
         Ok(())
     }
 
@@ -1623,13 +1648,7 @@ impl HyperliquidWebSocketClient {
             user: user.to_string(),
             aggregate_by_time: None,
         };
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        self.send_subscription(&*self.cmd_tx.read().await, subscription)?;
         Ok(())
     }
 
@@ -1653,13 +1672,7 @@ impl HyperliquidWebSocketClient {
         let subscription = SubscriptionRequest::UserTwapHistory {
             user: user.to_string(),
         };
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        self.send_subscription(&*self.cmd_tx.read().await, subscription)?;
         Ok(())
     }
 
@@ -1668,13 +1681,7 @@ impl HyperliquidWebSocketClient {
         let subscription = SubscriptionRequest::UserTwapHistory {
             user: user.to_string(),
         };
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Unsubscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+        self.send_unsubscription(&*self.cmd_tx.read().await, subscription)?;
         Ok(())
     }
 
@@ -1685,13 +1692,7 @@ impl HyperliquidWebSocketClient {
         let subscription = SubscriptionRequest::UserTwapSliceFills {
             user: user.to_string(),
         };
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+        self.send_subscription(&*self.cmd_tx.read().await, subscription)?;
         Ok(())
     }
 
@@ -1700,13 +1701,7 @@ impl HyperliquidWebSocketClient {
         let subscription = SubscriptionRequest::UserTwapSliceFills {
             user: user.to_string(),
         };
-        self.cmd_tx
-            .read()
-            .await
-            .send(HandlerCommand::Unsubscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+        self.send_unsubscription(&*self.cmd_tx.read().await, subscription)?;
         Ok(())
     }
 
@@ -1753,7 +1748,7 @@ impl HyperliquidWebSocketClient {
             n_sig_figs: options.n_sig_figs,
         };
 
-        Self::send_stream_resubscribe(&cmd_tx, subscription)
+        self.send_stream_resubscribe(&cmd_tx, subscription)
     }
 
     fn send_book_stream_subscribe(
@@ -1788,11 +1783,10 @@ impl HyperliquidWebSocketClient {
                 n_sig_figs: registration.options.n_sig_figs,
             };
 
-            cmd_tx
-                .send(HandlerCommand::Subscribe {
-                    subscriptions: vec![subscription],
-                })
-                .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+            if let Err(e) = self.send_subscription(cmd_tx, subscription) {
+                self.book_streams.release(&coin, stream_use);
+                return Err(e);
+            }
         }
         Ok(())
     }
@@ -1811,11 +1805,7 @@ impl HyperliquidWebSocketClient {
                     n_sig_figs: options.n_sig_figs,
                 };
 
-                cmd_tx
-                    .send(HandlerCommand::Unsubscribe {
-                        subscriptions: vec![subscription],
-                    })
-                    .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+                self.send_unsubscription(cmd_tx, subscription)?;
             }
             BookStreamRelease::Retained => {
                 let remaining_use = match stream_use {
@@ -1840,11 +1830,7 @@ impl HyperliquidWebSocketClient {
 
         self.quote_streams.remove(&coin);
 
-        cmd_tx
-            .send(HandlerCommand::Unsubscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+        self.send_unsubscription(&cmd_tx, subscription)?;
         Ok(())
     }
 
@@ -1865,25 +1851,17 @@ impl HyperliquidWebSocketClient {
             return Ok(());
         }
 
-        Self::send_stream_resubscribe(&cmd_tx, SubscriptionRequest::Bbo { coin })
+        self.send_stream_resubscribe(&cmd_tx, SubscriptionRequest::Bbo { coin })
     }
 
     fn send_stream_resubscribe(
+        &self,
         cmd_tx: &tokio::sync::mpsc::UnboundedSender<HandlerCommand>,
         subscription: SubscriptionRequest,
     ) -> anyhow::Result<()> {
         cmd_tx
-            .send(HandlerCommand::Unsubscribe {
-                subscriptions: vec![subscription.clone()],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
-
-        cmd_tx
-            .send(HandlerCommand::Subscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
-        Ok(())
+            .send(HandlerCommand::Resubscribe { subscription })
+            .map_err(|e| anyhow::anyhow!("Failed to send resubscribe command: {e}"))
     }
 
     /// Unsubscribe from trades for an instrument.
@@ -1924,11 +1902,7 @@ impl HyperliquidWebSocketClient {
             .map_err(|e| anyhow::anyhow!("Failed to send UpdateTradeSubs command: {e}"))?;
 
         if release.unsubscribe {
-            cmd_tx
-                .send(HandlerCommand::Unsubscribe {
-                    subscriptions: vec![SubscriptionRequest::Trades { coin }],
-                })
-                .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+            self.send_unsubscription(&cmd_tx, SubscriptionRequest::Trades { coin })?;
         }
         Ok(())
     }
@@ -1967,11 +1941,7 @@ impl HyperliquidWebSocketClient {
             .send(HandlerCommand::RemoveBarType { key })
             .map_err(|e| anyhow::anyhow!("Failed to send RemoveBarType command: {e}"))?;
 
-        cmd_tx
-            .send(HandlerCommand::Unsubscribe {
-                subscriptions: vec![subscription],
-            })
-            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+        self.send_unsubscription(&cmd_tx, subscription)?;
         Ok(())
     }
 
@@ -2042,11 +2012,23 @@ impl HyperliquidWebSocketClient {
                 .send(HandlerCommand::UpdateInstrument(instrument.clone()))
                 .map_err(|e| anyhow::anyhow!("Failed to send UpdateInstrument command: {e}"))?;
 
-            cmd_tx
-                .send(HandlerCommand::Subscribe {
-                    subscriptions: vec![subscription],
-                })
-                .map_err(|e| anyhow::anyhow!("Failed to send subscribe command: {e}"))?;
+            if let Err(e) = self.send_subscription(&cmd_tx, subscription) {
+                if let Some(mut entry) = self.asset_context_subs.get_mut(&coin) {
+                    entry.remove(&data_type);
+                    let rollback = entry.clone();
+                    let remove_entry = entry.is_empty();
+                    drop(entry);
+
+                    if remove_entry {
+                        self.asset_context_subs.remove(&coin);
+                    }
+                    let _ = cmd_tx.send(HandlerCommand::UpdateAssetContextSubs {
+                        coin,
+                        data_types: rollback,
+                    });
+                }
+                return Err(e);
+            }
         } else {
             log::debug!(
                 "Already subscribed to ActiveAssetCtx for coin '{coin}', adding {data_type:?} to tracked types"
@@ -2091,11 +2073,7 @@ impl HyperliquidWebSocketClient {
                         anyhow::anyhow!("Failed to send UpdateAssetContextSubs command: {e}")
                     })?;
 
-                cmd_tx
-                    .send(HandlerCommand::Unsubscribe {
-                        subscriptions: vec![subscription],
-                    })
-                    .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))?;
+                self.send_unsubscription(&cmd_tx, subscription)?;
             } else {
                 log::debug!(
                     "Removed {data_type:?} from tracked types for coin '{coin}', but keeping ActiveAssetCtx subscription"
@@ -2112,6 +2090,40 @@ impl HyperliquidWebSocketClient {
         Ok(())
     }
 
+    fn send_subscription(
+        &self,
+        cmd_tx: &tokio::sync::mpsc::UnboundedSender<HandlerCommand>,
+        subscription: SubscriptionRequest,
+    ) -> anyhow::Result<()> {
+        let key = crate::websocket::handler::subscription_to_key(&subscription);
+        let reserved = self
+            .rate_limits
+            .reserve_subscription(self.client_id, &subscription)
+            .map_err(anyhow::Error::msg)?;
+
+        if let Err(e) = cmd_tx.send(HandlerCommand::Subscribe {
+            subscriptions: vec![subscription],
+        }) {
+            if reserved {
+                self.rate_limits.release_subscription(self.client_id, &key);
+            }
+            anyhow::bail!("Failed to send subscribe command: {e}");
+        }
+        Ok(())
+    }
+
+    fn send_unsubscription(
+        &self,
+        cmd_tx: &tokio::sync::mpsc::UnboundedSender<HandlerCommand>,
+        subscription: SubscriptionRequest,
+    ) -> anyhow::Result<()> {
+        cmd_tx
+            .send(HandlerCommand::Unsubscribe {
+                subscriptions: vec![subscription],
+            })
+            .map_err(|e| anyhow::anyhow!("Failed to send unsubscribe command: {e}"))
+    }
+
     /// Receives the next message from the WebSocket handler.
     ///
     /// Returns `None` if the handler has disconnected or the receiver was already taken.
@@ -2122,11 +2134,22 @@ impl HyperliquidWebSocketClient {
             None
         }
     }
+
+    fn release_limit_reservations(&self) {
+        self.rate_limits.release_client(self.client_id);
+        self.connection_permit.lock().take();
+    }
 }
 
 impl Drop for HyperliquidWebSocketClient {
     fn drop(&mut self) {
-        if Arc::strong_count(&self.task_handle) == 1 && !self.task_handle.is_empty() {
+        if Arc::strong_count(&self.task_handle) == 1 {
+            self.release_limit_reservations();
+
+            if self.task_handle.is_empty() {
+                return;
+            }
+
             self.signal.store(true, Ordering::Relaxed);
             self.task_handle.abort();
 
@@ -2398,7 +2421,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        common::{consts::INFLIGHT_MAX, enums::HyperliquidBarInterval},
+        common::{
+            consts::{HYPERLIQUID_WS_POST_INFLIGHT_MAX, HYPERLIQUID_WS_SUBSCRIPTIONS_MAX},
+            enums::HyperliquidBarInterval,
+        },
         websocket::handler::subscription_to_key,
     };
 
@@ -2580,6 +2606,29 @@ mod tests {
         assert_eq!(client.clone().post_timeout, timeout);
     }
 
+    #[tokio::test]
+    async fn failed_connect_releases_connection_slot() {
+        let mut client = HyperliquidWebSocketClient::new(
+            Some("invalid-websocket-url".to_string()),
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let available_before = client.rate_limits.connection_slots.available_permits();
+
+        client
+            .connect()
+            .await
+            .expect_err("invalid URL should fail the connection attempt");
+
+        assert!(client.connection_permit.lock().is_none());
+        assert_eq!(
+            client.rate_limits.connection_slots.available_permits(),
+            available_before
+        );
+    }
+
     #[rstest]
     #[tokio::test(flavor = "multi_thread")]
     async fn send_post_request_times_out_while_waiting_for_inflight_slot() {
@@ -2590,8 +2639,8 @@ mod tests {
             TransportBackend::default(),
             None,
         );
-        let mut receivers = Vec::with_capacity(INFLIGHT_MAX);
-        for offset in 0..INFLIGHT_MAX {
+        let mut receivers = Vec::with_capacity(HYPERLIQUID_WS_POST_INFLIGHT_MAX);
+        for offset in 0..HYPERLIQUID_WS_POST_INFLIGHT_MAX {
             receivers.push(
                 client
                     .post_router
@@ -2612,7 +2661,121 @@ mod tests {
             .expect_err("request should timeout before acquiring an inflight slot");
 
         assert!(matches!(err, HyperliquidError::Timeout));
-        assert_eq!(receivers.len(), INFLIGHT_MAX);
+        assert_eq!(receivers.len(), HYPERLIQUID_WS_POST_INFLIGHT_MAX);
+    }
+
+    #[rstest]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn send_post_request_shares_inflight_limit_across_clients() {
+        let url = Some("wss://shared-post-limit.test/ws".to_string());
+        let first = HyperliquidWebSocketClient::new(
+            url.clone(),
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let second = HyperliquidWebSocketClient::new(
+            url,
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let mut receivers = Vec::with_capacity(HYPERLIQUID_WS_POST_INFLIGHT_MAX);
+
+        for offset in 0..HYPERLIQUID_WS_POST_INFLIGHT_MAX / 2 {
+            receivers.push(first.post_router.register(offset as u64).await.unwrap());
+            receivers.push(
+                second
+                    .post_router
+                    .register(10_000 + offset as u64)
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        let error = second
+            .send_post_request(
+                PostRequest::Info {
+                    payload: serde_json::json!({"type": "meta"}),
+                },
+                Duration::from_millis(25),
+            )
+            .await
+            .expect_err("shared in-flight limit should block the next post");
+
+        assert!(matches!(error, HyperliquidError::Timeout));
+        assert_eq!(receivers.len(), HYPERLIQUID_WS_POST_INFLIGHT_MAX);
+    }
+
+    #[rstest]
+    fn subscription_limit_is_rejected_before_queueing_across_clients() {
+        let url = Some("wss://shared-subscription-limit.test/ws".to_string());
+        let first = HyperliquidWebSocketClient::new(
+            url.clone(),
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let second = HyperliquidWebSocketClient::new(
+            url,
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        for index in 0..HYPERLIQUID_WS_SUBSCRIPTIONS_MAX {
+            let subscription = SubscriptionRequest::Trades {
+                coin: Ustr::from(&format!("COIN-{index}")),
+            };
+            let client = if index % 2 == 0 { &first } else { &second };
+            client.send_subscription(&cmd_tx, subscription).unwrap();
+        }
+
+        let error = first
+            .send_subscription(
+                &cmd_tx,
+                SubscriptionRequest::Trades {
+                    coin: Ustr::from("OVER-LIMIT"),
+                },
+            )
+            .expect_err("shared subscription limit should reject the next subscription");
+
+        assert!(error.to_string().contains("at most 1000"));
+        assert_eq!(cmd_rx.len(), HYPERLIQUID_WS_SUBSCRIPTIONS_MAX);
+    }
+
+    #[rstest]
+    fn stream_resubscribe_queues_one_atomic_command() {
+        let client = HyperliquidWebSocketClient::new(
+            Some("wss://atomic-resubscribe.test/ws".to_string()),
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let subscription = SubscriptionRequest::Bbo {
+            coin: Ustr::from("BTC"),
+        };
+
+        client
+            .send_stream_resubscribe(&cmd_tx, subscription)
+            .unwrap();
+
+        assert!(matches!(
+            cmd_rx.try_recv(),
+            Ok(HandlerCommand::Resubscribe { subscription })
+                if subscription_to_key(&subscription) == "bbo:BTC"
+        ));
+        assert!(matches!(
+            cmd_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
     }
 
     #[rstest]
@@ -2754,7 +2917,7 @@ mod tests {
 
         let mut receivers = vec![reused];
         tokio::time::timeout(Duration::from_secs(1), async {
-            for offset in 1..INFLIGHT_MAX {
+            for offset in 1..HYPERLIQUID_WS_POST_INFLIGHT_MAX {
                 receivers.push(
                     client
                         .post_router
@@ -2767,7 +2930,7 @@ mod tests {
         .await
         .expect("cancellation should release the inflight permit");
 
-        assert_eq!(receivers.len(), INFLIGHT_MAX);
+        assert_eq!(receivers.len(), HYPERLIQUID_WS_POST_INFLIGHT_MAX);
     }
 
     #[rstest]
