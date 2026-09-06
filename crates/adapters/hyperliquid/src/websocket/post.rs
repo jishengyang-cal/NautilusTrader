@@ -24,11 +24,13 @@ use std::{
 use ahash::AHashMap;
 use derive_builder::Builder;
 use futures_util::future::BoxFuture;
+use nautilus_common::live::get_runtime;
 use nautilus_live::task::TaskGroup;
 use tokio::{
     sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, oneshot},
     time,
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     common::{consts::INFLIGHT_MAX, enums::HyperliquidInfoRequestType},
@@ -45,6 +47,7 @@ use crate::{
 #[derive(Debug)]
 struct Waiter {
     tx: oneshot::Sender<PostResponse>,
+    cancellation_token: CancellationToken,
     // When this is dropped, the permit is released, shrinking inflight
     _permit: OwnedSemaphorePermit,
 }
@@ -71,6 +74,32 @@ impl PostRouter {
 
     /// Registers interest in a post id, enforcing inflight cap.
     pub async fn register(&self, id: u64) -> Result<oneshot::Receiver<PostResponse>> {
+        self.register_waiter(id, &CancellationToken::new()).await
+    }
+
+    pub(super) async fn register_with_cancellation(
+        self: &Arc<Self>,
+        id: u64,
+        cancellation_token: &CancellationToken,
+    ) -> Result<oneshot::Receiver<PostResponse>> {
+        let rx = self.register_waiter(id, cancellation_token).await?;
+        let post_router = Arc::clone(self);
+        let cancellation_token = cancellation_token.clone();
+        get_runtime().spawn(async move {
+            cancellation_token.cancelled().await;
+            post_router
+                .cancel_registration(id, &cancellation_token)
+                .await;
+        });
+
+        Ok(rx)
+    }
+
+    async fn register_waiter(
+        &self,
+        id: u64,
+        cancellation_token: &CancellationToken,
+    ) -> Result<oneshot::Receiver<PostResponse>> {
         // Acquire and retain a permit per inflight call
         let permit = self
             .inflight
@@ -88,6 +117,7 @@ impl PostRouter {
             id,
             Waiter {
                 tx,
+                cancellation_token: cancellation_token.clone(),
                 _permit: permit,
             },
         );
@@ -103,6 +133,7 @@ impl PostRouter {
         };
 
         if let Some(waiter) = waiter {
+            waiter.cancellation_token.cancel();
             if waiter.tx.send(resp).is_err() {
                 log::warn!("Post waiter dropped before delivery: id={id}");
             }
@@ -114,11 +145,33 @@ impl PostRouter {
 
     /// Cancel a pending id (e.g., timeout); quietly succeed if id wasn't present.
     pub async fn cancel(&self, id: u64) {
-        let _ = {
-            let mut map = self.inner.lock().await;
-            map.remove(&id)
-        };
+        let waiter = self.inner.lock().await.remove(&id);
+        if let Some(waiter) = waiter {
+            waiter.cancellation_token.cancel();
+        }
         // Waiter (and its permit) drop here if it existed
+    }
+
+    pub(super) async fn cancel_registration(
+        &self,
+        id: u64,
+        cancellation_token: &CancellationToken,
+    ) {
+        let waiter = {
+            let mut map = self.inner.lock().await;
+            if map
+                .get(&id)
+                .is_some_and(|waiter| &waiter.cancellation_token == cancellation_token)
+            {
+                map.remove(&id)
+            } else {
+                None
+            }
+        };
+
+        if let Some(waiter) = waiter {
+            waiter.cancellation_token.cancel();
+        }
     }
 
     /// Await a response with timeout. On timeout or closed channel, cancels the id.
@@ -663,7 +716,7 @@ mod tests {
         common::consts::INFLIGHT_MAX,
         websocket::messages::{
             ActionRequest, CancelByCloidRequest, CancelRequest, HyperliquidWsRequest, OrderRequest,
-            OrderRequestBuilder, OrderTypeRequest, TimeInForceRequest,
+            OrderRequestBuilder, OrderTypeRequest, PostResponsePayload, TimeInForceRequest,
         },
     };
 
@@ -758,6 +811,39 @@ mod tests {
             .register(id)
             .await
             .expect("id should be reusable after timeout cancel");
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn complete_cancels_registration_cleanup_and_allows_reregister() {
+        let router = PostRouter::new();
+        let id = 8;
+        let cancellation_token = CancellationToken::new();
+        let rx = router
+            .register_with_cancellation(id, &cancellation_token)
+            .await
+            .unwrap();
+
+        router
+            .complete(PostResponse {
+                id,
+                response: PostResponsePayload::Info {
+                    payload: serde_json::json!({"status": "ok"}),
+                },
+            })
+            .await;
+        let response = rx.await.unwrap();
+
+        assert_eq!(response.id, id);
+        assert!(matches!(
+            response.response,
+            PostResponsePayload::Info { .. }
+        ));
+        assert!(cancellation_token.is_cancelled());
+        router
+            .register(id)
+            .await
+            .expect("id should be reusable after completion");
     }
 
     #[rstest]

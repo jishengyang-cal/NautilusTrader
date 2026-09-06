@@ -56,6 +56,7 @@ use nautilus_network::{
 };
 use parking_lot::Mutex;
 use rust_decimal::Decimal;
+use tokio_util::sync::CancellationToken;
 use ustr::Ustr;
 
 use crate::{
@@ -1067,33 +1068,81 @@ impl HyperliquidWebSocketClient {
         timeout: Duration,
     ) -> HyperliquidResult<PostResponse> {
         let id = self.post_ids.next();
+        let Some(deadline) = tokio::time::Instant::now().checked_add(timeout) else {
+            return Err(HyperliquidError::Timeout);
+        };
 
-        match tokio::time::timeout(timeout, async {
-            let rx = self.post_router.register(id).await?;
+        let cancellation_token = CancellationToken::new();
+        let rx = tokio::select! {
+            biased;
+            () = tokio::time::sleep_until(deadline) => return Err(HyperliquidError::Timeout),
+            result = self.post_router.register_with_cancellation(id, &cancellation_token) => result?,
+        };
 
-            let send_result = self
-                .cmd_tx
-                .read()
-                .await
-                .send(HandlerCommand::Post { id, request });
+        let _cancellation_guard = cancellation_token.drop_guard_ref();
 
-            if let Err(e) = send_result {
-                self.post_router.cancel(id).await;
-                return Err(HyperliquidError::transport(format!(
-                    "post command channel closed: {e}"
-                )));
+        let send_result = {
+            let cmd_tx = tokio::select! {
+                biased;
+                () = tokio::time::sleep_until(deadline) => {
+                    self.cancel_post_registration(id, &cancellation_token).await;
+                    return Err(HyperliquidError::Timeout);
+                }
+                cmd_tx = self.cmd_tx.read() => cmd_tx,
+            };
+
+            if cancellation_token.is_cancelled() || tokio::time::Instant::now() >= deadline {
+                self.cancel_post_registration(id, &cancellation_token).await;
+                return Err(HyperliquidError::Timeout);
             }
 
-            self.post_router.await_with_timeout(id, rx, timeout).await
-        })
-        .await
-        {
-            Ok(result) => result,
-            Err(_elapsed) => {
-                self.post_router.cancel(id).await;
-                Err(HyperliquidError::Timeout)
-            }
+            cmd_tx.send(HandlerCommand::Post {
+                id,
+                request,
+                deadline,
+                cancellation_token: cancellation_token.clone(),
+            })
+        };
+
+        if let Err(e) = send_result {
+            self.cancel_post_registration(id, &cancellation_token).await;
+            return Err(HyperliquidError::transport(format!(
+                "post command channel closed: {e}"
+            )));
         }
+
+        self.await_post_response(id, rx, deadline, &cancellation_token)
+            .await
+    }
+
+    async fn await_post_response(
+        &self,
+        id: u64,
+        rx: tokio::sync::oneshot::Receiver<PostResponse>,
+        deadline: tokio::time::Instant,
+        cancellation_token: &CancellationToken,
+    ) -> HyperliquidResult<PostResponse> {
+        tokio::select! {
+            biased;
+            result = rx => match result {
+                Ok(response) => Ok(response),
+                Err(_closed) => {
+                    self.cancel_post_registration(id, cancellation_token).await;
+                    Err(HyperliquidError::transport("post response channel closed"))
+                },
+            },
+            () = tokio::time::sleep_until(deadline) => {
+                self.cancel_post_registration(id, cancellation_token).await;
+                Err(HyperliquidError::Timeout)
+            },
+        }
+    }
+
+    async fn cancel_post_registration(&self, id: u64, cancellation_token: &CancellationToken) {
+        cancellation_token.cancel();
+        self.post_router
+            .cancel_registration(id, cancellation_token)
+            .await;
     }
 
     /// Returns true if the WebSocket is actively connected.
@@ -2564,6 +2613,206 @@ mod tests {
 
         assert!(matches!(err, HyperliquidError::Timeout));
         assert_eq!(receivers.len(), INFLIGHT_MAX);
+    }
+
+    #[rstest]
+    #[tokio::test(start_paused = true)]
+    async fn send_post_request_uses_deadline_while_waiting_for_command_channel() {
+        let client = HyperliquidWebSocketClient::new(
+            None,
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let _cmd_tx = client.cmd_tx.write().await;
+        let timeout = Duration::from_millis(100);
+        let started = tokio::time::Instant::now();
+
+        let error = client
+            .send_post_request(
+                PostRequest::Info {
+                    payload: serde_json::json!({"type": "clearinghouseState", "user": "0x0"}),
+                },
+                timeout,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, HyperliquidError::Timeout));
+        assert_eq!(tokio::time::Instant::now() - started, timeout);
+        client
+            .post_router
+            .register(1)
+            .await
+            .expect("post ID should be reusable when timeout returns");
+    }
+
+    #[rstest]
+    #[tokio::test(start_paused = true)]
+    async fn post_response_ready_before_deadline_wins_deadline_race() {
+        let client = HyperliquidWebSocketClient::new(
+            None,
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let id = 1;
+        let cancellation_token = CancellationToken::new();
+        let rx = client
+            .post_router
+            .register_with_cancellation(id, &cancellation_token)
+            .await
+            .unwrap();
+        let payload = serde_json::json!({"type": "meta", "data": {"universe": []}});
+        client
+            .post_router
+            .complete(PostResponse {
+                id,
+                response: PostResponsePayload::Info {
+                    payload: payload.clone(),
+                },
+            })
+            .await;
+
+        let response = client
+            .await_post_response(id, rx, tokio::time::Instant::now(), &cancellation_token)
+            .await
+            .expect("ready response should win");
+
+        assert_eq!(response.id, id);
+        let PostResponsePayload::Info {
+            payload: response_payload,
+        } = response.response
+        else {
+            panic!("expected info response");
+        };
+        assert_eq!(response_payload, payload);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn dropping_post_request_cancels_work_and_releases_registration() {
+        let client = HyperliquidWebSocketClient::new(
+            None,
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        *client.cmd_tx.write().await = cmd_tx;
+        let request_client = client.clone();
+        let task = tokio::spawn(async move {
+            request_client
+                .send_post_request(
+                    PostRequest::Info {
+                        payload: serde_json::json!({"type": "userRateLimit", "user": "0x123"}),
+                    },
+                    Duration::from_secs(60),
+                )
+                .await
+        });
+        let command = cmd_rx.recv().await.expect("post command should be queued");
+        let HandlerCommand::Post {
+            id,
+            cancellation_token,
+            ..
+        } = command
+        else {
+            panic!("expected post command");
+        };
+
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(cancellation_token.is_cancelled());
+
+        let reused = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                match client.post_router.register(id).await {
+                    Ok(rx) => break Ok(rx),
+                    Err(e) if e.to_string().contains("already registered") => {
+                        tokio::task::yield_now().await;
+                    }
+                    Err(e) => break Err(e),
+                }
+            }
+        })
+        .await
+        .expect("post ID should be reusable after cancellation")
+        .expect("post ID reuse should succeed");
+        client
+            .post_router
+            .cancel_registration(id, &cancellation_token)
+            .await;
+        client
+            .post_router
+            .register(id)
+            .await
+            .expect_err("stale cancellation must not remove the reused registration");
+
+        let mut receivers = vec![reused];
+        tokio::time::timeout(Duration::from_secs(1), async {
+            for offset in 1..INFLIGHT_MAX {
+                receivers.push(
+                    client
+                        .post_router
+                        .register(10_000 + offset as u64)
+                        .await
+                        .unwrap(),
+                );
+            }
+        })
+        .await
+        .expect("cancellation should release the inflight permit");
+
+        assert_eq!(receivers.len(), INFLIGHT_MAX);
+    }
+
+    #[rstest]
+    #[tokio::test(start_paused = true)]
+    async fn post_timeout_after_queueing_preserves_unknown_outcome_and_releases_registration() {
+        let client = HyperliquidWebSocketClient::new(
+            None,
+            HyperliquidEnvironment::Testnet,
+            None,
+            TransportBackend::default(),
+            None,
+        );
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        *client.cmd_tx.write().await = cmd_tx;
+        let request_client = client.clone();
+        let task = tokio::spawn(async move {
+            request_client
+                .send_post_request(
+                    PostRequest::Info {
+                        payload: serde_json::json!({"type": "userRateLimit", "user": "0x123"}),
+                    },
+                    Duration::from_millis(100),
+                )
+                .await
+        });
+        let command = cmd_rx.recv().await.expect("post command should be queued");
+        let HandlerCommand::Post {
+            id,
+            cancellation_token,
+            ..
+        } = command
+        else {
+            panic!("expected post command");
+        };
+
+        let error = task.await.unwrap().unwrap_err();
+
+        assert!(matches!(&error, HyperliquidError::Timeout));
+        assert!(error.is_transport_error());
+        assert!(cancellation_token.is_cancelled());
+        client
+            .post_router
+            .register(id)
+            .await
+            .expect("post ID should be reusable when timeout returns");
     }
 
     #[rstest]
