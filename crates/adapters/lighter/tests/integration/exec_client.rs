@@ -3918,24 +3918,17 @@ async fn test_generate_mass_status_fans_out_active_inactive_position_and_trades(
     .await;
 
     // Install REST overrides for the fan-out.
-    *state.active_orders_response.lock().await = Some(http_orders_payload(
-        &[http_order_fixture(
-            "281476929510200",
-            "1001",
-            "open",
-            "0.0000",
-        )],
-        None,
-    ));
-    *state.inactive_orders_response.lock().await = Some(http_orders_payload(
-        &[http_order_fixture(
-            "281476929510201",
-            "1002",
-            "canceled",
-            "0.0050",
-        )],
-        None,
-    ));
+    let expiry_ms = 1_780_360_584_479_i64;
+    let mut active_order = http_order_fixture("281476929510200", "1001", "open", "0.0000");
+    active_order["time_in_force"] = json!("post-only");
+    active_order["order_expiry"] = json!(expiry_ms);
+    let mut inactive_order = http_order_fixture("281476929510201", "1002", "canceled", "0.0050");
+    inactive_order["time_in_force"] = json!("post-only");
+    inactive_order["order_expiry"] = json!(expiry_ms);
+
+    *state.active_orders_response.lock().await = Some(http_orders_payload(&[active_order], None));
+    *state.inactive_orders_response.lock().await =
+        Some(http_orders_payload(&[inactive_order], None));
     *state.trades_response.lock().await = Some(json!({"code":200,"trades":[]}));
 
     // `lookback_mins=None` so the inactive-orders timestamp filter is a
@@ -3961,18 +3954,21 @@ async fn test_generate_mass_status_fans_out_active_inactive_position_and_trades(
     );
 
     let order_reports = mass.order_reports();
-    assert!(
-        order_reports
-            .values()
-            .any(|r| r.order_status == OrderStatus::Accepted),
-        "active orders should appear as Accepted (open) in mass status: {order_reports:?}",
-    );
-    assert!(
-        order_reports
-            .values()
-            .any(|r| r.order_status == OrderStatus::Canceled),
-        "inactive orders should include the canceled fixture: {order_reports:?}",
-    );
+    let active_report = order_reports
+        .values()
+        .find(|report| report.order_status == OrderStatus::Accepted)
+        .expect("active order should appear as Accepted in mass status");
+    let terminal_report = order_reports
+        .values()
+        .find(|report| report.order_status == OrderStatus::Canceled)
+        .expect("inactive order should appear as Canceled in mass status");
+    let expected_expiry = Some(UnixNanos::from(expiry_ms as u64 * 1_000_000));
+
+    for report in [active_report, terminal_report] {
+        assert_eq!(report.time_in_force, TimeInForce::Gtd);
+        assert_eq!(report.expire_time, expected_expiry);
+        assert!(report.post_only);
+    }
 
     let positions = mass.position_reports();
     assert_eq!(positions.len(), 1);

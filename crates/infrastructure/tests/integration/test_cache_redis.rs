@@ -40,7 +40,7 @@ mod serial_tests {
             DataType, InstrumentClose,
             stubs::{ensure_stub_custom_data_registered, stub_custom_data},
         },
-        enums::{InstrumentCloseType, OrderSide, OrderStatus, OrderType},
+        enums::{InstrumentCloseType, OrderSide, OrderStatus, OrderType, TimeInForce},
         events::{
             AccountState, OrderEventAny, OrderFilled, OrderSnapshot,
             account::stubs::{
@@ -1005,10 +1005,15 @@ mod serial_tests {
         let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
         let client_id = ClientId::new("BINANCE");
 
-        let mut order_1 = OrderTestBuilder::new(OrderType::Market)
+        let expire_time = UnixNanos::from(1_780_360_584_479_000_000_u64);
+        let mut order_1 = OrderTestBuilder::new(OrderType::Limit)
             .instrument_id(instrument.id())
             .side(OrderSide::Buy)
             .quantity(Quantity::from("1.0"))
+            .price(Price::from("1000.00"))
+            .time_in_force(TimeInForce::Gtd)
+            .expire_time(expire_time)
+            .post_only(true)
             .client_order_id(ClientOrderId::new("O-19700101-000000-001-001-1"))
             .build();
         let order_2 = OrderTestBuilder::new(OrderType::Market)
@@ -1299,12 +1304,13 @@ mod serial_tests {
         assert!(cache.client_id(&order_2.client_order_id()).is_none());
         assert!(cache.order(&order_1.client_order_id()).is_some());
         assert!(cache.position(&position.id).is_some());
-        assert_eq!(
-            cache
-                .order(&order_1.client_order_id())
-                .map(|order| order.status()),
-            Some(OrderStatus::Accepted)
-        );
+        let recovered_order = cache
+            .order(&order_1.client_order_id())
+            .expect("managed GTD order should recover after restart");
+        assert_eq!(recovered_order.status(), OrderStatus::Accepted);
+        assert_eq!(recovered_order.time_in_force(), TimeInForce::Gtd);
+        assert_eq!(recovered_order.expire_time(), Some(expire_time));
+        assert!(recovered_order.is_post_only());
         assert_eq!(
             cache.account(&account.id()).map(|loaded| loaded.cloned()),
             Some(account.clone())
