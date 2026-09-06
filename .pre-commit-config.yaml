@@ -425,6 +425,21 @@ repos:
         always_run: true
         pass_filenames: false
 
+      - id: dependency-feature-policy
+        name: dependency feature policy
+        description: Prevent audited dependency features from expanding or moving
+        entry: python3 -B .pre-commit-hooks/check_dependency_features.py
+        language: system
+        files: >-
+          (?x)^(
+            (?:.*/)?Cargo\.toml|
+            (?:.*/)?Cargo\.lock|
+            \.pre-commit-hooks/check_dependency_features\.py|
+            \.pre-commit-hooks/test_check_dependency_features\.py|
+            \.pre-commit-config\.yaml
+          )$
+        pass_filenames: false
+
       - id: cargo-cooldown
         name: cargo cooldown
         description: Blocks crate versions published inside the cooldown window

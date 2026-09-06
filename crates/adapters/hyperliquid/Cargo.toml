@@ -59,7 +59,7 @@ nautilus-common = { workspace = true, features = ["live"] }
 nautilus-core = { workspace = true }
 nautilus-live = { workspace = true }
 nautilus-model = { workspace = true }
-nautilus-network = { workspace = true }
+nautilus-network = { workspace = true, features = ["transport-sockudo"] }
 nautilus-persistence-macros = { workspace = true }
 nautilus-serialization = { workspace = true, features = [
   "arrow",
@@ -67,7 +67,7 @@ nautilus-serialization = { workspace = true, features = [
 nautilus-system = { workspace = true, optional = true }
 
 ahash = { workspace = true }
-alloy = { workspace = true }
+alloy = { workspace = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true }
 anyhow = { workspace = true }
 arc-swap = { workspace = true }

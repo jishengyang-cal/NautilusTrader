@@ -82,7 +82,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 nautilus-common = { workspace = true, features = ["live"] }
 nautilus-core = { workspace = true }
 nautilus-execution = { workspace = true }
-nautilus-model = { workspace = true, features = ["test-support"] }
+nautilus-model = { workspace = true }
 nautilus-network = { workspace = true }
 
 nautilus-data = { workspace = true, optional = true }
@@ -117,6 +117,7 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
+nautilus-model = { workspace = true, features = ["test-support"] }
 nautilus-testkit = { workspace = true, default-features = false, features = [
   "testers",
 ] }

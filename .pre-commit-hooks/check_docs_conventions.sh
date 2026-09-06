@@ -8,7 +8,7 @@
 #
 # Cargo features (crates/**/Cargo.toml):
 # 4. Every non-default feature is listed once, in alphabetical order, under
-#    `Feature flags` in both README.md and src/lib.rs
+#    `Feature flags` in both README.md and the configured library source
 #
 # Suppress with `// panics-doc-ok` above the doc block for transitive panics.
 # Suppress with `// errors-doc-ok` above the doc block for special cases.
@@ -64,6 +64,36 @@ manifest_feature_names() {
       }
     }
   ' "$1" | LC_ALL=C sort
+}
+
+manifest_lib_path() {
+  awk '
+    /^[[:space:]]*\[lib\][[:space:]]*(#.*)?$/ {
+      in_lib = 1
+      next
+    }
+    in_lib && /^[[:space:]]*\[/ {
+      exit
+    }
+    in_lib && /^[[:space:]]*path[[:space:]]*=/ {
+      path = $0
+      sub(/^[[:space:]]*path[[:space:]]*=[[:space:]]*/, "", path)
+      sub(/[[:space:]]+#.*$/, "", path)
+      quote = substr(path, 1, 1)
+      single_quote = sprintf("%c", 39)
+      if ((quote == "\"" || quote == single_quote) && substr(path, length(path), 1) == quote) {
+        path = substr(path, 2, length(path) - 2)
+      }
+      print path
+      found = 1
+      exit
+    }
+    END {
+      if (!found) {
+        print "src/lib.rs"
+      }
+    }
+  ' "$1"
 }
 
 documented_feature_names() {
@@ -294,8 +324,9 @@ while IFS= read -r manifest; do
   [[ -z "$expected" ]] && continue
 
   crate_dir=${manifest%/Cargo.toml}
+  lib_path=$(manifest_lib_path "$manifest")
   check_feature_docs "$crate_dir/README.md" "## Feature flags" false "$expected"
-  check_feature_docs "$crate_dir/src/lib.rs" "# Feature Flags" true "$expected"
+  check_feature_docs "$crate_dir/$lib_path" "# Feature Flags" true "$expected"
 done < <(rg --files crates -g Cargo.toml 2> /dev/null | LC_ALL=C sort)
 
 # =============================================================================

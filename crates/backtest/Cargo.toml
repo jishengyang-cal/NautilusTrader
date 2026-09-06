@@ -64,7 +64,7 @@ nautilus-common = { workspace = true }
 nautilus-core = { workspace = true }
 nautilus-data = { workspace = true }
 nautilus-execution = { workspace = true }
-nautilus-model = { workspace = true, features = ["test-support"] }
+nautilus-model = { workspace = true }
 nautilus-persistence = { workspace = true, optional = true }
 nautilus-portfolio = { workspace = true }
 nautilus-risk = { workspace = true }
@@ -91,6 +91,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 nautilus-indicators = { workspace = true }
+nautilus-model = { workspace = true, features = ["test-support"] }
 nautilus-persistence = { workspace = true }
 nautilus-testkit = { workspace = true, default-features = false, features = [
   "datasets",

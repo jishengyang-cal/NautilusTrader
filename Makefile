@@ -831,11 +831,17 @@ check-jiff-features:  #-- Check jiff features
 	$(info $(M) Checking jiff features...)
 	$Q bash .pre-commit-hooks/check_jiff_features.sh
 
+.PHONY: check-dependency-features
+check-dependency-features:  #-- Check dependency feature policy
+	$(info $(M) Checking dependency features...)
+	$Q python3 -B .pre-commit-hooks/check_dependency_features.py
+
 .PHONY: test-scripts
 test-scripts:  #-- Run repository script tests
 	$(info $(M) Running script tests...)
 	$Q bash .pre-commit-hooks/test_cargo_machete.sh
 	$Q bash .pre-commit-hooks/test_check_cargo_conventions.sh
+	$Q python3 -B .pre-commit-hooks/test_check_dependency_features.py
 	$Q bash .pre-commit-hooks/test_check_docs_conventions.sh
 	$Q bash .pre-commit-hooks/test_check_dst_conventions.sh
 	$Q bash .pre-commit-hooks/test_check_formatting_py.sh

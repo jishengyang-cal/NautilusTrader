@@ -24,7 +24,7 @@ run_hook() {
 }
 
 valid_case="$CASE_ROOT/valid"
-mkdir -p "$valid_case/crates/demo/src"
+mkdir -p "$valid_case/crates/custom" "$valid_case/crates/demo/src"
 printf '%s\n' \
   '[package]' \
   'name = "demo"' \
@@ -116,6 +116,27 @@ printf '%s\n' \
   '///' \
   '/// Never fails in this implementation.' \
   'pub fn contract() {}' >> "$valid_case/crates/demo/src/lib.rs"
+printf '%s\n' \
+  '[package]' \
+  'name = "custom"' \
+  '' \
+  '[lib]' \
+  'path = "lib.rs"' \
+  '' \
+  '[features]' \
+  'test-support = []' > "$valid_case/crates/custom/Cargo.toml"
+printf '%s\n' \
+  '# Custom' \
+  '' \
+  '## Feature flags' \
+  '' \
+  "- \`test-support\`" > "$valid_case/crates/custom/README.md"
+printf '%s\n' \
+  '//! Custom.' \
+  '//!' \
+  '//! # Feature Flags' \
+  '//!' \
+  "//! - \`test-support\`" > "$valid_case/crates/custom/lib.rs"
 mkdir -p "$valid_case/docs"
 printf '%s\n' \
   '| Setting | Value |' \

@@ -23,7 +23,7 @@ use std::{
 };
 
 use nautilus_core::UUID4;
-use nautilus_model::{identifiers::TraderId, stubs::TestDefault};
+use nautilus_model::identifiers::TraderId;
 
 use crate::logging::{
     init_logging,
@@ -40,7 +40,7 @@ pub fn init_logger_for_testing(stdout_level: Option<log::LevelFilter>) -> anyhow
         ..Default::default()
     };
     init_logging(
-        TraderId::test_default(),
+        TraderId::default(),
         UUID4::new(),
         config,
         FileWriterConfig::default(),

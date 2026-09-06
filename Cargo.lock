@@ -1555,23 +1555,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bip32"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db40d3dfbeab4e031d78c844642fa0caa0b0db11ce1607ac9d2986dff1405c69"
-dependencies = [
- "bs58",
- "hmac 0.12.1",
- "k256",
- "rand_core 0.6.4",
- "ripemd",
- "secp256k1 0.27.0",
- "sha2 0.10.9",
- "subtle",
- "zeroize",
-]
-
-[[package]]
 name = "bit-vec"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1814,7 +1797,6 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
 dependencies = [
- "sha2 0.10.9",
  "tinyvec",
 ]
 
@@ -2290,7 +2272,6 @@ version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34e74fa7a22930fe0579bef560f2d64b78415d4c47b9dd976c0635136809471d"
 dependencies = [
- "bip32",
  "cosmos-sdk-proto",
  "ecdsa",
  "eyre",
@@ -5236,7 +5217,6 @@ dependencies = [
  "async-channel",
  "async-stream",
  "async-task",
- "bincode",
  "bytes",
  "downcast-rs",
  "errno",
@@ -7774,7 +7754,6 @@ dependencies = [
  "pyo3-ffi",
  "pyo3-macros",
  "rust_decimal",
- "serde",
 ]
 
 [[package]]
@@ -8406,8 +8385,6 @@ version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
 dependencies = [
- "futures-timer",
- "futures-util",
  "rstest_macros",
 ]
 
@@ -8419,7 +8396,6 @@ checksum = "9c845311f0ff7951c5506121a9ad75aec44d083c31583b2ea5a30bcb0b0abba0"
 dependencies = [
  "cfg-if",
  "glob",
- "proc-macro-crate",
  "proc-macro2",
  "quote",
  "regex",
@@ -8798,15 +8774,6 @@ dependencies = [
 
 [[package]]
 name = "secp256k1"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25996b82292a7a57ed3508f052cfff8640d38d32018784acd714758b43da9c8f"
-dependencies = [
- "secp256k1-sys 0.8.2",
-]
-
-[[package]]
-name = "secp256k1"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50c5943d326858130af85e049f2661ba3c78b26589b8ab98e65e80ae44a1252"
@@ -8826,15 +8793,6 @@ dependencies = [
  "bitcoin_hashes",
  "rand 0.9.5",
  "secp256k1-sys 0.11.0",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4473013577ec77b4ee3668179ef1186df3146e2cf2d927bd200974c6fe60fd99"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -10110,7 +10068,6 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
- "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -10120,7 +10077,6 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost 0.13.5",
- "socket2 0.5.10",
  "tokio",
  "tokio-rustls",
  "tokio-stream",

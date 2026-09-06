@@ -75,10 +75,10 @@ nautilus-cryptography = { path = "crates/cryptography", version = "0.64.0" }
 nautilus-data = { path = "crates/data", version = "0.64.0" }
 nautilus-execution = { path = "crates/execution", version = "0.64.0" }
 nautilus-indicators = { path = "crates/indicators", version = "0.64.0" }
-nautilus-infrastructure = { path = "crates/infrastructure", version = "0.64.0" }
+nautilus-infrastructure = { path = "crates/infrastructure", version = "0.64.0", default-features = false }
 nautilus-live = { path = "crates/live", version = "0.64.0", default-features = false }
 nautilus-model = { path = "crates/model", version = "0.64.0" }
-nautilus-network = { path = "crates/network", version = "0.64.0" }
+nautilus-network = { path = "crates/network", version = "0.64.0", default-features = false }
 nautilus-persistence = { path = "crates/persistence", version = "0.64.0" }
 nautilus-persistence-macros = { path = "crates/persistence/macros", version = "0.64.0" }
 nautilus-portfolio = { path = "crates/portfolio", version = "0.64.0" }
@@ -128,8 +128,6 @@ anyhow = "1.0.104"
 arc-swap = "1.9.2"
 arraydeque = "0.5.1"
 arrow = { version = "59.3.0", default-features = false, features = [
-  "csv",
-  "json",
   "ipc",
   "ffi",
 ] }
@@ -186,7 +184,7 @@ log = { version = "0.4.34", features = [
   "serde",
   "release_max_level_debug",
 ] }
-madsim = "0.2.34"
+madsim = { version = "0.2.34", default-features = false, features = ["macros"] }
 mimalloc = "0.1.52"
 object_store = { version = "0.13.2", default-features = false, features = [
   "fs",
@@ -204,11 +202,9 @@ pyo3 = { version = "0.29.2", default-features = false, features = [
   "macros",
   "multiple-pymethods",
   "rust_decimal",
-  "serde",
 ] }
 pyo3-async-runtimes = { version = "0.29.0", default-features = false, features = [
   "attributes",
-  "tokio",
   "tokio-runtime",
 ] }
 # Pinned: 0.21+ rejects generated package module paths outside the pymodule root.
@@ -266,7 +262,6 @@ socket2 = { version = "0.6.5", features = ["all"] }
 sockudo-ws = { version = "2.0.1", default-features = false, features = [
   "simd",
   "fastrand",
-  "tokio-runtime",
   "rustls-webpki-roots",
 ] }
 sqlx = { version = "0.9.0", default-features = false, features = [
@@ -319,26 +314,19 @@ zeroize = { version = "1.9.0", features = ["alloc", "zeroize_derive"] }
 # -----------------------------------------------------------------------------
 # Adapter dependencies
 # -----------------------------------------------------------------------------
-alloy = { version = "=2.4.1", default-features = false, features = [
-  "sol-types",
-  "contract",
-  "signers",
-  "signer-local",
-  "consensus",
-  "eips",
-] }
+alloy = { version = "=2.4.1", default-features = false }
 bollard = { version = "0.21.1", default-features = false, features = [
   "http",
   "pipe",
 ] }
 bzip2 = "0.6.1"
-cosmrs = { version = "0.22.0", default-features = false, features = ["bip32"] }
+cosmrs = { version = "0.22.0", default-features = false }
 csv = "1.4.0"
 databento = { version = "0.61.0", default-features = false, features = [
   "historical",
   "live",
 ] }
-dydx-proto = "0.4.0"
+dydx-proto = { version = "0.4.0", default-features = false }
 fallible-streaming-iterator = "0.1.9"
 flate2 = "1.1.10"
 hypersync-client = { version = "1.4.0" }
@@ -378,7 +366,7 @@ rcgen = { version = "0.14.10", default-features = false, features = [
   "crypto",
   "pem",
 ] }
-rstest = "0.26.1"
+rstest = { version = "0.26.1", default-features = false }
 tempfile = "3.27.0"
 turmoil = "0.7.2"
 
