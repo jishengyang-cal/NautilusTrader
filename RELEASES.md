@@ -83,6 +83,7 @@ Released on TBD (UTC).
 - Refined bar aggregation internals and shared aggregator state
 - Refined core crate coverage, FFI safety, and collection conversion
 - Refined example and test config subclasses to keyword-only fields without a `__new__` override
+- Refined `PortfolioAnalyzer` PnL currency resolution into a single internal resolver
 - Standardized crate manifests with inferred README paths and removed unused workspace fields
 - Standardized crate feature documentation across READMEs and Rustdoc
 - Standardized adapter client source layout across the Rust venue implementations
