@@ -28,13 +28,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request", required=True, help="Immutable replay request JSON")
     parser.add_argument("--output-root", required=True, help="Immutable replay publication root")
+    parser.add_argument("--record-performance", action="store_true",
+                        help="Write bounded host callback timings separately from execution feedback")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run a candidate replay and print its publication receipt."""
     args = _parse_args(argv)
-    result = run_candidate_replay(args.request, args.output_root)
+    result = run_candidate_replay(
+        args.request, args.output_root, record_performance=args.record_performance,
+    )
     sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
     return 0
 
