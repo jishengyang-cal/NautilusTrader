@@ -41,7 +41,7 @@ FORBIDDEN_FIELDS = frozenset(
         "orderid",
         "venueorderid",
         "mpid",
-    }
+    },
 )
 
 
@@ -308,7 +308,9 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 raise ValueError("prediction signal contains non-finite numeric data")
             expected_delta, p_down, p_flat, p_up = map(float, numeric)
             if any(value < 0 or value > 1 for value in (p_down, p_flat, p_up)) or not math.isclose(
-                p_down + p_flat + p_up, 1.0, abs_tol=1e-5
+                p_down + p_flat + p_up,
+                1.0,
+                abs_tol=1e-5,
             ):
                 raise ValueError("prediction probabilities are invalid")
             signals.append(
@@ -322,7 +324,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     p_down=p_down,
                     p_flat=p_flat,
                     p_up=p_up,
-                )
+                ),
             )
     if artifact_symbols != set(audited_symbols):
         raise ValueError("prediction artifact symbols differ from the candidate audit")

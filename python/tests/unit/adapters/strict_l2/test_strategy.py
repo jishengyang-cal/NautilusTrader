@@ -12,8 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
-"""Integration tests for causal candidate execution on an L2 MBP book."""
+"""
+Integration tests for causal candidate execution on an L2 MBP book.
+"""
 
 import hashlib
 import json
@@ -77,7 +78,7 @@ def _audit_receipt(
             "history_retained_fraction": [1.0] * len(signal_times),
             "history_off_lattice_fraction": [0.0] * len(signal_times),
             "history_out_of_radius_fraction": [0.0] * len(signal_times),
-        }
+        },
     ).set_index(["ts_recv", "instrument"]).to_parquet(predictions)
     bundle = {
         "schema_version": "lob-prediction-bundle/v2",
@@ -173,6 +174,7 @@ def _catalog(
         _row(1, 0, snapshot_ts, "B", 100_000_000_000, 10, 10, "SET", False),
         _row(2, 0, snapshot_ts, "A", 101_000_000_000, 10, 10, "SET", True),
     ]
+
     if exact_same_time_update:
         rows.extend(
             [
@@ -183,7 +185,7 @@ def _catalog(
                 _row(7, 4, BASE_TS_NS + 1_300_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
                 _row(8, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
                 _row(9, 6, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
-            ]
+            ],
         )
     else:
         rows.extend(
@@ -197,7 +199,7 @@ def _catalog(
                 _row(6, 4, BASE_TS_NS + 1_300_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
                 _row(7, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
                 _row(8, 6, BASE_TS_NS + 3_200_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
-            ]
+            ],
         )
     if exit_same_time_update:
         if not exact_same_time_update:
@@ -212,7 +214,7 @@ def _catalog(
                 # The retry submitted from the 3.4 s book update has 1 ms insertion
                 # latency. A later event is required for the engine to process its fill.
                 _row(13, 9, BASE_TS_NS + 3_600_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
-            ]
+            ],
         )
     if sparse_updates:
         rows = rows[:3]
@@ -222,16 +224,54 @@ def _catalog(
             )
         index = len(rows)
         sequence = index - 2
-        rows.extend([
-            _row(index, sequence, BASE_TS_NS + 2_000_000_000,
-                 "B", 100_000_000_000, 0, -10, "SET", False),
-            _row(index + 1, sequence, BASE_TS_NS + 2_000_000_000,
-                 "B", 99_000_000_000, 10, 10, "SET", True),
-            _row(index + 2, sequence + 1, BASE_TS_NS + 3_200_000_000,
-                 "A", 101_000_000_000, 10, 0, "SET", True),
-            _row(index + 3, sequence + 2, BASE_TS_NS + 3_400_000_000,
-                 "A", 101_000_000_000, 10, 0, "SET", True),
-        ])
+        rows.extend(
+            [
+                _row(
+                    index,
+                    sequence,
+                    BASE_TS_NS + 2_000_000_000,
+                    "B",
+                    100_000_000_000,
+                    0,
+                    -10,
+                    "SET",
+                    False,
+                ),
+                _row(
+                    index + 1,
+                    sequence,
+                    BASE_TS_NS + 2_000_000_000,
+                    "B",
+                    99_000_000_000,
+                    10,
+                    10,
+                    "SET",
+                    True,
+                ),
+                _row(
+                    index + 2,
+                    sequence + 1,
+                    BASE_TS_NS + 3_200_000_000,
+                    "A",
+                    101_000_000_000,
+                    10,
+                    0,
+                    "SET",
+                    True,
+                ),
+                _row(
+                    index + 3,
+                    sequence + 2,
+                    BASE_TS_NS + 3_400_000_000,
+                    "A",
+                    101_000_000_000,
+                    10,
+                    0,
+                    "SET",
+                    True,
+                ),
+            ],
+        )
     if shallow_bid:
         for row in rows:
             if row["side"] == "B" and row["ts_recv"] < BASE_TS_NS + 1_200_000_000:
@@ -250,8 +290,8 @@ def _catalog(
                 instrument.id,
                 expected_symbol="TEST",
                 price_precision=instrument.price_precision,
-            )
-        )
+            ),
+        ),
     )
     symbol_metadata = tmp_path / "symbol_metadata.json"
     symbol_metadata.write_text(
@@ -260,7 +300,7 @@ def _catalog(
                 "venue": "SIM",
                 "symbols": {"TEST": {"currency": "USD", "price_precision": 9}},
                 "tick_rule": [{"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": 1}],
-            }
+            },
         ),
         encoding="utf-8",
     )
@@ -281,7 +321,7 @@ def _catalog(
                         "sha256": _sha256(symbol_metadata),
                     },
                 ],
-            }
+            },
         ),
         encoding="utf-8",
     )
@@ -341,7 +381,7 @@ def _replay_request(
                 "symbol": "TEST",
                 "catalog_path": str(catalog),
                 "instrument_id": str(instrument.id),
-            }
+            },
         ],
         **signal_policy,
         "starting_balances": ["1_000_000 USD"],
@@ -351,7 +391,9 @@ def _replay_request(
 
 
 def test_candidate_strategy_executes_and_closes_after_prediction_horizon(tmp_path: Path) -> None:
-    """A released signal produces one closed aggressive L2 round trip."""
+    """
+    A released signal produces one closed aggressive L2 round trip.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path)
     config = BacktestRunConfig(
@@ -362,14 +404,14 @@ def test_candidate_strategy_executes_and_closes_after_prediction_horizon(tmp_pat
                 account_type=AccountType.MARGIN,
                 starting_balances=["1_000_000 USD"],
                 book_type=BookType.L2_MBP,
-            )
+            ),
         ],
         data=[
             BacktestDataConfig(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog),
                 instrument_id=instrument.id,
-            )
+            ),
         ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
@@ -382,7 +424,7 @@ def test_candidate_strategy_executes_and_closes_after_prediction_horizon(tmp_pat
             horizon_ms=1_000,
             trade_size="1",
             max_signal_lag_ms=0,
-        )
+        ),
     )
     node = BacktestNode([config])
     try:
@@ -416,7 +458,9 @@ def test_candidate_strategy_executes_and_closes_after_prediction_horizon(tmp_pat
 
 
 def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path) -> None:
-    """The replay runner publishes an immutable L2 result and identifier-free feedback."""
+    """
+    The replay runner publishes an immutable L2 result and identifier-free feedback.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     request = _replay_request(receipt, catalog, instrument, source_manifest)
@@ -465,7 +509,9 @@ def test_delayed_entry_exit_submission_and_settlement(
     latency_ns: int,
     unchanged_exit_update: bool,
 ) -> None:
-    """Overdue exits submit at the horizon and settle against the later available book."""
+    """
+    Overdue exits submit at the horizon and settle against the later available book.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(
         tmp_path,
@@ -481,14 +527,14 @@ def test_delayed_entry_exit_submission_and_settlement(
                 starting_balances=["1_000_000 USD"],
                 book_type=BookType.L2_MBP,
                 latency_model=StaticLatencyModel(insert_latency_nanos=latency_ns),
-            )
+            ),
         ],
         data=[
             BacktestDataConfig(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog),
                 instrument_id=instrument.id,
-            )
+            ),
         ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
@@ -502,7 +548,7 @@ def test_delayed_entry_exit_submission_and_settlement(
             trade_size="1",
             max_signal_lag_ms=0,
             order_insert_latency_ns=latency_ns,
-        )
+        ),
     )
     node = BacktestNode([config])
     try:
@@ -521,6 +567,7 @@ def test_delayed_entry_exit_submission_and_settlement(
         assert entry["filled_qty"] == exit_record["filled_qty"] == 1
         assert exit_record["decision_ts_ns"] == BASE_TS_NS + 1_000_000_000
         assert exit_record["submit_ts_ns"] == BASE_TS_NS + 1_000_000_000
+
         if latency_ns and not unchanged_exit_update:
             assert sorted(orders["status"].astype(str)) == ["CANCELED", "FILLED", "FILLED"]
             assert exit_record["status"] == "MIXED"
@@ -537,7 +584,9 @@ def test_delayed_entry_exit_submission_and_settlement(
 
 
 def test_run_candidate_replay_publishes_zero_trade_outcome(tmp_path: Path) -> None:
-    """A fixed threshold yielding no orders is a completed, ineffective outcome."""
+    """
+    A fixed threshold yielding no orders is a completed, ineffective outcome.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     request = _replay_request(receipt, catalog, instrument, source_manifest)
@@ -555,7 +604,9 @@ def test_run_candidate_replay_publishes_zero_trade_outcome(tmp_path: Path) -> No
 
 
 def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
-    """One bounded timer is rearmed for multiple grid-aligned predictions."""
+    """
+    One bounded timer is rearmed for multiple grid-aligned predictions.
+    """
     receipt = _audit_receipt(
         tmp_path,
         [BASE_TS_NS, BASE_TS_NS + 2_000_000_000],
@@ -569,14 +620,14 @@ def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
                 account_type=AccountType.MARGIN,
                 starting_balances=["1_000_000 USD"],
                 book_type=BookType.L2_MBP,
-            )
+            ),
         ],
         data=[
             BacktestDataConfig(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog),
                 instrument_id=instrument.id,
-            )
+            ),
         ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
@@ -589,7 +640,7 @@ def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
             horizon_ms=1_000,
             trade_size="1",
             max_signal_lag_ms=0,
-        )
+        ),
     )
     node = BacktestNode([config])
     try:
@@ -613,7 +664,9 @@ def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
 
 
 def test_candidate_timer_precedes_same_timestamp_book_update(tmp_path: Path) -> None:
-    """The replay preserves the research sampler's left-closed time boundary."""
+    """
+    The replay preserves the research sampler's left-closed time boundary.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path, exact_same_time_update=True)
     config = BacktestRunConfig(
@@ -624,14 +677,14 @@ def test_candidate_timer_precedes_same_timestamp_book_update(tmp_path: Path) -> 
                 account_type=AccountType.MARGIN,
                 starting_balances=["1_000_000 USD"],
                 book_type=BookType.L2_MBP,
-            )
+            ),
         ],
         data=[
             BacktestDataConfig(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog),
                 instrument_id=instrument.id,
-            )
+            ),
         ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
@@ -644,7 +697,7 @@ def test_candidate_timer_precedes_same_timestamp_book_update(tmp_path: Path) -> 
             horizon_ms=1_000,
             trade_size="1",
             max_signal_lag_ms=0,
-        )
+        ),
     )
     node = BacktestNode([config])
     try:
@@ -664,7 +717,9 @@ def test_candidate_timer_precedes_same_timestamp_book_update(tmp_path: Path) -> 
 
 
 def test_candidate_replay_records_entry_miss_and_continues(tmp_path: Path) -> None:
-    """A stale marketable FOK is a fill outcome, not a terminal replay fault."""
+    """
+    A stale marketable FOK is a fill outcome, not a terminal replay fault.
+    """
     receipt = _audit_receipt(
         tmp_path,
         [BASE_TS_NS, BASE_TS_NS + 2_000_000_000],
@@ -683,14 +738,14 @@ def test_candidate_replay_records_entry_miss_and_continues(tmp_path: Path) -> No
                 starting_balances=["1_000_000 USD"],
                 book_type=BookType.L2_MBP,
                 latency_model=StaticLatencyModel(insert_latency_nanos=1_000_000),
-            )
+            ),
         ],
         data=[
             BacktestDataConfig(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog),
                 instrument_id=instrument.id,
-            )
+            ),
         ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
@@ -703,7 +758,7 @@ def test_candidate_replay_records_entry_miss_and_continues(tmp_path: Path) -> No
             horizon_ms=1_000,
             trade_size="1",
             max_signal_lag_ms=0,
-        )
+        ),
     )
     node = BacktestNode([config])
     try:
@@ -737,7 +792,9 @@ def test_candidate_replay_records_entry_miss_and_continues(tmp_path: Path) -> No
 
 
 def test_run_candidate_replay_rejects_catalog_changed_after_publication(tmp_path: Path) -> None:
-    """Catalog mutation after publication fails before the replay engine starts."""
+    """
+    Catalog mutation after publication fails before the replay engine starts.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     catalog_receipt = json.loads((catalog / "strict-l2-catalog-receipt.json").read_text())
@@ -752,7 +809,9 @@ def test_run_candidate_replay_rejects_catalog_changed_after_publication(tmp_path
 
 
 def test_run_candidate_replay_rejects_changed_audit_receipt(tmp_path: Path) -> None:
-    """The replay request seals the independently generated audit receipt."""
+    """
+    The replay request seals the independently generated audit receipt.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     request = _replay_request(receipt, catalog, instrument, source_manifest)
@@ -767,7 +826,9 @@ def test_run_candidate_replay_rejects_changed_audit_receipt(tmp_path: Path) -> N
 
 
 def test_run_candidate_replay_rejects_source_manifest_for_another_day(tmp_path: Path) -> None:
-    """A catalog cannot be replayed under a different requested trading date."""
+    """
+    A catalog cannot be replayed under a different requested trading date.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     manifest = json.loads(source_manifest.read_text())
@@ -783,10 +844,15 @@ def test_run_candidate_replay_rejects_source_manifest_for_another_day(tmp_path: 
 
 @pytest.mark.parametrize(("quantity", "expected"), [(100, "0.35"), (200, "0.70")])
 def test_per_share_fee_preserves_subcent_rate(quantity: int, expected: str) -> None:
-    """Accumulate per-share fees without binary floating-point drift."""
+    """
+    Accumulate per-share fees without binary floating-point drift.
+    """
     model = _PerShareFeeModel(Decimal("0.0035"))
     commission = model.get_commission(
-        None, Quantity.from_int(quantity), Price.from_str("100"), None
+        None,
+        Quantity.from_int(quantity),
+        Price.from_str("100"),
+        None,
     )
     assert commission.as_decimal() == Decimal(expected)
 
@@ -807,7 +873,9 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
     shallow_bid: bool,
     expected_orders: int,
 ) -> None:
-    """Bound exit retries and reject entries too close to the replay cutoff."""
+    """
+    Bound exit retries and reject entries too close to the replay cutoff.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path, shallow_bid=shallow_bid)
     config = BacktestRunConfig(
@@ -820,14 +888,14 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
                 book_type=BookType.L2_MBP,
                 latency_model=StaticLatencyModel(insert_latency_nanos=latency_ns),
                 fee_model=_PerShareFeeModel(Decimal("0.0035")),
-            )
+            ),
         ],
         data=[
             BacktestDataConfig(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog),
                 instrument_id=instrument.id,
-            )
+            ),
         ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
@@ -843,7 +911,7 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
             max_signal_lag_ms=0,
             replay_end_ns=BASE_TS_NS + end_offset_ns,
             order_insert_latency_ns=latency_ns,
-        )
+        ),
     )
     node = BacktestNode([config])
     try:
@@ -854,6 +922,7 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
         assert strategy.failures == ()
         assert len(orders) == expected_orders
         assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
+
         if shallow_bid:
             assert sorted(orders["status"].astype(str)) == [
                 "CANCELED",
@@ -877,7 +946,9 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
     tmp_path: Path,
     trade_size: str,
 ) -> None:
-    """Reject trade sizes that equity precision would silently round."""
+    """
+    Reject trade sizes that equity precision would silently round.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path)
     config = BacktestRunConfig(
@@ -888,14 +959,14 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
                 account_type=AccountType.MARGIN,
                 starting_balances=["1_000_000 USD"],
                 book_type=BookType.L2_MBP,
-            )
+            ),
         ],
         data=[
             BacktestDataConfig(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog),
                 instrument_id=instrument.id,
-            )
+            ),
         ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
@@ -906,7 +977,7 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
             research_symbol="TEST",
             audit_receipt_path=str(receipt),
             trade_size=trade_size,
-        )
+        ),
     )
     node = BacktestNode([config])
     try:
@@ -915,6 +986,7 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
         node.run()
         orders = node.generate_orders_report(config.id)
         assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
+
         if trade_size == "1.000":
             assert strategy.failures == ()
             assert len(orders) == 2
@@ -933,11 +1005,15 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
 
 
 def test_host_profiling_preserves_orders_fees_and_account_results(tmp_path: Path) -> None:
-    """Optional host timings do not enter economic execution feedback."""
+    """
+    Optional host timings do not enter economic execution feedback.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     request_path = tmp_path / "request.json"
-    request_path.write_text(json.dumps(_replay_request(receipt, catalog, instrument, source_manifest)))
+    request_path.write_text(
+        json.dumps(_replay_request(receipt, catalog, instrument, source_manifest)),
+    )
     ordinary = run_candidate_replay(request_path, tmp_path / "ordinary")
     profiled = run_candidate_replay(request_path, tmp_path / "profiled", record_performance=True)
     left = Path(ordinary["output"])
@@ -945,7 +1021,14 @@ def test_host_profiling_preserves_orders_fees_and_account_results(tmp_path: Path
     a = json.loads((left / "execution-feedback.json").read_text())
     b = json.loads((right / "execution-feedback.json").read_text())
     assert a["records"] == b["records"]
-    for field in ("stats_pnls", "stats_returns", "stats_general", "total_orders", "total_positions"):
+
+    for field in (
+        "stats_pnls",
+        "stats_returns",
+        "stats_general",
+        "total_orders",
+        "total_positions",
+    ):
         assert a["metrics"][field] == b["metrics"][field]
     assert not (left / "performance.json").exists()
     report = json.loads((right / "performance.json").read_text())
@@ -961,11 +1044,17 @@ def test_host_profiling_preserves_orders_fees_and_account_results(tmp_path: Path
 
 
 def test_host_profiling_records_errors_without_changing_exception() -> None:
-    """A failed callback keeps its original error and records an inclusive duration."""
-    strategy = CandidateReplayStrategy(CandidateReplayConfig(
-        instrument_id="TEST.SIM", research_symbol="TEST", audit_receipt_path="unused",
-        record_performance=True,
-    ))
+    """
+    A failed callback keeps its original error and records an inclusive duration.
+    """
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id="TEST.SIM",
+            research_symbol="TEST",
+            audit_receipt_path="unused",
+            record_performance=True,
+        ),
+    )
 
     def failed() -> None:
         raise LookupError("original callback error")

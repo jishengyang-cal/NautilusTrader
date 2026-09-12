@@ -40,6 +40,8 @@ from nautilus_trader.trading import Strategy
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from nautilus_trader.common import TimeEvent
 
 
@@ -90,6 +92,29 @@ class CandidateReplayConfig(StrategyConfig):
         self.record_performance = record_performance
 
 
+def _validate_strategy_config(config: CandidateReplayConfig) -> None:
+    if not config.research_symbol:
+        raise ValueError("research_symbol must not be empty")
+    if Decimal(config.trade_size) <= 0:
+        raise ValueError("trade_size must be positive")
+    if config.min_abs_delta_ticks < 0:
+        raise ValueError("min_abs_delta_ticks must be non-negative")
+    if not MIN_DIRECTION_PROBABILITY <= config.min_direction_probability <= 1:
+        raise ValueError("min_direction_probability must be in [0.5, 1]")
+    if config.cooldown_ms < 0 or config.max_signal_lag_ms < 0:
+        raise ValueError("replay timing limits must be non-negative")
+    if (
+        config.replay_start_ns is not None
+        and config.replay_end_ns is not None
+        and config.replay_start_ns >= config.replay_end_ns
+    ):
+        raise ValueError("replay time bounds must define a positive interval")
+    if config.order_insert_latency_ns < 0:
+        raise ValueError("order_insert_latency_ns must be non-negative")
+    if type(config.record_performance) is not bool:
+        raise ValueError("record_performance must be boolean")
+
+
 class CandidateReplayStrategy(Strategy):
     """
     Replay audited signals with an exit deadline measured from entry submission.
@@ -106,26 +131,7 @@ class CandidateReplayStrategy(Strategy):
         """
         Initialize causal signal and round-trip execution state.
         """
-        if not config.research_symbol:
-            raise ValueError("research_symbol must not be empty")
-        if Decimal(config.trade_size) <= 0:
-            raise ValueError("trade_size must be positive")
-        if config.min_abs_delta_ticks < 0:
-            raise ValueError("min_abs_delta_ticks must be non-negative")
-        if not MIN_DIRECTION_PROBABILITY <= config.min_direction_probability <= 1:
-            raise ValueError("min_direction_probability must be in [0.5, 1]")
-        if config.cooldown_ms < 0 or config.max_signal_lag_ms < 0:
-            raise ValueError("replay timing limits must be non-negative")
-        if (
-            config.replay_start_ns is not None
-            and config.replay_end_ns is not None
-            and config.replay_start_ns >= config.replay_end_ns
-        ):
-            raise ValueError("replay time bounds must define a positive interval")
-        if config.order_insert_latency_ns < 0:
-            raise ValueError("order_insert_latency_ns must be non-negative")
-        if type(config.record_performance) is not bool:
-            raise ValueError("record_performance must be boolean")
+        _validate_strategy_config(config)
         super().__init__(config)
         self._instrument_id = InstrumentId.from_str(config.instrument_id)
         self._research_symbol = config.research_symbol
@@ -169,9 +175,9 @@ class CandidateReplayStrategy(Strategy):
             ):
                 setattr(self, name, self._timed_callback(name, getattr(self, name)))
 
-    def _timed_callback(self, name: str, callback: Any) -> Any:
+    def _timed_callback[**P, R](self, name: str, callback: Callable[P, R]) -> Callable[P, R]:
         @wraps(callback)
-        def measured(*args: Any, **kwargs: Any) -> Any:
+        def measured(*args: P.args, **kwargs: P.kwargs) -> R:
             started = perf_counter_ns()
             try:
                 return callback(*args, **kwargs)

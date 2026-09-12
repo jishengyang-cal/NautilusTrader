@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Tests for strict price-level L2 conversion and publication verification."""
+"""
+Tests for strict price-level L2 conversion and publication verification.
+"""
 
 import hashlib
 import json
@@ -57,7 +59,9 @@ def _row(
 
 
 def test_absolute_l2_rows_replay_to_matching_mbp_state() -> None:
-    """Absolute SET rows should reproduce the expected L2_MBP state."""
+    """
+    Absolute SET rows should reproduce the expected L2_MBP state.
+    """
     clear = _row(0, side="N", price=0, size=0, delta=0, action="CLEAR")
     rows = [
         clear,
@@ -84,7 +88,9 @@ def test_absolute_l2_rows_replay_to_matching_mbp_state() -> None:
 
 
 def test_strict_l2_rejects_order_identity_and_incomplete_message() -> None:
-    """Order identity and truncated logical messages must fail closed."""
+    """
+    Order identity and truncated logical messages must fail closed.
+    """
     instrument = InstrumentId.from_str("TEST.XNAS")
     row = _row(0)
     row["order_id"] = 12
@@ -96,7 +102,9 @@ def test_strict_l2_rejects_order_identity_and_incomplete_message() -> None:
 
 
 def test_strict_l2_rejects_broken_logical_message_identity() -> None:
-    """Rows before F_LAST must share sequence and availability timestamps."""
+    """
+    Rows before F_LAST must share sequence and availability timestamps.
+    """
     instrument = InstrumentId.from_str("TEST.XNAS")
     first = _row(0, last=False)
     second = _row(1, side="A", price=101_000_000_000, size=7, delta=7)
@@ -105,7 +113,9 @@ def test_strict_l2_rejects_broken_logical_message_identity() -> None:
 
 
 def test_logical_message_allows_increasing_venue_times_at_one_receive_time() -> None:
-    """One received packet may aggregate venue events with distinct ordered timestamps."""
+    """
+    One received packet may aggregate venue events with distinct ordered timestamps.
+    """
     instrument = InstrumentId.from_str("TEST.XNAS")
     first = _row(0, last=False)
     second = _row(1, side="A", price=101_000_000_000, size=7, delta=7)
@@ -120,7 +130,9 @@ def test_logical_message_allows_increasing_venue_times_at_one_receive_time() -> 
 
 
 def test_snapshot_flags_preserve_buffered_event_boundaries() -> None:
-    """CLEAR snapshots must carry snapshot flags and end with F_LAST."""
+    """
+    CLEAR snapshots must carry snapshot flags and end with F_LAST.
+    """
     instrument = InstrumentId.from_str("TEST.XNAS")
     clear = _row(0, side="N", price=0, size=0, delta=0, action="CLEAR", last=False)
     level = _row(1, last=True)
@@ -145,7 +157,9 @@ def test_snapshot_flags_preserve_buffered_event_boundaries() -> None:
     ],
 )
 def test_strict_l2_rejects_ordering_and_state_faults(mutate: Any, message: str) -> None:
-    """Duplicate indices, reversed clocks and inconsistent state fail closed."""
+    """
+    Duplicate indices, reversed clocks and inconsistent state fail closed.
+    """
     instrument = InstrumentId.from_str("TEST.XNAS")
     rows = [_row(0), _row(1, size=15, delta=5)]
     mutate(rows)
@@ -154,7 +168,9 @@ def test_strict_l2_rejects_ordering_and_state_faults(mutate: Any, message: str) 
 
 
 def test_strict_l2_rejects_clear_inside_open_message_and_absent_delete() -> None:
-    """A reset cannot split a message and an unknown price level cannot be deleted."""
+    """
+    A reset cannot split a message and an unknown price level cannot be deleted.
+    """
     instrument = InstrumentId.from_str("TEST.XNAS")
     first = _row(0, last=False)
     clear = _row(1, side="N", price=0, size=0, delta=0, action="CLEAR")
@@ -168,7 +184,9 @@ def test_strict_l2_rejects_clear_inside_open_message_and_absent_delete() -> None
 
 
 def test_strict_l2_uses_instrument_price_precision_and_rejects_misalignment() -> None:
-    """Nanosecond integer prices must map exactly to the instrument precision."""
+    """
+    Nanosecond integer prices must map exactly to the instrument precision.
+    """
     instrument = InstrumentId.from_str("TEST.XNAS")
     delta = next(rows_to_deltas([_row(0)], instrument, price_precision=2))
     assert str(delta.order.price) == "100.00"
@@ -178,7 +196,9 @@ def test_strict_l2_uses_instrument_price_precision_and_rejects_misalignment() ->
 
 
 def test_manifest_stream_verifies_digest_and_preserves_availability_clock(tmp_path: Path) -> None:
-    """Manifest ingestion verifies bytes and maps receive time to ts_init."""
+    """
+    Manifest ingestion verifies bytes and maps receive time to ts_init.
+    """
     rows = [
         _row(0, side="N", price=0, size=0, delta=0, action="CLEAR"),
         _row(1),

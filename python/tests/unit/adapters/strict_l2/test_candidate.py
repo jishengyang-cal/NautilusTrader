@@ -12,8 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
-"""Tests for audited strict-L2 candidate signal loading."""
+"""
+Tests for audited strict-L2 candidate signal loading.
+"""
 
 import hashlib
 import json
@@ -35,14 +36,17 @@ def _candidate(tmp_path: Path, *, extra_column: str | None = None) -> tuple[Path
     candidate.mkdir()
     model = candidate / "model.pt"
     model.write_bytes(b"sealed model")
-    frame = pd.DataFrame({
-        "ts_recv": [1_000, 2_000, 3_000],
-        "instrument": ["NVDA", "TSLA", "NVDA"],
-        "delta_mid_ticks_1000ms": [1.5, -2.0, 0.25],
-        "p_down_1000ms": [0.1, 0.8, 0.2],
-        "p_flat_1000ms": [0.1, 0.1, 0.3],
-        "p_up_1000ms": [0.8, 0.1, 0.5],
-    })
+    frame = pd.DataFrame(
+        {
+            "ts_recv": [1_000, 2_000, 3_000],
+            "instrument": ["NVDA", "TSLA", "NVDA"],
+            "delta_mid_ticks_1000ms": [1.5, -2.0, 0.25],
+            "p_down_1000ms": [0.1, 0.8, 0.2],
+            "p_flat_1000ms": [0.1, 0.1, 0.3],
+            "p_up_1000ms": [0.8, 0.1, 0.5],
+        },
+    )
+
     if extra_column is not None:
         frame[extra_column] = [1, 2, 3]
     # Match the producer's indexed v2 output, including withheld outcome columns
@@ -52,6 +56,7 @@ def _candidate(tmp_path: Path, *, extra_column: str | None = None) -> tuple[Path
         for h in (1_000, 5_000, 15_000, 60_000)
         for name in ("mfe_long_ticks", "mae_long_ticks")
     ]
+
     for target in targets:
         if target not in frame:
             frame[target] = 1.0
@@ -60,7 +65,10 @@ def _candidate(tmp_path: Path, *, extra_column: str | None = None) -> tuple[Path
         for direction, probability in (("down", 0.1), ("flat", 0.1), ("up", 0.8)):
             frame[f"p_{direction}_{horizon}ms"] = probability
     for context in (
-        "session_progress", "rolling_volatility", "liquidity_distance_ticks", "max_displayed_depth",
+        "session_progress",
+        "rolling_volatility",
+        "liquidity_distance_ticks",
+        "max_displayed_depth",
     ):
         frame[context] = 0.5
     frame["history_retained_fraction"] = 0.5
@@ -112,7 +120,9 @@ def _candidate(tmp_path: Path, *, extra_column: str | None = None) -> tuple[Path
 
 
 def test_load_candidate_signals_exposes_only_causal_prediction_fields(tmp_path: Path) -> None:
-    """An audited bundle yields ordered prediction state without labels."""
+    """
+    An audited bundle yields ordered prediction state without labels.
+    """
     receipt, _ = _candidate(tmp_path)
 
     signals = load_candidate_signals(receipt, horizon_ms=1_000)
@@ -130,7 +140,9 @@ def test_load_candidate_signals_exposes_only_causal_prediction_fields(tmp_path: 
 
 
 def test_load_candidate_signals_rejects_artifact_changed_after_audit(tmp_path: Path) -> None:
-    """A model mutation after independent audit fails closed."""
+    """
+    A model mutation after independent audit fails closed.
+    """
     receipt, model = _candidate(tmp_path)
     model.write_bytes(b"changed after audit")
 
@@ -139,7 +151,9 @@ def test_load_candidate_signals_rejects_artifact_changed_after_audit(tmp_path: P
 
 
 def test_load_candidate_signals_rejects_order_identity_columns(tmp_path: Path) -> None:
-    """Execution identity cannot cross into the strict-L2 signal boundary."""
+    """
+    Execution identity cannot cross into the strict-L2 signal boundary.
+    """
     receipt, _ = _candidate(tmp_path, extra_column="client_order_id")
 
     with pytest.raises(ValueError, match="forbidden execution identity"):
@@ -147,12 +161,12 @@ def test_load_candidate_signals_rejects_order_identity_columns(tmp_path: Path) -
 
 
 def test_load_candidate_signals_requires_a_win_at_the_requested_horizon(tmp_path: Path) -> None:
-    """An unrelated horizon win cannot authorize the precommitted replay horizon."""
+    """
+    An unrelated horizon win cannot authorize the precommitted replay horizon.
+    """
     receipt, _ = _candidate(tmp_path)
     payload = json.loads(receipt.read_text())
-    payload["baseline_screen"]["overall"]["horizons"]["1000ms"][
-        "joint_baseline_win"
-    ] = False
+    payload["baseline_screen"]["overall"]["horizons"]["1000ms"]["joint_baseline_win"] = False
     receipt.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="requested-horizon"):
@@ -171,9 +185,12 @@ def _update_bundle(receipt_path: Path, changes: dict[str, object]) -> None:
 
 @pytest.mark.parametrize("version", ["lob-prediction-bundle/v1", "lob-prediction-bundle/v3"])
 def test_load_candidate_signals_rejects_legacy_and_unknown_versions(
-    tmp_path: Path, version: str,
+    tmp_path: Path,
+    version: str,
 ) -> None:
-    """Reject legacy and future schemas even when their file hashes match."""
+    """
+    Reject legacy and future schemas even when their file hashes match.
+    """
     receipt, _ = _candidate(tmp_path)
     _update_bundle(receipt, {"schema_version": version})
     with pytest.raises(ValueError, match="identity mismatch"):
@@ -183,9 +200,13 @@ def test_load_candidate_signals_rejects_legacy_and_unknown_versions(
 @pytest.mark.parametrize("segment", ["sealed_final", "train", "valid", None])
 @pytest.mark.parametrize("location", ["audit", "bundle", "both"])
 def test_load_candidate_signals_rejects_non_development_segments(
-    tmp_path: Path, segment: str | None, location: str,
+    tmp_path: Path,
+    segment: str | None,
+    location: str,
 ) -> None:
-    """Prevent sealed or unspecified evaluation results from entering daily replay."""
+    """
+    Prevent sealed or unspecified evaluation results from entering daily replay.
+    """
     receipt, _ = _candidate(tmp_path)
     if location in {"bundle", "both"}:
         _update_bundle(receipt, {"evaluation_segment": segment})
@@ -199,25 +220,35 @@ def test_load_candidate_signals_rejects_non_development_segments(
 
 @pytest.mark.parametrize("field", ["spec_sha256", "readiness_sha256", "implementation_sha256"])
 def test_load_candidate_signals_rejects_mismatched_provenance(
-    tmp_path: Path, field: str,
+    tmp_path: Path,
+    field: str,
 ) -> None:
-    """Bind the source spec, readiness and implementation to the complete audit."""
+    """
+    Bind the source spec, readiness and implementation to the complete audit.
+    """
     receipt, _ = _candidate(tmp_path)
     _update_bundle(receipt, {field: "d" * 64})
     with pytest.raises(ValueError, match=f"{field} differs"):
         load_candidate_signals(receipt, horizon_ms=1_000)
 
 
-@pytest.mark.parametrize(("field", "value"), [
-    ("artifact_valid", False),
-    ("schema_version", "lob-candidate-audit/v2"),
-    ("strict_l2_only", False),
-    ("source_spec_sha256", "invalid"),
-])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("artifact_valid", False),
+        ("schema_version", "lob-candidate-audit/v2"),
+        ("strict_l2_only", False),
+        ("source_spec_sha256", "invalid"),
+    ],
+)
 def test_load_candidate_signals_rejects_invalid_audit(
-    tmp_path: Path, field: str, value: object,
+    tmp_path: Path,
+    field: str,
+    value: object,
 ) -> None:
-    """Require a valid strict-L2 audit with a well-formed source reference."""
+    """
+    Require a valid strict-L2 audit with a well-formed source reference.
+    """
     receipt, _ = _candidate(tmp_path)
     payload = json.loads(receipt.read_text())
     payload[field] = value
@@ -228,9 +259,12 @@ def test_load_candidate_signals_rejects_invalid_audit(
 
 @pytest.mark.parametrize("coverage", [float("nan"), float("inf"), -0.1, 1.1, 0.1])
 def test_load_candidate_signals_rejects_invalid_v2_coverage(
-    tmp_path: Path, coverage: float,
+    tmp_path: Path,
+    coverage: float,
 ) -> None:
-    """Reject non-finite, out-of-range and non-partitioning v2 history coverage."""
+    """
+    Reject non-finite, out-of-range and non-partitioning v2 history coverage.
+    """
     receipt, _ = _candidate(tmp_path)
     payload = json.loads(receipt.read_text())
     predictions = Path(payload["candidate_path"]) / "predictions.parquet"
@@ -245,7 +279,9 @@ def test_load_candidate_signals_rejects_invalid_v2_coverage(
 
 
 def test_load_candidate_signals_excludes_future_predictions(tmp_path: Path) -> None:
-    """Respect the exclusive end of the available prediction interval."""
+    """
+    Respect the exclusive end of the available prediction interval.
+    """
     receipt, _ = _candidate(tmp_path)
     signals = load_candidate_signals(receipt, horizon_ms=1_000, start_ns=1_000, end_ns=2_000)
     assert [signal.ts_recv_ns for signal in signals] == [1_000]
@@ -253,9 +289,12 @@ def test_load_candidate_signals_excludes_future_predictions(tmp_path: Path) -> N
 
 @pytest.mark.parametrize("missing_column", [False, True])
 def test_load_candidate_signals_distinguishes_empty_and_missing_history_coverage(
-    tmp_path: Path, missing_column: bool,
+    tmp_path: Path,
+    missing_column: bool,
 ) -> None:
-    """Permit absent historical activity only when v2 explicitly records zero coverage."""
+    """
+    Permit absent historical activity only when v2 explicitly records zero coverage.
+    """
     receipt, _ = _candidate(tmp_path)
     payload = json.loads(receipt.read_text())
     predictions = Path(payload["candidate_path"]) / "predictions.parquet"
@@ -272,6 +311,7 @@ def test_load_candidate_signals_distinguishes_empty_and_missing_history_coverage
     payload["predictions_sha256"] = _sha256(predictions)
     receipt.write_text(json.dumps(payload))
     _update_bundle(receipt, {"prediction_sha256": payload["predictions_sha256"]})
+
     if missing_column:
         with pytest.raises(ValueError, match="missing history coverage"):
             load_candidate_signals(receipt, horizon_ms=1_000)
@@ -280,7 +320,9 @@ def test_load_candidate_signals_distinguishes_empty_and_missing_history_coverage
 
 
 def test_load_candidate_signals_accepts_consistently_audited_validation(tmp_path: Path) -> None:
-    """Permit validation replay with matching audit and bundle segment declarations."""
+    """
+    Permit validation replay with matching audit and bundle segment declarations.
+    """
     receipt, _ = _candidate(tmp_path)
     _update_bundle(receipt, {"evaluation_segment": "validation"})
     payload = json.loads(receipt.read_text())
@@ -290,7 +332,9 @@ def test_load_candidate_signals_accepts_consistently_audited_validation(tmp_path
 
 
 def test_load_candidate_signals_rejects_mixed_development_segments(tmp_path: Path) -> None:
-    """Reject a bundle whose development segment differs from the complete audit."""
+    """
+    Reject a bundle whose development segment differs from the complete audit.
+    """
     receipt, _ = _candidate(tmp_path)
     _update_bundle(receipt, {"evaluation_segment": "validation"})
     with pytest.raises(ValueError, match="evaluation segment differs"):
@@ -299,9 +343,12 @@ def test_load_candidate_signals_rejects_mixed_development_segments(tmp_path: Pat
 
 @pytest.mark.parametrize("artifact", ["prediction-bundle.json", "predictions.parquet"])
 def test_load_candidate_signals_rejects_changed_referenced_artifact(
-    tmp_path: Path, artifact: str,
+    tmp_path: Path,
+    artifact: str,
 ) -> None:
-    """Detect mutation of each immutable prediction reference after its audit."""
+    """
+    Detect mutation of each immutable prediction reference after its audit.
+    """
     receipt, _ = _candidate(tmp_path)
     payload = json.loads(receipt.read_text())
     path = Path(payload["candidate_path"]) / artifact

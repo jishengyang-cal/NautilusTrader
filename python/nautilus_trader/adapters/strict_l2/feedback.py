@@ -191,8 +191,8 @@ def _finite_decimal(value: object, field: str) -> Decimal:
         raise TypeError(f"{field} must be finite numeric data")
     try:
         parsed = Decimal(str(value))
-    except (InvalidOperation, ValueError) as exc:
-        raise ValueError(f"{field} must be finite numeric data") from exc
+    except (InvalidOperation, ValueError) as e:
+        raise ValueError(f"{field} must be finite numeric data") from e
     if not parsed.is_finite():
         raise ValueError(f"{field} must be finite numeric data")
     return parsed

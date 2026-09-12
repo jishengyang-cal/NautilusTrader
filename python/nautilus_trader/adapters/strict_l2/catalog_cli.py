@@ -59,7 +59,7 @@ def _equity(manifest_path: str, symbol: str, price_increment: str) -> Equity:
     metadata_path.relative_to(manifest.parent)
     raw = metadata_path.read_bytes()
     if len(raw) != entry.get("size_bytes") or hashlib.sha256(raw).hexdigest() != entry.get(
-        "sha256"
+        "sha256",
     ):
         raise ValueError("symbol metadata failed manifest digest verification")
     metadata = json.loads(raw)
@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             },
             sort_keys=True,
         )
-        + "\n"
+        + "\n",
     )
     return 0
 
