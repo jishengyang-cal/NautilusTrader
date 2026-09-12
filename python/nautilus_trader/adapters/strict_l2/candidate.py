@@ -132,7 +132,6 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     start_ns: int | None = None,
     end_ns: int | None = None,
     batch_size: int = 65_536,
-    require_screening_effective: bool = True,
 ) -> tuple[CandidateSignal, ...]:
     """Load only causal prediction fields from an independently audited candidate."""
     if horizon_ms not in SUPPORTED_HORIZONS_MS:
@@ -168,8 +167,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         or set(screened_symbols) != set(audited_symbols)
     ):
         raise ValueError("candidate baseline screen differs from its audited symbols")
-    if require_screening_effective:
-        _require_horizon_baseline_win(screening, horizon_ms)
+    _require_horizon_baseline_win(screening, horizon_ms)
     candidate_source = Path(str(receipt.get("candidate_path"))).expanduser()
     if candidate_source.is_symlink():
         raise ValueError("candidate path must not be a symbolic link")

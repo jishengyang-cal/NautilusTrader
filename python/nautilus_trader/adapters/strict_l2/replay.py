@@ -39,14 +39,35 @@ from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.backtest import BacktestNode
 from nautilus_trader.backtest import BacktestRunConfig
 from nautilus_trader.backtest import BacktestVenueConfig
-from nautilus_trader.execution import PerContractFeeModel
+from nautilus_trader.execution import FeeModel
 from nautilus_trader.execution import StaticLatencyModel
 from nautilus_trader.model import AccountType
 from nautilus_trader.model import BookType
+from nautilus_trader.model import Currency
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.model import Money
 from nautilus_trader.model import OmsType
+from nautilus_trader.model import Price
+from nautilus_trader.model import Quantity
 from nautilus_trader.persistence import ParquetDataCatalog
+
+
+class _PerShareFeeModel(FeeModel):
+    def __init__(self, rate: Decimal) -> None:
+        super().__init__()
+        self._rate = rate
+
+    def get_commission(
+        self,
+        _order: object,
+        fill_quantity: Quantity,
+        _fill_px: Price,
+        _instrument: object,
+    ) -> Money:
+        """Calculate the USD fee before rounding to currency precision."""
+        return Money.from_decimal(
+            self._rate * fill_quantity.as_decimal(), Currency.from_str("USD"),
+        )
 
 
 REQUEST_SCHEMA = "strict-l2-candidate-replay-request/v1"
@@ -478,10 +499,7 @@ def run_candidate_replay(
             use_reduce_only=True,
             trade_execution=True,
             liquidity_consumption=True,
-            queue_position=True,
-            fee_model=PerContractFeeModel(
-                commission=Money.from_str(f"{request['fee_per_share_usd']} USD"),
-            ),
+            fee_model=_PerShareFeeModel(Decimal(request["fee_per_share_usd"])),
             latency_model=StaticLatencyModel(
                 base_latency_nanos=0,
                 insert_latency_nanos=request["order_insert_latency_ns"],
@@ -511,6 +529,7 @@ def run_candidate_replay(
                 max_signal_lag_ms=request["max_signal_lag_ms"],
                 replay_start_ns=start_ns,
                 replay_end_ns=end_ns,
+                order_insert_latency_ns=request["order_insert_latency_ns"],
             ))
             strategies.append(strategy)
             node.add_strategy(config.id, strategy)
@@ -586,9 +605,6 @@ def run_candidate_replay(
             **execution_assumptions,
             "trade_execution": True,
             "liquidity_consumption": True,
-            "queue_position": True,
-            "queue_semantics": "aggregate-level approximation, not L3 FIFO ground truth",
-            "queue_scope": "configured but not exercised by aggressive FOK candidate replay",
             "book_warmup_start_ns": book_warmup_start_ns,
             "feedback_file": "execution-feedback.json",
             "feedback_sha256": feedback_receipt["sha256"],

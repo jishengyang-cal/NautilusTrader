@@ -166,7 +166,7 @@ def _timestamp_ns(value: object, field: str) -> int:
     raise TypeError(f"{field} must be a Unix-nanosecond integer or timezone-aware timestamp")
 
 
-def _finite_float(value: object, field: str) -> float:
+def _finite_decimal(value: object, field: str) -> Decimal:
     if isinstance(value, bool) or value is None:
         raise TypeError(f"{field} must be finite numeric data")
     try:
@@ -175,10 +175,7 @@ def _finite_float(value: object, field: str) -> float:
         raise ValueError(f"{field} must be finite numeric data") from exc
     if not parsed.is_finite():
         raise ValueError(f"{field} must be finite numeric data")
-    result = float(parsed)
-    if not math.isfinite(result):
-        raise ValueError(f"{field} exceeds the supported numeric range")
-    return result
+    return parsed
 
 
 def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
@@ -190,8 +187,8 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
 
     ``bindings`` is strategy-owned ephemeral state keyed by ``client_order_id``.
     It supplies the prediction identity, canonical instrument UID, decision
-    timestamp and reconciled fee for each order. No client or venue order ID is
-    copied into the returned research records. Pass native output as
+    timestamp, last fill-event timestamp and reconciled fee for each order. No client
+    or venue order ID is copied into the returned research records. Pass native output as
     ``ReportProvider.generate_orders_report(...).reset_index().to_dict("records")``.
     """
     aggregates: dict[str, dict[str, Any]] = {}
@@ -209,7 +206,7 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
         prediction_id = binding.get("prediction_id")
         instrument_uid = binding.get("instrument_uid")
         decision_ts = binding.get("decision_ts_ns")
-        fees = _finite_float(
+        fees = _finite_decimal(
             binding.get("fees", 0.0),
             f"bindings[{client_order_id!r}].fees",
         )
@@ -217,30 +214,29 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
             raise ValueError(f"bindings[{client_order_id!r}].prediction_id is required")
         if not isinstance(instrument_uid, str) or not instrument_uid:
             raise ValueError(f"bindings[{client_order_id!r}].instrument_uid is required")
-        side = row.get("order_side", row.get("side"))
-        side = str(side).upper()
+        side = row.get("side")
         if side not in {"BUY", "SELL"}:
             raise ValueError(f"rows[{index}] has an unsupported order side")
         status = str(row.get("status", ""))
         if not status:
             raise ValueError(f"rows[{index}].status is required")
-        filled_qty = _finite_float(row.get("filled_qty", 0.0), f"rows[{index}].filled_qty")
-        average_fill_price = row.get("avg_px", row.get("average_fill_price"))
+        filled_qty = _finite_decimal(row.get("filled_qty", 0.0), f"rows[{index}].filled_qty")
+        average_fill_price = row.get("avg_px")
         if filled_qty < 0:
             raise ValueError(f"rows[{index}].filled_qty must be finite and non-negative")
         if filled_qty > 0:
-            average_fill_price = _finite_float(
+            average_fill_price = _finite_decimal(
                 average_fill_price,
                 f"rows[{index}].average_fill_price",
             )
             if average_fill_price <= 0:
                 raise ValueError(f"rows[{index}] requires a positive finite average fill price")
         submit_ts = _timestamp_ns(row.get("ts_init"), f"rows[{index}].ts_init")
-        fill_ts_raw = row.get("ts_last")
+        fill_ts_raw = binding.get("last_fill_ts_ns")
         fill_ts = (
             None
-            if fill_ts_raw is None
-            else _timestamp_ns(fill_ts_raw, f"rows[{index}].ts_last")
+            if not filled_qty
+            else _timestamp_ns(fill_ts_raw, f"bindings[{client_order_id!r}].last_fill_ts_ns")
         )
         decision_ns = _timestamp_ns(
             decision_ts,
@@ -255,9 +251,9 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
             "decision_ts_ns": decision_ns,
             "submit_ts_ns": submit_ts,
             "last_fill_ts_ns": fill_ts,
-            "filled_qty": 0.0,
-            "fill_notional": 0.0,
-            "fees": 0.0,
+            "filled_qty": Decimal(0),
+            "fill_notional": Decimal(0),
+            "fees": Decimal(0),
             **context,
         })
         if (
@@ -284,8 +280,9 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
         fill_notional = aggregate.pop("fill_notional")
         statuses = aggregate.pop("statuses")
         aggregate["status"] = next(iter(statuses)) if len(statuses) == 1 else "MIXED"
-        aggregate["filled_qty"] = filled_qty
-        aggregate["average_fill_price"] = fill_notional / filled_qty if filled_qty else None
+        aggregate["filled_qty"] = float(filled_qty)
+        aggregate["average_fill_price"] = float(fill_notional / filled_qty) if filled_qty else None
+        aggregate["fees"] = float(aggregate["fees"])
         if not filled_qty:
             aggregate["last_fill_ts_ns"] = None
         records.append(aggregate)

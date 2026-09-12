@@ -64,7 +64,7 @@ def test_orders_report_is_aggregated_without_order_identity() -> None:
         {
             "client_order_id": "ORDER-1",
             "instrument_id": "NVDA.XNAS",
-            "order_side": "BUY",
+            "side": "BUY",
             "status": "FILLED",
             "filled_qty": "2.0",
             "avg_px": "100.0",
@@ -74,7 +74,7 @@ def test_orders_report_is_aggregated_without_order_identity() -> None:
         {
             "client_order_id": "ORDER-2",
             "instrument_id": "NVDA.XNAS",
-            "order_side": "BUY",
+            "side": "BUY",
             "status": "FILLED",
             "filled_qty": "1.0",
             "avg_px": "103.0",
@@ -88,19 +88,22 @@ def test_orders_report_is_aggregated_without_order_identity() -> None:
             "instrument_uid": "nvda-canonical",
             "decision_ts_ns": 900,
             "fees": 0.2,
+            "last_fill_ts_ns": 2_000,
         },
         "ORDER-2": {
             "prediction_id": "prediction-1",
             "instrument_uid": "nvda-canonical",
             "decision_ts_ns": 900,
             "fees": 0.1,
+            "last_fill_ts_ns": 2_500,
         },
     }
     records = feedback_records_from_orders_report(rows, bindings)
     assert len(records) == 1
     assert records[0]["filled_qty"] == 3.0
     assert records[0]["average_fill_price"] == 101.0
-    assert records[0]["fees"] == pytest.approx(0.3)
+    assert records[0]["fees"] == 0.3
+    assert records[0]["last_fill_ts_ns"] == 2_500
     assert "client_order_id" not in json.dumps(records)
 
 
@@ -139,7 +142,7 @@ def test_orders_report_rejects_conflicting_bindings_and_non_finite_fees() -> Non
     rows = [
         {
             "client_order_id": "ORDER-1",
-            "order_side": "BUY",
+            "side": "BUY",
             "status": "FILLED",
             "filled_qty": 1,
             "avg_px": 100,
@@ -148,7 +151,7 @@ def test_orders_report_rejects_conflicting_bindings_and_non_finite_fees() -> Non
         },
         {
             "client_order_id": "ORDER-2",
-            "order_side": "SELL",
+            "side": "SELL",
             "status": "FILLED",
             "filled_qty": 1,
             "avg_px": 100,
@@ -161,6 +164,7 @@ def test_orders_report_rejects_conflicting_bindings_and_non_finite_fees() -> Non
         "instrument_uid": "nvda-canonical",
         "decision_ts_ns": 900,
         "fees": 0.01,
+        "last_fill_ts_ns": 2_000,
     }
     with pytest.raises(ValueError, match="inconsistent bound orders"):
         feedback_records_from_orders_report(rows, {"ORDER-1": binding, "ORDER-2": binding})
@@ -173,7 +177,7 @@ def test_orders_report_requires_one_to_one_strategy_binding() -> None:
     """Duplicate rows and unused bindings cannot pass daily reconciliation."""
     row = {
         "client_order_id": "ORDER-1",
-        "order_side": "BUY",
+        "side": "BUY",
         "status": "FILLED",
         "filled_qty": 1,
         "avg_px": 100,
@@ -185,6 +189,7 @@ def test_orders_report_requires_one_to_one_strategy_binding() -> None:
         "instrument_uid": "nvda-canonical",
         "decision_ts_ns": 900,
         "fees": 0.01,
+        "last_fill_ts_ns": 2_000,
     }
     with pytest.raises(ValueError, match="duplicates"):
         feedback_records_from_orders_report([row, row], {"ORDER-1": binding})
@@ -213,13 +218,14 @@ def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) ->
                 "instrument_uid": "nvda-canonical",
                 "decision_ts_ns": trading_ns,
                 "fees": 0.01,
+                "last_fill_ts_ns": trading_ns + 2,
             },
         },
     }
     orders = [
         {
             "client_order_id": "ORDER-1",
-            "order_side": "BUY",
+            "side": "BUY",
             "status": "FILLED",
             "filled_qty": 1,
             "avg_px": 100,
@@ -237,3 +243,42 @@ def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) ->
     assert receipt["records"] == 1
     assert "ORDER-1" not in payload
     assert "client_order_id" not in payload
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_fill_time_ignores_cancellation_and_unfilled_sibling(reverse: bool) -> None:
+    rows = [
+        {"client_order_id": "filled", "side": "BUY", "status": "CANCELED",
+         "filled_qty": "0.2", "avg_px": "100.1", "ts_init": 100, "ts_last": 500},
+        {"client_order_id": "empty", "side": "BUY", "status": "CANCELED",
+         "filled_qty": "0", "avg_px": None, "ts_init": 300, "ts_last": 900},
+    ]
+    binding = {"prediction_id": "prediction", "instrument_uid": "TEST.SIM",
+               "decision_ts_ns": 90, "fees": "0"}
+    bindings = {
+        "filled": {**binding, "last_fill_ts_ns": 200},
+        "empty": {**binding, "last_fill_ts_ns": None},
+    }
+    records = feedback_records_from_orders_report(rows[::-1] if reverse else rows, bindings)
+    assert records[0]["last_fill_ts_ns"] == 200
+    assert records[0]["filled_qty"] == 0.2
+    assert records[0]["average_fill_price"] == 100.1
+
+
+def test_filled_order_requires_bound_fill_timestamp() -> None:
+    row = {"client_order_id": "filled", "side": "BUY", "status": "FILLED",
+           "filled_qty": "1", "avg_px": "100", "ts_init": 100, "ts_last": 200}
+    binding = {"prediction_id": "prediction", "instrument_uid": "TEST.SIM",
+               "decision_ts_ns": 90, "fees": "0"}
+    with pytest.raises(TypeError, match="last_fill_ts_ns"):
+        feedback_records_from_orders_report([row], {"filled": binding})
+
+
+@pytest.mark.parametrize("side", ["buy", "Buy", None])
+def test_report_requires_native_side(side: str | None) -> None:
+    row = {"client_order_id": "empty", "side": side, "order_side": "BUY",
+           "status": "CANCELED", "filled_qty": "0", "avg_px": None, "ts_init": 100}
+    binding = {"prediction_id": "prediction", "instrument_uid": "TEST.SIM",
+               "decision_ts_ns": 90, "fees": "0"}
+    with pytest.raises(ValueError, match="unsupported order side"):
+        feedback_records_from_orders_report([row], {"empty": binding})
