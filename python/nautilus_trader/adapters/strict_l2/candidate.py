@@ -29,7 +29,7 @@ import pyarrow.parquet as pq
 
 
 AUDIT_SCHEMA = "lob-candidate-audit/v1"
-PREDICTION_SCHEMA = "lob-prediction-bundle/v1"
+PREDICTION_SCHEMA = "lob-prediction-bundle/v2"
 SUPPORTED_HORIZONS_MS = frozenset({250, 1_000, 5_000, 15_000, 60_000})
 SHA256_HEX_LENGTH = 64
 FORBIDDEN_FIELDS = frozenset({
@@ -133,7 +133,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     end_ns: int | None = None,
     batch_size: int = 65_536,
 ) -> tuple[CandidateSignal, ...]:
-    """Load only causal prediction fields from an independently audited candidate."""
+    """Load audited v2 offline-development signals, never sealed-final evaluation results."""
     if horizon_ms not in SUPPORTED_HORIZONS_MS:
         raise ValueError("unsupported prediction horizon")
     if batch_size < 1:
@@ -151,6 +151,8 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         raise ValueError("a valid strict-L2 candidate audit receipt is required")
     if receipt.get("strict_l2_only") is not True:
         raise ValueError("candidate audit does not enforce strict L2")
+    if receipt.get("evaluation_segment") not in {"validation", "development_test"}:
+        raise ValueError("candidate replay requires an offline-development evaluation segment")
     audited_symbols = receipt.get("symbols")
     if (
         not isinstance(audited_symbols, list)
@@ -191,6 +193,16 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     bundle = _load_json(bundle_path, dict)
     if bundle.get("schema_version") != PREDICTION_SCHEMA or bundle.get("run_id") != run_id:
         raise ValueError("prediction bundle identity mismatch")
+    if bundle.get("evaluation_segment") != receipt["evaluation_segment"]:
+        raise ValueError("prediction bundle evaluation segment differs from its audit")
+    for bundle_field, audit_field in (
+        ("spec_sha256", "source_spec_sha256"),
+        ("readiness_sha256", "readiness_sha256"),
+        ("implementation_sha256", "implementation_sha256"),
+    ):
+        digest = _validate_digest(receipt.get(audit_field), audit_field)
+        if bundle.get(bundle_field) != digest:
+            raise ValueError(f"prediction bundle {bundle_field} differs from its audit")
     prediction_path = _bound_file(candidate, bundle.get("prediction_file"))
     prediction_sha256 = _validate_digest(
         receipt.get("predictions_sha256"),
@@ -214,6 +226,13 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     names = set(parquet.schema_arrow.names)
     if not expected <= names:
         raise ValueError("prediction artifact is missing replay signal columns")
+    coverage_columns = {
+        "history_retained_fraction",
+        "history_off_lattice_fraction",
+        "history_out_of_radius_fraction",
+    }
+    if not coverage_columns <= names:
+        raise ValueError("v2 prediction artifact is missing history coverage columns")
     normalized_names = {
         re.sub(r"[^a-z0-9]", "", name.lower())
         for name in names
@@ -227,13 +246,25 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         raise ValueError("instruments must contain non-empty symbol strings")
     if requested is not None and not requested <= set(audited_symbols):
         raise ValueError("requested instruments are outside the audited candidate")
-    columns = sorted(expected)
+    columns = sorted(expected | coverage_columns)
     signals = []
     seen: set[tuple[str, int]] = set()
     artifact_symbols = set()
     for batch in parquet.iter_batches(batch_size=batch_size, columns=columns):
         values = batch.to_pydict()
         for index in range(batch.num_rows):
+            coverage = [values[name][index] for name in coverage_columns]
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or not 0 <= value <= 1
+                for value in coverage
+            ) or not (
+                math.isclose(sum(coverage), 0.0, abs_tol=1e-8)
+                or math.isclose(sum(coverage), 1.0, rel_tol=1e-5, abs_tol=1e-8)
+            ):
+                raise ValueError("v2 prediction history coverage violates its partition contract")
             instrument = values["instrument"][index]
             ts_recv_ns = values["ts_recv"][index]
             if not isinstance(instrument, str) or not instrument:

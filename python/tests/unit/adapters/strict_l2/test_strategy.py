@@ -74,11 +74,18 @@ def _audit_receipt(
             "p_down_1000ms": [0.1] * len(signal_times),
             "p_flat_1000ms": [0.1] * len(signal_times),
             "p_up_1000ms": [0.8] * len(signal_times),
+            "history_retained_fraction": [1.0] * len(signal_times),
+            "history_off_lattice_fraction": [0.0] * len(signal_times),
+            "history_out_of_radius_fraction": [0.0] * len(signal_times),
         }
-    ).to_parquet(predictions, index=False)
+    ).set_index(["ts_recv", "instrument"]).to_parquet(predictions)
     bundle = {
-        "schema_version": "lob-prediction-bundle/v1",
+        "schema_version": "lob-prediction-bundle/v2",
         "run_id": run_id,
+        "evaluation_segment": "development_test",
+        "spec_sha256": "a" * 64,
+        "readiness_sha256": "b" * 64,
+        "implementation_sha256": "c" * 64,
         "rows": len(signal_times),
         "prediction_file": predictions.name,
         "prediction_sha256": _sha256(predictions),
@@ -91,6 +98,10 @@ def _audit_receipt(
         "candidate_path": str(candidate),
         "artifact_valid": True,
         "strict_l2_only": True,
+        "evaluation_segment": "development_test",
+        "source_spec_sha256": bundle["spec_sha256"],
+        "readiness_sha256": bundle["readiness_sha256"],
+        "implementation_sha256": bundle["implementation_sha256"],
         "model_sha256": _sha256(model),
         "prediction_bundle_sha256": _sha256(bundle_path),
         "predictions_sha256": _sha256(predictions),
