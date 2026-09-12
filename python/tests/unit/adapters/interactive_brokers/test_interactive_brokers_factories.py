@@ -39,6 +39,38 @@ from nautilus_trader.model import TraderId
 IB = "IB"
 ib_data_tester = load_example_module("interactive_brokers", "data_tester")
 ib_exec_tester = load_example_module("interactive_brokers", "exec_tester")
+ib_config_check = load_example_module("interactive_brokers", "config_check")
+
+
+def test_interactive_brokers_config_check_separates_client_ids() -> None:
+    """
+    Test interactive brokers config check separates client IDs.
+    """
+    spec = ib_config_check.InteractiveBrokersConnectionSpec(
+        host="127.0.0.1",
+        port=12345,
+        data_client_id=180,
+        execution_client_id=181,
+        load_ids=("TEST.XNAS",),
+    )
+    configs = ib_config_check.build_configs(spec)
+
+    assert spec.data_client_id != spec.execution_client_id
+    assert set(configs) == {"provider", "data", "execution"}
+
+
+def test_interactive_brokers_config_check_rejects_duplicate_client_ids() -> None:
+    """
+    Test interactive brokers config check rejects duplicate client IDs.
+    """
+    with pytest.raises(ValueError, match="must be distinct"):
+        ib_config_check.InteractiveBrokersConnectionSpec(
+            host="127.0.0.1",
+            port=12345,
+            data_client_id=180,
+            execution_client_id=180,
+            load_ids=("TEST.XNAS",),
+        )
 
 
 def test_interactive_brokers_factories_expose_python_names() -> None:

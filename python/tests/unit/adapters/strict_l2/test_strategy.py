@@ -1,0 +1,647 @@
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+
+"""Integration tests for causal candidate execution on an L2 MBP book."""
+
+import hashlib
+import json
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from nautilus_trader.adapters.strict_l2.data import rows_to_deltas
+from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.adapters.strict_l2.replay import run_candidate_replay
+from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayConfig
+from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayStrategy
+from nautilus_trader.backtest import BacktestDataConfig
+from nautilus_trader.backtest import BacktestEngineConfig
+from nautilus_trader.backtest import BacktestNode
+from nautilus_trader.backtest import BacktestRunConfig
+from nautilus_trader.backtest import BacktestVenueConfig
+from nautilus_trader.execution import StaticLatencyModel
+from nautilus_trader.model import AccountType
+from nautilus_trader.model import BookType
+from nautilus_trader.model import Currency
+from nautilus_trader.model import Equity
+from nautilus_trader.model import InstrumentId
+from nautilus_trader.model import OmsType
+from nautilus_trader.model import Price
+from nautilus_trader.model import Quantity
+from nautilus_trader.model import Symbol
+from nautilus_trader.model import Venue
+from nautilus_trader.persistence import ParquetDataCatalog
+
+
+BASE_TS_NS = int(pd.Timestamp("2026-05-11 09:30:00", tz="America/New_York").tz_convert("UTC").value)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _audit_receipt(
+    tmp_path: Path,
+    signal_times: list[int] | None = None,
+) -> Path:
+    signal_times = signal_times or [BASE_TS_NS]
+    run_id = "0123456789abcdefabcd"
+    candidate = tmp_path / run_id
+    candidate.mkdir()
+    model = candidate / "model.pt"
+    model.write_bytes(b"sealed model")
+    predictions = candidate / "predictions.parquet"
+    pd.DataFrame({
+        "ts_recv": signal_times,
+        "instrument": ["TEST"] * len(signal_times),
+        "delta_mid_ticks_1000ms": [1.0] * len(signal_times),
+        "p_down_1000ms": [0.1] * len(signal_times),
+        "p_flat_1000ms": [0.1] * len(signal_times),
+        "p_up_1000ms": [0.8] * len(signal_times),
+    }).to_parquet(predictions, index=False)
+    bundle = {
+        "schema_version": "lob-prediction-bundle/v1",
+        "run_id": run_id,
+        "rows": len(signal_times),
+        "prediction_file": predictions.name,
+        "prediction_sha256": _sha256(predictions),
+    }
+    bundle_path = candidate / "prediction-bundle.json"
+    bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+    receipt = {
+        "schema_version": "lob-candidate-audit/v1",
+        "run_id": run_id,
+        "candidate_path": str(candidate),
+        "artifact_valid": True,
+        "strict_l2_only": True,
+        "model_sha256": _sha256(model),
+        "prediction_bundle_sha256": _sha256(bundle_path),
+        "predictions_sha256": _sha256(predictions),
+        "symbols": ["TEST"],
+        "baseline_screen": {
+            "screening_effective": True,
+            "required_symbols": 1,
+            "overall": {"horizons": {"1000ms": {"joint_baseline_win": True}}},
+            "symbols": {
+                "TEST": {"horizons": {"1000ms": {"joint_baseline_win": True}}},
+            },
+        },
+    }
+    receipt_path = tmp_path / "candidate-audit.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    return receipt_path
+
+
+def _row(
+    event_index: int,
+    sequence: int,
+    ts_recv: int,
+    side: str,
+    price: int,
+    size: int,
+    delta: int,
+    action: str,
+    last: bool,
+) -> dict[str, object]:
+    return {
+        "symbol": "TEST",
+        "ts_event": ts_recv,
+        "ts_recv": ts_recv,
+        "sequence": sequence,
+        "event_index": event_index,
+        "side": side,
+        "price": price,
+        "size": size,
+        "delta": delta,
+        "action": action,
+        "last": last,
+    }
+
+
+def _catalog(
+    tmp_path: Path,
+    *,
+    exact_same_time_update: bool = False,
+    exit_same_time_update: bool = False,
+) -> tuple[Path, Equity, Path]:
+    instrument_id = InstrumentId(Symbol("TEST"), Venue("SIM"))
+    instrument = Equity(
+        instrument_id=instrument_id,
+        raw_symbol=Symbol("TEST"),
+        currency=Currency.from_str("USD"),
+        price_precision=9,
+        price_increment=Price.from_str("0.000000001"),
+        lot_size=Quantity.from_int(1),
+        min_quantity=Quantity.from_int(1),
+        ts_event=0,
+        ts_init=0,
+    )
+    snapshot_ts = BASE_TS_NS - 1_000_000_000
+    rows = [
+        _row(0, 0, snapshot_ts, "N", 0, 0, 0, "CLEAR", False),
+        _row(1, 0, snapshot_ts, "B", 100_000_000_000, 10, 10, "SET", False),
+        _row(2, 0, snapshot_ts, "A", 101_000_000_000, 10, 10, "SET", True),
+    ]
+    if exact_same_time_update:
+        rows.extend([
+            _row(3, 1, BASE_TS_NS, "A", 101_000_000_000, 0, -10, "SET", False),
+            _row(4, 1, BASE_TS_NS, "A", 102_000_000_000, 10, 10, "SET", True),
+            _row(5, 2, BASE_TS_NS + 1_100_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+            _row(6, 3, BASE_TS_NS + 1_200_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+            _row(7, 4, BASE_TS_NS + 1_300_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+            _row(8, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+            _row(9, 6, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+        ])
+    else:
+        rows.extend([
+        # No market-data event occurs exactly on the 100 ms model grid. The
+        # strategy must release the prediction from Nautilus's clock timer,
+        # using only the already completed snapshot.
+            _row(3, 1, BASE_TS_NS + 100_000, "B", 100_000_000_000, 10, 0, "SET", True),
+            _row(4, 2, BASE_TS_NS + 1_100_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+            _row(5, 3, BASE_TS_NS + 1_200_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+            _row(6, 4, BASE_TS_NS + 1_300_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+            _row(7, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+            _row(8, 6, BASE_TS_NS + 3_200_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+        ])
+    if exit_same_time_update:
+        if not exact_same_time_update:
+            raise ValueError("exit_same_time_update requires exact_same_time_update")
+        rows.pop()
+        rows.extend([
+            _row(9, 6, BASE_TS_NS + 3_000_000_000, "B", 100_000_000_000, 0, -10, "SET", False),
+            _row(10, 6, BASE_TS_NS + 3_000_000_000, "B", 99_000_000_000, 10, 10, "SET", True),
+            _row(11, 7, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+            _row(12, 8, BASE_TS_NS + 3_400_000_000, "B", 99_000_000_000, 10, 0, "SET", True),
+        ])
+    target = tmp_path / "catalog"
+    target.mkdir()
+    catalog = ParquetDataCatalog(str(target))
+    catalog.write_instruments([instrument])
+    catalog.write_order_book_deltas(list(rows_to_deltas(
+        rows,
+        instrument.id,
+        expected_symbol="TEST",
+        price_precision=instrument.price_precision,
+    )))
+    symbol_metadata = tmp_path / "symbol_metadata.json"
+    symbol_metadata.write_text(json.dumps({
+        "venue": "SIM",
+        "symbols": {"TEST": {"currency": "USD", "price_precision": 9}},
+        "tick_rule": [{"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": 1}],
+    }), encoding="utf-8")
+    source_manifest = tmp_path / "published-dataset-manifest.json"
+    source_manifest.write_text(json.dumps({
+        "schema_version": "research/published-dataset-manifest-v1",
+        "dataset_kind": "strict-l2-mbp",
+        "point_in_time": {"effective_at": "2026-05-11"},
+        "contracts": {"l2": "strict-l2-v1"},
+        "files": [
+            {"role": "l2_deltas", "symbol": "TEST"},
+            {
+                "role": "symbol_metadata",
+                "path": symbol_metadata.name,
+                "size_bytes": symbol_metadata.stat().st_size,
+                "sha256": _sha256(symbol_metadata),
+            },
+        ],
+    }), encoding="utf-8")
+    files = [{
+        "path": path.relative_to(target).as_posix(),
+        "size_bytes": path.stat().st_size,
+        "sha256": _sha256(path),
+    } for path in sorted(item for item in target.rglob("*") if item.is_file())]
+    receipt = {
+        "schema_version": "strict-l2-nautilus-catalog/v2",
+        "catalog_path": str(target),
+        "instrument_id": str(instrument.id),
+        "symbol": "TEST",
+        "records": len(rows),
+        "first_ts_init_ns": snapshot_ts + 1,
+        "last_ts_init_ns": rows[-1]["ts_recv"] + 1,
+        "availability_tie_break_ns": 1,
+        "source_manifest_sha256": _sha256(source_manifest),
+        "symbol_metadata_sha256": _sha256(symbol_metadata),
+        "price_precision": instrument.price_precision,
+        "price_increment": str(instrument.price_increment),
+        "currency": str(instrument.quote_currency),
+        "files": files,
+    }
+    (target / "strict-l2-catalog-receipt.json").write_text(
+        json.dumps(receipt),
+        encoding="utf-8",
+    )
+    return target, instrument, source_manifest
+
+
+def _replay_request(
+    receipt: Path,
+    catalog: Path,
+    instrument: Equity,
+    source_manifest: Path,
+) -> dict[str, object]:
+    signal_policy = {
+        "horizon_ms": 1_000,
+        "trade_size": "1",
+        "min_abs_delta_ticks": 0.5,
+        "min_direction_probability": 0.5,
+        "cooldown_ms": 1_000,
+        "max_signal_lag_ms": 0,
+    }
+    policy = receipt.parent / "replay-policy.json"
+    policy.write_text(json.dumps({
+        "schema_version": "strict-l2-replay-policy/v1",
+        "selection_status": "precommitted_before_test_candidate_publication",
+        "symbols": ["TEST"],
+        "trading_dates": ["2026-05-11"],
+        "signal_policy": signal_policy,
+        "execution_scenarios": [{
+            "name": "base",
+            "fee_per_share_usd": "0.01",
+            "order_insert_latency_ns": 1_000_000,
+        }],
+        "constraints": {
+            "book_type": "L2_MBP",
+            "execution_mode": "aggressive_marketable_fok",
+            "test_threshold_retuning": False,
+        },
+    }), encoding="utf-8")
+    return {
+        "schema_version": "strict-l2-candidate-replay-request/v1",
+        "audit_receipt_path": str(receipt),
+        "audit_receipt_sha256": _sha256(receipt),
+        "trading_date": "2026-05-11",
+        "source_manifest_path": str(source_manifest),
+        "catalogs": [{
+            "symbol": "TEST",
+            "catalog_path": str(catalog),
+            "instrument_id": str(instrument.id),
+        }],
+        **signal_policy,
+        "starting_balances": ["1_000_000 USD"],
+        "fee_per_share_usd": "0.01",
+        "order_insert_latency_ns": 1_000_000,
+        "replay_policy_path": str(policy),
+        "replay_policy_sha256": _sha256(policy),
+        "scenario_name": "base",
+    }
+
+
+def test_candidate_strategy_executes_and_closes_after_prediction_horizon(tmp_path: Path) -> None:
+    """A released signal produces one closed aggressive L2 round trip."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, _ = _catalog(tmp_path)
+    config = BacktestRunConfig(
+        venues=[BacktestVenueConfig(
+            name=str(instrument.id.venue),
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            starting_balances=["1_000_000 USD"],
+            book_type=BookType.L2_MBP,
+        )],
+        data=[BacktestDataConfig(
+            data_type="OrderBookDelta",
+            catalog_path=str(catalog),
+            instrument_id=instrument.id,
+        )],
+        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
+        dispose_on_completion=False,
+    )
+    strategy = CandidateReplayStrategy(CandidateReplayConfig(
+        instrument_id=str(instrument.id),
+        research_symbol="TEST",
+        audit_receipt_path=str(receipt),
+        horizon_ms=1_000,
+        trade_size="1",
+        max_signal_lag_ms=0,
+    ))
+    node = BacktestNode([config])
+    try:
+        node.build()
+        node.add_strategy(config.id, strategy)
+        results = node.run()
+        orders = node.generate_orders_report(config.id)
+
+        assert len(results) == 1
+        assert len(orders) == 2
+        assert strategy.failures == ()
+        assert strategy.consumed_signals == 1
+        assert len(strategy.feedback_bindings) == 2
+        assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
+        records = feedback_records_from_orders_report(
+            orders.reset_index().to_dict("records"),
+            strategy.feedback_bindings,
+        )
+        assert len(records) == 2
+        assert all(record["filled_qty"] == 1 for record in records)
+        assert all("client_order_id" not in record for record in records)
+        assert {record["action_role"] for record in records} == {"ENTRY", "EXIT"}
+        assert all(record["signal_ts_recv_ns"] == BASE_TS_NS for record in records)
+        assert all(record["horizon_ms"] == 1_000 for record in records)
+        entry = next(record for record in records if record["action_role"] == "ENTRY")
+        exit_record = next(record for record in records if record["action_role"] == "EXIT")
+        assert entry["decision_ts_ns"] == BASE_TS_NS
+        assert exit_record["decision_ts_ns"] == BASE_TS_NS + 1_000_000_000
+    finally:
+        node.dispose()
+
+
+def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path) -> None:
+    """The replay runner publishes an immutable L2 result and identifier-free feedback."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request_path = tmp_path / "replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    output_root = tmp_path / "replays"
+
+    result = run_candidate_replay(request_path, output_root)
+
+    output = Path(result["output"])
+    feedback = json.loads((output / "execution-feedback.json").read_text())
+    replay = json.loads((output / "replay-result.json").read_text())
+    assert result["status"] == "complete"
+    assert result["records"] == 2
+    assert feedback["trading_date"] == "2026-05-11"
+    assert replay["book_type"] == "L2_MBP"
+    assert replay["fee_scenario"] == {
+        "model": "per_share",
+        "currency": "USD",
+        "fee_per_share": "0.01",
+    }
+    assert sum(record["fees"] for record in feedback["records"]) == pytest.approx(0.02)
+    assert replay["latency_scenario"] == {
+        "model": "static_order_latency",
+        "unit": "nanosecond",
+        "order_insert_latency_ns": 1_000_000,
+    }
+    assert feedback["metrics"]["execution_assumptions"] == {
+        "execution_mode": replay["execution_mode"],
+        "market_data_availability": replay["market_data_availability"],
+        "fee_scenario": replay["fee_scenario"],
+        "latency_scenario": replay["latency_scenario"],
+    }
+    assert len(replay["catalog_receipts"]) == 1
+    assert replay["catalog_receipts"][0]["sha256"] == _sha256(
+        catalog / "strict-l2-catalog-receipt.json",
+    )
+    assert replay["queue_semantics"].startswith("aggregate-level")
+    assert all("client_order_id" not in record for record in feedback["records"])
+
+
+def test_run_candidate_replay_publishes_zero_trade_outcome(tmp_path: Path) -> None:
+    """A fixed threshold yielding no orders is a completed, ineffective outcome."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request["min_abs_delta_ticks"] = 2.0
+    policy_path = Path(request["replay_policy_path"])
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["signal_policy"]["min_abs_delta_ticks"] = 2.0
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    request["replay_policy_sha256"] = _sha256(policy_path)
+    request_path = tmp_path / "zero-trade-replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    result = run_candidate_replay(request_path, tmp_path / "replays")
+
+    output = Path(result["output"])
+    feedback = json.loads((output / "execution-feedback.json").read_text())
+    assert result["status"] == "complete"
+    assert result["records"] == 0
+    assert feedback["records"] == []
+
+
+def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
+    """One bounded timer is rearmed for multiple grid-aligned predictions."""
+    receipt = _audit_receipt(
+        tmp_path,
+        [BASE_TS_NS, BASE_TS_NS + 2_000_000_000],
+    )
+    catalog, instrument, _ = _catalog(tmp_path)
+    config = BacktestRunConfig(
+        venues=[BacktestVenueConfig(
+            name=str(instrument.id.venue),
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            starting_balances=["1_000_000 USD"],
+            book_type=BookType.L2_MBP,
+        )],
+        data=[BacktestDataConfig(
+            data_type="OrderBookDelta",
+            catalog_path=str(catalog),
+            instrument_id=instrument.id,
+        )],
+        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
+        dispose_on_completion=False,
+    )
+    strategy = CandidateReplayStrategy(CandidateReplayConfig(
+        instrument_id=str(instrument.id),
+        research_symbol="TEST",
+        audit_receipt_path=str(receipt),
+        horizon_ms=1_000,
+        trade_size="1",
+        max_signal_lag_ms=0,
+    ))
+    node = BacktestNode([config])
+    try:
+        node.build()
+        node.add_strategy(config.id, strategy)
+        node.run()
+        orders = node.generate_orders_report(config.id)
+        records = feedback_records_from_orders_report(
+            orders.reset_index().to_dict("records"),
+            strategy.feedback_bindings,
+        )
+        entries = [record for record in records if record["action_role"] == "ENTRY"]
+        assert strategy.consumed_signals == 2
+        assert len(orders) == 4
+        assert sorted(record["decision_ts_ns"] for record in entries) == [
+            BASE_TS_NS,
+            BASE_TS_NS + 2_000_000_000,
+        ]
+    finally:
+        node.dispose()
+
+
+def test_candidate_timer_precedes_same_timestamp_book_update(tmp_path: Path) -> None:
+    """The replay preserves the research sampler's left-closed time boundary."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, _ = _catalog(tmp_path, exact_same_time_update=True)
+    config = BacktestRunConfig(
+        venues=[BacktestVenueConfig(
+            name=str(instrument.id.venue),
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            starting_balances=["1_000_000 USD"],
+            book_type=BookType.L2_MBP,
+        )],
+        data=[BacktestDataConfig(
+            data_type="OrderBookDelta",
+            catalog_path=str(catalog),
+            instrument_id=instrument.id,
+        )],
+        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
+        dispose_on_completion=False,
+    )
+    strategy = CandidateReplayStrategy(CandidateReplayConfig(
+        instrument_id=str(instrument.id),
+        research_symbol="TEST",
+        audit_receipt_path=str(receipt),
+        horizon_ms=1_000,
+        trade_size="1",
+        max_signal_lag_ms=0,
+    ))
+    node = BacktestNode([config])
+    try:
+        node.build()
+        node.add_strategy(config.id, strategy)
+        node.run()
+        orders = node.generate_orders_report(config.id)
+        records = feedback_records_from_orders_report(
+            orders.reset_index().to_dict("records"),
+            strategy.feedback_bindings,
+        )
+        entry = next(record for record in records if record["action_role"] == "ENTRY")
+        assert entry["decision_ts_ns"] == BASE_TS_NS
+        assert entry["average_fill_price"] == pytest.approx(101.0)
+    finally:
+        node.dispose()
+
+
+def test_candidate_replay_records_entry_miss_and_continues(tmp_path: Path) -> None:
+    """A stale marketable FOK is a fill outcome, not a terminal replay fault."""
+    receipt = _audit_receipt(
+        tmp_path,
+        [BASE_TS_NS, BASE_TS_NS + 2_000_000_000],
+    )
+    catalog, instrument, _ = _catalog(
+        tmp_path,
+        exact_same_time_update=True,
+        exit_same_time_update=True,
+    )
+    config = BacktestRunConfig(
+        venues=[BacktestVenueConfig(
+            name=str(instrument.id.venue),
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            starting_balances=["1_000_000 USD"],
+            book_type=BookType.L2_MBP,
+            latency_model=StaticLatencyModel(insert_latency_nanos=1_000_000),
+        )],
+        data=[BacktestDataConfig(
+            data_type="OrderBookDelta",
+            catalog_path=str(catalog),
+            instrument_id=instrument.id,
+        )],
+        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
+        dispose_on_completion=False,
+    )
+    strategy = CandidateReplayStrategy(CandidateReplayConfig(
+        instrument_id=str(instrument.id),
+        research_symbol="TEST",
+        audit_receipt_path=str(receipt),
+        horizon_ms=1_000,
+        trade_size="1",
+        max_signal_lag_ms=0,
+    ))
+    node = BacktestNode([config])
+    try:
+        node.build()
+        node.add_strategy(config.id, strategy)
+        node.run()
+        orders = node.generate_orders_report(config.id)
+
+        assert strategy.failures == ()
+        assert strategy.consumed_signals == 2
+        assert len(orders) == 4
+        assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
+        assert sorted(orders["status"].astype(str)) == [
+            "CANCELED",
+            "CANCELED",
+            "FILLED",
+            "FILLED",
+        ]
+        records = feedback_records_from_orders_report(
+            orders.reset_index().to_dict("records"),
+            strategy.feedback_bindings,
+        )
+        retried_exit = next(
+            record
+            for record in records
+            if record["action_role"] == "EXIT" and record["status"] == "MIXED"
+        )
+        assert retried_exit["decision_ts_ns"] == BASE_TS_NS + 3_000_000_000
+    finally:
+        node.dispose()
+
+
+def test_run_candidate_replay_rejects_catalog_changed_after_publication(tmp_path: Path) -> None:
+    """Catalog mutation after publication fails before the replay engine starts."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    catalog_receipt = json.loads((catalog / "strict-l2-catalog-receipt.json").read_text())
+    artifact = catalog / catalog_receipt["files"][0]["path"]
+    artifact.write_bytes(artifact.read_bytes() + b"changed")
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request_path = tmp_path / "tampered-replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="catalog artifact digest mismatch"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
+def test_run_candidate_replay_rejects_changed_audit_receipt(tmp_path: Path) -> None:
+    """The replay request seals the independently generated audit receipt."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request_path = tmp_path / "replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["baseline_screen"]["screening_effective"] = False
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="audit receipt SHA-256"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
+def test_run_candidate_replay_rejects_source_manifest_for_another_day(tmp_path: Path) -> None:
+    """A catalog cannot be replayed under a different requested trading date."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    manifest = json.loads(source_manifest.read_text())
+    manifest["point_in_time"]["effective_at"] = "2026-05-12"
+    source_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request_path = tmp_path / "wrong-day-replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="requested strict-L2 trading day"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
+def test_run_candidate_replay_rejects_threshold_retuning_after_precommit(tmp_path: Path) -> None:
+    """Changing a signal threshold after policy publication must fail closed."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request["min_direction_probability"] = 0.6
+    request_path = tmp_path / "retuned-replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="signal selection differs"):
+        run_candidate_replay(request_path, tmp_path / "replays")
