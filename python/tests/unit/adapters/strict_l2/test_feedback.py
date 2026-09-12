@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Tests for immutable, identifier-free execution feedback publication."""
+"""
+Tests for immutable, identifier-free execution feedback publication.
+"""
 
 import json
 from pathlib import Path
@@ -42,7 +44,9 @@ def _publish(tmp_path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def test_feedback_is_atomic_sanitized_and_immutable(tmp_path: Path) -> None:
-    """A complete feedback file is atomic and never overwritten."""
+    """
+    A complete feedback file is atomic and never overwritten.
+    """
     result = _publish(tmp_path, [])
     payload = json.loads((tmp_path / "feedback.json").read_text())
     assert result["records"] == 0
@@ -53,13 +57,17 @@ def test_feedback_is_atomic_sanitized_and_immutable(tmp_path: Path) -> None:
 
 
 def test_feedback_rejects_nested_execution_identity(tmp_path: Path) -> None:
-    """Nested broker and order identity is excluded from research feedback."""
+    """
+    Nested broker and order identity is excluded from research feedback.
+    """
     with pytest.raises(ValueError, match="forbidden"):
         _publish(tmp_path, [{"fills": [{"venueOrderId": "secret"}]}])
 
 
 def test_orders_report_is_aggregated_without_order_identity() -> None:
-    """Strategy bindings join native rows then disappear from research output."""
+    """
+    Strategy bindings join native rows then disappear from research output.
+    """
     rows = [
         {
             "client_order_id": "ORDER-1",
@@ -108,7 +116,9 @@ def test_orders_report_is_aggregated_without_order_identity() -> None:
 
 
 def test_feedback_rejects_cross_day_fill_and_incomplete_reconciliation(tmp_path: Path) -> None:
-    """A daily artifact cannot include another trading day or unreconciled execution."""
+    """
+    A daily artifact cannot include another trading day or unreconciled execution.
+    """
     record = {
         "prediction_id": "prediction-1",
         "instrument_uid": "nvda-canonical",
@@ -138,7 +148,9 @@ def test_feedback_rejects_cross_day_fill_and_incomplete_reconciliation(tmp_path:
 
 
 def test_orders_report_rejects_conflicting_bindings_and_non_finite_fees() -> None:
-    """Prediction identity conflicts and invalid fee values fail before publication."""
+    """
+    Prediction identity conflicts and invalid fee values fail before publication.
+    """
     rows = [
         {
             "client_order_id": "ORDER-1",
@@ -174,7 +186,9 @@ def test_orders_report_rejects_conflicting_bindings_and_non_finite_fees() -> Non
 
 
 def test_orders_report_requires_one_to_one_strategy_binding() -> None:
-    """Duplicate rows and unused bindings cannot pass daily reconciliation."""
+    """
+    Duplicate rows and unused bindings cannot pass daily reconciliation.
+    """
     row = {
         "client_order_id": "ORDER-1",
         "side": "BUY",
@@ -201,7 +215,9 @@ def test_orders_report_requires_one_to_one_strategy_binding() -> None:
 
 
 def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) -> None:
-    """The standalone exporter joins ephemeral IDs without publishing them."""
+    """
+    The standalone exporter joins ephemeral IDs without publishing them.
+    """
     trading_ns = 1_757_512_800_000_000_000
     request = {
         "environment": "paper",
@@ -247,7 +263,9 @@ def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) ->
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_fill_time_ignores_cancellation_and_unfilled_sibling(reverse: bool) -> None:
-    """Use only authenticated fill events when reports also contain cancellations."""
+    """
+    Use only authenticated fill events when reports also contain cancellations.
+    """
     rows = [
         {
             "client_order_id": "filled",
@@ -285,7 +303,9 @@ def test_fill_time_ignores_cancellation_and_unfilled_sibling(reverse: bool) -> N
 
 
 def test_filled_order_requires_bound_fill_timestamp() -> None:
-    """Reject a filled native report without its ephemeral fill timestamp binding."""
+    """
+    Reject a filled native report without its ephemeral fill timestamp binding.
+    """
     row = {
         "client_order_id": "filled",
         "side": "BUY",
@@ -307,7 +327,9 @@ def test_filled_order_requires_bound_fill_timestamp() -> None:
 
 @pytest.mark.parametrize("side", ["buy", "Buy", None])
 def test_report_requires_native_side(side: str | None) -> None:
-    """Reject non-native or missing order-side spellings."""
+    """
+    Reject non-native or missing order-side spellings.
+    """
     row = {
         "client_order_id": "empty",
         "side": side,

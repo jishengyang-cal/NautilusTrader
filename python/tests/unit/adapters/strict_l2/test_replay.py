@@ -1,14 +1,30 @@
-"""Source binding tests use synthetic catalogs, never live execution evidence."""
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
+"""
+Source binding tests use synthetic catalogs, never live execution evidence.
+"""
 
 import json
 from pathlib import Path
 
 import pytest
-
-from nautilus_trader.adapters.strict_l2 import replay
 from tests.unit.adapters.strict_l2.test_strategy import _audit_receipt
 from tests.unit.adapters.strict_l2.test_strategy import _catalog
 from tests.unit.adapters.strict_l2.test_strategy import _replay_request
+
+from nautilus_trader.adapters.strict_l2 import replay
 
 
 @pytest.mark.parametrize("source_changes", [False, True])
@@ -17,6 +33,9 @@ def test_profile_sources_are_bound_before_and_after_run(
     monkeypatch: pytest.MonkeyPatch,
     source_changes: bool,
 ) -> None:
+    """
+    Verify source drift rejects publication while preserving existing output.
+    """
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     request = tmp_path / "request.json"
@@ -44,8 +63,9 @@ def test_profile_sources_are_bound_before_and_after_run(
 
     monkeypatch.setattr(replay.BacktestNode, "run", run)
     monkeypatch.setattr(replay, "_sha256", sha256)
+
     if source_changes:
-        with pytest.raises(ValueError, match="profiling source.*changed"):
+        with pytest.raises(ValueError, match=r"profiling source.*changed"):
             replay.run_candidate_replay(request, output, record_performance=True)
         assert list(output.iterdir()) == [existing]
     else:

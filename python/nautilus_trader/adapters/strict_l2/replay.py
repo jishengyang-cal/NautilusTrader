@@ -151,8 +151,8 @@ def _load_request(path: str | Path) -> tuple[Path, dict[str, Any]]:
         raise TypeError("candidate replay fee_per_share_usd must be a decimal string")
     try:
         fee_decimal = Decimal(fee)
-    except ArithmeticError as exc:
-        raise ValueError("candidate replay fee_per_share_usd is invalid") from exc
+    except ArithmeticError as e:
+        raise ValueError("candidate replay fee_per_share_usd is invalid") from e
     if not fee_decimal.is_finite() or fee_decimal < 0:
         raise ValueError("candidate replay fee_per_share_usd must be finite and non-negative")
     latency = value["order_insert_latency_ns"]
@@ -201,7 +201,7 @@ def _validate_source_manifest(
     metadata_path.relative_to(path.parent)
     metadata_sha256 = _sha256(metadata_path)
     if metadata_path.stat().st_size != entry.get("size_bytes") or metadata_sha256 != entry.get(
-        "sha256"
+        "sha256",
     ):
         raise ValueError("source symbol metadata failed digest verification")
     return _sha256(path), metadata_sha256
@@ -255,7 +255,7 @@ def _load_catalog_bindings(
                 "symbol": symbol,
                 "path": str(receipt_path),
                 "sha256": _sha256(receipt_path),
-            }
+            },
         )
         first_timestamps.append(receipt["first_ts_init_ns"])
         catalog = ParquetDataCatalog(str(catalog_path))
@@ -274,7 +274,7 @@ def _load_catalog_bindings(
                 data_type="OrderBookDelta",
                 catalog_path=str(catalog_path),
                 instrument_id=instrument_id,
-            )
+            ),
         )
         bindings.append((symbol, instrument_id))
     if len(venues) != 1:
@@ -405,6 +405,39 @@ def _load_bound_audit(request: dict[str, Any]) -> tuple[Path, dict[str, Any], st
     return audit_path, audit, digest
 
 
+def _publish_performance(
+    staging: Path,
+    identity: dict[str, Any],
+    profile_source_sha256: dict[str, str],
+    bindings: list[tuple[str, InstrumentId]],
+    strategies: list[CandidateReplayStrategy],
+) -> None:
+    if profile_source_sha256 != {
+        name: _sha256(Path(__file__).with_name(name)) for name in profile_source_sha256
+    }:
+        raise ValueError("profiling source files changed during replay")
+    performance = {
+        "schema_version": "strict-l2-replay-performance/v1",
+        **identity,
+        "execution_assumptions_unchanged": True,
+        "acceptance": "callback diagnostics only; not full performance acceptance",
+        "python_version": platform.python_version(),
+        "source_sha256": profile_source_sha256,
+        "clock": {
+            key: getattr(time.get_clock_info("perf_counter"), key)
+            for key in ("implementation", "monotonic", "adjustable", "resolution")
+        },
+        "strategies": {
+            symbol: strategy.performance_report
+            for (symbol, _), strategy in zip(bindings, strategies, strict=True)
+        },
+    }
+    (staging / "performance.json").write_text(
+        json.dumps(performance, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def run_candidate_replay(
     request_path: str | Path,
     output_root: str | Path,
@@ -485,7 +518,7 @@ def run_candidate_replay(
                     update_latency_nanos=request["order_insert_latency_ns"],
                     cancel_latency_nanos=request["order_insert_latency_ns"],
                 ),
-            )
+            ),
         ],
         data=data_configs,
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=True),
@@ -513,7 +546,7 @@ def run_candidate_replay(
                     replay_end_ns=end_ns,
                     order_insert_latency_ns=request["order_insert_latency_ns"],
                     record_performance=record_performance,
-                )
+                ),
             )
             strategies.append(strategy)
             node.add_strategy(config.id, strategy)
@@ -561,7 +594,7 @@ def run_candidate_replay(
                     for (symbol, _), strategy in zip(bindings, strategies, strict=True)
                 },
                 "execution_assumptions": execution_assumptions,
-            }
+            },
         )
         feedback_path = staging / "execution-feedback.json"
         feedback_receipt = publish_execution_feedback(
@@ -600,29 +633,12 @@ def run_candidate_replay(
         (staging / "replay-result.json").write_text(rendered, encoding="utf-8")
 
         if record_performance:
-            if profile_source_sha256 != {
-                name: _sha256(path) for name, path in profile_sources.items()
-            }:
-                raise ValueError("profiling source files changed during replay")
-            performance = {
-                "schema_version": "strict-l2-replay-performance/v1",
-                **identity,
-                "execution_assumptions_unchanged": True,
-                "acceptance": "callback diagnostics only; not full performance acceptance",
-                "python_version": platform.python_version(),
-                "source_sha256": profile_source_sha256,
-                "clock": {
-                    key: getattr(time.get_clock_info("perf_counter"), key)
-                    for key in ("implementation", "monotonic", "adjustable", "resolution")
-                },
-                "strategies": {
-                    symbol: strategy.performance_report
-                    for (symbol, _), strategy in zip(bindings, strategies, strict=True)
-                },
-            }
-            (staging / "performance.json").write_text(
-                json.dumps(performance, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
+            _publish_performance(
+                staging,
+                identity,
+                profile_source_sha256,
+                bindings,
+                strategies,
             )
         staging.replace(final)
         return {

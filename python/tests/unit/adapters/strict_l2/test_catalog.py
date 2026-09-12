@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Tests for immutable strict-L2 Nautilus catalog publication."""
+"""
+Tests for immutable strict-L2 Nautilus catalog publication.
+"""
 
 import hashlib
 import json
@@ -87,34 +89,47 @@ def _manifest(tmp_path: Path) -> Path:
     partition = tmp_path / "TEST.parquet"
     pd.DataFrame(rows).to_parquet(partition, index=False)
     metadata = tmp_path / "symbol_metadata.json"
-    metadata.write_text(json.dumps({
-        "venue": "XNAS",
-        "symbols": {"TEST": {"currency": "USD", "price_precision": 9}},
-        "tick_rule": [{"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": 10_000_000}],
-    }))
+    metadata.write_text(
+        json.dumps(
+            {
+                "venue": "XNAS",
+                "symbols": {"TEST": {"currency": "USD", "price_precision": 9}},
+                "tick_rule": [{"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": 10_000_000}],
+            },
+        ),
+    )
     manifest = tmp_path / "published-dataset-manifest.json"
-    manifest.write_text(json.dumps({
-        "schema_version": "research/published-dataset-manifest-v1",
-        "dataset_kind": "strict-l2-mbp",
-        "contracts": {"l2": "strict-l2-v1"},
-        "files": [{
-            "role": "l2_deltas",
-            "symbol": "TEST",
-            "path": partition.name,
-            "size_bytes": partition.stat().st_size,
-            "sha256": hashlib.sha256(partition.read_bytes()).hexdigest(),
-        }, {
-            "role": "symbol_metadata",
-            "path": metadata.name,
-            "size_bytes": metadata.stat().st_size,
-            "sha256": hashlib.sha256(metadata.read_bytes()).hexdigest(),
-        }],
-    }))
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "research/published-dataset-manifest-v1",
+                "dataset_kind": "strict-l2-mbp",
+                "contracts": {"l2": "strict-l2-v1"},
+                "files": [
+                    {
+                        "role": "l2_deltas",
+                        "symbol": "TEST",
+                        "path": partition.name,
+                        "size_bytes": partition.stat().st_size,
+                        "sha256": hashlib.sha256(partition.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "role": "symbol_metadata",
+                        "path": metadata.name,
+                        "size_bytes": metadata.stat().st_size,
+                        "sha256": hashlib.sha256(metadata.read_bytes()).hexdigest(),
+                    },
+                ],
+            },
+        ),
+    )
     return manifest
 
 
 def test_manifest_publishes_queryable_l2_catalog_without_identity(tmp_path: Path) -> None:
-    """A verified partition and instrument become a queryable L2 catalog."""
+    """
+    A verified partition and instrument become a queryable L2 catalog.
+    """
     manifest = _manifest(tmp_path)
     instrument = Equity(
         instrument_id=InstrumentId(Symbol("TEST"), Venue("XNAS")),
