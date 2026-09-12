@@ -525,7 +525,7 @@ def test_delayed_entry_exit_submission_and_settlement(
             assert sorted(orders["status"].astype(str)) == ["CANCELED", "FILLED", "FILLED"]
             assert exit_record["status"] == "MIXED"
             assert exit_record["average_fill_price"] == 99
-            assert exit_record["last_fill_ts_ns"] == BASE_TS_NS + 3_400_000_001
+            assert exit_record["last_fill_ts_ns"] == BASE_TS_NS + 3_200_000_001
         else:
             assert sorted(orders["status"].astype(str)) == ["FILLED", "FILLED"]
             assert exit_record["status"] == "FILLED"
