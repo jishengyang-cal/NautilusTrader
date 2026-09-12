@@ -247,14 +247,33 @@ def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) ->
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_fill_time_ignores_cancellation_and_unfilled_sibling(reverse: bool) -> None:
+    """Use only authenticated fill events when reports also contain cancellations."""
     rows = [
-        {"client_order_id": "filled", "side": "BUY", "status": "CANCELED",
-         "filled_qty": "0.2", "avg_px": "100.1", "ts_init": 100, "ts_last": 500},
-        {"client_order_id": "empty", "side": "BUY", "status": "CANCELED",
-         "filled_qty": "0", "avg_px": None, "ts_init": 300, "ts_last": 900},
+        {
+            "client_order_id": "filled",
+            "side": "BUY",
+            "status": "CANCELED",
+            "filled_qty": "0.2",
+            "avg_px": "100.1",
+            "ts_init": 100,
+            "ts_last": 500,
+        },
+        {
+            "client_order_id": "empty",
+            "side": "BUY",
+            "status": "CANCELED",
+            "filled_qty": "0",
+            "avg_px": None,
+            "ts_init": 300,
+            "ts_last": 900,
+        },
     ]
-    binding = {"prediction_id": "prediction", "instrument_uid": "TEST.SIM",
-               "decision_ts_ns": 90, "fees": "0"}
+    binding = {
+        "prediction_id": "prediction",
+        "instrument_uid": "TEST.SIM",
+        "decision_ts_ns": 90,
+        "fees": "0",
+    }
     bindings = {
         "filled": {**binding, "last_fill_ts_ns": 200},
         "empty": {**binding, "last_fill_ts_ns": None},
@@ -266,19 +285,43 @@ def test_fill_time_ignores_cancellation_and_unfilled_sibling(reverse: bool) -> N
 
 
 def test_filled_order_requires_bound_fill_timestamp() -> None:
-    row = {"client_order_id": "filled", "side": "BUY", "status": "FILLED",
-           "filled_qty": "1", "avg_px": "100", "ts_init": 100, "ts_last": 200}
-    binding = {"prediction_id": "prediction", "instrument_uid": "TEST.SIM",
-               "decision_ts_ns": 90, "fees": "0"}
+    """Reject a filled native report without its ephemeral fill timestamp binding."""
+    row = {
+        "client_order_id": "filled",
+        "side": "BUY",
+        "status": "FILLED",
+        "filled_qty": "1",
+        "avg_px": "100",
+        "ts_init": 100,
+        "ts_last": 200,
+    }
+    binding = {
+        "prediction_id": "prediction",
+        "instrument_uid": "TEST.SIM",
+        "decision_ts_ns": 90,
+        "fees": "0",
+    }
     with pytest.raises(TypeError, match="last_fill_ts_ns"):
         feedback_records_from_orders_report([row], {"filled": binding})
 
 
 @pytest.mark.parametrize("side", ["buy", "Buy", None])
 def test_report_requires_native_side(side: str | None) -> None:
-    row = {"client_order_id": "empty", "side": side, "order_side": "BUY",
-           "status": "CANCELED", "filled_qty": "0", "avg_px": None, "ts_init": 100}
-    binding = {"prediction_id": "prediction", "instrument_uid": "TEST.SIM",
-               "decision_ts_ns": 90, "fees": "0"}
+    """Reject non-native or missing order-side spellings."""
+    row = {
+        "client_order_id": "empty",
+        "side": side,
+        "order_side": "BUY",
+        "status": "CANCELED",
+        "filled_qty": "0",
+        "avg_px": None,
+        "ts_init": 100,
+    }
+    binding = {
+        "prediction_id": "prediction",
+        "instrument_uid": "TEST.SIM",
+        "decision_ts_ns": 90,
+        "fees": "0",
+    }
     with pytest.raises(ValueError, match="unsupported order side"):
         feedback_records_from_orders_report([row], {"empty": binding})
