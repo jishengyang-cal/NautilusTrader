@@ -731,3 +731,54 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
             assert exit_record["last_fill_ts_ns"] == BASE_TS_NS + 1_200_000_001
     finally:
         node.dispose()
+
+
+@pytest.mark.parametrize("trade_size", ["0.1", "1.5", "2.5", "1.000"])
+def test_candidate_strategy_requires_exact_instrument_quantity(
+    tmp_path: Path,
+    trade_size: str,
+) -> None:
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, _ = _catalog(tmp_path)
+    config = BacktestRunConfig(
+        venues=[BacktestVenueConfig(
+            name=str(instrument.id.venue),
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            starting_balances=["1_000_000 USD"],
+            book_type=BookType.L2_MBP,
+        )],
+        data=[BacktestDataConfig(
+            data_type="OrderBookDelta",
+            catalog_path=str(catalog),
+            instrument_id=instrument.id,
+        )],
+        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
+        dispose_on_completion=False,
+    )
+    strategy = CandidateReplayStrategy(CandidateReplayConfig(
+        instrument_id=str(instrument.id),
+        research_symbol="TEST",
+        audit_receipt_path=str(receipt),
+        trade_size=trade_size,
+    ))
+    node = BacktestNode([config])
+    try:
+        node.build()
+        node.add_strategy(config.id, strategy)
+        node.run()
+        orders = node.generate_orders_report(config.id)
+        assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
+        if trade_size == "1.000":
+            assert strategy.failures == ()
+            assert len(orders) == 2
+            assert all(Decimal(str(quantity)) == Decimal(trade_size) for quantity in orders["quantity"])
+        else:
+            assert strategy.failures == (
+                "trade_size is not exactly representable at the instrument size precision",
+            )
+            assert len(orders) == 0
+            assert strategy.feedback_bindings == {}
+            assert strategy.consumed_signals == 0
+    finally:
+        node.dispose()
