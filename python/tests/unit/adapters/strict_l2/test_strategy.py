@@ -153,6 +153,7 @@ def _catalog(
     exit_same_time_update: bool = False,
     shallow_bid: bool = False,
     sparse_updates: bool = False,
+    unchanged_exit_update: bool = False,
 ) -> tuple[Path, Equity, Path]:
     instrument_id = InstrumentId(Symbol("TEST"), Venue("SIM"))
     instrument = Equity(
@@ -214,11 +215,23 @@ def _catalog(
             ]
         )
     if sparse_updates:
-        rows = rows[:3] + [
-            _row(3, 1, BASE_TS_NS + 2_000_000_000, "B", 100_000_000_000, 0, -10, "SET", False),
-            _row(4, 1, BASE_TS_NS + 2_000_000_000, "B", 99_000_000_000, 10, 10, "SET", True),
-            _row(5, 2, BASE_TS_NS + 3_200_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
-        ]
+        rows = rows[:3]
+        if unchanged_exit_update:
+            rows.append(
+                _row(3, 1, BASE_TS_NS + 1_002_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+            )
+        index = len(rows)
+        sequence = index - 2
+        rows.extend([
+            _row(index, sequence, BASE_TS_NS + 2_000_000_000,
+                 "B", 100_000_000_000, 0, -10, "SET", False),
+            _row(index + 1, sequence, BASE_TS_NS + 2_000_000_000,
+                 "B", 99_000_000_000, 10, 10, "SET", True),
+            _row(index + 2, sequence + 1, BASE_TS_NS + 3_200_000_000,
+                 "A", 101_000_000_000, 10, 0, "SET", True),
+            _row(index + 3, sequence + 2, BASE_TS_NS + 3_400_000_000,
+                 "A", 101_000_000_000, 10, 0, "SET", True),
+        ])
     if shallow_bid:
         for row in rows:
             if row["side"] == "B" and row["ts_recv"] < BASE_TS_NS + 1_200_000_000:
@@ -446,28 +459,81 @@ def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path)
 
 
 @pytest.mark.parametrize("latency_ns", [0, 1_000_000])
-def test_delayed_entry_exits_before_next_book_update(tmp_path: Path, latency_ns: int) -> None:
-    """Entry settlement reconsiders an elapsed horizon against the observable book."""
+@pytest.mark.parametrize("unchanged_exit_update", [False, True])
+def test_delayed_entry_exit_submission_and_settlement(
+    tmp_path: Path,
+    latency_ns: int,
+    unchanged_exit_update: bool,
+) -> None:
+    """Overdue exits submit at the horizon and settle against the later available book."""
     receipt = _audit_receipt(tmp_path)
-    catalog, instrument, source_manifest = _catalog(tmp_path, sparse_updates=True)
-    request = _replay_request(receipt, catalog, instrument, source_manifest)
-    request["order_insert_latency_ns"] = latency_ns
-    request_path = tmp_path / "replay-request.json"
-    request_path.write_text(json.dumps(request), encoding="utf-8")
-
-    result = run_candidate_replay(request_path, tmp_path / "replays")
-
-    output = Path(result["output"])
-    feedback = json.loads((output / "execution-feedback.json").read_text())
-    assert result["status"] == "complete"
-    assert feedback["reconciliation"]["orders"] == 2
-    entry = next(record for record in feedback["records"] if record["action_role"] == "ENTRY")
-    exit_record = next(record for record in feedback["records"] if record["action_role"] == "EXIT")
-    assert entry["filled_qty"] == exit_record["filled_qty"] == 1
-    assert exit_record["status"] == "FILLED"
-    assert exit_record["average_fill_price"] == 100
-    assert exit_record["decision_ts_ns"] == BASE_TS_NS + 1_000_000_000
-    assert exit_record["submit_ts_ns"] == BASE_TS_NS + 1_000_000_000
+    catalog, instrument, _ = _catalog(
+        tmp_path,
+        sparse_updates=True,
+        unchanged_exit_update=unchanged_exit_update,
+    )
+    config = BacktestRunConfig(
+        venues=[
+            BacktestVenueConfig(
+                name=str(instrument.id.venue),
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=["1_000_000 USD"],
+                book_type=BookType.L2_MBP,
+                latency_model=StaticLatencyModel(insert_latency_nanos=latency_ns),
+            )
+        ],
+        data=[
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog),
+                instrument_id=instrument.id,
+            )
+        ],
+        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
+        dispose_on_completion=False,
+    )
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id=str(instrument.id),
+            research_symbol="TEST",
+            audit_receipt_path=str(receipt),
+            horizon_ms=1_000,
+            trade_size="1",
+            max_signal_lag_ms=0,
+            order_insert_latency_ns=latency_ns,
+        )
+    )
+    node = BacktestNode([config])
+    try:
+        node.build()
+        node.add_strategy(config.id, strategy)
+        node.run()
+        orders = node.generate_orders_report(config.id)
+        records = feedback_records_from_orders_report(
+            orders.reset_index().to_dict("records"),
+            strategy.feedback_bindings,
+        )
+        assert strategy.failures == ()
+        assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
+        entry = next(record for record in records if record["action_role"] == "ENTRY")
+        exit_record = next(record for record in records if record["action_role"] == "EXIT")
+        assert entry["filled_qty"] == exit_record["filled_qty"] == 1
+        assert exit_record["decision_ts_ns"] == BASE_TS_NS + 1_000_000_000
+        assert exit_record["submit_ts_ns"] == BASE_TS_NS + 1_000_000_000
+        if latency_ns and not unchanged_exit_update:
+            assert sorted(orders["status"].astype(str)) == ["CANCELED", "FILLED", "FILLED"]
+            assert exit_record["status"] == "MIXED"
+            assert exit_record["average_fill_price"] == 99
+            assert exit_record["last_fill_ts_ns"] == BASE_TS_NS + 3_400_000_001
+        else:
+            assert sorted(orders["status"].astype(str)) == ["FILLED", "FILLED"]
+            assert exit_record["status"] == "FILLED"
+            assert exit_record["average_fill_price"] == 100
+            fill_offset_ns = 1_002_000_001 if latency_ns else 1_000_000_000
+            assert exit_record["last_fill_ts_ns"] == BASE_TS_NS + fill_offset_ns
+    finally:
+        node.dispose()
 
 
 def test_run_candidate_replay_publishes_zero_trade_outcome(tmp_path: Path) -> None:
