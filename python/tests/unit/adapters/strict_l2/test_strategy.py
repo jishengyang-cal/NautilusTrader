@@ -877,3 +877,49 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
             assert strategy.consumed_signals == 0
     finally:
         node.dispose()
+
+
+def test_host_profiling_preserves_orders_fees_and_account_results(tmp_path: Path) -> None:
+    """Optional host timings do not enter economic execution feedback."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps(_replay_request(receipt, catalog, instrument, source_manifest)))
+    ordinary = run_candidate_replay(request_path, tmp_path / "ordinary")
+    profiled = run_candidate_replay(request_path, tmp_path / "profiled", record_performance=True)
+    left = Path(ordinary["output"])
+    right = Path(profiled["output"])
+    a = json.loads((left / "execution-feedback.json").read_text())
+    b = json.loads((right / "execution-feedback.json").read_text())
+    assert a["records"] == b["records"]
+    for field in ("stats_pnls", "stats_returns", "stats_general", "total_orders", "total_positions"):
+        assert a["metrics"][field] == b["metrics"][field]
+    assert not (left / "performance.json").exists()
+    report = json.loads((right / "performance.json").read_text())
+    performance = report["strategies"]["TEST"]
+    assert report["clock"]["monotonic"] is True
+    assert len(report["source_sha256"]["strategy.py"]) == 64
+    assert performance["unit"] == "nanoseconds"
+    assert performance["stages"]["_process_due_signal"]["market_time_ns"] == [BASE_TS_NS]
+    assert performance["stages"]["on_order_filled"]["count"] == 2
+    assert performance["stages"]["_submit_entry"]["count"] == 1
+    assert performance["stages"]["on_book_deltas"]["count"] > 0
+    assert all(value >= 0 for stage in performance["stages"].values() for value in stage["samples"])
+
+
+def test_host_profiling_records_errors_without_changing_exception() -> None:
+    """A failed callback keeps its original error and records an inclusive duration."""
+    strategy = CandidateReplayStrategy(CandidateReplayConfig(
+        instrument_id="TEST.SIM", research_symbol="TEST", audit_receipt_path="unused",
+        record_performance=True,
+    ))
+
+    def failed() -> None:
+        raise LookupError("original callback error")
+
+    with pytest.raises(LookupError, match="original callback error"):
+        strategy._timed_callback("failure", failed)()
+    report = strategy.performance_report
+    assert report["stages"]["failure"]["count"] == 1
+    report["stages"]["failure"]["samples"].clear()
+    assert len(strategy.performance_report["stages"]["failure"]["samples"]) == 1

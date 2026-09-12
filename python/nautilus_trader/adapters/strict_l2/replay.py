@@ -20,6 +20,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import platform
+import time
 import shutil
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -455,8 +457,15 @@ def _load_bound_audit(request: dict[str, Any]) -> tuple[Path, dict[str, Any], st
 def run_candidate_replay(
     request_path: str | Path,
     output_root: str | Path,
+    *,
+    record_performance: bool = False,
 ) -> dict[str, Any]:
     """Execute and atomically publish one strict-L2 candidate replay day."""
+    profile_sources = {
+        name: Path(__file__).with_name(name)
+        for name in ("strategy.py", "replay.py", "candidate.py", "feedback.py")
+    } if record_performance else {}
+    profile_source_sha256 = {name: _sha256(path) for name, path in profile_sources.items()}
     source, request = _load_request(request_path)
     source_manifest = Path(request["source_manifest_path"]).expanduser().resolve(strict=True)
     requested_symbols = {item["symbol"] for item in request["catalogs"]}
@@ -530,6 +539,7 @@ def run_candidate_replay(
                 replay_start_ns=start_ns,
                 replay_end_ns=end_ns,
                 order_insert_latency_ns=request["order_insert_latency_ns"],
+                record_performance=record_performance,
             ))
             strategies.append(strategy)
             node.add_strategy(config.id, strategy)
@@ -612,6 +622,30 @@ def run_candidate_replay(
         }
         rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         (staging / "replay-result.json").write_text(rendered, encoding="utf-8")
+        if record_performance:
+            if profile_source_sha256 != {
+                name: _sha256(path) for name, path in profile_sources.items()
+            }:
+                raise ValueError("profiling source files changed during replay")
+            performance = {
+                "schema_version": "strict-l2-replay-performance/v1",
+                **identity,
+                "execution_assumptions_unchanged": True,
+                "acceptance": "callback diagnostics only; not full performance acceptance",
+                "python_version": platform.python_version(),
+                "source_sha256": profile_source_sha256,
+                "clock": {
+                    key: getattr(time.get_clock_info("perf_counter"), key)
+                    for key in ("implementation", "monotonic", "adjustable", "resolution")
+                },
+                "strategies": {
+                    symbol: strategy.performance_report
+                    for (symbol, _), strategy in zip(bindings, strategies, strict=True)
+                },
+            }
+            (staging / "performance.json").write_text(
+                json.dumps(performance, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+            )
         staging.replace(final)
         return {
             "status": "complete",
