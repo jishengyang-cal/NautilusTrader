@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Publish verified strict-L2 manifests as immutable Nautilus catalogs."""
+"""
+Publish verified strict-L2 manifests as immutable Nautilus catalogs.
+"""
 
 from __future__ import annotations
 
@@ -47,6 +49,7 @@ def _catalog_files(root: Path) -> list[dict[str, Any]]:
         }
         for path in sorted(item for item in root.rglob("*") if item.is_file())
     ]
+
     if not files:
         raise ValueError("strict-L2 catalog publication produced no files")
     return files
@@ -64,6 +67,7 @@ def _validate_instrument_metadata(
         for item in value.get("files", [])
         if isinstance(item, dict) and item.get("role") == "symbol_metadata"
     ]
+
     if len(entries) != 1:
         raise ValueError("strict-L2 manifest must bind exactly one symbol metadata file")
     entry = entries[0]
@@ -78,6 +82,7 @@ def _validate_instrument_metadata(
     metadata = json.loads(path.read_text(encoding="utf-8"))
     symbol_metadata = metadata.get("symbols", {}).get(symbol)
     instrument_id = getattr(instrument, "id", None)
+
     if (
         not isinstance(symbol_metadata, dict)
         or str(instrument_id.symbol) != symbol
@@ -112,7 +117,9 @@ def write_manifest_deltas_to_catalog(  # noqa: PLR0913
     read_batch_size: int = 65_536,
     write_batch_size: int = 65_536,
 ) -> dict[str, Any]:
-    """Create one catalog without splitting equal-availability timestamps across writes."""
+    """
+    Create one catalog without splitting equal-availability timestamps across writes.
+    """
     if write_batch_size < 1:
         raise ValueError("write_batch_size must be positive")
     instrument_id = getattr(instrument, "id", None)
@@ -152,10 +159,7 @@ def write_manifest_deltas_to_catalog(  # noqa: PLR0913
 
     for delta in deltas:
         ts_init = int(delta.ts_init)
-        if (
-            len(pending) >= write_batch_size
-            and ts_init != current_ts_init
-        ):
+        if len(pending) >= write_batch_size and ts_init != current_ts_init:
             catalog.write_order_book_deltas(pending)
             pending.clear()
         pending.append(delta)

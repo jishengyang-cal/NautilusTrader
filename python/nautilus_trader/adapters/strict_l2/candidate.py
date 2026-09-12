@@ -12,8 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
-"""Load audited strict-L2 research predictions for deterministic replay."""
+"""
+Load audited strict-L2 research predictions for deterministic replay.
+"""
 
 from __future__ import annotations
 
@@ -32,19 +33,23 @@ AUDIT_SCHEMA = "lob-candidate-audit/v1"
 PREDICTION_SCHEMA = "lob-prediction-bundle/v2"
 SUPPORTED_HORIZONS_MS = frozenset({250, 1_000, 5_000, 15_000, 60_000})
 SHA256_HEX_LENGTH = 64
-FORBIDDEN_FIELDS = frozenset({
-    "accountid",
-    "brokerorderid",
-    "clientorderid",
-    "orderid",
-    "venueorderid",
-    "mpid",
-})
+FORBIDDEN_FIELDS = frozenset(
+    {
+        "accountid",
+        "brokerorderid",
+        "clientorderid",
+        "orderid",
+        "venueorderid",
+        "mpid",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class CandidateSignal:
-    """One prediction released to a replay strategy at its receive timestamp."""
+    """
+    One prediction released to a replay strategy at its receive timestamp.
+    """
 
     prediction_id: str
     run_id: str
@@ -120,6 +125,7 @@ def _require_horizon_baseline_win(screening: object, horizon_ms: int) -> None:
         and block.get("horizons", {}).get(horizon, {}).get("joint_baseline_win") is True
         for block in symbols.values()
     )
+
     if wins < required:
         raise ValueError("candidate did not generalize at the requested horizon")
 
@@ -133,7 +139,9 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     end_ns: int | None = None,
     batch_size: int = 65_536,
 ) -> tuple[CandidateSignal, ...]:
-    """Load audited v2 offline-development signals, never sealed-final evaluation results."""
+    """
+    Load audited v2 offline-development signals, never sealed-final evaluation results.
+    """
     if horizon_ms not in SUPPORTED_HORIZONS_MS:
         raise ValueError("unsupported prediction horizon")
     if batch_size < 1:
@@ -208,6 +216,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         receipt.get("predictions_sha256"),
         "predictions_sha256",
     )
+
     if (
         bundle.get("prediction_sha256") != prediction_sha256
         or _sha256(prediction_path) != prediction_sha256
@@ -231,12 +240,10 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         "history_off_lattice_fraction",
         "history_out_of_radius_fraction",
     }
+
     if not coverage_columns <= names:
         raise ValueError("v2 prediction artifact is missing history coverage columns")
-    normalized_names = {
-        re.sub(r"[^a-z0-9]", "", name.lower())
-        for name in names
-    }
+    normalized_names = {re.sub(r"[^a-z0-9]", "", name.lower()) for name in names}
     if normalized_names & FORBIDDEN_FIELDS:
         raise ValueError("prediction artifact exposes forbidden execution identity")
     requested = set(instruments) if instruments is not None else None
@@ -250,10 +257,12 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     signals = []
     seen: set[tuple[str, int]] = set()
     artifact_symbols = set()
+
     for batch in parquet.iter_batches(batch_size=batch_size, columns=columns):
         values = batch.to_pydict()
         for index in range(batch.num_rows):
             coverage = [values[name][index] for name in coverage_columns]
+
             if any(
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
@@ -267,6 +276,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 raise ValueError("v2 prediction history coverage violates its partition contract")
             instrument = values["instrument"][index]
             ts_recv_ns = values["ts_recv"][index]
+
             if not isinstance(instrument, str) or not instrument:
                 raise ValueError("prediction instrument must be a non-empty string")
             artifact_symbols.add(instrument)
@@ -288,6 +298,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 values[f"p_flat_{horizon_ms}ms"][index],
                 values[f"p_up_{horizon_ms}ms"][index],
             ]
+
             if any(
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
@@ -296,22 +307,23 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
             ):
                 raise ValueError("prediction signal contains non-finite numeric data")
             expected_delta, p_down, p_flat, p_up = map(float, numeric)
-            if (
-                any(value < 0 or value > 1 for value in (p_down, p_flat, p_up))
-                or not math.isclose(p_down + p_flat + p_up, 1.0, abs_tol=1e-5)
+            if any(value < 0 or value > 1 for value in (p_down, p_flat, p_up)) or not math.isclose(
+                p_down + p_flat + p_up, 1.0, abs_tol=1e-5
             ):
                 raise ValueError("prediction probabilities are invalid")
-            signals.append(CandidateSignal(
-                prediction_id=_prediction_id(run_id, instrument, ts_recv_ns, horizon_ms),
-                run_id=run_id,
-                instrument=instrument,
-                ts_recv_ns=ts_recv_ns,
-                horizon_ms=horizon_ms,
-                expected_delta_ticks=expected_delta,
-                p_down=p_down,
-                p_flat=p_flat,
-                p_up=p_up,
-            ))
+            signals.append(
+                CandidateSignal(
+                    prediction_id=_prediction_id(run_id, instrument, ts_recv_ns, horizon_ms),
+                    run_id=run_id,
+                    instrument=instrument,
+                    ts_recv_ns=ts_recv_ns,
+                    horizon_ms=horizon_ms,
+                    expected_delta_ticks=expected_delta,
+                    p_down=p_down,
+                    p_flat=p_flat,
+                    p_up=p_up,
+                )
+            )
     if artifact_symbols != set(audited_symbols):
         raise ValueError("prediction artifact symbols differ from the candidate audit")
     if not signals:
