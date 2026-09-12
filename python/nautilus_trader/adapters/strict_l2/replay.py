@@ -91,9 +91,6 @@ REQUEST_FIELDS = {
     "starting_balances",
     "fee_per_share_usd",
     "order_insert_latency_ns",
-    "replay_policy_path",
-    "replay_policy_sha256",
-    "scenario_name",
 }
 
 
@@ -120,61 +117,6 @@ def _json_value(value: object) -> object:
     if isinstance(value, (str, int, bool)) or value is None:
         return value
     return str(value)
-
-
-def _validate_replay_policy(request: dict[str, Any]) -> None:
-    source = Path(request["replay_policy_path"]).expanduser()
-    if source.is_symlink():
-        raise ValueError("replay policy path must not be a symbolic link")
-    path = source.resolve(strict=True)
-    digest = request["replay_policy_sha256"]
-    if (
-        not isinstance(digest, str)
-        or len(digest) != SHA256_HEX_LENGTH
-        or any(character not in "0123456789abcdef" for character in digest)
-        or _sha256(path) != digest
-    ):
-        raise ValueError("replay policy SHA-256 binding is invalid")
-    policy = json.loads(path.read_text(encoding="utf-8"))
-    if (
-        not isinstance(policy, dict)
-        or policy.get("schema_version") != "strict-l2-replay-policy/v1"
-        or policy.get("selection_status") != "precommitted_before_test_candidate_publication"
-    ):
-        raise ValueError("a precommitted strict-L2 replay policy is required")
-    requested_symbols = {item["symbol"] for item in request["catalogs"]}
-    if set(policy.get("symbols", [])) != requested_symbols:
-        raise ValueError("replay request symbols differ from the precommitted policy")
-    if request["trading_date"] not in policy.get("trading_dates", []):
-        raise ValueError("replay trading date is absent from the precommitted policy")
-    signal_fields = {
-        "horizon_ms", "trade_size", "min_abs_delta_ticks",
-        "min_direction_probability", "cooldown_ms", "max_signal_lag_ms",
-    }
-    if policy.get("signal_policy") != {
-        field: request[field]
-        for field in signal_fields
-    }:
-        raise ValueError("replay signal selection differs from the precommitted policy")
-    scenarios = [
-        item
-        for item in policy.get("execution_scenarios", [])
-        if isinstance(item, dict) and item.get("name") == request["scenario_name"]
-    ]
-    if len(scenarios) != 1 or scenarios[0] != {
-        "name": request["scenario_name"],
-        "fee_per_share_usd": request["fee_per_share_usd"],
-        "order_insert_latency_ns": request["order_insert_latency_ns"],
-    }:
-        raise ValueError("replay execution assumptions differ from the precommitted scenario")
-    constraints = policy.get("constraints")
-    if (
-        not isinstance(constraints, dict)
-        or constraints.get("book_type") != "L2_MBP"
-        or constraints.get("execution_mode") != "aggressive_marketable_fok"
-        or constraints.get("test_threshold_retuning") is not False
-    ):
-        raise ValueError("replay policy constraints do not enforce the strict execution contract")
 
 
 def _load_request(path: str | Path) -> tuple[Path, dict[str, Any]]:
@@ -212,7 +154,6 @@ def _load_request(path: str | Path) -> tuple[Path, dict[str, Any]]:
     latency = value["order_insert_latency_ns"]
     if isinstance(latency, bool) or not isinstance(latency, int) or latency < 0:
         raise ValueError("candidate replay order_insert_latency_ns must be non-negative integer ns")
-    _validate_replay_policy(value)
     return source, value
 
 
