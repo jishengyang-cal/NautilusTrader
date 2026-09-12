@@ -287,6 +287,12 @@ class CandidateReplayStrategy(Strategy):
         filled = event.last_qty.as_decimal()
         if event.client_order_id == self._entry_order_id:
             self._entry_filled += filled
+            if (
+                self._entry_filled >= self._trade_size
+                and self._exit_due_ns is not None
+                and int(self.clock.timestamp_ns()) >= self._exit_due_ns
+            ):
+                self._submit_exit()
         elif event.client_order_id == self._exit_order_id:
             self._exit_filled += filled
             if self._exit_filled >= self._entry_filled:

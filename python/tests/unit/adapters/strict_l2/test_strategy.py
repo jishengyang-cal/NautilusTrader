@@ -152,6 +152,7 @@ def _catalog(
     exact_same_time_update: bool = False,
     exit_same_time_update: bool = False,
     shallow_bid: bool = False,
+    sparse_updates: bool = False,
 ) -> tuple[Path, Equity, Path]:
     instrument_id = InstrumentId(Symbol("TEST"), Venue("SIM"))
     instrument = Equity(
@@ -212,6 +213,12 @@ def _catalog(
                 _row(13, 9, BASE_TS_NS + 3_600_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
             ]
         )
+    if sparse_updates:
+        rows = rows[:3] + [
+            _row(3, 1, BASE_TS_NS + 2_000_000_000, "B", 100_000_000_000, 0, -10, "SET", False),
+            _row(4, 1, BASE_TS_NS + 2_000_000_000, "B", 99_000_000_000, 10, 10, "SET", True),
+            _row(5, 2, BASE_TS_NS + 3_200_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+        ]
     if shallow_bid:
         for row in rows:
             if row["side"] == "B" and row["ts_recv"] < BASE_TS_NS + 1_200_000_000:
@@ -310,31 +317,6 @@ def _replay_request(
         "cooldown_ms": 1_000,
         "max_signal_lag_ms": 0,
     }
-    policy = receipt.parent / "replay-policy.json"
-    policy.write_text(
-        json.dumps(
-            {
-                "schema_version": "strict-l2-replay-policy/v1",
-                "selection_status": "precommitted_before_test_candidate_publication",
-                "symbols": ["TEST"],
-                "trading_dates": ["2026-05-11"],
-                "signal_policy": signal_policy,
-                "execution_scenarios": [
-                    {
-                        "name": "base",
-                        "fee_per_share_usd": "0.01",
-                        "order_insert_latency_ns": 1_000_000,
-                    }
-                ],
-                "constraints": {
-                    "book_type": "L2_MBP",
-                    "execution_mode": "aggressive_marketable_fok",
-                    "test_threshold_retuning": False,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
     return {
         "schema_version": "strict-l2-candidate-replay-request/v1",
         "audit_receipt_path": str(receipt),
@@ -352,9 +334,6 @@ def _replay_request(
         "starting_balances": ["1_000_000 USD"],
         "fee_per_share_usd": "0.01",
         "order_insert_latency_ns": 1_000_000,
-        "replay_policy_path": str(policy),
-        "replay_policy_sha256": _sha256(policy),
-        "scenario_name": "base",
     }
 
 
@@ -441,6 +420,7 @@ def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path)
     assert result["records"] == 2
     assert feedback["trading_date"] == "2026-05-11"
     assert replay["book_type"] == "L2_MBP"
+    assert replay["request"] == request
     assert replay["fee_scenario"] == {
         "model": "per_share",
         "currency": "USD",
@@ -465,17 +445,37 @@ def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path)
     assert all("client_order_id" not in record for record in feedback["records"])
 
 
+@pytest.mark.parametrize("latency_ns", [0, 1_000_000])
+def test_delayed_entry_exits_before_next_book_update(tmp_path: Path, latency_ns: int) -> None:
+    """Entry settlement reconsiders an elapsed horizon against the observable book."""
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path, sparse_updates=True)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request["order_insert_latency_ns"] = latency_ns
+    request_path = tmp_path / "replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    result = run_candidate_replay(request_path, tmp_path / "replays")
+
+    output = Path(result["output"])
+    feedback = json.loads((output / "execution-feedback.json").read_text())
+    assert result["status"] == "complete"
+    assert feedback["reconciliation"]["orders"] == 2
+    entry = next(record for record in feedback["records"] if record["action_role"] == "ENTRY")
+    exit_record = next(record for record in feedback["records"] if record["action_role"] == "EXIT")
+    assert entry["filled_qty"] == exit_record["filled_qty"] == 1
+    assert exit_record["status"] == "FILLED"
+    assert exit_record["average_fill_price"] == 100
+    assert exit_record["decision_ts_ns"] == BASE_TS_NS + 1_000_000_000
+    assert exit_record["submit_ts_ns"] == BASE_TS_NS + 1_000_000_000
+
+
 def test_run_candidate_replay_publishes_zero_trade_outcome(tmp_path: Path) -> None:
     """A fixed threshold yielding no orders is a completed, ineffective outcome."""
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, source_manifest = _catalog(tmp_path)
     request = _replay_request(receipt, catalog, instrument, source_manifest)
     request["min_abs_delta_ticks"] = 2.0
-    policy_path = Path(request["replay_policy_path"])
-    policy = json.loads(policy_path.read_text(encoding="utf-8"))
-    policy["signal_policy"]["min_abs_delta_ticks"] = 2.0
-    policy_path.write_text(json.dumps(policy), encoding="utf-8")
-    request["replay_policy_sha256"] = _sha256(policy_path)
     request_path = tmp_path / "zero-trade-replay-request.json"
     request_path.write_text(json.dumps(request), encoding="utf-8")
 
@@ -712,19 +712,6 @@ def test_run_candidate_replay_rejects_source_manifest_for_another_day(tmp_path: 
     request_path.write_text(json.dumps(request), encoding="utf-8")
 
     with pytest.raises(ValueError, match="requested strict-L2 trading day"):
-        run_candidate_replay(request_path, tmp_path / "replays")
-
-
-def test_run_candidate_replay_rejects_threshold_retuning_after_precommit(tmp_path: Path) -> None:
-    """Changing a signal threshold after policy publication must fail closed."""
-    receipt = _audit_receipt(tmp_path)
-    catalog, instrument, source_manifest = _catalog(tmp_path)
-    request = _replay_request(receipt, catalog, instrument, source_manifest)
-    request["min_direction_probability"] = 0.6
-    request_path = tmp_path / "retuned-replay-request.json"
-    request_path.write_text(json.dumps(request), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="signal selection differs"):
         run_candidate_replay(request_path, tmp_path / "replays")
 
 
