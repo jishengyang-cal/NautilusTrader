@@ -153,6 +153,10 @@ class CandidateReplayStrategy(Strategy):
         if self._instrument is None:
             self._fail("instrument is absent from the replay catalog")
             return
+        quantity = Quantity.from_decimal_dp(self._trade_size, self._instrument.size_precision)
+        if quantity.as_decimal() != self._trade_size:
+            self._fail("trade_size is not exactly representable at the instrument size precision")
+            return
         self._signals = load_candidate_signals(
             self._audit_receipt_path,
             horizon_ms=self._horizon_ms,
