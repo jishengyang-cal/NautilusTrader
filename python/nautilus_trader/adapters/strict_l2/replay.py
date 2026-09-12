@@ -12,8 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
-"""Run one immutable trading day of audited candidate signals against L2 MBP catalogs."""
+"""
+Run one immutable trading day of audited candidate signals against L2 MBP catalogs.
+"""
 
 from __future__ import annotations
 
@@ -21,8 +22,8 @@ import hashlib
 import json
 import math
 import platform
-import time
 import shutil
+import time
 from collections.abc import Mapping
 from collections.abc import Sequence
 from decimal import Decimal
@@ -66,9 +67,12 @@ class _PerShareFeeModel(FeeModel):
         _fill_px: Price,
         _instrument: object,
     ) -> Money:
-        """Calculate the USD fee before rounding to currency precision."""
+        """
+        Calculate the USD fee before rounding to currency precision.
+        """
         return Money.from_decimal(
-            self._rate * fill_quantity.as_decimal(), Currency.from_str("USD"),
+            self._rate * fill_quantity.as_decimal(),
+            Currency.from_str("USD"),
         )
 
 
@@ -180,13 +184,13 @@ def _validate_source_manifest(
         for item in files
         if isinstance(item, dict) and item.get("role") == "l2_deltas"
     }
+
     if not symbols <= manifest_symbols:
         raise ValueError("replay catalogs are not present in the source manifest")
     metadata_entries = [
-        item
-        for item in files
-        if isinstance(item, dict) and item.get("role") == "symbol_metadata"
+        item for item in files if isinstance(item, dict) and item.get("role") == "symbol_metadata"
     ]
+
     if len(metadata_entries) != 1:
         raise ValueError("replay source manifest must bind one symbol metadata artifact")
     entry = metadata_entries[0]
@@ -196,9 +200,8 @@ def _validate_source_manifest(
     metadata_path = (path.parent / Path(*pure.parts)).resolve(strict=True)
     metadata_path.relative_to(path.parent)
     metadata_sha256 = _sha256(metadata_path)
-    if (
-        metadata_path.stat().st_size != entry.get("size_bytes")
-        or metadata_sha256 != entry.get("sha256")
+    if metadata_path.stat().st_size != entry.get("size_bytes") or metadata_sha256 != entry.get(
+        "sha256"
     ):
         raise ValueError("source symbol metadata failed digest verification")
     return _sha256(path), metadata_sha256
@@ -222,6 +225,7 @@ def _load_catalog_bindings(
     instrument_ids = set()
     first_timestamps = []
     receipt_bindings = []
+
     for value in values:
         symbol = value["symbol"]
         if not isinstance(symbol, str) or not symbol or symbol in symbols:
@@ -246,11 +250,13 @@ def _load_catalog_bindings(
             symbol_metadata_sha256=symbol_metadata_sha256,
         )
         receipt_path = catalog_path / "strict-l2-catalog-receipt.json"
-        receipt_bindings.append({
-            "symbol": symbol,
-            "path": str(receipt_path),
-            "sha256": _sha256(receipt_path),
-        })
+        receipt_bindings.append(
+            {
+                "symbol": symbol,
+                "path": str(receipt_path),
+                "sha256": _sha256(receipt_path),
+            }
+        )
         first_timestamps.append(receipt["first_ts_init_ns"])
         catalog = ParquetDataCatalog(str(catalog_path))
         instruments = [item for item in catalog.instruments() if item.id == instrument_id]
@@ -263,11 +269,13 @@ def _load_catalog_bindings(
             or str(instrument.quote_currency) != receipt["currency"]
         ):
             raise ValueError("catalog instrument differs from its strict-L2 receipt")
-        data_configs.append(BacktestDataConfig(
-            data_type="OrderBookDelta",
-            catalog_path=str(catalog_path),
-            instrument_id=instrument_id,
-        ))
+        data_configs.append(
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog_path),
+                instrument_id=instrument_id,
+            )
+        )
         bindings.append((symbol, instrument_id))
     if len(venues) != 1:
         raise ValueError("one replay request must use exactly one venue")
@@ -302,6 +310,7 @@ def _verify_catalog_receipt(  # noqa: C901
         "currency",
         "files",
     }
+
     if not isinstance(receipt, dict) or set(receipt) != required:
         raise ValueError("strict-L2 catalog receipt fields are invalid")
     if (
@@ -349,6 +358,7 @@ def _verify_catalog_receipt(  # noqa: C901
         for path in catalog_path.rglob("*")
         if path.is_file() and path != receipt_path
     }
+
     if declared != actual:
         raise ValueError("strict-L2 catalog artifact inventory mismatch")
     return receipt
@@ -401,11 +411,29 @@ def run_candidate_replay(
     *,
     record_performance: bool = False,
 ) -> dict[str, Any]:
-    """Execute and atomically publish one strict-L2 candidate replay day."""
-    profile_sources = {
-        name: Path(__file__).with_name(name)
-        for name in ("strategy.py", "replay.py", "candidate.py", "feedback.py")
-    } if record_performance else {}
+    """
+    Execute and atomically publish one strict-L2 candidate replay day.
+
+    The request binds the candidate audit, source manifest, catalogs, and execution
+    settings; ``REQUEST_FIELDS`` defines its exact fields. Candidate eligibility is
+    enforced by ``load_candidate_signals`` without a separate replay policy artifact.
+    The session is 09:30-16:00 America/New_York, with earlier catalog data used for
+    book warmup. Feedback has ``environment=backtest`` and provides no live evidence.
+
+    Set ``record_performance=True`` (CLI ``--record-performance``) to publish a
+    separate ``performance.json``; see ``CandidateReplayStrategy.performance_report``
+    for sampling limitations. Source hashes are captured before execution and checked
+    afterward. Drift rejects the new publication while preserving existing outputs.
+
+    """
+    profile_sources = (
+        {
+            name: Path(__file__).with_name(name)
+            for name in ("strategy.py", "replay.py", "candidate.py", "feedback.py")
+        }
+        if record_performance
+        else {}
+    )
     profile_source_sha256 = {name: _sha256(path) for name, path in profile_sources.items()}
     source, request = _load_request(request_path)
     source_manifest = Path(request["source_manifest_path"]).expanduser().resolve(strict=True)
@@ -440,23 +468,25 @@ def run_candidate_replay(
     strategies = []
     config = BacktestRunConfig(
         id=replay_id,
-        venues=[BacktestVenueConfig(
-            name=venue,
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
-            starting_balances=request["starting_balances"],
-            book_type=BookType.L2_MBP,
-            use_reduce_only=True,
-            trade_execution=True,
-            liquidity_consumption=True,
-            fee_model=_PerShareFeeModel(Decimal(request["fee_per_share_usd"])),
-            latency_model=StaticLatencyModel(
-                base_latency_nanos=0,
-                insert_latency_nanos=request["order_insert_latency_ns"],
-                update_latency_nanos=request["order_insert_latency_ns"],
-                cancel_latency_nanos=request["order_insert_latency_ns"],
-            ),
-        )],
+        venues=[
+            BacktestVenueConfig(
+                name=venue,
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=request["starting_balances"],
+                book_type=BookType.L2_MBP,
+                use_reduce_only=True,
+                trade_execution=True,
+                liquidity_consumption=True,
+                fee_model=_PerShareFeeModel(Decimal(request["fee_per_share_usd"])),
+                latency_model=StaticLatencyModel(
+                    base_latency_nanos=0,
+                    insert_latency_nanos=request["order_insert_latency_ns"],
+                    update_latency_nanos=request["order_insert_latency_ns"],
+                    cancel_latency_nanos=request["order_insert_latency_ns"],
+                ),
+            )
+        ],
         data=data_configs,
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=True),
         dispose_on_completion=False,
@@ -466,22 +496,25 @@ def run_candidate_replay(
     node = BacktestNode([config])
     try:
         node.build()
+
         for symbol, instrument_id in bindings:
-            strategy = CandidateReplayStrategy(CandidateReplayConfig(
-                instrument_id=str(instrument_id),
-                research_symbol=symbol,
-                audit_receipt_path=str(audit_path),
-                horizon_ms=request["horizon_ms"],
-                trade_size=request["trade_size"],
-                min_abs_delta_ticks=request["min_abs_delta_ticks"],
-                min_direction_probability=request["min_direction_probability"],
-                cooldown_ms=request["cooldown_ms"],
-                max_signal_lag_ms=request["max_signal_lag_ms"],
-                replay_start_ns=start_ns,
-                replay_end_ns=end_ns,
-                order_insert_latency_ns=request["order_insert_latency_ns"],
-                record_performance=record_performance,
-            ))
+            strategy = CandidateReplayStrategy(
+                CandidateReplayConfig(
+                    instrument_id=str(instrument_id),
+                    research_symbol=symbol,
+                    audit_receipt_path=str(audit_path),
+                    horizon_ms=request["horizon_ms"],
+                    trade_size=request["trade_size"],
+                    min_abs_delta_ticks=request["min_abs_delta_ticks"],
+                    min_direction_probability=request["min_direction_probability"],
+                    cooldown_ms=request["cooldown_ms"],
+                    max_signal_lag_ms=request["max_signal_lag_ms"],
+                    replay_start_ns=start_ns,
+                    replay_end_ns=end_ns,
+                    order_insert_latency_ns=request["order_insert_latency_ns"],
+                    record_performance=record_performance,
+                )
+            )
             strategies.append(strategy)
             node.add_strategy(config.id, strategy)
         results = node.run()
@@ -513,21 +546,23 @@ def run_candidate_replay(
                 "order_insert_latency_ns": request["order_insert_latency_ns"],
             },
         }
-        metrics = _json_value({
-            "summary": result.summary,
-            "stats_pnls": result.stats_pnls,
-            "stats_returns": result.stats_returns,
-            "stats_general": result.stats_general,
-            "iterations": result.iterations,
-            "total_events": result.total_events,
-            "total_orders": result.total_orders,
-            "total_positions": result.total_positions,
-            "consumed_signals": {
-                symbol: strategy.consumed_signals
-                for (symbol, _), strategy in zip(bindings, strategies, strict=True)
-            },
-            "execution_assumptions": execution_assumptions,
-        })
+        metrics = _json_value(
+            {
+                "summary": result.summary,
+                "stats_pnls": result.stats_pnls,
+                "stats_returns": result.stats_returns,
+                "stats_general": result.stats_general,
+                "iterations": result.iterations,
+                "total_events": result.total_events,
+                "total_orders": result.total_orders,
+                "total_positions": result.total_positions,
+                "consumed_signals": {
+                    symbol: strategy.consumed_signals
+                    for (symbol, _), strategy in zip(bindings, strategies, strict=True)
+                },
+                "execution_assumptions": execution_assumptions,
+            }
+        )
         feedback_path = staging / "execution-feedback.json"
         feedback_receipt = publish_execution_feedback(
             feedback_path,
@@ -563,6 +598,7 @@ def run_candidate_replay(
         }
         rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         (staging / "replay-result.json").write_text(rendered, encoding="utf-8")
+
         if record_performance:
             if profile_source_sha256 != {
                 name: _sha256(path) for name, path in profile_sources.items()
@@ -585,7 +621,8 @@ def run_candidate_replay(
                 },
             }
             (staging / "performance.json").write_text(
-                json.dumps(performance, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+                json.dumps(performance, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
             )
         staging.replace(final)
         return {

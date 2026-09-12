@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Publish identifier-free daily research feedback from Nautilus order reports."""
+"""
+Publish identifier-free daily research feedback from Nautilus order reports.
+"""
 
 from __future__ import annotations
 
@@ -38,9 +40,12 @@ def export_feedback_from_json(
     orders_report_path: str | Path,
     output_path: str | Path,
 ) -> dict[str, Any]:
-    """Load a daily export request and publish sanitized research feedback."""
+    """
+    Load a daily export request and publish sanitized research feedback.
+    """
     request = _load_json(request_path)
     rows = _load_json(orders_report_path)
+
     if not isinstance(request, Mapping):
         raise TypeError("feedback request must be a JSON object")
     if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes, bytearray)):
@@ -91,7 +96,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the daily feedback export command."""
+    """
+    Run the daily feedback export command.
+    """
     args = _parse_args(argv)
     receipt = export_feedback_from_json(args.request, args.orders_report, args.output)
     sys.stdout.write(json.dumps(receipt, sort_keys=True) + "\n")

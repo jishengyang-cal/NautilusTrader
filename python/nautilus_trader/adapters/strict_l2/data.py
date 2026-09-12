@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Convert immutable strict-L2 price-level publications to Nautilus deltas."""
+"""
+Convert immutable strict-L2 price-level publications to Nautilus deltas.
+"""
 
 from __future__ import annotations
 
@@ -91,6 +93,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     ``ts_recv`` is the source availability time. Nautilus market data uses
     ``ts_init = ts_recv + 1 ns`` so a model timer at ``t`` observes exactly the
     completed messages with ``ts_recv < t``; venue time remains unchanged.
+
     """
     if isinstance(price_precision, bool) or not isinstance(price_precision, int):
         raise TypeError("price_precision must be an integer")
@@ -104,6 +107,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     message_is_snapshot = False
     previous_sequence = -1
     previous_ts_recv = -1
+
     for expected_index, row in enumerate(rows):
         if frozenset(row) != STRICT_L2_FIELDS:
             raise ValueError("strict-L2 row fields do not match the sanitized contract")
@@ -118,6 +122,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
             raise ValueError("strict-L2 event_index must be contiguous from zero")
         ts_event = row["ts_event"]
         ts_recv = row["ts_recv"]
+
         if (
             isinstance(ts_event, bool)
             or isinstance(ts_recv, bool)
@@ -184,6 +189,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
             price = row["price"]
             size = row["size"]
             change = row["delta"]
+
             if any(
                 isinstance(value, bool) or not isinstance(value, int)
                 for value in (price, size, change)
@@ -247,7 +253,9 @@ def iter_manifest_deltas(
     batch_size: int = 65_536,
     price_precision: int = 9,
 ) -> Iterator[OrderBookDelta]:
-    """Verify one immutable publication and stream all L2 updates in source order."""
+    """
+    Verify one immutable publication and stream all L2 updates in source order.
+    """
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
     manifest_file = Path(manifest_path).expanduser().resolve(strict=True)
@@ -264,6 +272,7 @@ def iter_manifest_deltas(
         for entry in manifest.get("files", [])
         if entry.get("role") == "l2_deltas" and entry.get("symbol") == symbol
     ]
+
     if len(matches) != 1:
         raise ValueError("manifest must contain exactly one requested symbol partition")
     path = _resolve_file(root, matches[0])

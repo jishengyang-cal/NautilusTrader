@@ -6,7 +6,9 @@
 #  You may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 # -------------------------------------------------------------------------------------------------
-"""Publish one strict-L2 manifest partition as an immutable Nautilus catalog."""
+"""
+Publish one strict-L2 manifest partition as an immutable Nautilus catalog.
+"""
 
 from __future__ import annotations
 
@@ -46,6 +48,7 @@ def _equity(manifest_path: str, symbol: str, price_increment: str) -> Equity:
         for item in value.get("files", [])
         if isinstance(item, dict) and item.get("role") == "symbol_metadata"
     ]
+
     if len(entries) != 1:
         raise ValueError("manifest must bind exactly one symbol metadata file")
     entry = entries[0]
@@ -55,9 +58,8 @@ def _equity(manifest_path: str, symbol: str, price_increment: str) -> Equity:
     metadata_path = (manifest.parent / Path(*pure.parts)).resolve(strict=True)
     metadata_path.relative_to(manifest.parent)
     raw = metadata_path.read_bytes()
-    if (
-        len(raw) != entry.get("size_bytes")
-        or hashlib.sha256(raw).hexdigest() != entry.get("sha256")
+    if len(raw) != entry.get("size_bytes") or hashlib.sha256(raw).hexdigest() != entry.get(
+        "sha256"
     ):
         raise ValueError("symbol metadata failed manifest digest verification")
     metadata = json.loads(raw)
@@ -83,7 +85,9 @@ def _equity(manifest_path: str, symbol: str, price_increment: str) -> Equity:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Build the requested immutable catalog and print its receipt."""
+    """
+    Build the requested immutable catalog and print its receipt.
+    """
     args = _parse_args(argv)
     receipt = write_manifest_deltas_to_catalog(
         args.manifest,
@@ -93,13 +97,19 @@ def main(argv: list[str] | None = None) -> int:
         read_batch_size=args.read_batch_size,
         write_batch_size=args.write_batch_size,
     )
-    sys.stdout.write(json.dumps({
-        "status": "complete",
-        "catalog_path": receipt["catalog_path"],
-        "instrument_id": receipt["instrument_id"],
-        "records": receipt["records"],
-        "source_manifest_sha256": receipt["source_manifest_sha256"],
-    }, sort_keys=True) + "\n")
+    sys.stdout.write(
+        json.dumps(
+            {
+                "status": "complete",
+                "catalog_path": receipt["catalog_path"],
+                "instrument_id": receipt["instrument_id"],
+                "records": receipt["records"],
+                "source_manifest_sha256": receipt["source_manifest_sha256"],
+            },
+            sort_keys=True,
+        )
+        + "\n"
+    )
     return 0
 
 

@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Atomic, identifier-free daily execution feedback publication."""
+"""
+Atomic, identifier-free daily execution feedback publication.
+"""
 
 from __future__ import annotations
 
@@ -110,13 +112,20 @@ def _validate_records(  # noqa: C901, PLR0912
         if record["side"] not in {"BUY", "SELL"}:
             raise ValueError(f"records[{index}].side must be BUY or SELL")
         timestamps = []
+
         for field in ("decision_ts_ns", "submit_ts_ns"):
             value = record.get(field)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"records[{index}].{field} must be Unix nanoseconds")
-            local_day = datetime.fromtimestamp(
-                value // 1_000_000_000, UTC,
-            ).astimezone(TRADING_TIMEZONE).date()
+            local_day = (
+                datetime.fromtimestamp(
+                    value // 1_000_000_000,
+                    UTC,
+                )
+                .astimezone(TRADING_TIMEZONE)
+                .date()
+            )
+
             if local_day != trading_day:
                 raise ValueError(f"records[{index}].{field} is outside trading_date")
             timestamps.append(value)
@@ -125,19 +134,30 @@ def _validate_records(  # noqa: C901, PLR0912
         context = _signal_context(record, f"records[{index}]")
         if context:
             signal_ts = context["signal_ts_recv_ns"]
-            local_day = datetime.fromtimestamp(
-                signal_ts // 1_000_000_000,
-                UTC,
-            ).astimezone(TRADING_TIMEZONE).date()
+            local_day = (
+                datetime.fromtimestamp(
+                    signal_ts // 1_000_000_000,
+                    UTC,
+                )
+                .astimezone(TRADING_TIMEZONE)
+                .date()
+            )
+
             if local_day != trading_day or signal_ts > timestamps[0]:
                 raise ValueError(f"records[{index}] has an invalid signal availability time")
         fill = record.get("last_fill_ts_ns")
         if fill is not None:
             if isinstance(fill, bool) or not isinstance(fill, int) or fill < timestamps[1]:
                 raise ValueError(f"records[{index}] has an invalid fill time")
-            local_day = datetime.fromtimestamp(
-                fill // 1_000_000_000, UTC,
-            ).astimezone(TRADING_TIMEZONE).date()
+            local_day = (
+                datetime.fromtimestamp(
+                    fill // 1_000_000_000,
+                    UTC,
+                )
+                .astimezone(TRADING_TIMEZONE)
+                .date()
+            )
+
             if local_day != trading_day:
                 raise ValueError(f"records[{index}] fill is outside trading_date")
         for field in ("filled_qty", "average_fill_price", "fees"):
@@ -190,9 +210,11 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
     timestamp, last fill-event timestamp and reconciled fee for each order. No client
     or venue order ID is copied into the returned research records. Pass native output as
     ``ReportProvider.generate_orders_report(...).reset_index().to_dict("records")``.
+
     """
     aggregates: dict[str, dict[str, Any]] = {}
     consumed_bindings: set[str] = set()
+
     for index, row in enumerate(rows):
         client_order_id = row.get("client_order_id")
         if not isinstance(client_order_id, str) or not client_order_id:
@@ -210,6 +232,7 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
             binding.get("fees", 0.0),
             f"bindings[{client_order_id!r}].fees",
         )
+
         if not isinstance(prediction_id, str) or not prediction_id:
             raise ValueError(f"bindings[{client_order_id!r}].prediction_id is required")
         if not isinstance(instrument_uid, str) or not instrument_uid:
@@ -222,6 +245,7 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
             raise ValueError(f"rows[{index}].status is required")
         filled_qty = _finite_decimal(row.get("filled_qty", 0.0), f"rows[{index}].filled_qty")
         average_fill_price = row.get("avg_px")
+
         if filled_qty < 0:
             raise ValueError(f"rows[{index}].filled_qty must be finite and non-negative")
         if filled_qty > 0:
@@ -229,6 +253,7 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
                 average_fill_price,
                 f"rows[{index}].average_fill_price",
             )
+
             if average_fill_price <= 0:
                 raise ValueError(f"rows[{index}] requires a positive finite average fill price")
         submit_ts = _timestamp_ns(row.get("ts_init"), f"rows[{index}].ts_init")
@@ -243,19 +268,23 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
             f"bindings[{client_order_id!r}].decision_ts_ns",
         )
         context = _signal_context(binding, f"bindings[{client_order_id!r}]")
-        aggregate = aggregates.setdefault(prediction_id, {
-            "prediction_id": prediction_id,
-            "instrument_uid": instrument_uid,
-            "side": side,
-            "statuses": set(),
-            "decision_ts_ns": decision_ns,
-            "submit_ts_ns": submit_ts,
-            "last_fill_ts_ns": fill_ts,
-            "filled_qty": Decimal(0),
-            "fill_notional": Decimal(0),
-            "fees": Decimal(0),
-            **context,
-        })
+        aggregate = aggregates.setdefault(
+            prediction_id,
+            {
+                "prediction_id": prediction_id,
+                "instrument_uid": instrument_uid,
+                "side": side,
+                "statuses": set(),
+                "decision_ts_ns": decision_ns,
+                "submit_ts_ns": submit_ts,
+                "last_fill_ts_ns": fill_ts,
+                "filled_qty": Decimal(0),
+                "fill_notional": Decimal(0),
+                "fees": Decimal(0),
+                **context,
+            },
+        )
+
         if (
             aggregate["instrument_uid"] != instrument_uid
             or aggregate["side"] != side
@@ -274,6 +303,7 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
     if set(bindings) != consumed_bindings:
         raise ValueError("strategy bindings and Nautilus order rows must reconcile one-to-one")
     records = []
+
     for prediction_id in sorted(aggregates):
         aggregate = aggregates[prediction_id]
         filled_qty = aggregate.pop("filled_qty")
@@ -303,12 +333,15 @@ def publish_execution_feedback(  # noqa: PLR0913
     records: Sequence[Mapping[str, Any]],
     metrics: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Publish one reconciled day; the final JSON is never overwritten."""
+    """
+    Publish one reconciled day; the final JSON is never overwritten.
+    """
     if environment not in {"backtest", "paper", "live"}:
         raise ValueError("unsupported execution environment")
     trading_day = date.fromisoformat(trading_date)
     _validate_digest(model_artifact_sha256, "model_artifact_sha256")
     _validate_digest(feature_manifest_sha256, "feature_manifest_sha256")
+
     if reconciliation.get("status") != "complete":
         raise ValueError("daily execution feedback requires complete reconciliation")
     _validate_payload(records, "records")

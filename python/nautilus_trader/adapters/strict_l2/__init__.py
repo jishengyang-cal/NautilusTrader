@@ -12,7 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Strict price-level L2 ingestion and research feedback boundaries."""
+"""
+Strict price-level L2 ingestion and research feedback boundaries.
+"""
 
 from nautilus_trader.adapters.strict_l2.catalog import write_manifest_deltas_to_catalog
 from nautilus_trader.adapters.strict_l2.data import iter_manifest_deltas

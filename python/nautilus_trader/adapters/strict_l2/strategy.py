@@ -12,8 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
-"""Execution-bound strategy for audited strict-L2 candidate replay."""
+"""
+Execution-bound strategy for audited strict-L2 candidate replay.
+"""
 
 from __future__ import annotations
 
@@ -43,10 +44,14 @@ if TYPE_CHECKING:
 
 
 MIN_DIRECTION_PROBABILITY = 0.5
+_MAX_PERFORMANCE_SAMPLES = 100_000
+_SUBMIT_ENTRY_ARGUMENT_COUNT = 3
 
 
 class CandidateReplayConfig(StrategyConfig):
-    """Configuration for one-symbol candidate replay."""
+    """
+    Configuration for one-symbol candidate replay.
+    """
 
     def __init__(  # noqa: PLR0913
         self,
@@ -66,7 +71,9 @@ class CandidateReplayConfig(StrategyConfig):
         record_performance: bool = False,
         **_kwargs: object,
     ) -> None:
-        """Initialize the candidate replay configuration."""
+        """
+        Initialize the candidate replay configuration.
+        """
         super().__init__()
         self.instrument_id = instrument_id
         self.research_symbol = research_symbol
@@ -84,10 +91,21 @@ class CandidateReplayConfig(StrategyConfig):
 
 
 class CandidateReplayStrategy(Strategy):
-    """Replay audited signals causally and hold each filled position for its horizon."""
+    """
+    Replay audited signals with an exit deadline measured from entry submission.
+
+    A completed entry fill past that deadline reevaluates the due exit immediately.
+    Submission does not guarantee a fill: insertion latency and subsequent book
+    updates can cause a marketable FOK to cancel. Unfilled exits retry on book updates.
+    Entries whose horizon plus twice the insertion latency reaches the replay end
+    are skipped; any position still open at the end prevents feedback publication.
+
+    """
 
     def __init__(self, config: CandidateReplayConfig) -> None:
-        """Initialize causal signal and round-trip execution state."""
+        """
+        Initialize causal signal and round-trip execution state.
+        """
         if not config.research_symbol:
             raise ValueError("research_symbol must not be empty")
         if Decimal(config.trade_size) <= 0:
@@ -143,8 +161,11 @@ class CandidateReplayStrategy(Strategy):
         self._record_performance = config.record_performance
         if self._record_performance:
             for name in (
-                "_process_due_signal", "_submit_entry", "_submit_exit",
-                "on_order_filled", "on_book_deltas",
+                "_process_due_signal",
+                "_submit_entry",
+                "_submit_exit",
+                "on_order_filled",
+                "on_book_deltas",
             ):
                 setattr(self, name, self._timed_callback(name, getattr(self, name)))
 
@@ -158,15 +179,23 @@ class CandidateReplayStrategy(Strategy):
                 elapsed = perf_counter_ns() - started
                 self._performance_counts[name] = self._performance_counts.get(name, 0) + 1
                 samples = self._performance_samples.setdefault(name, [])
-                if len(samples) < 100_000:
+                if len(samples) < _MAX_PERFORMANCE_SAMPLES:
                     samples.append(elapsed)
                     market_time = None
-                    if (name in {"on_order_filled", "on_book_deltas"} and args
-                            and isinstance(args[0], (OrderFilled, OrderBookDeltas))):
+
+                    if (
+                        name in {"on_order_filled", "on_book_deltas"}
+                        and args
+                        and isinstance(args[0], (OrderFilled, OrderBookDeltas))
+                    ):
                         market_time = args[0].ts_event
                     elif name == "_process_due_signal" and args and isinstance(args[0], int):
                         market_time = args[0]
-                    elif name == "_submit_entry" and len(args) == 3 and isinstance(args[2], int):
+                    elif (
+                        name == "_submit_entry"
+                        and len(args) == _SUBMIT_ENTRY_ARGUMENT_COUNT
+                        and isinstance(args[2], int)
+                    ):
                         market_time = args[2]
                     self._performance_times.setdefault(name, []).append(market_time)
 
@@ -174,7 +203,16 @@ class CandidateReplayStrategy(Strategy):
 
     @property
     def performance_report(self) -> dict[str, Any] | None:
-        """Return bounded inclusive callback times, never simulated broker latency."""
+        """
+        Return inclusive Python callback durations measured with ``perf_counter_ns``.
+
+        Profiling is disabled by default. Each stage retains its first 100,000 samples
+        per symbol in memory, including warmup callbacks, so samples may favor premarket
+        activity. Nested stages overlap; their times are not additive. These diagnostics
+        exclude managed book updates, model inference, and broker network latency and do
+        not establish full-day performance acceptance.
+
+        """
         if not self._record_performance:
             return None
         return {
@@ -182,33 +220,44 @@ class CandidateReplayStrategy(Strategy):
             "scope": "inclusive Python callback host duration; stages overlap",
             "excludes": ["managed book update", "model inference", "broker network latency"],
             "unit": "nanoseconds",
-            "max_samples_per_stage": 100_000,
+            "max_samples_per_stage": _MAX_PERFORMANCE_SAMPLES,
             "sampling": "first samples per stage; counts include later callbacks",
             "stages": {
-                name: {"count": count, "samples": list(self._performance_samples[name]),
-                       "market_time_ns": list(self._performance_times[name]),
-                       "truncated": count > len(self._performance_samples[name])}
+                name: {
+                    "count": count,
+                    "samples": list(self._performance_samples[name]),
+                    "market_time_ns": list(self._performance_times[name]),
+                    "truncated": count > len(self._performance_samples[name]),
+                }
                 for name, count in self._performance_counts.items()
             },
         }
 
     @property
     def feedback_bindings(self) -> dict[str, dict[str, Any]]:
-        """Return detached execution bindings for identifier-free feedback export."""
+        """
+        Return detached execution bindings for identifier-free feedback export.
+        """
         return {key: dict(value) for key, value in self._bindings.items()}
 
     @property
     def failures(self) -> tuple[str, ...]:
-        """Return terminal execution failures observed during replay."""
+        """
+        Return terminal execution failures observed during replay.
+        """
         return tuple(self._failures)
 
     @property
     def consumed_signals(self) -> int:
-        """Return the number of signals released by the replay clock."""
+        """
+        Return the number of signals released by the replay clock.
+        """
         return self._cursor
 
     def on_start(self) -> None:
-        """Load sealed signals and subscribe to the managed L2 MBP book."""
+        """
+        Load audited development signals and subscribe to the managed L2 MBP book.
+        """
         self._instrument = self.cache.instrument(self._instrument_id)
         if self._instrument is None:
             self._fail("instrument is absent from the replay catalog")
@@ -228,13 +277,17 @@ class CandidateReplayStrategy(Strategy):
         self._schedule_next_signal()
 
     def on_book_deltas(self, _deltas: OrderBookDeltas) -> None:
-        """Retry due exits when the managed book updates."""
+        """
+        Retry due exits when the managed book updates.
+        """
         now_ns = int(self.clock.timestamp_ns())
         if self._exit_due_ns is not None and now_ns >= self._exit_due_ns:
             self._submit_exit()
 
     def on_time_event(self, event: TimeEvent) -> None:
-        """Release model decisions and exits on their exact observable clock."""
+        """
+        Release model decisions and exits on their exact observable clock.
+        """
         now_ns = int(event.ts_event)
         if event.name == self._signal_timer_name:
             self._process_due_signal(now_ns)
@@ -243,7 +296,9 @@ class CandidateReplayStrategy(Strategy):
             self._submit_exit()
 
     def _process_due_signal(self, now_ns: int) -> None:
-        """Evaluate the newest prediction observable at ``now_ns``."""
+        """
+        Evaluate the newest prediction observable at ``now_ns``.
+        """
         latest = self._latest_due_signal(now_ns)
         book = self.cache.order_book(self._instrument_id)
         if latest is None or book is None or not book.spread():
@@ -263,7 +318,9 @@ class CandidateReplayStrategy(Strategy):
         self._submit_entry(latest, side, now_ns)
 
     def _schedule_next_signal(self) -> None:
-        """Schedule one alert, keeping timer count bounded for long sessions."""
+        """
+        Schedule one alert, keeping timer count bounded for long sessions.
+        """
         if self._cursor >= len(self._signals):
             return
         self.clock.set_time_alert_ns(
@@ -273,7 +330,9 @@ class CandidateReplayStrategy(Strategy):
         )
 
     def on_order_filled(self, event: OrderFilled) -> None:
-        """Track partial fills and make fees available to daily feedback."""
+        """
+        Track partial fills and make fees available to daily feedback.
+        """
         client_order_id = str(event.client_order_id)
         binding = self._bindings.get(client_order_id)
         if binding is None:
@@ -282,7 +341,8 @@ class CandidateReplayStrategy(Strategy):
         if event.commission is not None:
             binding["fees"] += event.commission.as_decimal()
         binding["last_fill_ts_ns"] = max(
-            binding["last_fill_ts_ns"] or 0, int(event.ts_event),
+            binding["last_fill_ts_ns"] or 0,
+            int(event.ts_event),
         )
         filled = event.last_qty.as_decimal()
         if event.client_order_id == self._entry_order_id:
@@ -301,23 +361,33 @@ class CandidateReplayStrategy(Strategy):
             self._fail("received a fill for an unknown replay order")
 
     def on_order_rejected(self, event: object) -> None:
-        """Fail closed when the simulation rejects an entry or exit."""
+        """
+        Fail closed when the simulation rejects an entry or exit.
+        """
         self._terminal_order_failure(event, "rejected")
 
     def on_order_denied(self, event: object) -> None:
-        """Fail closed when risk denies an entry or exit."""
+        """
+        Fail closed when risk denies an entry or exit.
+        """
         self._terminal_order_failure(event, "denied")
 
     def on_order_canceled(self, event: object) -> None:
-        """Treat an unfilled FOK as an observed execution outcome."""
+        """
+        Treat an unfilled FOK as an observed execution outcome.
+        """
         self._handle_fok_no_fill(event, "canceled")
 
     def on_order_expired(self, event: object) -> None:
-        """Treat an unfilled FOK as an observed execution outcome."""
+        """
+        Treat an unfilled FOK as an observed execution outcome.
+        """
         self._handle_fok_no_fill(event, "expired")
 
     def on_stop(self) -> None:
-        """Cancel resting orders and flag any unclosed position."""
+        """
+        Cancel resting orders and flag any unclosed position.
+        """
         self._cancel_timer_if_active(self._signal_timer_name)
         self._cancel_timer_if_active(self._exit_timer_name)
         self.cancel_all_orders(self._instrument_id)
@@ -325,7 +395,9 @@ class CandidateReplayStrategy(Strategy):
             self._failures.append("replay ended with an unclosed candidate position")
 
     def on_reset(self) -> None:
-        """Reset all mutable replay state."""
+        """
+        Reset all mutable replay state.
+        """
         self._cancel_timer_if_active(self._signal_timer_name)
         self._cancel_timer_if_active(self._exit_timer_name)
         self._instrument = None
@@ -341,6 +413,7 @@ class CandidateReplayStrategy(Strategy):
 
     def _latest_due_signal(self, now_ns: int) -> CandidateSignal | None:
         latest = None
+
         while self._cursor < len(self._signals):
             candidate = self._signals[self._cursor]
             if candidate.ts_recv_ns > now_ns:
@@ -449,9 +522,7 @@ class CandidateReplayStrategy(Strategy):
         decision_ts_ns: int,
     ) -> None:
         prediction_id = (
-            signal.prediction_id
-            if action_role == "ENTRY"
-            else f"{signal.prediction_id}-exit"
+            signal.prediction_id if action_role == "ENTRY" else f"{signal.prediction_id}-exit"
         )
         self._bindings[str(order.client_order_id)] = {
             "prediction_id": prediction_id,
@@ -479,7 +550,9 @@ class CandidateReplayStrategy(Strategy):
             self._fail(f"candidate order {status}")
 
     def _handle_fok_no_fill(self, event: object, status: str) -> None:
-        """Continue after an entry miss, but keep retrying a due position exit."""
+        """
+        Continue after an entry miss, but keep retrying a due position exit.
+        """
         client_order_id = getattr(event, "client_order_id", None)
         if client_order_id == self._entry_order_id:
             if self._entry_filled:
