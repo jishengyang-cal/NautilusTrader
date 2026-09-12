@@ -60,7 +60,7 @@ class CandidateReplayConfig(StrategyConfig):
         max_signal_lag_ms: int = 100,
         replay_start_ns: int | None = None,
         replay_end_ns: int | None = None,
-        require_screening_effective: bool = True,
+        order_insert_latency_ns: int = 0,
         **_kwargs: object,
     ) -> None:
         """Initialize the candidate replay configuration."""
@@ -76,7 +76,7 @@ class CandidateReplayConfig(StrategyConfig):
         self.max_signal_lag_ms = max_signal_lag_ms
         self.replay_start_ns = replay_start_ns
         self.replay_end_ns = replay_end_ns
-        self.require_screening_effective = require_screening_effective
+        self.order_insert_latency_ns = order_insert_latency_ns
 
 
 class CandidateReplayStrategy(Strategy):
@@ -100,6 +100,8 @@ class CandidateReplayStrategy(Strategy):
             and config.replay_start_ns >= config.replay_end_ns
         ):
             raise ValueError("replay time bounds must define a positive interval")
+        if config.order_insert_latency_ns < 0:
+            raise ValueError("order_insert_latency_ns must be non-negative")
         super().__init__(config)
         self._instrument_id = InstrumentId.from_str(config.instrument_id)
         self._research_symbol = config.research_symbol
@@ -112,7 +114,7 @@ class CandidateReplayStrategy(Strategy):
         self._max_signal_lag_ns = config.max_signal_lag_ms * 1_000_000
         self._replay_start_ns = config.replay_start_ns
         self._replay_end_ns = config.replay_end_ns
-        self._require_screening_effective = config.require_screening_effective
+        self._order_insert_latency_ns = config.order_insert_latency_ns
         self._instrument = None
         self._signals: tuple[CandidateSignal, ...] = ()
         self._cursor = 0
@@ -157,13 +159,12 @@ class CandidateReplayStrategy(Strategy):
             instruments={self._research_symbol},
             start_ns=self._replay_start_ns,
             end_ns=self._replay_end_ns,
-            require_screening_effective=self._require_screening_effective,
         )
         self.subscribe_book_deltas(self._instrument_id, BookType.L2_MBP, managed=True)
         self._schedule_next_signal()
 
     def on_book_deltas(self, _deltas: OrderBookDeltas) -> None:
-        """Maintain a safety fallback for a due exit after a clock discontinuity."""
+        """Retry due exits when the managed book updates."""
         now_ns = int(self.clock.timestamp_ns())
         if self._exit_due_ns is not None and now_ns >= self._exit_due_ns:
             self._submit_exit()
@@ -215,7 +216,10 @@ class CandidateReplayStrategy(Strategy):
             self._fail("received a fill without a prediction binding")
             return
         if event.commission is not None:
-            binding["fees"] += event.commission.as_double()
+            binding["fees"] += event.commission.as_decimal()
+        binding["last_fill_ts_ns"] = max(
+            binding["last_fill_ts_ns"] or 0, int(event.ts_event),
+        )
         filled = event.last_qty.as_decimal()
         if event.client_order_id == self._entry_order_id:
             self._entry_filled += filled
@@ -288,6 +292,12 @@ class CandidateReplayStrategy(Strategy):
         return None
 
     def _submit_entry(self, signal: CandidateSignal, side: OrderSide, now_ns: int) -> None:
+        if (
+            self._replay_end_ns is not None
+            and now_ns + signal.horizon_ms * 1_000_000 + 2 * self._order_insert_latency_ns
+            >= self._replay_end_ns
+        ):
+            return
         if self._instrument is None:
             self._fail("instrument disappeared before entry")
             return
@@ -380,7 +390,8 @@ class CandidateReplayStrategy(Strategy):
             "instrument_uid": str(self._instrument_id),
             "decision_ts_ns": decision_ts_ns,
             "side": order.side.name,
-            "fees": 0.0,
+            "fees": Decimal(0),
+            "last_fill_ts_ns": None,
         }
 
     def _marketable_price(self, side: OrderSide) -> Price | None:
@@ -407,15 +418,8 @@ class CandidateReplayStrategy(Strategy):
             if self._exit_filled:
                 self._fail(f"partially filled FOK exit was {status}")
                 return
-            # The position remains open. Re-arm the clock one nanosecond later
-            # so order-state processing completes before the next attempt.
             self._exit_order_id = None
             self._cancel_timer_if_active(self._exit_timer_name)
-            self.clock.set_time_alert_ns(
-                self._exit_timer_name,
-                int(self.clock.timestamp_ns()) + 1,
-                allow_past=False,
-            )
 
     def _clear_trade(self) -> None:
         self._active_signal = None

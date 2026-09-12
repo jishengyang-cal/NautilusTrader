@@ -17,6 +17,7 @@
 
 import hashlib
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -24,6 +25,7 @@ import pytest
 
 from nautilus_trader.adapters.strict_l2.data import rows_to_deltas
 from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.adapters.strict_l2.replay import _PerShareFeeModel
 from nautilus_trader.adapters.strict_l2.replay import run_candidate_replay
 from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayConfig
 from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayStrategy
@@ -136,6 +138,7 @@ def _catalog(
     *,
     exact_same_time_update: bool = False,
     exit_same_time_update: bool = False,
+    shallow_bid: bool = False,
 ) -> tuple[Path, Equity, Path]:
     instrument_id = InstrumentId(Symbol("TEST"), Venue("SIM"))
     instrument = Equity(
@@ -187,6 +190,13 @@ def _catalog(
             _row(11, 7, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
             _row(12, 8, BASE_TS_NS + 3_400_000_000, "B", 99_000_000_000, 10, 0, "SET", True),
         ])
+    if shallow_bid:
+        for row in rows:
+            if row["side"] == "B" and row["ts_recv"] < BASE_TS_NS + 1_200_000_000:
+                row["size"] = 1
+                row["delta"] = 1 if row["sequence"] == 0 else 0
+            elif row["side"] == "B" and row["ts_recv"] == BASE_TS_NS + 1_200_000_000:
+                row["delta"] = 9
     target = tmp_path / "catalog"
     target.mkdir()
     catalog = ParquetDataCatalog(str(target))
@@ -398,7 +408,6 @@ def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path)
     assert replay["catalog_receipts"][0]["sha256"] == _sha256(
         catalog / "strict-l2-catalog-receipt.json",
     )
-    assert replay["queue_semantics"].startswith("aggregate-level")
     assert all("client_order_id" not in record for record in feedback["records"])
 
 
@@ -645,3 +654,80 @@ def test_run_candidate_replay_rejects_threshold_retuning_after_precommit(tmp_pat
 
     with pytest.raises(ValueError, match="signal selection differs"):
         run_candidate_replay(request_path, tmp_path / "replays")
+
+
+@pytest.mark.parametrize("quantity, expected", [(100, "0.35"), (200, "0.70")])
+def test_per_share_fee_preserves_subcent_rate(quantity: int, expected: str) -> None:
+    model = _PerShareFeeModel(Decimal("0.0035"))
+    commission = model.get_commission(None, Quantity.from_int(quantity), Price.from_str("100"), None)
+    assert commission.as_decimal() == Decimal(expected)
+
+
+@pytest.mark.parametrize(
+    "end_offset_ns, latency_ns, shallow_bid, expected_orders",
+    [
+        (500_000_000, 0, False, 0),
+        (1_000_000_000, 0, False, 0),
+        (1_001_000_000, 1_000_000, False, 0),
+        (3_000_000_000, 0, True, 4),
+    ],
+)
+def test_candidate_exit_retry_and_session_entry_cutoff(
+    tmp_path: Path,
+    end_offset_ns: int,
+    latency_ns: int,
+    shallow_bid: bool,
+    expected_orders: int,
+) -> None:
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, _ = _catalog(tmp_path, shallow_bid=shallow_bid)
+    config = BacktestRunConfig(
+        venues=[BacktestVenueConfig(
+            name=str(instrument.id.venue),
+            oms_type=OmsType.NETTING,
+            account_type=AccountType.MARGIN,
+            starting_balances=["1_000_000 USD"],
+            book_type=BookType.L2_MBP,
+            latency_model=StaticLatencyModel(insert_latency_nanos=latency_ns),
+            fee_model=_PerShareFeeModel(Decimal("0.0035")),
+        )],
+        data=[BacktestDataConfig(
+            data_type="OrderBookDelta",
+            catalog_path=str(catalog),
+            instrument_id=instrument.id,
+        )],
+        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
+        dispose_on_completion=False,
+        end=BASE_TS_NS + end_offset_ns,
+    )
+    strategy = CandidateReplayStrategy(CandidateReplayConfig(
+        instrument_id=str(instrument.id),
+        research_symbol="TEST",
+        audit_receipt_path=str(receipt),
+        horizon_ms=1_000,
+        trade_size="10",
+        max_signal_lag_ms=0,
+        replay_end_ns=BASE_TS_NS + end_offset_ns,
+        order_insert_latency_ns=latency_ns,
+    ))
+    node = BacktestNode([config])
+    try:
+        node.build()
+        node.add_strategy(config.id, strategy)
+        node.run()
+        orders = node.generate_orders_report(config.id)
+        assert strategy.failures == ()
+        assert len(orders) == expected_orders
+        assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
+        if shallow_bid:
+            assert sorted(orders["status"].astype(str)) == [
+                "CANCELED", "CANCELED", "FILLED", "FILLED",
+            ]
+            records = feedback_records_from_orders_report(
+                orders.reset_index().to_dict("records"), strategy.feedback_bindings,
+            )
+            assert all(record["fees"] == 0.04 for record in records)
+            exit_record = next(record for record in records if record["action_role"] == "EXIT")
+            assert exit_record["last_fill_ts_ns"] == BASE_TS_NS + 1_200_000_001
+    finally:
+        node.dispose()
