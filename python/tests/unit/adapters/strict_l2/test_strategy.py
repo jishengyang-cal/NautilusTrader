@@ -66,14 +66,16 @@ def _audit_receipt(
     model = candidate / "model.pt"
     model.write_bytes(b"sealed model")
     predictions = candidate / "predictions.parquet"
-    pd.DataFrame({
-        "ts_recv": signal_times,
-        "instrument": ["TEST"] * len(signal_times),
-        "delta_mid_ticks_1000ms": [1.0] * len(signal_times),
-        "p_down_1000ms": [0.1] * len(signal_times),
-        "p_flat_1000ms": [0.1] * len(signal_times),
-        "p_up_1000ms": [0.8] * len(signal_times),
-    }).to_parquet(predictions, index=False)
+    pd.DataFrame(
+        {
+            "ts_recv": signal_times,
+            "instrument": ["TEST"] * len(signal_times),
+            "delta_mid_ticks_1000ms": [1.0] * len(signal_times),
+            "p_down_1000ms": [0.1] * len(signal_times),
+            "p_flat_1000ms": [0.1] * len(signal_times),
+            "p_up_1000ms": [0.8] * len(signal_times),
+        }
+    ).to_parquet(predictions, index=False)
     bundle = {
         "schema_version": "lob-prediction-bundle/v1",
         "run_id": run_id,
@@ -159,37 +161,46 @@ def _catalog(
         _row(2, 0, snapshot_ts, "A", 101_000_000_000, 10, 10, "SET", True),
     ]
     if exact_same_time_update:
-        rows.extend([
-            _row(3, 1, BASE_TS_NS, "A", 101_000_000_000, 0, -10, "SET", False),
-            _row(4, 1, BASE_TS_NS, "A", 102_000_000_000, 10, 10, "SET", True),
-            _row(5, 2, BASE_TS_NS + 1_100_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
-            _row(6, 3, BASE_TS_NS + 1_200_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
-            _row(7, 4, BASE_TS_NS + 1_300_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
-            _row(8, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
-            _row(9, 6, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
-        ])
+        rows.extend(
+            [
+                _row(3, 1, BASE_TS_NS, "A", 101_000_000_000, 0, -10, "SET", False),
+                _row(4, 1, BASE_TS_NS, "A", 102_000_000_000, 10, 10, "SET", True),
+                _row(5, 2, BASE_TS_NS + 1_100_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+                _row(6, 3, BASE_TS_NS + 1_200_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+                _row(7, 4, BASE_TS_NS + 1_300_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+                _row(8, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+                _row(9, 6, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+            ]
+        )
     else:
-        rows.extend([
-        # No market-data event occurs exactly on the 100 ms model grid. The
-        # strategy must release the prediction from Nautilus's clock timer,
-        # using only the already completed snapshot.
-            _row(3, 1, BASE_TS_NS + 100_000, "B", 100_000_000_000, 10, 0, "SET", True),
-            _row(4, 2, BASE_TS_NS + 1_100_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
-            _row(5, 3, BASE_TS_NS + 1_200_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
-            _row(6, 4, BASE_TS_NS + 1_300_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
-            _row(7, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
-            _row(8, 6, BASE_TS_NS + 3_200_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
-        ])
+        rows.extend(
+            [
+                # No market-data event occurs exactly on the 100 ms model grid. The
+                # strategy must release the prediction from Nautilus's clock timer,
+                # using only the already completed snapshot.
+                _row(3, 1, BASE_TS_NS + 100_000, "B", 100_000_000_000, 10, 0, "SET", True),
+                _row(4, 2, BASE_TS_NS + 1_100_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+                _row(5, 3, BASE_TS_NS + 1_200_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+                _row(6, 4, BASE_TS_NS + 1_300_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+                _row(7, 5, BASE_TS_NS + 2_100_000_000, "B", 100_000_000_000, 10, 0, "SET", True),
+                _row(8, 6, BASE_TS_NS + 3_200_000_000, "A", 101_000_000_000, 10, 0, "SET", True),
+            ]
+        )
     if exit_same_time_update:
         if not exact_same_time_update:
             raise ValueError("exit_same_time_update requires exact_same_time_update")
         rows.pop()
-        rows.extend([
-            _row(9, 6, BASE_TS_NS + 3_000_000_000, "B", 100_000_000_000, 0, -10, "SET", False),
-            _row(10, 6, BASE_TS_NS + 3_000_000_000, "B", 99_000_000_000, 10, 10, "SET", True),
-            _row(11, 7, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
-            _row(12, 8, BASE_TS_NS + 3_400_000_000, "B", 99_000_000_000, 10, 0, "SET", True),
-        ])
+        rows.extend(
+            [
+                _row(9, 6, BASE_TS_NS + 3_000_000_000, "B", 100_000_000_000, 0, -10, "SET", False),
+                _row(10, 6, BASE_TS_NS + 3_000_000_000, "B", 99_000_000_000, 10, 10, "SET", True),
+                _row(11, 7, BASE_TS_NS + 3_200_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+                _row(12, 8, BASE_TS_NS + 3_400_000_000, "B", 99_000_000_000, 10, 0, "SET", True),
+                # The retry submitted from the 3.4 s book update has 1 ms insertion
+                # latency. A later event is required for the engine to process its fill.
+                _row(13, 9, BASE_TS_NS + 3_600_000_000, "A", 102_000_000_000, 10, 0, "SET", True),
+            ]
+        )
     if shallow_bid:
         for row in rows:
             if row["side"] == "B" and row["ts_recv"] < BASE_TS_NS + 1_200_000_000:
@@ -201,39 +212,56 @@ def _catalog(
     target.mkdir()
     catalog = ParquetDataCatalog(str(target))
     catalog.write_instruments([instrument])
-    catalog.write_order_book_deltas(list(rows_to_deltas(
-        rows,
-        instrument.id,
-        expected_symbol="TEST",
-        price_precision=instrument.price_precision,
-    )))
+    catalog.write_order_book_deltas(
+        list(
+            rows_to_deltas(
+                rows,
+                instrument.id,
+                expected_symbol="TEST",
+                price_precision=instrument.price_precision,
+            )
+        )
+    )
     symbol_metadata = tmp_path / "symbol_metadata.json"
-    symbol_metadata.write_text(json.dumps({
-        "venue": "SIM",
-        "symbols": {"TEST": {"currency": "USD", "price_precision": 9}},
-        "tick_rule": [{"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": 1}],
-    }), encoding="utf-8")
-    source_manifest = tmp_path / "published-dataset-manifest.json"
-    source_manifest.write_text(json.dumps({
-        "schema_version": "research/published-dataset-manifest-v1",
-        "dataset_kind": "strict-l2-mbp",
-        "point_in_time": {"effective_at": "2026-05-11"},
-        "contracts": {"l2": "strict-l2-v1"},
-        "files": [
-            {"role": "l2_deltas", "symbol": "TEST"},
+    symbol_metadata.write_text(
+        json.dumps(
             {
-                "role": "symbol_metadata",
-                "path": symbol_metadata.name,
-                "size_bytes": symbol_metadata.stat().st_size,
-                "sha256": _sha256(symbol_metadata),
-            },
-        ],
-    }), encoding="utf-8")
-    files = [{
-        "path": path.relative_to(target).as_posix(),
-        "size_bytes": path.stat().st_size,
-        "sha256": _sha256(path),
-    } for path in sorted(item for item in target.rglob("*") if item.is_file())]
+                "venue": "SIM",
+                "symbols": {"TEST": {"currency": "USD", "price_precision": 9}},
+                "tick_rule": [{"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": 1}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    source_manifest = tmp_path / "published-dataset-manifest.json"
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "research/published-dataset-manifest-v1",
+                "dataset_kind": "strict-l2-mbp",
+                "point_in_time": {"effective_at": "2026-05-11"},
+                "contracts": {"l2": "strict-l2-v1"},
+                "files": [
+                    {"role": "l2_deltas", "symbol": "TEST"},
+                    {
+                        "role": "symbol_metadata",
+                        "path": symbol_metadata.name,
+                        "size_bytes": symbol_metadata.stat().st_size,
+                        "sha256": _sha256(symbol_metadata),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    files = [
+        {
+            "path": path.relative_to(target).as_posix(),
+            "size_bytes": path.stat().st_size,
+            "sha256": _sha256(path),
+        }
+        for path in sorted(item for item in target.rglob("*") if item.is_file())
+    ]
     receipt = {
         "schema_version": "strict-l2-nautilus-catalog/v2",
         "catalog_path": str(target),
@@ -272,34 +300,43 @@ def _replay_request(
         "max_signal_lag_ms": 0,
     }
     policy = receipt.parent / "replay-policy.json"
-    policy.write_text(json.dumps({
-        "schema_version": "strict-l2-replay-policy/v1",
-        "selection_status": "precommitted_before_test_candidate_publication",
-        "symbols": ["TEST"],
-        "trading_dates": ["2026-05-11"],
-        "signal_policy": signal_policy,
-        "execution_scenarios": [{
-            "name": "base",
-            "fee_per_share_usd": "0.01",
-            "order_insert_latency_ns": 1_000_000,
-        }],
-        "constraints": {
-            "book_type": "L2_MBP",
-            "execution_mode": "aggressive_marketable_fok",
-            "test_threshold_retuning": False,
-        },
-    }), encoding="utf-8")
+    policy.write_text(
+        json.dumps(
+            {
+                "schema_version": "strict-l2-replay-policy/v1",
+                "selection_status": "precommitted_before_test_candidate_publication",
+                "symbols": ["TEST"],
+                "trading_dates": ["2026-05-11"],
+                "signal_policy": signal_policy,
+                "execution_scenarios": [
+                    {
+                        "name": "base",
+                        "fee_per_share_usd": "0.01",
+                        "order_insert_latency_ns": 1_000_000,
+                    }
+                ],
+                "constraints": {
+                    "book_type": "L2_MBP",
+                    "execution_mode": "aggressive_marketable_fok",
+                    "test_threshold_retuning": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     return {
         "schema_version": "strict-l2-candidate-replay-request/v1",
         "audit_receipt_path": str(receipt),
         "audit_receipt_sha256": _sha256(receipt),
         "trading_date": "2026-05-11",
         "source_manifest_path": str(source_manifest),
-        "catalogs": [{
-            "symbol": "TEST",
-            "catalog_path": str(catalog),
-            "instrument_id": str(instrument.id),
-        }],
+        "catalogs": [
+            {
+                "symbol": "TEST",
+                "catalog_path": str(catalog),
+                "instrument_id": str(instrument.id),
+            }
+        ],
         **signal_policy,
         "starting_balances": ["1_000_000 USD"],
         "fee_per_share_usd": "0.01",
@@ -315,29 +352,35 @@ def test_candidate_strategy_executes_and_closes_after_prediction_horizon(tmp_pat
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path)
     config = BacktestRunConfig(
-        venues=[BacktestVenueConfig(
-            name=str(instrument.id.venue),
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
-            starting_balances=["1_000_000 USD"],
-            book_type=BookType.L2_MBP,
-        )],
-        data=[BacktestDataConfig(
-            data_type="OrderBookDelta",
-            catalog_path=str(catalog),
-            instrument_id=instrument.id,
-        )],
+        venues=[
+            BacktestVenueConfig(
+                name=str(instrument.id.venue),
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=["1_000_000 USD"],
+                book_type=BookType.L2_MBP,
+            )
+        ],
+        data=[
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog),
+                instrument_id=instrument.id,
+            )
+        ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
     )
-    strategy = CandidateReplayStrategy(CandidateReplayConfig(
-        instrument_id=str(instrument.id),
-        research_symbol="TEST",
-        audit_receipt_path=str(receipt),
-        horizon_ms=1_000,
-        trade_size="1",
-        max_signal_lag_ms=0,
-    ))
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id=str(instrument.id),
+            research_symbol="TEST",
+            audit_receipt_path=str(receipt),
+            horizon_ms=1_000,
+            trade_size="1",
+            max_signal_lag_ms=0,
+        )
+    )
     node = BacktestNode([config])
     try:
         node.build()
@@ -442,29 +485,35 @@ def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
     )
     catalog, instrument, _ = _catalog(tmp_path)
     config = BacktestRunConfig(
-        venues=[BacktestVenueConfig(
-            name=str(instrument.id.venue),
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
-            starting_balances=["1_000_000 USD"],
-            book_type=BookType.L2_MBP,
-        )],
-        data=[BacktestDataConfig(
-            data_type="OrderBookDelta",
-            catalog_path=str(catalog),
-            instrument_id=instrument.id,
-        )],
+        venues=[
+            BacktestVenueConfig(
+                name=str(instrument.id.venue),
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=["1_000_000 USD"],
+                book_type=BookType.L2_MBP,
+            )
+        ],
+        data=[
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog),
+                instrument_id=instrument.id,
+            )
+        ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
     )
-    strategy = CandidateReplayStrategy(CandidateReplayConfig(
-        instrument_id=str(instrument.id),
-        research_symbol="TEST",
-        audit_receipt_path=str(receipt),
-        horizon_ms=1_000,
-        trade_size="1",
-        max_signal_lag_ms=0,
-    ))
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id=str(instrument.id),
+            research_symbol="TEST",
+            audit_receipt_path=str(receipt),
+            horizon_ms=1_000,
+            trade_size="1",
+            max_signal_lag_ms=0,
+        )
+    )
     node = BacktestNode([config])
     try:
         node.build()
@@ -491,29 +540,35 @@ def test_candidate_timer_precedes_same_timestamp_book_update(tmp_path: Path) -> 
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path, exact_same_time_update=True)
     config = BacktestRunConfig(
-        venues=[BacktestVenueConfig(
-            name=str(instrument.id.venue),
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
-            starting_balances=["1_000_000 USD"],
-            book_type=BookType.L2_MBP,
-        )],
-        data=[BacktestDataConfig(
-            data_type="OrderBookDelta",
-            catalog_path=str(catalog),
-            instrument_id=instrument.id,
-        )],
+        venues=[
+            BacktestVenueConfig(
+                name=str(instrument.id.venue),
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=["1_000_000 USD"],
+                book_type=BookType.L2_MBP,
+            )
+        ],
+        data=[
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog),
+                instrument_id=instrument.id,
+            )
+        ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
     )
-    strategy = CandidateReplayStrategy(CandidateReplayConfig(
-        instrument_id=str(instrument.id),
-        research_symbol="TEST",
-        audit_receipt_path=str(receipt),
-        horizon_ms=1_000,
-        trade_size="1",
-        max_signal_lag_ms=0,
-    ))
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id=str(instrument.id),
+            research_symbol="TEST",
+            audit_receipt_path=str(receipt),
+            horizon_ms=1_000,
+            trade_size="1",
+            max_signal_lag_ms=0,
+        )
+    )
     node = BacktestNode([config])
     try:
         node.build()
@@ -543,30 +598,36 @@ def test_candidate_replay_records_entry_miss_and_continues(tmp_path: Path) -> No
         exit_same_time_update=True,
     )
     config = BacktestRunConfig(
-        venues=[BacktestVenueConfig(
-            name=str(instrument.id.venue),
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
-            starting_balances=["1_000_000 USD"],
-            book_type=BookType.L2_MBP,
-            latency_model=StaticLatencyModel(insert_latency_nanos=1_000_000),
-        )],
-        data=[BacktestDataConfig(
-            data_type="OrderBookDelta",
-            catalog_path=str(catalog),
-            instrument_id=instrument.id,
-        )],
+        venues=[
+            BacktestVenueConfig(
+                name=str(instrument.id.venue),
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=["1_000_000 USD"],
+                book_type=BookType.L2_MBP,
+                latency_model=StaticLatencyModel(insert_latency_nanos=1_000_000),
+            )
+        ],
+        data=[
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog),
+                instrument_id=instrument.id,
+            )
+        ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
     )
-    strategy = CandidateReplayStrategy(CandidateReplayConfig(
-        instrument_id=str(instrument.id),
-        research_symbol="TEST",
-        audit_receipt_path=str(receipt),
-        horizon_ms=1_000,
-        trade_size="1",
-        max_signal_lag_ms=0,
-    ))
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id=str(instrument.id),
+            research_symbol="TEST",
+            audit_receipt_path=str(receipt),
+            horizon_ms=1_000,
+            trade_size="1",
+            max_signal_lag_ms=0,
+        )
+    )
     node = BacktestNode([config])
     try:
         node.build()
@@ -656,15 +717,18 @@ def test_run_candidate_replay_rejects_threshold_retuning_after_precommit(tmp_pat
         run_candidate_replay(request_path, tmp_path / "replays")
 
 
-@pytest.mark.parametrize("quantity, expected", [(100, "0.35"), (200, "0.70")])
+@pytest.mark.parametrize(("quantity", "expected"), [(100, "0.35"), (200, "0.70")])
 def test_per_share_fee_preserves_subcent_rate(quantity: int, expected: str) -> None:
+    """Accumulate per-share fees without binary floating-point drift."""
     model = _PerShareFeeModel(Decimal("0.0035"))
-    commission = model.get_commission(None, Quantity.from_int(quantity), Price.from_str("100"), None)
+    commission = model.get_commission(
+        None, Quantity.from_int(quantity), Price.from_str("100"), None
+    )
     assert commission.as_decimal() == Decimal(expected)
 
 
 @pytest.mark.parametrize(
-    "end_offset_ns, latency_ns, shallow_bid, expected_orders",
+    ("end_offset_ns", "latency_ns", "shallow_bid", "expected_orders"),
     [
         (500_000_000, 0, False, 0),
         (1_000_000_000, 0, False, 0),
@@ -679,37 +743,44 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
     shallow_bid: bool,
     expected_orders: int,
 ) -> None:
+    """Bound exit retries and reject entries too close to the replay cutoff."""
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path, shallow_bid=shallow_bid)
     config = BacktestRunConfig(
-        venues=[BacktestVenueConfig(
-            name=str(instrument.id.venue),
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
-            starting_balances=["1_000_000 USD"],
-            book_type=BookType.L2_MBP,
-            latency_model=StaticLatencyModel(insert_latency_nanos=latency_ns),
-            fee_model=_PerShareFeeModel(Decimal("0.0035")),
-        )],
-        data=[BacktestDataConfig(
-            data_type="OrderBookDelta",
-            catalog_path=str(catalog),
-            instrument_id=instrument.id,
-        )],
+        venues=[
+            BacktestVenueConfig(
+                name=str(instrument.id.venue),
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=["1_000_000 USD"],
+                book_type=BookType.L2_MBP,
+                latency_model=StaticLatencyModel(insert_latency_nanos=latency_ns),
+                fee_model=_PerShareFeeModel(Decimal("0.0035")),
+            )
+        ],
+        data=[
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog),
+                instrument_id=instrument.id,
+            )
+        ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
         end=BASE_TS_NS + end_offset_ns,
     )
-    strategy = CandidateReplayStrategy(CandidateReplayConfig(
-        instrument_id=str(instrument.id),
-        research_symbol="TEST",
-        audit_receipt_path=str(receipt),
-        horizon_ms=1_000,
-        trade_size="10",
-        max_signal_lag_ms=0,
-        replay_end_ns=BASE_TS_NS + end_offset_ns,
-        order_insert_latency_ns=latency_ns,
-    ))
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id=str(instrument.id),
+            research_symbol="TEST",
+            audit_receipt_path=str(receipt),
+            horizon_ms=1_000,
+            trade_size="10",
+            max_signal_lag_ms=0,
+            replay_end_ns=BASE_TS_NS + end_offset_ns,
+            order_insert_latency_ns=latency_ns,
+        )
+    )
     node = BacktestNode([config])
     try:
         node.build()
@@ -721,10 +792,14 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
         assert node.get_engine_portfolio(config.id).is_net_flat(instrument.id)
         if shallow_bid:
             assert sorted(orders["status"].astype(str)) == [
-                "CANCELED", "CANCELED", "FILLED", "FILLED",
+                "CANCELED",
+                "CANCELED",
+                "FILLED",
+                "FILLED",
             ]
             records = feedback_records_from_orders_report(
-                orders.reset_index().to_dict("records"), strategy.feedback_bindings,
+                orders.reset_index().to_dict("records"),
+                strategy.feedback_bindings,
             )
             assert all(record["fees"] == 0.04 for record in records)
             exit_record = next(record for record in records if record["action_role"] == "EXIT")
@@ -738,30 +813,37 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
     tmp_path: Path,
     trade_size: str,
 ) -> None:
+    """Reject trade sizes that equity precision would silently round."""
     receipt = _audit_receipt(tmp_path)
     catalog, instrument, _ = _catalog(tmp_path)
     config = BacktestRunConfig(
-        venues=[BacktestVenueConfig(
-            name=str(instrument.id.venue),
-            oms_type=OmsType.NETTING,
-            account_type=AccountType.MARGIN,
-            starting_balances=["1_000_000 USD"],
-            book_type=BookType.L2_MBP,
-        )],
-        data=[BacktestDataConfig(
-            data_type="OrderBookDelta",
-            catalog_path=str(catalog),
-            instrument_id=instrument.id,
-        )],
+        venues=[
+            BacktestVenueConfig(
+                name=str(instrument.id.venue),
+                oms_type=OmsType.NETTING,
+                account_type=AccountType.MARGIN,
+                starting_balances=["1_000_000 USD"],
+                book_type=BookType.L2_MBP,
+            )
+        ],
+        data=[
+            BacktestDataConfig(
+                data_type="OrderBookDelta",
+                catalog_path=str(catalog),
+                instrument_id=instrument.id,
+            )
+        ],
         engine=BacktestEngineConfig(bypass_logging=True, run_analysis=False),
         dispose_on_completion=False,
     )
-    strategy = CandidateReplayStrategy(CandidateReplayConfig(
-        instrument_id=str(instrument.id),
-        research_symbol="TEST",
-        audit_receipt_path=str(receipt),
-        trade_size=trade_size,
-    ))
+    strategy = CandidateReplayStrategy(
+        CandidateReplayConfig(
+            instrument_id=str(instrument.id),
+            research_symbol="TEST",
+            audit_receipt_path=str(receipt),
+            trade_size=trade_size,
+        )
+    )
     node = BacktestNode([config])
     try:
         node.build()
@@ -772,7 +854,9 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
         if trade_size == "1.000":
             assert strategy.failures == ()
             assert len(orders) == 2
-            assert all(Decimal(str(quantity)) == Decimal(trade_size) for quantity in orders["quantity"])
+            assert all(
+                Decimal(str(quantity)) == Decimal(trade_size) for quantity in orders["quantity"]
+            )
         else:
             assert strategy.failures == (
                 "trade_size is not exactly representable at the instrument size precision",
