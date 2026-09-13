@@ -17,11 +17,13 @@ Tests for immutable, identifier-free execution feedback publication.
 """
 
 import json
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+import simplejson
 
 from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
 from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
@@ -110,9 +112,9 @@ def test_orders_report_is_aggregated_without_order_identity() -> None:
     assert len(records) == 1
     assert records[0]["filled_qty"] == 3.0
     assert records[0]["average_fill_price"] == 101.0
-    assert records[0]["fees"] == 0.3
+    assert records[0]["fees"] == Decimal("0.3")
     assert records[0]["last_fill_ts_ns"] == 2_500
-    assert "client_order_id" not in json.dumps(records)
+    assert "client_order_id" not in simplejson.dumps(records, use_decimal=True)
 
 
 def test_feedback_rejects_cross_day_fill_and_incomplete_reconciliation(tmp_path: Path) -> None:
@@ -298,8 +300,8 @@ def test_fill_time_ignores_cancellation_and_unfilled_sibling(reverse: bool) -> N
     }
     records = feedback_records_from_orders_report(rows[::-1] if reverse else rows, bindings)
     assert records[0]["last_fill_ts_ns"] == 200
-    assert records[0]["filled_qty"] == 0.2
-    assert records[0]["average_fill_price"] == 100.1
+    assert records[0]["filled_qty"] == Decimal("0.2")
+    assert records[0]["average_fill_price"] == Decimal("100.1")
 
 
 def test_filled_order_requires_bound_fill_timestamp() -> None:
@@ -347,3 +349,48 @@ def test_report_requires_native_side(side: str | None) -> None:
     }
     with pytest.raises(ValueError, match="unsupported order side"):
         feedback_records_from_orders_report([row], {"empty": binding})
+
+
+@pytest.mark.parametrize("bad", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
+def test_feedback_rejects_nonfinite_decimal_metrics(tmp_path: Path, bad: Decimal) -> None:
+    """
+    Exact decimal serialization must not admit non-finite JSON numbers.
+    """
+    with pytest.raises(ValueError, match="non-finite"):
+        _publish(tmp_path, [{"metric": bad}])
+
+
+def test_feedback_preserves_decimal_numbers_on_disk(tmp_path: Path) -> None:
+    """
+    Preserve quantities above binary precision and sub-cent fees as JSON numbers.
+    """
+    timestamp = 1_789_048_800_000_000_000
+    quantity = Decimal(9007199254740993)
+    price = Decimal("100.000000001")
+    fees = Decimal("0.123456789123456789")
+    row = {
+        "client_order_id": "ORDER-1",
+        "side": "BUY",
+        "status": "FILLED",
+        "filled_qty": quantity,
+        "avg_px": price,
+        "ts_init": timestamp,
+    }
+    binding = {
+        "prediction_id": "prediction-1",
+        "instrument_uid": "test-canonical",
+        "decision_ts_ns": timestamp,
+        "fees": fees,
+        "last_fill_ts_ns": timestamp,
+    }
+    records = feedback_records_from_orders_report([row], {"ORDER-1": binding})
+    assert records[0]["filled_qty"] == quantity
+    assert records[0]["average_fill_price"] == price
+    assert records[0]["fees"] == fees
+    _publish(tmp_path, records)
+    payload = json.loads((tmp_path / "feedback.json").read_text(), parse_float=Decimal)
+    actual = payload["records"][0]
+    assert actual["filled_qty"] == quantity
+    assert actual["average_fill_price"] == price
+    assert actual["fees"] == fees
+    assert not isinstance(actual["filled_qty"], str)

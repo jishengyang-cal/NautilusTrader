@@ -19,7 +19,6 @@ Atomic, identifier-free daily execution feedback publication.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 from collections.abc import Mapping
@@ -33,6 +32,8 @@ from numbers import Integral
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import simplejson as json
 
 
 FORBIDDEN_KEYS = {
@@ -69,7 +70,9 @@ def _validate_payload(value: object, location: str = "payload") -> None:
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         for index, child in enumerate(value):
             _validate_payload(child, f"{location}[{index}]")
-    elif isinstance(value, float) and not math.isfinite(value):
+    elif (isinstance(value, Decimal) and not value.is_finite()) or (
+        isinstance(value, float) and not math.isfinite(value)
+    ):
         raise ValueError(f"{location} contains a non-finite value")
 
 
@@ -164,8 +167,8 @@ def _validate_records(  # noqa: C901, PLR0912
             value = record.get(field)
             if value is not None and (
                 isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(value)
+                or not isinstance(value, (int, float, Decimal))
+                or not _finite_decimal(value, field).is_finite()
             ):
                 raise ValueError(f"records[{index}].{field} must be finite numeric data")
         if record.get("filled_qty", 0) < 0:
@@ -310,9 +313,9 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
         fill_notional = aggregate.pop("fill_notional")
         statuses = aggregate.pop("statuses")
         aggregate["status"] = next(iter(statuses)) if len(statuses) == 1 else "MIXED"
-        aggregate["filled_qty"] = float(filled_qty)
-        aggregate["average_fill_price"] = float(fill_notional / filled_qty) if filled_qty else None
-        aggregate["fees"] = float(aggregate["fees"])
+        aggregate["filled_qty"] = filled_qty
+        aggregate["average_fill_price"] = fill_notional / filled_qty if filled_qty else None
+
         if not filled_qty:
             aggregate["last_fill_ts_ns"] = None
         records.append(aggregate)
@@ -368,7 +371,9 @@ def publish_execution_feedback(  # noqa: PLR0913
     staging = target.with_name(f".{target.name}.incomplete")
     if target.exists() or staging.exists():
         raise FileExistsError("execution feedback publication never overwrites output")
-    rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    rendered = (
+        json.dumps(payload, indent=2, sort_keys=True, use_decimal=True, allow_nan=False) + "\n"
+    )
     staging.write_text(rendered, encoding="utf-8")
     staging.replace(target)
     return {

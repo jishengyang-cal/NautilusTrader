@@ -937,7 +937,7 @@ def test_candidate_exit_retry_and_session_entry_cutoff(
                 orders.reset_index().to_dict("records"),
                 strategy.feedback_bindings,
             )
-            assert all(record["fees"] == 0.04 for record in records)
+            assert all(record["fees"] == Decimal("0.04") for record in records)
             exit_record = next(record for record in records if record["action_role"] == "EXIT")
             assert exit_record["last_fill_ts_ns"] == BASE_TS_NS + 1_200_000_001
     finally:
