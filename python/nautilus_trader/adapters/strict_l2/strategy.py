@@ -307,7 +307,12 @@ class CandidateReplayStrategy(Strategy):
         """
         latest = self._latest_due_signal(now_ns)
         book = self.cache.order_book(self._instrument_id)
-        if latest is None or book is None or not book.spread():
+        if (
+            latest is None
+            or book is None
+            or (spread := book.spread()) is None
+            or spread < 0
+        ):
             return
         if self._active_signal is not None:
             return
@@ -546,7 +551,10 @@ class CandidateReplayStrategy(Strategy):
 
     def _marketable_price(self, side: OrderSide) -> Price | None:
         book = self.cache.order_book(self._instrument_id)
-        if book is None or not book.spread():
+        if book is None:
+            return None
+        spread = book.spread()
+        if spread is None or spread < 0:
             return None
         return book.best_ask_price() if side == OrderSide.BUY else book.best_bid_price()
 
