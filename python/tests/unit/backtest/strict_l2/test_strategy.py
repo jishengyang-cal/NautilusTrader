@@ -20,21 +20,22 @@ import hashlib
 import json
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from nautilus_trader.adapters.strict_l2.data import rows_to_deltas
-from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
-from nautilus_trader.adapters.strict_l2.replay import _PerShareFeeModel
-from nautilus_trader.adapters.strict_l2.replay import run_candidate_replay
-from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayConfig
-from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayStrategy
 from nautilus_trader.backtest import BacktestDataConfig
 from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.backtest import BacktestNode
 from nautilus_trader.backtest import BacktestRunConfig
 from nautilus_trader.backtest import BacktestVenueConfig
+from nautilus_trader.backtest.strict_l2.data import rows_to_deltas
+from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.backtest.strict_l2.replay import _PerShareFeeModel
+from nautilus_trader.backtest.strict_l2.replay import run_candidate_replay
+from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayConfig
+from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayStrategy
 from nautilus_trader.execution import StaticLatencyModel
 from nautilus_trader.model import AccountType
 from nautilus_trader.model import BookType
@@ -42,6 +43,8 @@ from nautilus_trader.model import Currency
 from nautilus_trader.model import Equity
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.model import OmsType
+from nautilus_trader.model import OrderBook
+from nautilus_trader.model import OrderSide
 from nautilus_trader.model import Price
 from nautilus_trader.model import Quantity
 from nautilus_trader.model import Symbol
@@ -1065,3 +1068,68 @@ def test_host_profiling_records_errors_without_changing_exception() -> None:
     assert report["stages"]["failure"]["count"] == 1
     report["stages"]["failure"]["samples"].clear()
     assert len(strategy.performance_report["stages"]["failure"]["samples"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("bid", "ask"),
+    [
+        (100_000_000_000, None),
+        (100_000_000_000, 99_000_000_000),
+        (100_000_000_000, 100_000_000_000),
+        (100_000_000_000, 101_000_000_000),
+        (100_000_000_000_000_001, 100_000_000_000_000_000),
+        (100_000_000_000_000_000, 100_000_000_000_000_001),
+    ],
+)
+@pytest.mark.parametrize("side", [OrderSide.BUY, OrderSide.SELL])
+def test_candidate_book_guards_preserve_locked_and_reject_crossed(
+    bid: int,
+    ask: int | None,
+    side: OrderSide,
+) -> None:
+    """
+    Use native books to verify signal and entry/exit price guards independently.
+    """
+    instrument_id = InstrumentId.from_str("TEST.SIM")
+    book = OrderBook(instrument_id, BookType.L2_MBP)
+    levels = [("N", 0, 0, "CLEAR"), ("B", bid, 10, "SET")]
+    if ask is not None:
+        levels.append(("A", ask, 10, "SET"))
+    rows = [
+        _row(
+            index,
+            0,
+            BASE_TS_NS,
+            direction,
+            price,
+            size,
+            size,
+            action,
+            index == len(levels) - 1,
+        )
+        for index, (direction, price, size, action) in enumerate(levels)
+    ]
+    for delta in rows_to_deltas(rows, instrument_id):
+        book.apply_delta(delta)
+    submissions = []
+    signal = SimpleNamespace(ts_recv_ns=BASE_TS_NS)
+    state = SimpleNamespace(
+        cache=SimpleNamespace(order_book=lambda _: book),
+        portfolio=SimpleNamespace(is_net_flat=lambda _: True),
+        _instrument_id=instrument_id,
+        _latest_due_signal=lambda _: signal,
+        _active_signal=None,
+        _last_entry_ns=None,
+        _max_signal_lag_ns=0,
+        _signal_side=lambda _: side,
+        _submit_entry=lambda *args: submissions.append(args),
+    )
+    price = CandidateReplayStrategy._marketable_price(state, side)
+    CandidateReplayStrategy._process_due_signal(state, BASE_TS_NS)
+    valid = ask is not None and ask >= bid
+    assert len(submissions) == int(valid)
+    if valid:
+        expected = ask if side == OrderSide.BUY else bid
+        assert price.as_decimal() == Decimal(expected) / 10**9
+    else:
+        assert price is None

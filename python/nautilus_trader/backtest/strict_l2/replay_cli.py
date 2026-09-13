@@ -22,7 +22,7 @@ import argparse
 import json
 import sys
 
-from nautilus_trader.adapters.strict_l2.replay import run_candidate_replay
+from nautilus_trader.backtest.strict_l2.replay import run_candidate_replay
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
