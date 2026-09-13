@@ -42,8 +42,11 @@ from nautilus_trader.trading import Strategy
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from collections.abc import Sequence
 
     from nautilus_trader.common import TimeEvent
+    from nautilus_trader.model import OmsType
+    from nautilus_trader.model import StrategyId
 
 
 MIN_DIRECTION_PROBABILITY = 0.5
@@ -72,12 +75,44 @@ class CandidateReplayConfig(StrategyConfig):
         replay_end_ns: int | None = None,
         order_insert_latency_ns: int = 0,
         record_performance: bool = False,
-        **_kwargs: object,
+        strategy_id: StrategyId | None = None,
+        order_id_tag: str | None = None,
+        oms_type: OmsType | None = None,
+        external_order_instrument_ids: Sequence[InstrumentId] | None = None,
+        manage_contingent_orders: bool = False,
+        manage_gtd_expiry: bool = False,
+        manage_stop: bool = False,
+        market_exit_interval_ms: int = 100,
+        market_exit_max_attempts: int = 100,
+        market_exit_time_in_force: TimeInForce = TimeInForce.GTC,
+        market_exit_reduce_only: bool = True,
+        use_uuid_client_order_ids: bool = False,
+        use_hyphens_in_client_order_ids: bool = True,
+        log_events: bool = True,
+        log_commands: bool = True,
+        log_rejected_due_post_only_as_warning: bool = True,
     ) -> None:
         """
         Initialize the candidate replay configuration.
         """
-        super().__init__()
+        super().__init__(
+            strategy_id=strategy_id,
+            order_id_tag=order_id_tag,
+            oms_type=oms_type,
+            external_order_instrument_ids=external_order_instrument_ids,
+            manage_contingent_orders=manage_contingent_orders,
+            manage_gtd_expiry=manage_gtd_expiry,
+            manage_stop=manage_stop,
+            market_exit_interval_ms=market_exit_interval_ms,
+            market_exit_max_attempts=market_exit_max_attempts,
+            market_exit_time_in_force=market_exit_time_in_force,
+            market_exit_reduce_only=market_exit_reduce_only,
+            use_uuid_client_order_ids=use_uuid_client_order_ids,
+            use_hyphens_in_client_order_ids=use_hyphens_in_client_order_ids,
+            log_events=log_events,
+            log_commands=log_commands,
+            log_rejected_due_post_only_as_warning=log_rejected_due_post_only_as_warning,
+        )
         self.instrument_id = instrument_id
         self.research_symbol = research_symbol
         self.audit_receipt_path = audit_receipt_path

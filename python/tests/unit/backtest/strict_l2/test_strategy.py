@@ -36,6 +36,7 @@ from nautilus_trader.backtest.strict_l2.replay import _PerShareFeeModel
 from nautilus_trader.backtest.strict_l2.replay import run_candidate_replay
 from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayConfig
 from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayStrategy
+from nautilus_trader.config import StrategyConfig
 from nautilus_trader.execution import StaticLatencyModel
 from nautilus_trader.model import AccountType
 from nautilus_trader.model import BookType
@@ -53,6 +54,52 @@ from nautilus_trader.persistence import ParquetDataCatalog
 
 
 BASE_TS_NS = int(pd.Timestamp("2026-05-11 09:30:00", tz="America/New_York").tz_convert("UTC").value)
+
+
+def test_candidate_replay_config_rejects_unknown_setting() -> None:
+    """
+    An unsupported strategy setting fails at construction.
+    """
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        CandidateReplayConfig(
+            instrument_id="TEST.XNAS",
+            research_symbol="TEST",
+            audit_receipt_path="candidate-audit.json",
+            cooldown_m=0,
+        )
+
+
+def test_candidate_replay_config_preserves_strategy_defaults() -> None:
+    """
+    Inherited strategy settings retain their defaults and accept overrides.
+    """
+    base_config = StrategyConfig()
+    config = CandidateReplayConfig(
+        instrument_id="TEST.XNAS",
+        research_symbol="TEST",
+        audit_receipt_path="candidate-audit.json",
+        log_events=False,
+    )
+
+    for field in (
+        "strategy_id",
+        "order_id_tag",
+        "oms_type",
+        "external_order_instrument_ids",
+        "manage_contingent_orders",
+        "manage_gtd_expiry",
+        "manage_stop",
+        "market_exit_interval_ms",
+        "market_exit_max_attempts",
+        "market_exit_time_in_force",
+        "market_exit_reduce_only",
+        "use_uuid_client_order_ids",
+        "use_hyphens_in_client_order_ids",
+        "log_commands",
+        "log_rejected_due_post_only_as_warning",
+    ):
+        assert getattr(config, field) == getattr(base_config, field)
+    assert config.log_events is False
 
 
 def _sha256(path: Path) -> str:
