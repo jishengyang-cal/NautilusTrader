@@ -23,6 +23,7 @@ import json
 import sys
 from collections.abc import Mapping
 from collections.abc import Sequence
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,7 @@ from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedba
 
 def _load_json(path: str | Path) -> object:
     source = Path(path).expanduser().resolve(strict=True)
-    return json.loads(source.read_text(encoding="utf-8"))
+    return json.loads(source.read_text(encoding="utf-8"), parse_float=Decimal)
 
 
 def export_feedback_from_json(

@@ -216,9 +216,21 @@ def test_orders_report_requires_one_to_one_strategy_binding() -> None:
         )
 
 
-def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("fees", "quantity", "price"),
+    [
+        (Decimal("0.01"), Decimal(1), Decimal(100)),
+        (Decimal("0.123456789123456789"), Decimal("1.000000001"), Decimal("100.000000001")),
+    ],
+)
+def test_json_export_command_publishes_only_sanitized_records(
+    tmp_path: Path,
+    fees: Decimal,
+    quantity: Decimal,
+    price: Decimal,
+) -> None:
     """
-    The standalone exporter joins ephemeral IDs without publishing them.
+    Preserve exact JSON numbers while excluding ephemeral IDs from exported records.
     """
     trading_ns = 1_757_512_800_000_000_000
     request = {
@@ -235,7 +247,7 @@ def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) ->
                 "prediction_id": "prediction-1",
                 "instrument_uid": "nvda-canonical",
                 "decision_ts_ns": trading_ns,
-                "fees": 0.01,
+                "fees": fees,
                 "last_fill_ts_ns": trading_ns + 2,
             },
         },
@@ -245,8 +257,8 @@ def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) ->
             "client_order_id": "ORDER-1",
             "side": "BUY",
             "status": "FILLED",
-            "filled_qty": 1,
-            "avg_px": 100,
+            "filled_qty": quantity,
+            "avg_px": price,
             "ts_init": trading_ns + 1,
             "ts_last": trading_ns + 2,
         },
@@ -254,13 +266,17 @@ def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) ->
     request_path = tmp_path / "request.json"
     orders_path = tmp_path / "orders.json"
     output_path = tmp_path / "feedback.json"
-    request_path.write_text(json.dumps(request))
-    orders_path.write_text(json.dumps(orders))
+    request_path.write_text(simplejson.dumps(request, use_decimal=True))
+    orders_path.write_text(simplejson.dumps(orders, use_decimal=True))
     receipt = export_feedback_from_json(request_path, orders_path, output_path)
     payload = output_path.read_text()
     assert receipt["records"] == 1
     assert "ORDER-1" not in payload
     assert "client_order_id" not in payload
+    record = json.loads(payload, parse_float=Decimal)["records"][0]
+    assert record["fees"] == fees
+    assert record["filled_qty"] == quantity
+    assert record["average_fill_price"] == price
 
 
 @pytest.mark.parametrize("reverse", [False, True])
