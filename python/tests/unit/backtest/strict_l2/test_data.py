@@ -129,12 +129,12 @@ def test_logical_message_allows_increasing_venue_times_at_one_receive_time() -> 
         list(rows_to_deltas([first, second], instrument))
 
 
-@pytest.mark.parametrize("second_sequence", [10, 12])
-def test_strict_l2_rejects_duplicate_or_gapped_completed_sequence(
+@pytest.mark.parametrize("second_sequence", [0, 12])
+def test_strict_l2_allows_venue_sequence_gap_or_reset_between_completed_messages(
     second_sequence: int,
 ) -> None:
     """
-    Completed messages must advance the source sequence exactly once.
+    Per-symbol publications preserve venue sequence gaps and resets.
     """
     instrument = InstrumentId.from_str("TEST.XNAS")
     first = _row(0)
@@ -142,8 +142,9 @@ def test_strict_l2_rejects_duplicate_or_gapped_completed_sequence(
     second = _row(1, size=15, delta=5)
     second["sequence"] = second_sequence
 
-    with pytest.raises(ValueError, match="sequence must be contiguous"):
-        list(rows_to_deltas([first, second], instrument))
+    deltas = list(rows_to_deltas([first, second], instrument))
+
+    assert [delta.sequence for delta in deltas] == [10, second_sequence]
 
 
 def test_snapshot_flags_preserve_buffered_event_boundaries() -> None:

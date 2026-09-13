@@ -105,7 +105,6 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     message_identity: tuple[int, int] | None = None
     message_last_ts_event = -1
     message_is_snapshot = False
-    previous_sequence: int | None = None
     previous_ts_recv = -1
 
     for expected_index, row in enumerate(rows):
@@ -146,10 +145,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
             if ts_event < message_last_ts_event:
                 raise ValueError("logical L2 message venue time moved backwards before F_LAST")
         else:
-            if previous_sequence is not None and sequence != previous_sequence + 1:
-                raise ValueError("strict-L2 sequence must be contiguous between logical messages")
             message_identity = identity
-            previous_sequence = sequence
         message_last_ts_event = ts_event
         is_last = row["last"]
         if not isinstance(is_last, bool):
