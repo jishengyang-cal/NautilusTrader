@@ -1109,6 +1109,7 @@ def test_candidate_book_guards_preserve_locked_and_reject_crossed(
         )
         for index, (direction, price, size, action) in enumerate(levels)
     ]
+
     for delta in rows_to_deltas(rows, instrument_id):
         book.apply_delta(delta)
     submissions = []

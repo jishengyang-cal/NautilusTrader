@@ -43,6 +43,11 @@ def export_feedback_from_json(
 ) -> dict[str, Any]:
     """
     Load a daily export request and publish sanitized research feedback.
+
+    Decimal JSON numbers in both inputs are parsed as ``Decimal`` so fees and
+    order amounts reach aggregation without binary floating-point conversion.
+    See ``feedback_records_from_orders_report`` for the native row and binding contract.
+
     """
     request = _load_json(request_path)
     rows = _load_json(orders_report_path)
