@@ -48,6 +48,35 @@ fn check_option_inputs(s: f64, r: f64, b: f64, k: f64, t: f64) -> PyResult<()> {
     check_positive_finite(t, "t")
 }
 
+#[expect(clippy::too_many_arguments)]
+fn check_option_price(
+    s: f64,
+    r: f64,
+    b: f64,
+    is_call: bool,
+    k: f64,
+    t: f64,
+    price: f64,
+    parameter: &str,
+) -> PyResult<()> {
+    check_positive_finite(price, parameter)?;
+    let discounted_spot = s * ((b - r) * t).exp();
+    let discounted_strike = k * (-r * t).exp();
+    check_positive_finite(discounted_spot, "discounted spot")?;
+    check_positive_finite(discounted_strike, "discounted strike")?;
+    let (lower_bound, upper_bound) = if is_call {
+        ((discounted_spot - discounted_strike).max(0.0), discounted_spot)
+    } else {
+        ((discounted_strike - discounted_spot).max(0.0), discounted_strike)
+    };
+    if price <= lower_bound || price >= upper_bound {
+        return Err(PyValueError::new_err(format!(
+            "{parameter} violates no-arbitrage bounds ({lower_bound}, {upper_bound}), was {price}"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(feature = "python")]
 #[pymethods]
 #[pyo3_stub_gen::derive::gen_stub_pymethods]
@@ -332,7 +361,7 @@ pub fn py_imply_vol(
     price: f64,
 ) -> PyResult<f64> {
     check_option_inputs(s, r, b, k, t)?;
-    check_positive_finite(price, "price")?;
+    check_option_price(s, r, b, is_call, k, t, price, "price")?;
     let vol = imply_vol(s, r, b, is_call, k, t, price);
     check_positive_finite(vol, "implied volatility")?;
     Ok(vol)
@@ -353,7 +382,7 @@ pub fn py_imply_vol_and_greeks(
     price: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
     check_option_inputs(s, r, b, k, t)?;
-    check_positive_finite(price, "price")?;
+    check_option_price(s, r, b, is_call, k, t, price, "price")?;
     let vol = imply_vol(s, r, b, is_call, k, t, price);
     check_positive_finite(vol, "implied volatility")?;
     Ok(black_scholes_greeks(s, r, b, vol, is_call, k, t))
@@ -377,7 +406,7 @@ pub fn py_refine_vol_and_greeks(
     initial_vol: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
     check_option_inputs(s, r, b, k, t)?;
-    check_positive_finite(target_price, "target_price")?;
+    check_option_price(s, r, b, is_call, k, t, target_price, "target_price")?;
     check_positive_finite(initial_vol, "initial_vol")?;
     Ok(refine_vol_and_greeks(
         s,

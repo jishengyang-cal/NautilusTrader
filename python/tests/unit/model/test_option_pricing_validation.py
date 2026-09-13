@@ -132,13 +132,38 @@ def test_implied_volatility_rejects_invalid_price(
         function(100.0, 0.05, 0.05, True, 100.0, 1.0, price)
 
 
-@pytest.mark.parametrize("function", [imply_vol, imply_vol_and_greeks])
-def test_implied_volatility_rejects_unsolved_price(function: Callable[..., object]) -> None:
+@pytest.mark.parametrize(
+    ("function", "price_parameter", "extra_kwargs"),
+    [
+        (imply_vol, "price", {}),
+        (imply_vol_and_greeks, "price", {}),
+        (refine_vol_and_greeks, "target_price", {"initial_vol": 0.2}),
+    ],
+)
+@pytest.mark.parametrize(
+    ("s", "k", "is_call", "price"),
+    [
+        (100.0, 100.0, True, 101.0),
+        (100.0, 100.0, False, 101.0),
+        (100.0, 50.0, True, 1.0),
+        (50.0, 100.0, False, 1.0),
+    ],
+)
+def test_option_price_solvers_reject_quotes_outside_no_arbitrage_bounds(
+    function: Callable[..., object],
+    price_parameter: str,
+    extra_kwargs: dict[str, float],
+    s: float,
+    k: float,
+    is_call: bool,
+    price: float,
+) -> None:
     """
-    Reject a solver failure instead of returning fallback volatility and Greeks.
+    Reject impossible call and put quotes on every public solver path.
     """
-    with pytest.raises(ValueError, match="implied volatility"):
-        function(100.0, 0.05, 0.05, True, 100.0, 1.0, 200.0)
+    kwargs = {price_parameter: price, **extra_kwargs}
+    with pytest.raises(ValueError, match="no-arbitrage"):
+        function(s=s, r=0.05, b=0.05, is_call=is_call, k=k, t=1.0, **kwargs)
 
 
 @pytest.mark.parametrize(
