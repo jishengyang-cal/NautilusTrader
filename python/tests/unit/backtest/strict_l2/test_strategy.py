@@ -606,6 +606,25 @@ def test_run_candidate_replay_publishes_zero_trade_outcome(tmp_path: Path) -> No
     assert feedback["records"] == []
 
 
+@pytest.mark.parametrize("threshold", [float("nan"), float("inf"), float("-inf")])
+def test_run_candidate_replay_rejects_non_finite_threshold(
+    tmp_path: Path,
+    threshold: float,
+) -> None:
+    """
+    A non-finite signal threshold fails before replay execution.
+    """
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request["min_abs_delta_ticks"] = threshold
+    request_path = tmp_path / "non-finite-threshold-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="min_abs_delta_ticks must be finite and non-negative"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
 def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
     """
     One bounded timer is rearmed for multiple grid-aligned predictions.

@@ -18,6 +18,7 @@ Execution-bound strategy for audited strict-L2 candidate replay.
 
 from __future__ import annotations
 
+import math
 from decimal import Decimal
 from functools import wraps
 from time import perf_counter_ns
@@ -97,8 +98,8 @@ def _validate_strategy_config(config: CandidateReplayConfig) -> None:
         raise ValueError("research_symbol must not be empty")
     if Decimal(config.trade_size) <= 0:
         raise ValueError("trade_size must be positive")
-    if config.min_abs_delta_ticks < 0:
-        raise ValueError("min_abs_delta_ticks must be non-negative")
+    if not math.isfinite(config.min_abs_delta_ticks) or config.min_abs_delta_ticks < 0:
+        raise ValueError("min_abs_delta_ticks must be finite and non-negative")
     if not MIN_DIRECTION_PROBABILITY <= config.min_direction_probability <= 1:
         raise ValueError("min_direction_probability must be in [0.5, 1]")
     if config.cooldown_ms < 0 or config.max_signal_lag_ms < 0:
