@@ -20,6 +20,7 @@ import hashlib
 import json
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -42,6 +43,8 @@ from nautilus_trader.model import Currency
 from nautilus_trader.model import Equity
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.model import OmsType
+from nautilus_trader.model import OrderBook
+from nautilus_trader.model import OrderSide
 from nautilus_trader.model import Price
 from nautilus_trader.model import Quantity
 from nautilus_trader.model import Symbol
@@ -1065,3 +1068,57 @@ def test_host_profiling_records_errors_without_changing_exception() -> None:
     assert report["stages"]["failure"]["count"] == 1
     report["stages"]["failure"]["samples"].clear()
     assert len(strategy.performance_report["stages"]["failure"]["samples"]) == 1
+
+
+@pytest.mark.parametrize("ask", [None, 99, 100, 101])
+@pytest.mark.parametrize("side", [OrderSide.BUY, OrderSide.SELL])
+def test_candidate_book_guards_preserve_locked_and_reject_crossed(
+    ask: int | None,
+    side: OrderSide,
+) -> None:
+    """
+    Use native books to verify signal and entry/exit price guards independently.
+    """
+    instrument_id = InstrumentId.from_str("TEST.SIM")
+    book = OrderBook(instrument_id, BookType.L2_MBP)
+    levels = [("N", 0, 0, "CLEAR"), ("B", 100, 10, "SET")]
+    if ask is not None:
+        levels.append(("A", ask, 10, "SET"))
+    rows = [
+        _row(
+            index,
+            0,
+            BASE_TS_NS,
+            direction,
+            price * 10**9,
+            size,
+            size,
+            action,
+            index == len(levels) - 1,
+        )
+        for index, (direction, price, size, action) in enumerate(levels)
+    ]
+    for delta in rows_to_deltas(rows, instrument_id):
+        book.apply_delta(delta)
+    submissions = []
+    signal = SimpleNamespace(ts_recv_ns=BASE_TS_NS)
+    state = SimpleNamespace(
+        cache=SimpleNamespace(order_book=lambda _: book),
+        portfolio=SimpleNamespace(is_net_flat=lambda _: True),
+        _instrument_id=instrument_id,
+        _latest_due_signal=lambda _: signal,
+        _active_signal=None,
+        _last_entry_ns=None,
+        _max_signal_lag_ns=0,
+        _signal_side=lambda _: side,
+        _submit_entry=lambda *args: submissions.append(args),
+    )
+    price = CandidateReplayStrategy._marketable_price(state, side)
+    CandidateReplayStrategy._process_due_signal(state, BASE_TS_NS)
+    valid = ask is not None and ask >= 100
+    assert len(submissions) == int(valid)
+    if valid:
+        expected = ask if side == OrderSide.BUY else 100
+        assert price == Price.from_str(f"{expected}.000000000")
+    else:
+        assert price is None
