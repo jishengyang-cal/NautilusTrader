@@ -625,6 +625,34 @@ def test_run_candidate_replay_rejects_non_finite_threshold(
         run_candidate_replay(request_path, tmp_path / "replays")
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "horizon_ms",
+        "min_abs_delta_ticks",
+        "min_direction_probability",
+        "cooldown_ms",
+        "max_signal_lag_ms",
+    ],
+)
+def test_run_candidate_replay_rejects_boolean_numeric_setting(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    """
+    A boolean numeric setting fails before replay execution.
+    """
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request[field] = True
+    request_path = tmp_path / "boolean-numeric-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="replay numeric settings must not be boolean"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
 def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
     """
     One bounded timer is rearmed for multiple grid-aligned predictions.

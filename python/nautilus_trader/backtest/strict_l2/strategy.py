@@ -94,6 +94,18 @@ class CandidateReplayConfig(StrategyConfig):
 
 
 def _validate_strategy_config(config: CandidateReplayConfig) -> None:
+    numeric_values = (
+        config.horizon_ms,
+        config.min_abs_delta_ticks,
+        config.min_direction_probability,
+        config.cooldown_ms,
+        config.max_signal_lag_ms,
+        config.replay_start_ns,
+        config.replay_end_ns,
+        config.order_insert_latency_ns,
+    )
+    if any(isinstance(value, bool) for value in numeric_values):
+        raise ValueError("replay numeric settings must not be boolean")
     if not config.research_symbol:
         raise ValueError("research_symbol must not be empty")
     if Decimal(config.trade_size) <= 0:
