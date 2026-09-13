@@ -374,7 +374,7 @@ def _replay_request(
         "max_signal_lag_ms": 0,
     }
     return {
-        "schema_version": "strict-l2-candidate-replay-request/v1",
+        "schema_version": "strict-l2-candidate-replay-request/v2",
         "audit_receipt_path": str(receipt),
         "audit_receipt_sha256": _sha256(receipt),
         "trading_date": "2026-05-11",
@@ -384,6 +384,9 @@ def _replay_request(
                 "symbol": "TEST",
                 "catalog_path": str(catalog),
                 "instrument_id": str(instrument.id),
+                "catalog_receipt_sha256": _sha256(
+                    catalog / "strict-l2-catalog-receipt.json",
+                ),
             },
         ],
         **signal_policy,
@@ -871,6 +874,27 @@ def test_run_candidate_replay_rejects_catalog_changed_after_publication(tmp_path
     request_path.write_text(json.dumps(request), encoding="utf-8")
 
     with pytest.raises(ValueError, match="catalog artifact digest mismatch"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
+def test_run_candidate_replay_rejects_coherently_rewritten_catalog(tmp_path: Path) -> None:
+    """
+    The request seals the receipt so changing both inventory and bytes fails closed.
+    """
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request_path = tmp_path / "replay-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    catalog_receipt_path = catalog / "strict-l2-catalog-receipt.json"
+    catalog_receipt = json.loads(catalog_receipt_path.read_text())
+    artifact = catalog / catalog_receipt["files"][0]["path"]
+    artifact.write_bytes(artifact.read_bytes() + b"changed")
+    catalog_receipt["files"][0]["size_bytes"] = artifact.stat().st_size
+    catalog_receipt["files"][0]["sha256"] = _sha256(artifact)
+    catalog_receipt_path.write_text(json.dumps(catalog_receipt), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="catalog receipt SHA-256"):
         run_candidate_replay(request_path, tmp_path / "replays")
 
 

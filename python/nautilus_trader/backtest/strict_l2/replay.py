@@ -76,7 +76,7 @@ class _PerShareFeeModel(FeeModel):
         )
 
 
-REQUEST_SCHEMA = "strict-l2-candidate-replay-request/v1"
+REQUEST_SCHEMA = "strict-l2-candidate-replay-request/v2"
 RESULT_SCHEMA = "strict-l2-candidate-replay-result/v1"
 SHA256_HEX_LENGTH = 64
 REQUEST_FIELDS = {
@@ -137,7 +137,10 @@ def _load_request(path: str | Path) -> tuple[Path, dict[str, Any]]:
         or any(not isinstance(item, dict) for item in catalogs)
     ):
         raise TypeError("candidate replay catalogs must be a non-empty object list")
-    if any(set(item) != {"symbol", "catalog_path", "instrument_id"} for item in catalogs):
+    if any(
+        set(item) != {"symbol", "catalog_path", "instrument_id", "catalog_receipt_sha256"}
+        for item in catalogs
+    ):
         raise ValueError("candidate replay catalog binding fields are invalid")
     balances = value["starting_balances"]
     if (
@@ -246,6 +249,7 @@ def _load_catalog_bindings(
             catalog_path,
             symbol=symbol,
             instrument_id=instrument_id,
+            expected_receipt_sha256=value["catalog_receipt_sha256"],
             source_manifest_sha256=source_manifest_sha256,
             symbol_metadata_sha256=symbol_metadata_sha256,
         )
@@ -282,17 +286,25 @@ def _load_catalog_bindings(
     return data_configs, bindings, venues.pop(), min(first_timestamps), receipt_bindings
 
 
-def _verify_catalog_receipt(  # noqa: C901
+def _verify_catalog_receipt(  # noqa: C901, PLR0913
     catalog_path: Path,
     *,
     symbol: str,
     instrument_id: InstrumentId,
+    expected_receipt_sha256: object,
     source_manifest_sha256: str,
     symbol_metadata_sha256: str,
 ) -> dict[str, Any]:
     receipt_path = catalog_path / "strict-l2-catalog-receipt.json"
     if not receipt_path.is_file():
         raise ValueError("strict-L2 catalog receipt is missing")
+    if (
+        not isinstance(expected_receipt_sha256, str)
+        or len(expected_receipt_sha256) != SHA256_HEX_LENGTH
+        or any(character not in "0123456789abcdef" for character in expected_receipt_sha256)
+        or _sha256(receipt_path) != expected_receipt_sha256
+    ):
+        raise ValueError("strict-L2 catalog receipt SHA-256 binding is invalid")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     required = {
         "schema_version",
