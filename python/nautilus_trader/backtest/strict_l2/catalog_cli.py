@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from pathlib import PurePosixPath
 
-from nautilus_trader.adapters.strict_l2.catalog import write_manifest_deltas_to_catalog
+from nautilus_trader.backtest.strict_l2.catalog import write_manifest_deltas_to_catalog
 from nautilus_trader.model import Currency
 from nautilus_trader.model import Equity
 from nautilus_trader.model import InstrumentId

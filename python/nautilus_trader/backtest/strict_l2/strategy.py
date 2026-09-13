@@ -24,8 +24,8 @@ from time import perf_counter_ns
 from typing import TYPE_CHECKING
 from typing import Any
 
-from nautilus_trader.adapters.strict_l2.candidate import CandidateSignal
-from nautilus_trader.adapters.strict_l2.candidate import load_candidate_signals
+from nautilus_trader.backtest.strict_l2.candidate import CandidateSignal
+from nautilus_trader.backtest.strict_l2.candidate import load_candidate_signals
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model import BookType
 from nautilus_trader.model import InstrumentId
