@@ -606,6 +606,69 @@ def test_run_candidate_replay_publishes_zero_trade_outcome(tmp_path: Path) -> No
     assert feedback["records"] == []
 
 
+@pytest.mark.parametrize("threshold", [float("nan"), float("inf"), float("-inf")])
+def test_run_candidate_replay_rejects_non_finite_threshold(
+    tmp_path: Path,
+    threshold: float,
+) -> None:
+    """
+    A non-finite signal threshold fails before replay execution.
+    """
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request["min_abs_delta_ticks"] = threshold
+    request_path = tmp_path / "non-finite-threshold-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="min_abs_delta_ticks must be finite and non-negative"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "trade_size",
+        "horizon_ms",
+        "min_abs_delta_ticks",
+        "min_direction_probability",
+        "cooldown_ms",
+        "max_signal_lag_ms",
+    ],
+)
+def test_run_candidate_replay_rejects_boolean_numeric_setting(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    """
+    A boolean numeric setting fails before replay execution.
+    """
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request[field] = True
+    request_path = tmp_path / "boolean-numeric-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="replay numeric settings must use their declared types"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
+def test_run_candidate_replay_rejects_non_integer_timing(tmp_path: Path) -> None:
+    """
+    A non-integer timing setting fails before replay execution.
+    """
+    receipt = _audit_receipt(tmp_path)
+    catalog, instrument, source_manifest = _catalog(tmp_path)
+    request = _replay_request(receipt, catalog, instrument, source_manifest)
+    request["cooldown_ms"] = float("nan")
+    request_path = tmp_path / "non-integer-timing-request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="replay numeric settings must use their declared types"):
+        run_candidate_replay(request_path, tmp_path / "replays")
+
+
 def test_candidate_strategy_rearms_exact_signal_timer(tmp_path: Path) -> None:
     """
     One bounded timer is rearmed for multiple grid-aligned predictions.

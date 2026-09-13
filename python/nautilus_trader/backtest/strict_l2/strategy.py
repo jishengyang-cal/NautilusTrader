@@ -18,6 +18,7 @@ Execution-bound strategy for audited strict-L2 candidate replay.
 
 from __future__ import annotations
 
+import math
 from decimal import Decimal
 from functools import wraps
 from time import perf_counter_ns
@@ -92,15 +93,40 @@ class CandidateReplayConfig(StrategyConfig):
         self.record_performance = record_performance
 
 
+def _validate_trade_size(value: str) -> None:
+    try:
+        trade_size = Decimal(value)
+    except ArithmeticError as e:
+        raise ValueError("trade_size must be a finite positive decimal string") from e
+    if not trade_size.is_finite() or trade_size <= 0:
+        raise ValueError("trade_size must be a finite positive decimal string")
+
+
 def _validate_strategy_config(config: CandidateReplayConfig) -> None:
+    declared_types = (
+        (config.trade_size, (str,)),
+        (config.horizon_ms, (int,)),
+        (config.min_abs_delta_ticks, (float,)),
+        (config.min_direction_probability, (float,)),
+        (config.cooldown_ms, (int,)),
+        (config.max_signal_lag_ms, (int,)),
+        (config.replay_start_ns, (int, type(None))),
+        (config.replay_end_ns, (int, type(None))),
+        (config.order_insert_latency_ns, (int,)),
+    )
+
+    if any(type(value) not in allowed for value, allowed in declared_types):
+        raise ValueError("replay numeric settings must use their declared types")
     if not config.research_symbol:
         raise ValueError("research_symbol must not be empty")
-    if Decimal(config.trade_size) <= 0:
-        raise ValueError("trade_size must be positive")
-    if config.min_abs_delta_ticks < 0:
-        raise ValueError("min_abs_delta_ticks must be non-negative")
-    if not MIN_DIRECTION_PROBABILITY <= config.min_direction_probability <= 1:
-        raise ValueError("min_direction_probability must be in [0.5, 1]")
+    _validate_trade_size(config.trade_size)
+    if not math.isfinite(config.min_abs_delta_ticks) or config.min_abs_delta_ticks < 0:
+        raise ValueError("min_abs_delta_ticks must be finite and non-negative")
+    if (
+        not math.isfinite(config.min_direction_probability)
+        or not MIN_DIRECTION_PROBABILITY <= config.min_direction_probability <= 1
+    ):
+        raise ValueError("min_direction_probability must be finite and in [0.5, 1]")
     if config.cooldown_ms < 0 or config.max_signal_lag_ms < 0:
         raise ValueError("replay timing limits must be non-negative")
     if (

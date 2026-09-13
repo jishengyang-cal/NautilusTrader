@@ -94,6 +94,9 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     ``ts_init = ts_recv + 1 ns`` so a model timer at ``t`` observes exactly the
     completed messages with ``ts_recv < t``; venue time remains unchanged.
 
+    ``event_index`` is the contiguous per-symbol integrity index. ``sequence``
+    preserves venue metadata and may gap or reset between completed messages.
+
     """
     if isinstance(price_precision, bool) or not isinstance(price_precision, int):
         raise TypeError("price_precision must be an integer")
@@ -105,7 +108,6 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     message_identity: tuple[int, int] | None = None
     message_last_ts_event = -1
     message_is_snapshot = False
-    previous_sequence = -1
     previous_ts_recv = -1
 
     for expected_index, row in enumerate(rows):
@@ -146,10 +148,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
             if ts_event < message_last_ts_event:
                 raise ValueError("logical L2 message venue time moved backwards before F_LAST")
         else:
-            if sequence < previous_sequence:
-                raise ValueError("strict-L2 sequence moved backwards between logical messages")
             message_identity = identity
-            previous_sequence = sequence
         message_last_ts_event = ts_event
         is_last = row["last"]
         if not isinstance(is_last, bool):

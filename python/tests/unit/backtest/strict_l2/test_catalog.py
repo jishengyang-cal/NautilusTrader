@@ -201,3 +201,60 @@ def test_manifest_publishes_queryable_l2_catalog_without_identity(tmp_path: Path
         assert len(node.run()) == 1
     finally:
         node.dispose()
+
+
+def test_catalog_failure_removes_staging_for_corrected_retry(tmp_path: Path) -> None:
+    """
+    A failed streamed publication leaves its catalog path retryable.
+    """
+    manifest = _manifest(tmp_path)
+    partition = tmp_path / "TEST.parquet"
+    rows = pd.read_parquet(partition)
+    rows.loc[2, "event_index"] = 1
+    rows.to_parquet(partition, index=False)
+    payload = json.loads(manifest.read_text())
+    partition_entry = next(item for item in payload["files"] if item["role"] == "l2_deltas")
+    partition_entry["size_bytes"] = partition.stat().st_size
+    partition_entry["sha256"] = hashlib.sha256(partition.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(payload))
+    instrument = Equity(
+        instrument_id=InstrumentId(Symbol("TEST"), Venue("XNAS")),
+        raw_symbol=Symbol("TEST"),
+        currency=Currency.from_str("USD"),
+        price_precision=9,
+        price_increment=Price.from_str("0.010000000"),
+        lot_size=Quantity.from_int(1),
+        min_quantity=Quantity.from_int(1),
+        ts_event=0,
+        ts_init=0,
+    )
+    target = tmp_path / "catalog"
+
+    with pytest.raises(ValueError, match="event_index must be contiguous"):
+        write_manifest_deltas_to_catalog(
+            manifest,
+            symbol="TEST",
+            instrument=instrument,
+            catalog_path=target,
+            read_batch_size=1,
+            write_batch_size=1,
+        )
+    assert not target.with_name(".catalog.incomplete").exists()
+
+    rows.loc[2, "event_index"] = 2
+    rows.to_parquet(partition, index=False)
+    partition_entry["size_bytes"] = partition.stat().st_size
+    partition_entry["sha256"] = hashlib.sha256(partition.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(payload))
+
+    receipt = write_manifest_deltas_to_catalog(
+        manifest,
+        symbol="TEST",
+        instrument=instrument,
+        catalog_path=target,
+        read_batch_size=1,
+        write_batch_size=1,
+    )
+
+    assert receipt["records"] == 3
+    assert target.exists()
