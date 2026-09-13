@@ -24,8 +24,8 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from nautilus_trader.adapters.strict_l2.data import iter_manifest_deltas
-from nautilus_trader.adapters.strict_l2.data import rows_to_deltas
+from nautilus_trader.backtest.strict_l2.data import iter_manifest_deltas
+from nautilus_trader.backtest.strict_l2.data import rows_to_deltas
 from nautilus_trader.model import BookAction
 from nautilus_trader.model import BookType
 from nautilus_trader.model import InstrumentId

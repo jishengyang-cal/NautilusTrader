@@ -20,11 +20,11 @@ import json
 from pathlib import Path
 
 import pytest
-from tests.unit.adapters.strict_l2.test_strategy import _audit_receipt
-from tests.unit.adapters.strict_l2.test_strategy import _catalog
-from tests.unit.adapters.strict_l2.test_strategy import _replay_request
 
-from nautilus_trader.adapters.strict_l2 import replay
+from nautilus_trader.backtest.strict_l2 import replay
+from tests.unit.backtest.strict_l2.test_strategy import _audit_receipt
+from tests.unit.backtest.strict_l2.test_strategy import _catalog
+from tests.unit.backtest.strict_l2.test_strategy import _replay_request
 
 
 @pytest.mark.parametrize("source_changes", [False, True])

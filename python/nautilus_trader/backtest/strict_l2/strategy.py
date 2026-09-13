@@ -24,8 +24,8 @@ from time import perf_counter_ns
 from typing import TYPE_CHECKING
 from typing import Any
 
-from nautilus_trader.adapters.strict_l2.candidate import CandidateSignal
-from nautilus_trader.adapters.strict_l2.candidate import load_candidate_signals
+from nautilus_trader.backtest.strict_l2.candidate import CandidateSignal
+from nautilus_trader.backtest.strict_l2.candidate import load_candidate_signals
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model import BookType
 from nautilus_trader.model import InstrumentId
@@ -307,7 +307,13 @@ class CandidateReplayStrategy(Strategy):
         """
         latest = self._latest_due_signal(now_ns)
         book = self.cache.order_book(self._instrument_id)
-        if latest is None or book is None or not book.spread():
+        if (
+            latest is None
+            or book is None
+            or (bid := book.best_bid_price()) is None
+            or (ask := book.best_ask_price()) is None
+            or ask < bid
+        ):
             return
         if self._active_signal is not None:
             return
@@ -546,9 +552,13 @@ class CandidateReplayStrategy(Strategy):
 
     def _marketable_price(self, side: OrderSide) -> Price | None:
         book = self.cache.order_book(self._instrument_id)
-        if book is None or not book.spread():
+        if book is None:
             return None
-        return book.best_ask_price() if side == OrderSide.BUY else book.best_bid_price()
+        bid = book.best_bid_price()
+        ask = book.best_ask_price()
+        if bid is None or ask is None or ask < bid:
+            return None
+        return ask if side == OrderSide.BUY else bid
 
     def _terminal_order_failure(self, event: object, status: str) -> None:
         client_order_id = getattr(event, "client_order_id", None)

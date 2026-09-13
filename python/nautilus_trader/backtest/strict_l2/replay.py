@@ -33,15 +33,15 @@ from typing import Any
 
 import pandas as pd
 
-from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
-from nautilus_trader.adapters.strict_l2.feedback import publish_execution_feedback
-from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayConfig
-from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayStrategy
 from nautilus_trader.backtest import BacktestDataConfig
 from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.backtest import BacktestNode
 from nautilus_trader.backtest import BacktestRunConfig
 from nautilus_trader.backtest import BacktestVenueConfig
+from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
+from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayConfig
+from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayStrategy
 from nautilus_trader.execution import FeeModel
 from nautilus_trader.execution import StaticLatencyModel
 from nautilus_trader.model import AccountType

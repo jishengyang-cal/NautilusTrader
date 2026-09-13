@@ -25,8 +25,8 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 
-from nautilus_trader.adapters.strict_l2.data import AVAILABILITY_TIE_BREAK_NS
-from nautilus_trader.adapters.strict_l2.data import iter_manifest_deltas
+from nautilus_trader.backtest.strict_l2.data import AVAILABILITY_TIE_BREAK_NS
+from nautilus_trader.backtest.strict_l2.data import iter_manifest_deltas
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.model import OrderBookDelta
 from nautilus_trader.persistence import ParquetDataCatalog
