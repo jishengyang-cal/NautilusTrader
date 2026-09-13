@@ -17,6 +17,8 @@ Tests for immutable, identifier-free execution feedback publication.
 """
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -56,6 +58,39 @@ def test_feedback_is_atomic_sanitized_and_immutable(tmp_path: Path) -> None:
     assert not (tmp_path / ".feedback.json.incomplete").exists()
     with pytest.raises(FileExistsError):
         _publish(tmp_path, [])
+
+
+def test_concurrent_feedback_publication_never_overwrites(tmp_path: Path) -> None:
+    """
+    Concurrent publishers cannot replace the first finalized artifact.
+    """
+    barrier = threading.Barrier(2)
+
+    def publish(run_id: str) -> tuple[str, str]:
+        barrier.wait()
+        try:
+            publish_execution_feedback(
+                tmp_path / "feedback.json",
+                environment="backtest",
+                trading_date="2026-09-10",
+                run_id=run_id,
+                model_id="model",
+                model_artifact_sha256="a" * 64,
+                feature_manifest_sha256="b" * 64,
+                reconciliation={"status": "complete"},
+                records=[],
+            )
+        except FileExistsError:
+            return run_id, "rejected"
+        return run_id, "published"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(publish, ("run-1", "run-2")))
+
+    published = [run_id for run_id, status in results if status == "published"]
+    assert len(published) == 1
+    assert json.loads((tmp_path / "feedback.json").read_text())["run_id"] == published[0]
+    assert not list(tmp_path.glob("*.incomplete"))
 
 
 def test_feedback_rejects_nested_execution_identity(tmp_path: Path) -> None:

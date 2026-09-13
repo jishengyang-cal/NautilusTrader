@@ -16,6 +16,7 @@
 Independent normal-CDF and finite-difference checks of native option Greeks.
 """
 
+from collections.abc import Callable
 from math import erf
 from math import exp
 from math import log
@@ -24,7 +25,9 @@ from math import sqrt
 import pytest
 
 from nautilus_trader.model import black_scholes_greeks
+from nautilus_trader.model import imply_vol
 from nautilus_trader.model import imply_vol_and_greeks
+from nautilus_trader.model import refine_vol_and_greeks
 
 
 def _reference_price(s, k, t, r, b, vol, is_call):
@@ -85,3 +88,73 @@ def test_native_put_call_parity_with_dividend_carry() -> None:
         100 * exp(-0.03 * 0.7) - 105 * exp(-0.04 * 0.7),
         abs=3e-5,
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("s", 0.0),
+        ("s", float("nan")),
+        ("r", float("inf")),
+        ("b", float("-inf")),
+        ("vol", 0.0),
+        ("vol", float("nan")),
+        ("k", -1.0),
+        ("t", 0.0),
+    ],
+)
+def test_black_scholes_rejects_invalid_inputs(field: str, value: float) -> None:
+    """
+    Reject non-finite values and non-positive model domains.
+    """
+    inputs = {"s": 100.0, "r": 0.05, "b": 0.05, "vol": 0.2, "k": 100.0, "t": 1.0}
+    inputs[field] = value
+    with pytest.raises(ValueError, match=field):
+        black_scholes_greeks(is_call=True, **inputs)
+
+
+@pytest.mark.parametrize(
+    "function",
+    [
+        imply_vol,
+        imply_vol_and_greeks,
+    ],
+)
+@pytest.mark.parametrize("price", [0.0, float("nan"), float("inf")])
+def test_implied_volatility_rejects_invalid_price(
+    function: Callable[..., object],
+    price: float,
+) -> None:
+    """
+    Reject prices outside the implied-volatility solver domain.
+    """
+    with pytest.raises(ValueError, match="price"):
+        function(100.0, 0.05, 0.05, True, 100.0, 1.0, price)
+
+
+@pytest.mark.parametrize("function", [imply_vol, imply_vol_and_greeks])
+def test_implied_volatility_rejects_unsolved_price(function: Callable[..., object]) -> None:
+    """
+    Reject a solver failure instead of returning fallback volatility and Greeks.
+    """
+    with pytest.raises(ValueError, match="implied volatility"):
+        function(100.0, 0.05, 0.05, True, 100.0, 1.0, 200.0)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("target_price", 0.0),
+        ("target_price", float("nan")),
+        ("initial_vol", 0.0),
+        ("initial_vol", float("inf")),
+    ],
+)
+def test_refined_greeks_reject_invalid_solver_inputs(field: str, value: float) -> None:
+    """
+    Reject invalid refinement prices and initial volatility.
+    """
+    inputs = {"target_price": 10.0, "initial_vol": 0.2}
+    inputs[field] = value
+    with pytest.raises(ValueError, match=field):
+        refine_vol_and_greeks(100.0, 0.05, 0.05, True, 100.0, 1.0, **inputs)

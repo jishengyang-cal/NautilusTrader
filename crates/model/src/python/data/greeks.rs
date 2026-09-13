@@ -14,12 +14,39 @@
 // -------------------------------------------------------------------------------------------------
 
 use nautilus_core::UnixNanos;
-use pyo3::{prelude::*, types::PyType};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyType};
 
 use crate::data::greeks::{
     BlackScholesGreeksResult, GreeksData, OptionGreekValues, PortfolioGreeks, black_scholes_greeks,
-    imply_vol, imply_vol_and_greeks, refine_vol_and_greeks,
+    imply_vol, refine_vol_and_greeks,
 };
+
+fn check_finite(value: f64, parameter: &str) -> PyResult<()> {
+    if !value.is_finite() {
+        return Err(PyValueError::new_err(format!(
+            "{parameter} must be finite, was {value}"
+        )));
+    }
+    Ok(())
+}
+
+fn check_positive_finite(value: f64, parameter: &str) -> PyResult<()> {
+    check_finite(value, parameter)?;
+    if value <= 0.0 {
+        return Err(PyValueError::new_err(format!(
+            "{parameter} must be positive, was {value}"
+        )));
+    }
+    Ok(())
+}
+
+fn check_option_inputs(s: f64, r: f64, b: f64, k: f64, t: f64) -> PyResult<()> {
+    check_positive_finite(s, "s")?;
+    check_finite(r, "r")?;
+    check_finite(b, "b")?;
+    check_positive_finite(k, "k")?;
+    check_positive_finite(t, "t")
+}
 
 #[cfg(feature = "python")]
 #[pymethods]
@@ -282,6 +309,8 @@ pub fn py_black_scholes_greeks(
     k: f64,
     t: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
+    check_option_inputs(s, r, b, k, t)?;
+    check_positive_finite(vol, "vol")?;
     Ok(black_scholes_greeks(s, r, b, vol, is_call, k, t))
 }
 
@@ -302,7 +331,10 @@ pub fn py_imply_vol(
     t: f64,
     price: f64,
 ) -> PyResult<f64> {
+    check_option_inputs(s, r, b, k, t)?;
+    check_positive_finite(price, "price")?;
     let vol = imply_vol(s, r, b, is_call, k, t, price);
+    check_positive_finite(vol, "implied volatility")?;
     Ok(vol)
 }
 
@@ -320,7 +352,11 @@ pub fn py_imply_vol_and_greeks(
     t: f64,
     price: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
-    Ok(imply_vol_and_greeks(s, r, b, is_call, k, t, price))
+    check_option_inputs(s, r, b, k, t)?;
+    check_positive_finite(price, "price")?;
+    let vol = imply_vol(s, r, b, is_call, k, t, price);
+    check_positive_finite(vol, "implied volatility")?;
+    Ok(black_scholes_greeks(s, r, b, vol, is_call, k, t))
 }
 
 /// Refines implied volatility using an initial guess and computes greeks.
@@ -340,6 +376,9 @@ pub fn py_refine_vol_and_greeks(
     target_price: f64,
     initial_vol: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
+    check_option_inputs(s, r, b, k, t)?;
+    check_positive_finite(target_price, "target_price")?;
+    check_positive_finite(initial_vol, "initial_vol")?;
     Ok(refine_vol_and_greeks(
         s,
         r,

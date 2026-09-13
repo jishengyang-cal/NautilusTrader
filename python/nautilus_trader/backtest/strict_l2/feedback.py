@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import re
+import tempfile
 from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import UTC
@@ -368,14 +370,27 @@ def publish_execution_feedback(  # noqa: PLR0913
     _validate_payload(payload)
     target = Path(output_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    staging = target.with_name(f".{target.name}.incomplete")
-    if target.exists() or staging.exists():
+    if target.exists():
         raise FileExistsError("execution feedback publication never overwrites output")
     rendered = (
         json.dumps(payload, indent=2, sort_keys=True, use_decimal=True, allow_nan=False) + "\n"
     )
-    staging.write_text(rendered, encoding="utf-8")
-    staging.replace(target)
+    staging = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".incomplete",
+            delete=False,
+        ) as staging_file:
+            staging = Path(staging_file.name)
+            staging_file.write(rendered)
+        os.link(staging, target)
+    finally:
+        if staging is not None:
+            staging.unlink(missing_ok=True)
     return {
         "path": str(target),
         "sha256": hashlib.sha256(rendered.encode()).hexdigest(),
