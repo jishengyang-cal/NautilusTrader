@@ -95,24 +95,9 @@ class CandidateReplayConfig(StrategyConfig):
         """
         Initialize the candidate replay configuration.
         """
-        super().__init__(
-            strategy_id=strategy_id,
-            order_id_tag=order_id_tag,
-            oms_type=oms_type,
-            external_order_instrument_ids=external_order_instrument_ids,
-            manage_contingent_orders=manage_contingent_orders,
-            manage_gtd_expiry=manage_gtd_expiry,
-            manage_stop=manage_stop,
-            market_exit_interval_ms=market_exit_interval_ms,
-            market_exit_max_attempts=market_exit_max_attempts,
-            market_exit_time_in_force=market_exit_time_in_force,
-            market_exit_reduce_only=market_exit_reduce_only,
-            use_uuid_client_order_ids=use_uuid_client_order_ids,
-            use_hyphens_in_client_order_ids=use_hyphens_in_client_order_ids,
-            log_events=log_events,
-            log_commands=log_commands,
-            log_rejected_due_post_only_as_warning=log_rejected_due_post_only_as_warning,
-        )
+        # The PyO3 StrategyConfig base consumes its fields in __new__; its
+        # Python __init__ is object.__init__ and accepts no keyword arguments.
+        super().__init__()
         self.instrument_id = instrument_id
         self.research_symbol = research_symbol
         self.audit_receipt_path = audit_receipt_path
