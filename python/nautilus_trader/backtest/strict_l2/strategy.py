@@ -307,7 +307,6 @@ class CandidateReplayStrategy(Strategy):
         """
         latest = self._latest_due_signal(now_ns)
         book = self.cache.order_book(self._instrument_id)
-
         if (
             latest is None
             or book is None
