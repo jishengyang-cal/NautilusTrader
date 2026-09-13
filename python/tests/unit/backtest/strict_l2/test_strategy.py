@@ -480,7 +480,14 @@ def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path)
     assert result["records"] == 2
     assert feedback["trading_date"] == "2026-05-11"
     assert replay["book_type"] == "L2_MBP"
-    assert replay["request"] == request
+    assert replay["schema_version"] == "strict-l2-candidate-replay-result/v2"
+    assert replay["request"]["audit_receipt_sha256"] == request["audit_receipt_sha256"]
+    assert replay["request"]["catalogs"] == [
+        {"symbol": "TEST", "instrument_id": str(instrument.id)},
+    ]
+    assert "audit_receipt_path" not in replay["request"]
+    assert "source_manifest_path" not in replay["request"]
+    assert str(tmp_path) not in json.dumps(replay)
     assert replay["fee_scenario"] == {
         "model": "per_share",
         "currency": "USD",
@@ -499,6 +506,7 @@ def test_run_candidate_replay_publishes_sanitized_daily_feedback(tmp_path: Path)
         "latency_scenario": replay["latency_scenario"],
     }
     assert len(replay["catalog_receipts"]) == 1
+    assert set(replay["catalog_receipts"][0]) == {"symbol", "sha256"}
     assert replay["catalog_receipts"][0]["sha256"] == _sha256(
         catalog / "strict-l2-catalog-receipt.json",
     )
@@ -1007,67 +1015,34 @@ def test_candidate_strategy_requires_exact_instrument_quantity(
         node.dispose()
 
 
-def test_host_profiling_preserves_orders_fees_and_account_results(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("min_abs_delta_ticks", False),
+        ("min_abs_delta_ticks", float("nan")),
+        ("min_direction_probability", float("inf")),
+        ("horizon_ms", True),
+        ("horizon_ms", 1.5),
+        ("cooldown_ms", False),
+        ("max_signal_lag_ms", 1.5),
+        ("replay_start_ns", False),
+        ("replay_end_ns", 1.5),
+        ("order_insert_latency_ns", True),
+    ],
+)
+def test_candidate_strategy_rejects_invalid_numeric_config(field: str, value: object) -> None:
     """
-    Optional host timings do not enter economic execution feedback.
+    Reject booleans, non-finite thresholds and non-integer timing values.
     """
-    receipt = _audit_receipt(tmp_path)
-    catalog, instrument, source_manifest = _catalog(tmp_path)
-    request_path = tmp_path / "request.json"
-    request_path.write_text(
-        json.dumps(_replay_request(receipt, catalog, instrument, source_manifest)),
-    )
-    ordinary = run_candidate_replay(request_path, tmp_path / "ordinary")
-    profiled = run_candidate_replay(request_path, tmp_path / "profiled", record_performance=True)
-    left = Path(ordinary["output"])
-    right = Path(profiled["output"])
-    a = json.loads((left / "execution-feedback.json").read_text())
-    b = json.loads((right / "execution-feedback.json").read_text())
-    assert a["records"] == b["records"]
-
-    for field in (
-        "stats_pnls",
-        "stats_returns",
-        "stats_general",
-        "total_orders",
-        "total_positions",
-    ):
-        assert a["metrics"][field] == b["metrics"][field]
-    assert not (left / "performance.json").exists()
-    report = json.loads((right / "performance.json").read_text())
-    performance = report["strategies"]["TEST"]
-    assert report["clock"]["monotonic"] is True
-    assert len(report["source_sha256"]["strategy.py"]) == 64
-    assert performance["unit"] == "nanoseconds"
-    assert performance["stages"]["_process_due_signal"]["market_time_ns"] == [BASE_TS_NS]
-    assert performance["stages"]["on_order_filled"]["count"] == 2
-    assert performance["stages"]["_submit_entry"]["count"] == 1
-    assert performance["stages"]["on_book_deltas"]["count"] > 0
-    assert all(value >= 0 for stage in performance["stages"].values() for value in stage["samples"])
-
-
-def test_host_profiling_records_errors_without_changing_exception() -> None:
-    """
-    A failed callback keeps its original error and records an inclusive duration.
-    """
-    strategy = CandidateReplayStrategy(
-        CandidateReplayConfig(
-            instrument_id="TEST.SIM",
-            research_symbol="TEST",
-            audit_receipt_path="unused",
-            record_performance=True,
-        ),
+    config = CandidateReplayConfig(
+        instrument_id="TEST.SIM",
+        research_symbol="TEST",
+        audit_receipt_path="unused",
+        **{field: value},
     )
 
-    def failed() -> None:
-        raise LookupError("original callback error")
-
-    with pytest.raises(LookupError, match="original callback error"):
-        strategy._timed_callback("failure", failed)()
-    report = strategy.performance_report
-    assert report["stages"]["failure"]["count"] == 1
-    report["stages"]["failure"]["samples"].clear()
-    assert len(strategy.performance_report["stages"]["failure"]["samples"]) == 1
+    with pytest.raises(ValueError, match="must"):
+        CandidateReplayStrategy(config)
 
 
 @pytest.mark.parametrize(

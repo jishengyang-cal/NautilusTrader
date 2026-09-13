@@ -20,13 +20,11 @@ from nautilus_trader.backtest.strict_l2.catalog import write_manifest_deltas_to_
 from nautilus_trader.backtest.strict_l2.data import iter_manifest_deltas
 from nautilus_trader.backtest.strict_l2.data import rows_to_deltas
 from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
-from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
 
 
 __all__ = [
     "feedback_records_from_orders_report",
     "iter_manifest_deltas",
-    "publish_execution_feedback",
     "rows_to_deltas",
     "write_manifest_deltas_to_catalog",
 ]

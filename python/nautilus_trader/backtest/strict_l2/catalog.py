@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
+from decimal import Decimal
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
@@ -94,16 +94,18 @@ def _validate_instrument_metadata(
     tick_rules = metadata.get("tick_rule")
     if not isinstance(tick_rules, list) or not tick_rules:
         raise ValueError("strict-L2 symbol metadata has no tick rules")
-    allowed_ticks = {
-        item.get("tick_size_x1e9") / 1_000_000_000
+    if any(
+        not isinstance(item, dict)
+        or type(item.get("tick_size_x1e9")) is not int
+        or item["tick_size_x1e9"] <= 0
         for item in tick_rules
-        if isinstance(item, dict) and isinstance(item.get("tick_size_x1e9"), int)
+    ):
+        raise ValueError("strict-L2 tick sizes must be positive integer nanounits")
+    allowed_ticks = {
+        Decimal(item["tick_size_x1e9"]) / Decimal(1_000_000_000) for item in tick_rules
     }
     increment = getattr(instrument, "price_increment", None)
-    if increment is None or not any(
-        math.isclose(increment.as_double(), tick, rel_tol=0.0, abs_tol=1e-12)
-        for tick in allowed_ticks
-    ):
+    if increment is None or increment.as_decimal() not in allowed_ticks:
         raise ValueError("Nautilus price increment is absent from strict-L2 tick rules")
     return digest
 

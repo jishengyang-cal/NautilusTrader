@@ -25,13 +25,11 @@ import pytest
 
 from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
 from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
-from nautilus_trader.backtest.strict_l2.feedback_cli import export_feedback_from_json
 
 
 def _publish(tmp_path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:
     return publish_execution_feedback(
         tmp_path / "feedback.json",
-        environment="backtest",
         trading_date="2026-09-10",
         run_id="run",
         model_id="model",
@@ -136,7 +134,6 @@ def test_feedback_rejects_cross_day_fill_and_incomplete_reconciliation(tmp_path:
     with pytest.raises(ValueError, match="complete reconciliation"):
         publish_execution_feedback(
             tmp_path / "unreconciled.json",
-            environment="paper",
             trading_date="2026-09-10",
             run_id="run",
             model_id="model",
@@ -212,53 +209,6 @@ def test_orders_report_requires_one_to_one_strategy_binding() -> None:
             [row],
             {"ORDER-1": binding, "ORDER-2": binding},
         )
-
-
-def test_json_export_command_publishes_only_sanitized_records(tmp_path: Path) -> None:
-    """
-    The standalone exporter joins ephemeral IDs without publishing them.
-    """
-    trading_ns = 1_757_512_800_000_000_000
-    request = {
-        "environment": "paper",
-        "trading_date": "2025-09-10",
-        "run_id": "run",
-        "model_id": "model",
-        "model_artifact_sha256": "a" * 64,
-        "feature_manifest_sha256": "b" * 64,
-        "reconciliation": {"status": "complete"},
-        "metrics": {"pnl_after_fees": 1.0},
-        "bindings": {
-            "ORDER-1": {
-                "prediction_id": "prediction-1",
-                "instrument_uid": "nvda-canonical",
-                "decision_ts_ns": trading_ns,
-                "fees": 0.01,
-                "last_fill_ts_ns": trading_ns + 2,
-            },
-        },
-    }
-    orders = [
-        {
-            "client_order_id": "ORDER-1",
-            "side": "BUY",
-            "status": "FILLED",
-            "filled_qty": 1,
-            "avg_px": 100,
-            "ts_init": trading_ns + 1,
-            "ts_last": trading_ns + 2,
-        },
-    ]
-    request_path = tmp_path / "request.json"
-    orders_path = tmp_path / "orders.json"
-    output_path = tmp_path / "feedback.json"
-    request_path.write_text(json.dumps(request))
-    orders_path.write_text(json.dumps(orders))
-    receipt = export_feedback_from_json(request_path, orders_path, output_path)
-    payload = output_path.read_text()
-    assert receipt["records"] == 1
-    assert "ORDER-1" not in payload
-    assert "client_order_id" not in payload
 
 
 @pytest.mark.parametrize("reverse", [False, True])

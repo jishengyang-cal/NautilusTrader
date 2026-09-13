@@ -21,9 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import platform
 import shutil
-import time
 from collections.abc import Mapping
 from collections.abc import Sequence
 from decimal import Decimal
@@ -77,7 +75,7 @@ class _PerShareFeeModel(FeeModel):
 
 
 REQUEST_SCHEMA = "strict-l2-candidate-replay-request/v1"
-RESULT_SCHEMA = "strict-l2-candidate-replay-result/v1"
+RESULT_SCHEMA = "strict-l2-candidate-replay-result/v2"
 SHA256_HEX_LENGTH = 64
 REQUEST_FIELDS = {
     "schema_version",
@@ -159,6 +157,22 @@ def _load_request(path: str | Path) -> tuple[Path, dict[str, Any]]:
     if isinstance(latency, bool) or not isinstance(latency, int) or latency < 0:
         raise ValueError("candidate replay order_insert_latency_ns must be non-negative integer ns")
     return source, value
+
+
+def _deidentified_request(request: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in request.items()
+        if key not in {"audit_receipt_path", "source_manifest_path", "catalogs"}
+    } | {
+        "catalogs": [
+            {
+                "symbol": item["symbol"],
+                "instrument_id": item["instrument_id"],
+            }
+            for item in request["catalogs"]
+        ],
+    }
 
 
 def _validate_source_manifest(
@@ -253,7 +267,6 @@ def _load_catalog_bindings(
         receipt_bindings.append(
             {
                 "symbol": symbol,
-                "path": str(receipt_path),
                 "sha256": _sha256(receipt_path),
             },
         )
@@ -405,44 +418,9 @@ def _load_bound_audit(request: dict[str, Any]) -> tuple[Path, dict[str, Any], st
     return audit_path, audit, digest
 
 
-def _publish_performance(
-    staging: Path,
-    identity: dict[str, Any],
-    profile_source_sha256: dict[str, str],
-    bindings: list[tuple[str, InstrumentId]],
-    strategies: list[CandidateReplayStrategy],
-) -> None:
-    if profile_source_sha256 != {
-        name: _sha256(Path(__file__).with_name(name)) for name in profile_source_sha256
-    }:
-        raise ValueError("profiling source files changed during replay")
-    performance = {
-        "schema_version": "strict-l2-replay-performance/v1",
-        **identity,
-        "execution_assumptions_unchanged": True,
-        "acceptance": "callback diagnostics only; not full performance acceptance",
-        "python_version": platform.python_version(),
-        "source_sha256": profile_source_sha256,
-        "clock": {
-            key: getattr(time.get_clock_info("perf_counter"), key)
-            for key in ("implementation", "monotonic", "adjustable", "resolution")
-        },
-        "strategies": {
-            symbol: strategy.performance_report
-            for (symbol, _), strategy in zip(bindings, strategies, strict=True)
-        },
-    }
-    (staging / "performance.json").write_text(
-        json.dumps(performance, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-
-
 def run_candidate_replay(
     request_path: str | Path,
     output_root: str | Path,
-    *,
-    record_performance: bool = False,
 ) -> dict[str, Any]:
     """
     Execute and atomically publish one strict-L2 candidate replay day.
@@ -452,22 +430,9 @@ def run_candidate_replay(
     enforced by ``load_candidate_signals`` without a separate replay policy artifact.
     The session is 09:30-16:00 America/New_York, with earlier catalog data used for
     book warmup. Feedback has ``environment=backtest`` and provides no live evidence.
-
-    Set ``record_performance=True`` (CLI ``--record-performance``) to publish a
-    separate ``performance.json``; see ``CandidateReplayStrategy.performance_report``
-    for sampling limitations. Source hashes are captured before execution and checked
-    afterward. Drift rejects the new publication while preserving existing outputs.
+    Published results retain request and artifact digests but omit local input paths.
 
     """
-    profile_sources = (
-        {
-            name: Path(__file__).with_name(name)
-            for name in ("strategy.py", "replay.py", "candidate.py", "feedback.py")
-        }
-        if record_performance
-        else {}
-    )
-    profile_source_sha256 = {name: _sha256(path) for name, path in profile_sources.items()}
     source, request = _load_request(request_path)
     source_manifest = Path(request["source_manifest_path"]).expanduser().resolve(strict=True)
     requested_symbols = {item["symbol"] for item in request["catalogs"]}
@@ -545,7 +510,6 @@ def run_candidate_replay(
                     replay_start_ns=start_ns,
                     replay_end_ns=end_ns,
                     order_insert_latency_ns=request["order_insert_latency_ns"],
-                    record_performance=record_performance,
                 ),
             )
             strategies.append(strategy)
@@ -599,7 +563,6 @@ def run_candidate_replay(
         feedback_path = staging / "execution-feedback.json"
         feedback_receipt = publish_execution_feedback(
             feedback_path,
-            environment="backtest",
             trading_date=request["trading_date"],
             run_id=replay_id,
             model_id=audit["run_id"],
@@ -618,7 +581,7 @@ def run_candidate_replay(
             "schema_version": RESULT_SCHEMA,
             "replay_id": replay_id,
             **identity,
-            "request": request,
+            "request": _deidentified_request(request),
             "catalog_receipts": catalog_receipts,
             "book_type": "L2_MBP",
             **execution_assumptions,
@@ -632,14 +595,6 @@ def run_candidate_replay(
         rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         (staging / "replay-result.json").write_text(rendered, encoding="utf-8")
 
-        if record_performance:
-            _publish_performance(
-                staging,
-                identity,
-                profile_source_sha256,
-                bindings,
-                strategies,
-            )
         staging.replace(final)
         return {
             "status": "complete",

@@ -18,9 +18,8 @@ Execution-bound strategy for audited strict-L2 candidate replay.
 
 from __future__ import annotations
 
+import math
 from decimal import Decimal
-from functools import wraps
-from time import perf_counter_ns
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -40,14 +39,10 @@ from nautilus_trader.trading import Strategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from nautilus_trader.common import TimeEvent
 
 
 MIN_DIRECTION_PROBABILITY = 0.5
-_MAX_PERFORMANCE_SAMPLES = 100_000
-_SUBMIT_ENTRY_ARGUMENT_COUNT = 3
 
 
 class CandidateReplayConfig(StrategyConfig):
@@ -70,7 +65,6 @@ class CandidateReplayConfig(StrategyConfig):
         replay_start_ns: int | None = None,
         replay_end_ns: int | None = None,
         order_insert_latency_ns: int = 0,
-        record_performance: bool = False,
         **_kwargs: object,
     ) -> None:
         """
@@ -89,20 +83,44 @@ class CandidateReplayConfig(StrategyConfig):
         self.replay_start_ns = replay_start_ns
         self.replay_end_ns = replay_end_ns
         self.order_insert_latency_ns = order_insert_latency_ns
-        self.record_performance = record_performance
 
 
-def _validate_strategy_config(config: CandidateReplayConfig) -> None:
+def _validate_strategy_config(config: CandidateReplayConfig) -> None:  # noqa: C901
     if not config.research_symbol:
         raise ValueError("research_symbol must not be empty")
     if Decimal(config.trade_size) <= 0:
         raise ValueError("trade_size must be positive")
+    thresholds = (
+        ("min_abs_delta_ticks", config.min_abs_delta_ticks),
+        ("min_direction_probability", config.min_direction_probability),
+    )
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+        for _, value in thresholds
+    ):
+        raise ValueError("replay thresholds must be finite numeric values")
     if config.min_abs_delta_ticks < 0:
         raise ValueError("min_abs_delta_ticks must be non-negative")
     if not MIN_DIRECTION_PROBABILITY <= config.min_direction_probability <= 1:
         raise ValueError("min_direction_probability must be in [0.5, 1]")
+    timing_fields = (
+        ("horizon_ms", config.horizon_ms),
+        ("cooldown_ms", config.cooldown_ms),
+        ("max_signal_lag_ms", config.max_signal_lag_ms),
+        ("order_insert_latency_ns", config.order_insert_latency_ns),
+    )
+    if any(isinstance(value, bool) or not isinstance(value, int) for _, value in timing_fields):
+        raise ValueError("replay timing values must be integers")
+    if config.horizon_ms < 1:
+        raise ValueError("horizon_ms must be positive")
     if config.cooldown_ms < 0 or config.max_signal_lag_ms < 0:
         raise ValueError("replay timing limits must be non-negative")
+    for name, value in (
+        ("replay_start_ns", config.replay_start_ns),
+        ("replay_end_ns", config.replay_end_ns),
+    ):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise ValueError(f"{name} must be an integer or None")
     if (
         config.replay_start_ns is not None
         and config.replay_end_ns is not None
@@ -111,8 +129,6 @@ def _validate_strategy_config(config: CandidateReplayConfig) -> None:
         raise ValueError("replay time bounds must define a positive interval")
     if config.order_insert_latency_ns < 0:
         raise ValueError("order_insert_latency_ns must be non-negative")
-    if type(config.record_performance) is not bool:
-        raise ValueError("record_performance must be boolean")
 
 
 class CandidateReplayStrategy(Strategy):
@@ -161,83 +177,6 @@ class CandidateReplayStrategy(Strategy):
         timer_suffix = str(self._instrument_id).replace(".", "-")
         self._signal_timer_name = f"strict-l2-signal-{timer_suffix}"
         self._exit_timer_name = f"strict-l2-exit-{timer_suffix}"
-        self._performance_samples: dict[str, list[int]] = {}
-        self._performance_counts: dict[str, int] = {}
-        self._performance_times: dict[str, list[int | None]] = {}
-        self._record_performance = config.record_performance
-        if self._record_performance:
-            for name in (
-                "_process_due_signal",
-                "_submit_entry",
-                "_submit_exit",
-                "on_order_filled",
-                "on_book_deltas",
-            ):
-                setattr(self, name, self._timed_callback(name, getattr(self, name)))
-
-    def _timed_callback[**P, R](self, name: str, callback: Callable[P, R]) -> Callable[P, R]:
-        @wraps(callback)
-        def measured(*args: P.args, **kwargs: P.kwargs) -> R:
-            started = perf_counter_ns()
-            try:
-                return callback(*args, **kwargs)
-            finally:
-                elapsed = perf_counter_ns() - started
-                self._performance_counts[name] = self._performance_counts.get(name, 0) + 1
-                samples = self._performance_samples.setdefault(name, [])
-                if len(samples) < _MAX_PERFORMANCE_SAMPLES:
-                    samples.append(elapsed)
-                    market_time = None
-
-                    if (
-                        name in {"on_order_filled", "on_book_deltas"}
-                        and args
-                        and isinstance(args[0], (OrderFilled, OrderBookDeltas))
-                    ):
-                        market_time = args[0].ts_event
-                    elif name == "_process_due_signal" and args and isinstance(args[0], int):
-                        market_time = args[0]
-                    elif (
-                        name == "_submit_entry"
-                        and len(args) == _SUBMIT_ENTRY_ARGUMENT_COUNT
-                        and isinstance(args[2], int)
-                    ):
-                        market_time = args[2]
-                    self._performance_times.setdefault(name, []).append(market_time)
-
-        return measured
-
-    @property
-    def performance_report(self) -> dict[str, Any] | None:
-        """
-        Return inclusive Python callback durations measured with ``perf_counter_ns``.
-
-        Profiling is disabled by default. Each stage retains its first 100,000 samples
-        per symbol in memory, including warmup callbacks, so samples may favor premarket
-        activity. Nested stages overlap; their times are not additive. These diagnostics
-        exclude managed book updates, model inference, and broker network latency and do
-        not establish full-day performance acceptance.
-
-        """
-        if not self._record_performance:
-            return None
-        return {
-            "schema_version": "strict-l2-host-performance/v1",
-            "scope": "inclusive Python callback host duration; stages overlap",
-            "excludes": ["managed book update", "model inference", "broker network latency"],
-            "unit": "nanoseconds",
-            "max_samples_per_stage": _MAX_PERFORMANCE_SAMPLES,
-            "sampling": "first samples per stage; counts include later callbacks",
-            "stages": {
-                name: {
-                    "count": count,
-                    "samples": list(self._performance_samples[name]),
-                    "market_time_ns": list(self._performance_times[name]),
-                    "truncated": count > len(self._performance_samples[name]),
-                }
-                for name, count in self._performance_counts.items()
-            },
-        }
 
     @property
     def feedback_bindings(self) -> dict[str, dict[str, Any]]:
@@ -416,9 +355,6 @@ class CandidateReplayStrategy(Strategy):
         self._signals = ()
         self._cursor = 0
         self._bindings.clear()
-        self._performance_samples.clear()
-        self._performance_counts.clear()
-        self._performance_times.clear()
         self._failures.clear()
         self._last_entry_ns = None
         self._clear_trade()

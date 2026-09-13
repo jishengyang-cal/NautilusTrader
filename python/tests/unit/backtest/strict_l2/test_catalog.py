@@ -44,7 +44,7 @@ from nautilus_trader.model import Venue
 from nautilus_trader.persistence import ParquetDataCatalog
 
 
-def _manifest(tmp_path: Path) -> Path:
+def _manifest(tmp_path: Path, tick_size_x1e9: object = 10_000_000) -> Path:
     rows = [
         {
             "symbol": "TEST",
@@ -94,7 +94,9 @@ def _manifest(tmp_path: Path) -> Path:
             {
                 "venue": "XNAS",
                 "symbols": {"TEST": {"currency": "USD", "price_precision": 9}},
-                "tick_rule": [{"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": 10_000_000}],
+                "tick_rule": [
+                    {"price_gte_x1e9": 1_000_000_000, "tick_size_x1e9": tick_size_x1e9},
+                ],
             },
         ),
     )
@@ -201,3 +203,40 @@ def test_manifest_publishes_queryable_l2_catalog_without_identity(tmp_path: Path
         assert len(node.run()) == 1
     finally:
         node.dispose()
+
+
+@pytest.mark.parametrize(
+    ("tick_size_x1e9", "price_increment"),
+    [
+        (True, "0.000000001"),
+        (10_000_000_000_000_001, "10000000.000000000"),
+    ],
+)
+def test_manifest_rejects_invalid_or_inexact_tick_size(
+    tmp_path: Path,
+    tick_size_x1e9: object,
+    price_increment: str,
+) -> None:
+    """
+    Validate tick nanounits exactly without accepting booleans.
+    """
+    manifest = _manifest(tmp_path, tick_size_x1e9)
+    instrument = Equity(
+        instrument_id=InstrumentId(Symbol("TEST"), Venue("XNAS")),
+        raw_symbol=Symbol("TEST"),
+        currency=Currency.from_str("USD"),
+        price_precision=9,
+        price_increment=Price.from_str(price_increment),
+        lot_size=Quantity.from_int(1),
+        min_quantity=Quantity.from_int(1),
+        ts_event=0,
+        ts_init=0,
+    )
+
+    with pytest.raises(ValueError, match=r"tick sizes|absent"):
+        write_manifest_deltas_to_catalog(
+            manifest,
+            symbol="TEST",
+            instrument=instrument,
+            catalog_path=tmp_path / "catalog",
+        )

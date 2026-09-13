@@ -13,7 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 """
-Atomic, identifier-free daily execution feedback publication.
+Atomic daily feedback publication without execution-order identities.
 """
 
 from __future__ import annotations
@@ -323,7 +323,6 @@ def feedback_records_from_orders_report(  # noqa: C901, PLR0912, PLR0915
 def publish_execution_feedback(  # noqa: PLR0913
     output_path: str | Path,
     *,
-    environment: str,
     trading_date: str,
     run_id: str,
     model_id: str,
@@ -336,8 +335,6 @@ def publish_execution_feedback(  # noqa: PLR0913
     """
     Publish one reconciled day; the final JSON is never overwritten.
     """
-    if environment not in {"backtest", "paper", "live"}:
-        raise ValueError("unsupported execution environment")
     trading_day = date.fromisoformat(trading_date)
     _validate_digest(model_artifact_sha256, "model_artifact_sha256")
     _validate_digest(feature_manifest_sha256, "feature_manifest_sha256")
@@ -348,7 +345,7 @@ def publish_execution_feedback(  # noqa: PLR0913
     _validate_records(records, trading_day)
     payload = {
         "schema_version": "research/execution-feedback-v1",
-        "environment": environment,
+        "environment": "backtest",
         "trading_date": trading_date,
         "timestamp_epoch": "Unix",
         "timestamp_unit": "nanosecond",
