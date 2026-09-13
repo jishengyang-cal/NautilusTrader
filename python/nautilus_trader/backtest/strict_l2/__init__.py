@@ -16,11 +16,11 @@
 Strict price-level L2 ingestion and research feedback boundaries.
 """
 
-from nautilus_trader.adapters.strict_l2.catalog import write_manifest_deltas_to_catalog
-from nautilus_trader.adapters.strict_l2.data import iter_manifest_deltas
-from nautilus_trader.adapters.strict_l2.data import rows_to_deltas
-from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
-from nautilus_trader.adapters.strict_l2.feedback import publish_execution_feedback
+from nautilus_trader.backtest.strict_l2.catalog import write_manifest_deltas_to_catalog
+from nautilus_trader.backtest.strict_l2.data import iter_manifest_deltas
+from nautilus_trader.backtest.strict_l2.data import rows_to_deltas
+from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
 
 
 __all__ = [

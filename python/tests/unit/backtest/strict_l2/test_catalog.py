@@ -23,12 +23,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nautilus_trader.adapters.strict_l2.catalog import write_manifest_deltas_to_catalog
 from nautilus_trader.backtest import BacktestDataConfig
 from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.backtest import BacktestNode
 from nautilus_trader.backtest import BacktestRunConfig
 from nautilus_trader.backtest import BacktestVenueConfig
+from nautilus_trader.backtest.strict_l2.catalog import write_manifest_deltas_to_catalog
 from nautilus_trader.model import AccountType
 from nautilus_trader.model import BookAction
 from nautilus_trader.model import BookType

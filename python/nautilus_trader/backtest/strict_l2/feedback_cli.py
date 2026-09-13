@@ -26,8 +26,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
-from nautilus_trader.adapters.strict_l2.feedback import publish_execution_feedback
+from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
 
 
 def _load_json(path: str | Path) -> object:

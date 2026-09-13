@@ -23,9 +23,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
-from nautilus_trader.adapters.strict_l2.feedback import publish_execution_feedback
-from nautilus_trader.adapters.strict_l2.feedback_cli import export_feedback_from_json
+from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
+from nautilus_trader.backtest.strict_l2.feedback_cli import export_feedback_from_json
 
 
 def _publish(tmp_path: Path, records: list[dict[str, Any]]) -> dict[str, Any]:

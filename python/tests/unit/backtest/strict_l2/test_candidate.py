@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from nautilus_trader.adapters.strict_l2.candidate import load_candidate_signals
+from nautilus_trader.backtest.strict_l2.candidate import load_candidate_signals
 
 
 def _sha256(path: Path) -> str:

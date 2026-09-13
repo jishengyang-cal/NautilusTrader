@@ -25,17 +25,17 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from nautilus_trader.adapters.strict_l2.data import rows_to_deltas
-from nautilus_trader.adapters.strict_l2.feedback import feedback_records_from_orders_report
-from nautilus_trader.adapters.strict_l2.replay import _PerShareFeeModel
-from nautilus_trader.adapters.strict_l2.replay import run_candidate_replay
-from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayConfig
-from nautilus_trader.adapters.strict_l2.strategy import CandidateReplayStrategy
 from nautilus_trader.backtest import BacktestDataConfig
 from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.backtest import BacktestNode
 from nautilus_trader.backtest import BacktestRunConfig
 from nautilus_trader.backtest import BacktestVenueConfig
+from nautilus_trader.backtest.strict_l2.data import rows_to_deltas
+from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
+from nautilus_trader.backtest.strict_l2.replay import _PerShareFeeModel
+from nautilus_trader.backtest.strict_l2.replay import run_candidate_replay
+from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayConfig
+from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayStrategy
 from nautilus_trader.execution import StaticLatencyModel
 from nautilus_trader.model import AccountType
 from nautilus_trader.model import BookType
