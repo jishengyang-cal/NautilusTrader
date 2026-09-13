@@ -129,6 +129,23 @@ def test_logical_message_allows_increasing_venue_times_at_one_receive_time() -> 
         list(rows_to_deltas([first, second], instrument))
 
 
+@pytest.mark.parametrize("second_sequence", [10, 12])
+def test_strict_l2_rejects_duplicate_or_gapped_completed_sequence(
+    second_sequence: int,
+) -> None:
+    """
+    Completed messages must advance the source sequence exactly once.
+    """
+    instrument = InstrumentId.from_str("TEST.XNAS")
+    first = _row(0)
+    first["sequence"] = 10
+    second = _row(1, size=15, delta=5)
+    second["sequence"] = second_sequence
+
+    with pytest.raises(ValueError, match="sequence must be contiguous"):
+        list(rows_to_deltas([first, second], instrument))
+
+
 def test_snapshot_flags_preserve_buffered_event_boundaries() -> None:
     """
     CLEAR snapshots must carry snapshot flags and end with F_LAST.
