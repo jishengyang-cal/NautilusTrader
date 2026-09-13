@@ -310,8 +310,9 @@ class CandidateReplayStrategy(Strategy):
         if (
             latest is None
             or book is None
-            or (spread := book.spread()) is None
-            or spread < 0
+            or (bid := book.best_bid_price()) is None
+            or (ask := book.best_ask_price()) is None
+            or ask < bid
         ):
             return
         if self._active_signal is not None:
@@ -553,10 +554,11 @@ class CandidateReplayStrategy(Strategy):
         book = self.cache.order_book(self._instrument_id)
         if book is None:
             return None
-        spread = book.spread()
-        if spread is None or spread < 0:
+        bid = book.best_bid_price()
+        ask = book.best_ask_price()
+        if bid is None or ask is None or ask < bid:
             return None
-        return book.best_ask_price() if side == OrderSide.BUY else book.best_bid_price()
+        return ask if side == OrderSide.BUY else bid
 
     def _terminal_order_failure(self, event: object, status: str) -> None:
         client_order_id = getattr(event, "client_order_id", None)

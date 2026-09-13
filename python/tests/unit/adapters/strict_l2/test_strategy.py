@@ -1070,9 +1070,20 @@ def test_host_profiling_records_errors_without_changing_exception() -> None:
     assert len(strategy.performance_report["stages"]["failure"]["samples"]) == 1
 
 
-@pytest.mark.parametrize("ask", [None, 99, 100, 101])
+@pytest.mark.parametrize(
+    ("bid", "ask"),
+    [
+        (100_000_000_000, None),
+        (100_000_000_000, 99_000_000_000),
+        (100_000_000_000, 100_000_000_000),
+        (100_000_000_000, 101_000_000_000),
+        (100_000_000_000_000_001, 100_000_000_000_000_000),
+        (100_000_000_000_000_000, 100_000_000_000_000_001),
+    ],
+)
 @pytest.mark.parametrize("side", [OrderSide.BUY, OrderSide.SELL])
 def test_candidate_book_guards_preserve_locked_and_reject_crossed(
+    bid: int,
     ask: int | None,
     side: OrderSide,
 ) -> None:
@@ -1081,7 +1092,7 @@ def test_candidate_book_guards_preserve_locked_and_reject_crossed(
     """
     instrument_id = InstrumentId.from_str("TEST.SIM")
     book = OrderBook(instrument_id, BookType.L2_MBP)
-    levels = [("N", 0, 0, "CLEAR"), ("B", 100, 10, "SET")]
+    levels = [("N", 0, 0, "CLEAR"), ("B", bid, 10, "SET")]
     if ask is not None:
         levels.append(("A", ask, 10, "SET"))
     rows = [
@@ -1090,7 +1101,7 @@ def test_candidate_book_guards_preserve_locked_and_reject_crossed(
             0,
             BASE_TS_NS,
             direction,
-            price * 10**9,
+            price,
             size,
             size,
             action,
@@ -1115,10 +1126,10 @@ def test_candidate_book_guards_preserve_locked_and_reject_crossed(
     )
     price = CandidateReplayStrategy._marketable_price(state, side)
     CandidateReplayStrategy._process_due_signal(state, BASE_TS_NS)
-    valid = ask is not None and ask >= 100
+    valid = ask is not None and ask >= bid
     assert len(submissions) == int(valid)
     if valid:
-        expected = ask if side == OrderSide.BUY else 100
-        assert price == Price.from_str(f"{expected}.000000000")
+        expected = ask if side == OrderSide.BUY else bid
+        assert price.as_decimal() == Decimal(expected) / 10**9
     else:
         assert price is None
