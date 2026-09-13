@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
@@ -154,38 +155,42 @@ def write_manifest_deltas_to_catalog(  # noqa: PLR0913
     count = 1
     target.parent.mkdir(parents=True, exist_ok=True)
     staging.mkdir()
-    catalog = ParquetDataCatalog(str(staging))
-    catalog.write_instruments([instrument])
+    try:
+        catalog = ParquetDataCatalog(str(staging))
+        catalog.write_instruments([instrument])
 
-    for delta in deltas:
-        ts_init = int(delta.ts_init)
-        if len(pending) >= write_batch_size and ts_init != current_ts_init:
-            catalog.write_order_book_deltas(pending)
-            pending.clear()
-        pending.append(delta)
-        current_ts_init = ts_init
-        last_ts_init = ts_init
-        count += 1
-    catalog.write_order_book_deltas(pending)
-    receipt = {
-        "schema_version": "strict-l2-nautilus-catalog/v2",
-        "catalog_path": str(target),
-        "instrument_id": str(instrument_id),
-        "symbol": symbol,
-        "records": count,
-        "first_ts_init_ns": first_ts_init,
-        "last_ts_init_ns": last_ts_init,
-        "availability_tie_break_ns": AVAILABILITY_TIE_BREAK_NS,
-        "source_manifest_sha256": _sha256(manifest),
-        "symbol_metadata_sha256": symbol_metadata_sha256,
-        "price_precision": instrument.price_precision,
-        "price_increment": str(instrument.price_increment),
-        "currency": str(instrument.quote_currency),
-        "files": _catalog_files(staging),
-    }
-    (staging / "strict-l2-catalog-receipt.json").write_text(
-        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    staging.replace(target)
+        for delta in deltas:
+            ts_init = int(delta.ts_init)
+            if len(pending) >= write_batch_size and ts_init != current_ts_init:
+                catalog.write_order_book_deltas(pending)
+                pending.clear()
+            pending.append(delta)
+            current_ts_init = ts_init
+            last_ts_init = ts_init
+            count += 1
+        catalog.write_order_book_deltas(pending)
+        receipt = {
+            "schema_version": "strict-l2-nautilus-catalog/v2",
+            "catalog_path": str(target),
+            "instrument_id": str(instrument_id),
+            "symbol": symbol,
+            "records": count,
+            "first_ts_init_ns": first_ts_init,
+            "last_ts_init_ns": last_ts_init,
+            "availability_tie_break_ns": AVAILABILITY_TIE_BREAK_NS,
+            "source_manifest_sha256": _sha256(manifest),
+            "symbol_metadata_sha256": symbol_metadata_sha256,
+            "price_precision": instrument.price_precision,
+            "price_increment": str(instrument.price_increment),
+            "currency": str(instrument.quote_currency),
+            "files": _catalog_files(staging),
+        }
+        (staging / "strict-l2-catalog-receipt.json").write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        staging.replace(target)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return receipt
