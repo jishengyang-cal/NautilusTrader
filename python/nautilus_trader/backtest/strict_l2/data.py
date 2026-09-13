@@ -94,6 +94,9 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     ``ts_init = ts_recv + 1 ns`` so a model timer at ``t`` observes exactly the
     completed messages with ``ts_recv < t``; venue time remains unchanged.
 
+    ``event_index`` is the contiguous per-symbol integrity index. ``sequence``
+    preserves venue metadata and may gap or reset between completed messages.
+
     """
     if isinstance(price_precision, bool) or not isinstance(price_precision, int):
         raise TypeError("price_precision must be an integer")

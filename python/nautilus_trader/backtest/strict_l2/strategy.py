@@ -114,6 +114,7 @@ def _validate_strategy_config(config: CandidateReplayConfig) -> None:
         (config.replay_end_ns, (int, type(None))),
         (config.order_insert_latency_ns, (int,)),
     )
+
     if any(type(value) not in allowed for value, allowed in declared_types):
         raise ValueError("replay numeric settings must use their declared types")
     if not config.research_symbol:
