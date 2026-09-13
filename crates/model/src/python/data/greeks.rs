@@ -13,8 +13,8 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::UnixNanos;
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyType};
+use nautilus_core::{UnixNanos, python::to_pyvalue_err};
+use pyo3::{prelude::*, types::PyType};
 
 use crate::data::greeks::{
     BlackScholesGreeksResult, GreeksData, OptionGreekValues, PortfolioGreeks, black_scholes_greeks,
@@ -23,7 +23,7 @@ use crate::data::greeks::{
 
 fn check_finite(value: f64, parameter: &str) -> PyResult<()> {
     if !value.is_finite() {
-        return Err(PyValueError::new_err(format!(
+        return Err(to_pyvalue_err(format!(
             "{parameter} must be finite, was {value}"
         )));
     }
@@ -33,7 +33,7 @@ fn check_finite(value: f64, parameter: &str) -> PyResult<()> {
 fn check_positive_finite(value: f64, parameter: &str) -> PyResult<()> {
     check_finite(value, parameter)?;
     if value <= 0.0 {
-        return Err(PyValueError::new_err(format!(
+        return Err(to_pyvalue_err(format!(
             "{parameter} must be positive, was {value}"
         )));
     }
@@ -65,12 +65,19 @@ fn check_option_price(
     check_positive_finite(discounted_spot, "discounted spot")?;
     check_positive_finite(discounted_strike, "discounted strike")?;
     let (lower_bound, upper_bound) = if is_call {
-        ((discounted_spot - discounted_strike).max(0.0), discounted_spot)
+        (
+            (discounted_spot - discounted_strike).max(0.0),
+            discounted_spot,
+        )
     } else {
-        ((discounted_strike - discounted_spot).max(0.0), discounted_strike)
+        (
+            (discounted_strike - discounted_spot).max(0.0),
+            discounted_strike,
+        )
     };
+
     if price <= lower_bound || price >= upper_bound {
-        return Err(PyValueError::new_err(format!(
+        return Err(to_pyvalue_err(format!(
             "{parameter} violates no-arbitrage bounds ({lower_bound}, {upper_bound}), was {price}"
         )));
     }
@@ -325,7 +332,10 @@ impl BlackScholesGreeksResult {
 }
 
 /// Computes Black-Scholes greeks using the fast `compute_greeks` implementation.
-/// This function uses `compute_greeks` from `black_scholes.rs` which is optimized for performance.
+///
+/// # Errors
+///
+/// Returns a `PyValueError` if an input is non-finite or outside its positive domain.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "black_scholes_greeks")]
@@ -347,7 +357,8 @@ pub fn py_black_scholes_greeks(
 ///
 /// # Errors
 ///
-/// Returns a `PyErr` if implied volatility calculation fails.
+/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
+/// generalized Black-Scholes no-arbitrage price bounds.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "imply_vol")]
@@ -368,7 +379,11 @@ pub fn py_imply_vol(
 }
 
 /// Computes implied volatility and greeks using the fast implementations.
-/// This function uses `compute_greeks` after implying volatility.
+///
+/// # Errors
+///
+/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
+/// generalized Black-Scholes no-arbitrage price bounds.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "imply_vol_and_greeks")]
@@ -389,8 +404,11 @@ pub fn py_imply_vol_and_greeks(
 }
 
 /// Refines implied volatility using an initial guess and computes greeks.
-/// This function uses `compute_iv_and_greeks` which performs a Halley iteration
-/// to refine the volatility estimate from an initial guess.
+///
+/// # Errors
+///
+/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
+/// generalized Black-Scholes no-arbitrage price bounds.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "refine_vol_and_greeks")]
