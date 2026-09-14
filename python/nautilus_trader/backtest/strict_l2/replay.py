@@ -155,6 +155,19 @@ def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:
         raise ValueError("candidate replay fee_per_share_usd is invalid") from e
     if not fee_decimal.is_finite() or fee_decimal < 0:
         raise ValueError("candidate replay fee_per_share_usd must be finite and non-negative")
+    declared_numeric_types = {
+        "trade_size": str,
+        "horizon_ms": int,
+        "min_abs_delta_ticks": float,
+        "min_direction_probability": float,
+        "cooldown_ms": int,
+        "max_signal_lag_ms": int,
+    }
+    if any(
+        type(value[field]) is not expected
+        for field, expected in declared_numeric_types.items()
+    ):
+        raise ValueError("replay numeric settings must use their declared types")
     latency = value["order_insert_latency_ns"]
     if isinstance(latency, bool) or not isinstance(latency, int) or latency < 0:
         raise ValueError("candidate replay order_insert_latency_ns must be non-negative integer ns")

@@ -22,6 +22,7 @@ import math
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Self
 
 from nautilus_trader.backtest.strict_l2.candidate import CandidateSignal
 from nautilus_trader.backtest.strict_l2.candidate import load_candidate_signals
@@ -163,6 +164,18 @@ class CandidateReplayStrategy(Strategy):
     are skipped; any position still open at the end prevents feedback publication.
 
     """
+
+    def __new__(
+        cls,
+        config: CandidateReplayConfig,
+        *,
+        signals: tuple[CandidateSignal, ...] | None = None,
+    ) -> Self:
+        """Allocate while consuming the Python-only signal snapshot argument."""
+        # Consume the Python-only snapshot argument before the PyO3 base
+        # constructor validates its config-only signature.
+        del signals
+        return super().__new__(cls, config)
 
     def __init__(
         self,
