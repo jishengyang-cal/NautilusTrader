@@ -99,7 +99,7 @@ def assert_prepare_case(
         raise AssertionError(
             f"prepare environment mismatch: {observed!r} != {expected!r}",
         )
-    for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
+    for metadata_name in (".py-stubs.inputs",):
         if not (expected_target / metadata_name).is_file():
             raise AssertionError(
                 f"missing target metadata: {expected_target / metadata_name}",
@@ -243,7 +243,7 @@ def check_explicit_target(
     observed = output_path.read_text(encoding="utf-8").splitlines()
     if observed != expected:
         raise AssertionError(f"TARGET_DIR mismatch: {observed!r} != {expected!r}")
-    for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
+    for metadata_name in (".py-stubs.inputs",):
         if not (explicit_target / metadata_name).is_file():
             raise AssertionError(
                 f"missing TARGET_DIR metadata: {explicit_target / metadata_name}",
@@ -257,12 +257,8 @@ def check_failed_generation_retry(bin_dir: Path, temp_dir: Path) -> None:
     retry_target = temp_dir / "failure retry cache"
     retry_target.mkdir()
     retry_input_list = retry_target / ".py-stubs.inputs"
-    retry_stamp = retry_target / ".py-stubs.stamp"
     stale_input_list = "deleted-input\n"
     retry_input_list.write_text(stale_input_list, encoding="utf-8")
-    retry_stamp.touch()
-    future = retry_stamp.stat().st_mtime + 3600
-    os.utime(retry_stamp, (future, future))
     failure_marker = temp_dir / "stub-failed-once"
     retry_output = temp_dir / "retry-output"
     retry_env = os.environ.copy()
@@ -287,16 +283,48 @@ def check_failed_generation_retry(bin_dir: Path, temp_dir: Path) -> None:
         raise AssertionError("stub generation failure unexpectedly succeeded")
     if retry_input_list.read_text(encoding="utf-8") != stale_input_list:
         raise AssertionError("failed generation published the new input list")
-    if not retry_stamp.is_file():
-        raise AssertionError("failed generation invalidated the existing stamp")
     subprocess.run(retry_command, cwd=REPO_ROOT, env=retry_env, check=True)
     retry_calls = retry_output.read_text(encoding="utf-8").splitlines()
     if len(retry_calls) != EXPECTED_RETRY_CALLS:
         raise AssertionError(f"stub generation was not retried: {retry_calls!r}")
     if retry_input_list.read_text(encoding="utf-8") == stale_input_list:
         raise AssertionError("successful retry did not publish the new input list")
-    if not retry_stamp.is_file():
-        raise AssertionError("successful retry did not publish the stamp")
+
+
+def check_older_content_regenerates(bin_dir: Path, temp_dir: Path) -> None:
+    """
+    Check that changed content regenerates even when its timestamp is older.
+    """
+    content_target = temp_dir / "content cache"
+    tracked_input = temp_dir / "tracked-input"
+    content_output = temp_dir / "content-output"
+    content_env = os.environ.copy()
+    real_make = shutil.which("make", path=content_env["PATH"]) or "make"
+    content_env.update(
+        {
+            "CARGO_TARGET_DIR": str(content_target),
+            "PATH": f"{bin_dir}{os.pathsep}{content_env['PATH']}",
+            "PREPARE_PROBE_OUTPUT": str(content_output),
+        },
+    )
+    content_command = [
+        real_make,
+        "--no-print-directory",
+        "--old-file=check-cargo-cooldown",
+        "--old-file=sync",
+        "py-stubs",
+        f"PY_STUB_INPUT_LIST_COMMAND=printf '%s\\n' '{tracked_input}'",
+    ]
+    tracked_input.write_text("first worktree\n", encoding="utf-8")
+    subprocess.run(content_command, cwd=REPO_ROOT, env=content_env, check=True)
+    legacy_stamp = content_target / ".py-stubs.stamp"
+    old_mtime = legacy_stamp.stat().st_mtime - 3600 if legacy_stamp.exists() else 1
+    tracked_input.write_text("older second worktree\n", encoding="utf-8")
+    os.utime(tracked_input, (old_mtime, old_mtime))
+    subprocess.run(content_command, cwd=REPO_ROOT, env=content_env, check=True)
+    content_calls = content_output.read_text(encoding="utf-8").splitlines()
+    if len(content_calls) != EXPECTED_RETRY_CALLS:
+        raise AssertionError(f"older changed content was not regenerated: {content_calls!r}")
 
 
 def main() -> None:
@@ -317,6 +345,7 @@ def main() -> None:
         check_path_selection(command, bin_dir, output_path, home_dir, temp_dir)
         check_explicit_target(bin_dir, output_path, temp_dir)
         check_failed_generation_retry(bin_dir, temp_dir)
+        check_older_content_regenerates(bin_dir, temp_dir)
 
 
 if __name__ == "__main__":

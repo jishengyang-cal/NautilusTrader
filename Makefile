@@ -347,32 +347,24 @@ build-wheel: check-cargo-cooldown sync  #-- Build a wheel distribution in releas
 
 .PHONY: py-stubs
 py-stubs: check-cargo-cooldown sync  #-- Regenerate Python type stubs when their inputs change
-	$Q py_stub_stamp="$$CARGO_TARGET_DIR/.py-stubs.stamp"; \
-		py_stub_input_list="$$CARGO_TARGET_DIR/.py-stubs.inputs"; \
+	$Q py_stub_input_list="$$CARGO_TARGET_DIR/.py-stubs.inputs"; \
 		mkdir -p "$$CARGO_TARGET_DIR"; \
 		py_stub_input_tmp="$$py_stub_input_list.$$$$"; \
-		trap 'rm -f "$$py_stub_input_tmp"' 0; \
-		$(PY_STUB_INPUT_LIST_COMMAND) | LC_ALL=C sort > "$$py_stub_input_tmp"; \
-		regenerate=false; \
-		if ! cmp -s "$$py_stub_input_tmp" "$$py_stub_input_list"; then \
-			regenerate=true; \
-		fi; \
-		if [ ! -f "$$py_stub_stamp" ]; then \
-			regenerate=true; \
-		else \
+		py_stub_paths_tmp="$$py_stub_input_list.paths.$$$$"; \
+		trap 'rm -f "$$py_stub_input_tmp" "$$py_stub_paths_tmp"' 0; \
+		write_py_stub_inputs() { \
+			$(PY_STUB_INPUT_LIST_COMMAND) | LC_ALL=C sort > "$$py_stub_paths_tmp" || return 1; \
 			while IFS= read -r input; do \
-				if [ "$$input" -nt "$$py_stub_stamp" ]; then \
-					regenerate=true; \
-					break; \
-				fi; \
-			done < "$$py_stub_input_tmp"; \
-		fi; \
-		if [ "$$regenerate" = true ]; then \
+				input_hash="$$(git hash-object -- "$$input")" || return 1; \
+				printf '%s\t%s\n' "$$input_hash" "$$input" || return 1; \
+			done < "$$py_stub_paths_tmp" > "$$py_stub_input_tmp"; \
+		}; \
+		write_py_stub_inputs || exit 1; \
+		if ! cmp -s "$$py_stub_input_tmp" "$$py_stub_input_list"; then \
 			cd python && VIRTUAL_ENV= NAUTILUS_STUB_PROFILE=$(CARGO_CI_PROFILE) \
 				uv run --no-sync python generate_stubs.py && cd .. && \
-			rm -f "$$py_stub_stamp" && \
-			mv "$$py_stub_input_tmp" "$$py_stub_input_list" && \
-			touch "$$py_stub_stamp"; \
+			write_py_stub_inputs && \
+			mv "$$py_stub_input_tmp" "$$py_stub_input_list"; \
 		fi
 
 .PHONY: check-generated-drift
