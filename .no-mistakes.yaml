@@ -1,18 +1,19 @@
 commands:
-  prepare: "rtk make build-debug"
-  test: >-
+  prepare: >-
+    rtk make build-debug
+    TARGET_DIR="$HOME/.cache/nautilus-no-mistakes-target"
+  test: |-
     rtk proxy bash -lc '
-      cd python;
-      tests="tests/unit/backtest/test_tardis_option_chain_example.py
-      tests/unit/persistence/test_option_greeks_replay.py";
-      if [ -d tests/unit/backtest/strict_l2 ]; then
-        tests="$tests tests/unit/backtest/strict_l2";
-      fi;
-      if [ -f tests/unit/model/test_option_pricing_validation.py ]; then
-        tests="$tests tests/unit/model/test_option_pricing_validation.py";
-      fi;
-      PYTHONPATH="$PWD" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 VIRTUAL_ENV=
-        uv run --no-sync python -m pytest -q $tests
+      cd python &&
+      env \
+        PYTHONPATH="$PWD" \
+        PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+        VIRTUAL_ENV= \
+        uv run --no-sync python -m pytest -q \
+          tests/unit/backtest/test_tardis_option_chain_example.py \
+          tests/unit/persistence/test_option_greeks_replay.py \
+          tests/unit/backtest/strict_l2 \
+          tests/unit/model/test_option_pricing_validation.py
     '
 
 pr:
@@ -22,5 +23,6 @@ test:
   instructions: >-
     Reuse the repository-managed Python environment and native extension prepared by
     commands.prepare. Drive focused observable behavior for the changed surface; do
-    not rebuild the extension during the agent test phase unless tracked Rust or PyO3
-    sources changed after preparation.
+    not rebuild the extension during the agent test phase and do not run cargo nextest,
+    workspace-wide Rust tests, or broad linters. The explicit commands.test invocation
+    is the complete test scope for this branch.

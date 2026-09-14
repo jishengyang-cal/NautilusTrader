@@ -21,7 +21,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import shutil
+import stat
 from collections.abc import Mapping
 from collections.abc import Sequence
 from decimal import Decimal
@@ -119,7 +121,7 @@ def _json_value(value: object) -> object:
     return str(value)
 
 
-def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:
+def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:  # noqa: C901
     source = Path(path).expanduser().resolve(strict=True)
     source_bytes = source.read_bytes()
     value = json.loads(source_bytes)
@@ -163,9 +165,9 @@ def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:
         "cooldown_ms": int,
         "max_signal_lag_ms": int,
     }
+
     if any(
-        type(value[field]) is not expected
-        for field, expected in declared_numeric_types.items()
+        type(value[field]) is not expected for field, expected in declared_numeric_types.items()
     ):
         raise ValueError("replay numeric settings must use their declared types")
     latency = value["order_insert_latency_ns"]
@@ -302,7 +304,7 @@ def _load_catalog_bindings(
     return data_configs, bindings, venues.pop(), min(first_timestamps), receipt_bindings
 
 
-def _verify_catalog_receipt(  # noqa: C901, PLR0913
+def _verify_catalog_receipt(  # noqa: C901, PLR0912, PLR0913
     catalog_path: Path,
     *,
     snapshot_path: Path,
@@ -317,6 +319,7 @@ def _verify_catalog_receipt(  # noqa: C901, PLR0913
         raise ValueError("strict-L2 catalog receipt is missing")
     receipt_bytes = receipt_path.read_bytes()
     receipt_sha256 = _sha256_bytes(receipt_bytes)
+
     if (
         not isinstance(expected_receipt_sha256, str)
         or len(expected_receipt_sha256) != SHA256_HEX_LENGTH
@@ -377,19 +380,30 @@ def _verify_catalog_receipt(  # noqa: C901, PLR0913
             raise ValueError("strict-L2 catalog file path is not normalized")
         path = (catalog_path / Path(*pure.parts)).resolve(strict=True)
         path.relative_to(catalog_path)
-        artifact_bytes = path.read_bytes()
-        if (
-            not path.is_file()
-            or len(artifact_bytes) != entry["size_bytes"]
-            or _sha256_bytes(
-                artifact_bytes,
-            )
-            != entry["sha256"]
-        ):
-            raise ValueError("strict-L2 catalog artifact digest mismatch")
         snapshot_artifact = snapshot_path / Path(*pure.parts)
         snapshot_artifact.parent.mkdir(parents=True, exist_ok=True)
-        snapshot_artifact.write_bytes(artifact_bytes)
+        declared_size = entry["size_bytes"]
+        if (
+            isinstance(declared_size, bool)
+            or not isinstance(declared_size, int)
+            or declared_size < 0
+        ):
+            raise ValueError("strict-L2 catalog artifact size is invalid")
+        digest = hashlib.sha256()
+        size_bytes = 0
+        with path.open("rb") as source:
+            source_stat = os.fstat(source.fileno())
+            if not stat.S_ISREG(source_stat.st_mode) or source_stat.st_size != declared_size:
+                raise ValueError("strict-L2 catalog artifact digest mismatch")
+            with snapshot_artifact.open("xb") as destination:
+                while chunk := source.read(1024 * 1024):
+                    size_bytes += len(chunk)
+                    if size_bytes > declared_size:
+                        raise ValueError("strict-L2 catalog artifact digest mismatch")
+                    digest.update(chunk)
+                    destination.write(chunk)
+        if size_bytes != declared_size or digest.hexdigest() != entry["sha256"]:
+            raise ValueError("strict-L2 catalog artifact digest mismatch")
         declared.add(pure.as_posix())
     actual = {
         path.relative_to(catalog_path).as_posix()
@@ -462,7 +476,7 @@ def _public_request(
     }
 
 
-def run_candidate_replay(
+def run_candidate_replay(  # noqa: PLR0915
     request_path: str | Path,
     output_root: str | Path,
 ) -> dict[str, Any]:
@@ -472,6 +486,8 @@ def run_candidate_replay(
     The request binds the candidate audit, source manifest, catalogs, and execution
     settings; ``REQUEST_FIELDS`` defines its exact fields. Candidate eligibility is
     enforced by ``load_candidate_signals`` without a separate replay policy artifact.
+    Receipt-declared catalog artifacts are streamed into verified temporary snapshots
+    before engine construction, and replay reads only those snapshots.
     The session is 09:30-16:00 America/New_York, with earlier catalog data used for
     book warmup. Feedback has ``environment=backtest`` and provides no live evidence.
 
@@ -498,6 +514,7 @@ def run_candidate_replay(
         symbol: tuple(signal for signal in candidate_signals if signal.instrument == symbol)
         for symbol in requested_symbols
     }
+
     if any(not signals for signals in signals_by_symbol.values()):
         raise ValueError("candidate contains no signals for a requested instrument")
     identity = {

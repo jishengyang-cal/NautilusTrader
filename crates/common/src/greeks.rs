@@ -593,7 +593,7 @@ impl GreeksCalculator {
                     expiry_in_years,
                     option_price,
                     cached_greeks.vol,
-                ),
+                )?,
                 None => imply_vol_and_greeks(
                     underlying_price,
                     interest_rate,
@@ -602,7 +602,7 @@ impl GreeksCalculator {
                     strike,
                     expiry_in_years,
                     option_price,
-                ),
+                )?,
             }
         } else {
             imply_vol_and_greeks(
@@ -613,7 +613,7 @@ impl GreeksCalculator {
                 strike,
                 expiry_in_years,
                 option_price,
-            )
+            )?
         };
         let (delta, gamma, vega) = self.modify_greeks(
             greeks.delta,
@@ -707,7 +707,7 @@ impl GreeksCalculator {
             greeks_data.is_call,
             greeks_data.strike,
             shocked_time_to_expiry,
-        );
+        )?;
         let (delta, gamma, vega) = self.modify_greeks(
             greeks.delta,
             greeks.gamma,

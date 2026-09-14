@@ -101,6 +101,7 @@ def test_native_put_call_parity_with_dividend_carry() -> None:
         ("vol", float("nan")),
         ("k", -1.0),
         ("t", 0.0),
+        ("t", 1e-100),
     ],
 )
 def test_black_scholes_rejects_invalid_inputs(field: str, value: float) -> None:
@@ -172,6 +173,7 @@ def test_option_price_solvers_reject_quotes_outside_no_arbitrage_bounds(
         ("target_price", 0.0),
         ("target_price", float("nan")),
         ("initial_vol", 0.0),
+        ("initial_vol", 1e-100),
         ("initial_vol", float("inf")),
     ],
 )

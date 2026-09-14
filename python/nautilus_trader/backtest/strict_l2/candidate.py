@@ -217,6 +217,7 @@ def _load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     )
 
     prediction_bytes = prediction_path.read_bytes()
+
     if (
         bundle.get("prediction_sha256") != prediction_sha256
         or _sha256_bytes(
