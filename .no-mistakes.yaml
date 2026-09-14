@@ -1,9 +1,13 @@
 commands:
   prepare: |-
     rtk proxy bash -lc '
-      target_dir="${NAUTILUS_GATE_TARGET_DIR:-${CARGO_TARGET_DIR:-${CARGO_TARGET_ROOT:+$CARGO_TARGET_ROOT/nautilus}}}"
+      target_dir="${CARGO_TARGET_DIR:-${CARGO_TARGET_ROOT:+$CARGO_TARGET_ROOT/nautilus}}"
       target_dir="${target_dir:-$HOME/.cache/nautilus-no-mistakes-target}"
-      env CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" TARGET_DIR="$target_dir" make build-debug
+      case "$target_dir" in
+        /*) ;;
+        *) target_dir="$PWD/$target_dir" ;;
+      esac
+      env CARGO_BUILD_JOBS=2 TARGET_DIR="$target_dir" make build-debug
     '
   test: |-
     rtk proxy bash -lc '
