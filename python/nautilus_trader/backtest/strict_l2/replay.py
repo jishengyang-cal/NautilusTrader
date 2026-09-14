@@ -121,7 +121,7 @@ def _json_value(value: object) -> object:
     return str(value)
 
 
-def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:
+def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:  # noqa: C901
     source = Path(path).expanduser().resolve(strict=True)
     source_bytes = source.read_bytes()
     value = json.loads(source_bytes)
@@ -165,9 +165,9 @@ def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:
         "cooldown_ms": int,
         "max_signal_lag_ms": int,
     }
+
     if any(
-        type(value[field]) is not expected
-        for field, expected in declared_numeric_types.items()
+        type(value[field]) is not expected for field, expected in declared_numeric_types.items()
     ):
         raise ValueError("replay numeric settings must use their declared types")
     latency = value["order_insert_latency_ns"]
@@ -304,7 +304,7 @@ def _load_catalog_bindings(
     return data_configs, bindings, venues.pop(), min(first_timestamps), receipt_bindings
 
 
-def _verify_catalog_receipt(  # noqa: C901, PLR0913
+def _verify_catalog_receipt(  # noqa: C901, PLR0912, PLR0913
     catalog_path: Path,
     *,
     snapshot_path: Path,
@@ -319,6 +319,7 @@ def _verify_catalog_receipt(  # noqa: C901, PLR0913
         raise ValueError("strict-L2 catalog receipt is missing")
     receipt_bytes = receipt_path.read_bytes()
     receipt_sha256 = _sha256_bytes(receipt_bytes)
+
     if (
         not isinstance(expected_receipt_sha256, str)
         or len(expected_receipt_sha256) != SHA256_HEX_LENGTH
@@ -475,7 +476,7 @@ def _public_request(
     }
 
 
-def run_candidate_replay(
+def run_candidate_replay(  # noqa: PLR0915
     request_path: str | Path,
     output_root: str | Path,
 ) -> dict[str, Any]:
@@ -485,6 +486,8 @@ def run_candidate_replay(
     The request binds the candidate audit, source manifest, catalogs, and execution
     settings; ``REQUEST_FIELDS`` defines its exact fields. Candidate eligibility is
     enforced by ``load_candidate_signals`` without a separate replay policy artifact.
+    Receipt-declared catalog artifacts are streamed into verified temporary snapshots
+    before engine construction, and replay reads only those snapshots.
     The session is 09:30-16:00 America/New_York, with earlier catalog data used for
     book warmup. Feedback has ``environment=backtest`` and provides no live evidence.
 
@@ -511,6 +514,7 @@ def run_candidate_replay(
         symbol: tuple(signal for signal in candidate_signals if signal.instrument == symbol)
         for symbol in requested_symbols
     }
+
     if any(not signals for signals in signals_by_symbol.values()):
         raise ValueError("candidate contains no signals for a requested instrument")
     identity = {

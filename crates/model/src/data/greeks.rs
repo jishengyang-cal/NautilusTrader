@@ -291,6 +291,11 @@ pub fn imply_vol(s: f64, r: f64, b: f64, is_call: bool, k: f64, t: f64, price: f
 
 /// Computes Black-Scholes greeks using the fast `compute_greeks` implementation.
 /// This function uses `compute_greeks` from `black_scholes.rs` which is optimized for performance.
+///
+/// # Errors
+///
+/// Returns an error if an input is invalid for the `f32` pricing kernel or the calculated result
+/// contains a non-finite value.
 #[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn black_scholes_greeks(
     s: f64,
@@ -322,6 +327,11 @@ pub fn black_scholes_greeks(
 
 /// Computes implied volatility and greeks using the fast implementations.
 /// This function uses `compute_greeks` after implying volatility.
+///
+/// # Errors
+///
+/// Returns an error if an input is invalid for the `f32` pricing kernel, the option price violates
+/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
 #[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn imply_vol_and_greeks(
     s: f64,
@@ -345,6 +355,11 @@ pub fn imply_vol_and_greeks(
 /// Refines implied volatility using an initial guess and computes greeks.
 /// This function uses `compute_iv_and_greeks` which performs a Halley iteration
 /// to refine the volatility estimate from an initial guess.
+///
+/// # Errors
+///
+/// Returns an error if an input is invalid for the `f32` pricing kernel, the target price violates
+/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
 #[expect(clippy::too_many_arguments)]
 #[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn refine_vol_and_greeks(

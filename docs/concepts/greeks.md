@@ -124,10 +124,12 @@ result = refine_vol_and_greeks(
 `refine_vol_and_greeks()` performs one refinement step, not a full convergence loop. Use it with a
 good starting estimate; use `imply_vol_and_greeks()` when a full implied-volatility solve is needed.
 
-The Python functions reject non-finite inputs. Spot, strike, time to expiry, and supplied volatility
-must be positive. Implied-volatility market prices must lie strictly inside the generalized
-Black-Scholes no-arbitrage bounds derived from discounted spot and strike, and the initial
-volatility passed to `refine_vol_and_greeks()` must be positive.
+All Python pricing functions reject non-finite inputs. The three fast Greeks functions also enforce
+their `f32` pricing-kernel domain in both Rust and Python: every kernel input must remain finite when
+converted to `f32`, and spot, strike, time to expiry, and supplied volatility must remain positive.
+Implied-volatility market prices must lie strictly inside the generalized Black-Scholes
+no-arbitrage bounds derived from discounted spot and strike. The target price and initial
+volatility passed to `refine_vol_and_greeks()` must also remain positive when converted to `f32`.
 
 The `BlackScholesGreeksResult` returned by these functions contains: `price`, `vol`,
 `delta`, `gamma`, `vega`, `theta`, and `itm_prob`.

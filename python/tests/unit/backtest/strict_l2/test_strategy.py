@@ -21,6 +21,7 @@ import json
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -963,7 +964,12 @@ def test_run_candidate_replay_rejects_catalog_changed_after_publication(
     artifact_copy_started = False
     original_open = Path.open
 
-    def track_artifact_copy(path: Path, mode: str = "r", *args, **kwargs):
+    def track_artifact_copy(
+        path: Path,
+        mode: str = "r",
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
         nonlocal artifact_copy_started
         if mode == "xb" and output_root in path.parents:
             artifact_copy_started = True
@@ -1234,6 +1240,7 @@ def test_candidate_book_guards_preserve_locked_and_reject_crossed(
         )
         for index, (direction, price, size, action) in enumerate(levels)
     ]
+
     for delta in rows_to_deltas(rows, instrument_id, expected_symbol="TEST"):
         book.apply_delta(delta)
     submissions = []
