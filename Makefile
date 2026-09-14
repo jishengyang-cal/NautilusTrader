@@ -50,7 +50,7 @@ endif
 # Set UV_SYNC_FLAGS= to make uv prune packages not in python/uv.lock
 UV_SYNC_FLAGS ?= --inexact
 
-# TARGET_DIR controls where Cargo places build artifacts
+# TARGET_DIR overrides CARGO_TARGET_DIR; both select the Cargo and stub artifact directory
 ifneq ($(origin TARGET_DIR),undefined)
 SELECTED_TARGET_DIR := $(value TARGET_DIR)
 else ifneq ($(origin CARGO_TARGET_DIR),undefined)
