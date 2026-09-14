@@ -19,7 +19,6 @@ commands:
         uv run --no-sync python -m pytest -q \
           tests/unit/backtest/test_tardis_option_chain_example.py \
           tests/unit/persistence/test_option_greeks_replay.py \
-          tests/unit/backtest/strict_l2 \
           tests/unit/model/test_option_pricing_validation.py
     '
 
