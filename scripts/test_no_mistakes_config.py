@@ -13,7 +13,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-"""Exercise the no-mistakes prepare command without building the workspace."""
+"""
+Exercise the no-mistakes prepare command without building the workspace.
+"""
 
 from __future__ import annotations
 
@@ -25,13 +27,16 @@ from pathlib import Path
 
 import yaml
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / ".no-mistakes.yaml"
 EXPECTED_RETRY_CALLS = 2
 
 
 def write_executable(path: Path, content: str) -> None:
-    """Write an executable probe script."""
+    """
+    Write an executable probe script.
+    """
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
 
@@ -43,7 +48,9 @@ def run_prepare(
     home_dir: Path,
     overrides: dict[str, str],
 ) -> list[str]:
-    """Run the repository-owned prepare command in an isolated probe environment."""
+    """
+    Run the repository-owned prepare command in an isolated probe environment.
+    """
     env = os.environ.copy()
     real_make = shutil.which("make", path=env["PATH"]) or "make"
     for name in (
@@ -79,7 +86,9 @@ def assert_prepare_case(
     overrides: dict[str, str],
     expected_target: Path,
 ) -> None:
-    """Assert one prepare path-selection case and its published metadata."""
+    """
+    Assert one prepare path-selection case and its published metadata.
+    """
     observed = run_prepare(command, bin_dir, output_path, home_dir, overrides)
     call_prefix = f"uv_call={REPO_ROOT / 'python'}\t2\t{expected_target}\t"
     expected = [
@@ -89,17 +98,19 @@ def assert_prepare_case(
     ]
     if observed != expected:
         raise AssertionError(
-            f"prepare environment mismatch: {observed!r} != {expected!r}"
+            f"prepare environment mismatch: {observed!r} != {expected!r}",
         )
     for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
         if not (expected_target / metadata_name).is_file():
             raise AssertionError(
-                f"missing target metadata: {expected_target / metadata_name}"
+                f"missing target metadata: {expected_target / metadata_name}",
             )
 
 
 def main() -> None:
-    """Run cache-selection and failure-retry regressions."""
+    """
+    Run cache-selection and failure-retry regressions.
+    """
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     command = config["commands"]["prepare"]
 
@@ -174,9 +185,7 @@ fi
                         f"{relative_root}/cache $(shell touch {shell_marker}) expression"
                     ),
                 },
-                REPO_ROOT
-                / relative_root
-                / f"cache $(shell touch {shell_marker}) expression",
+                REPO_ROOT / relative_root / f"cache $(shell touch {shell_marker}) expression",
             ),
             ({}, home_dir / ".cache" / "nautilus-no-mistakes-target"),
         )
@@ -228,7 +237,7 @@ fi
         observed = output_path.read_text(encoding="utf-8").splitlines()
         if observed != expected_calls:
             raise AssertionError(
-                f"TARGET_DIR mismatch: {observed!r} != {expected_calls!r}"
+                f"TARGET_DIR mismatch: {observed!r} != {expected_calls!r}",
             )
         for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
             if not (explicit_target / metadata_name).is_file():
@@ -266,7 +275,10 @@ fi
             "py-stubs",
         ]
         failed = subprocess.run(
-            retry_command, cwd=REPO_ROOT, env=retry_env, check=False
+            retry_command,
+            cwd=REPO_ROOT,
+            env=retry_env,
+            check=False,
         )
         if failed.returncode == 0:
             raise AssertionError("stub generation failure unexpectedly succeeded")
