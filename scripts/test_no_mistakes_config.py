@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,7 +28,12 @@ def run_prepare(
     overrides: dict[str, str],
 ) -> dict[str, str]:
     env = os.environ.copy()
-    for name in ("CARGO_BUILD_JOBS", "CARGO_TARGET_DIR", "CARGO_TARGET_ROOT"):
+    for name in (
+        "CARGO_BUILD_JOBS",
+        "CARGO_CI_PROFILE",
+        "CARGO_TARGET_DIR",
+        "CARGO_TARGET_ROOT",
+    ):
         env.pop(name, None)
     env.update(overrides)
     env.update(
@@ -35,6 +41,7 @@ def run_prepare(
             "HOME": str(home_dir),
             "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
             "PREPARE_PROBE_OUTPUT": str(output_path),
+            "REAL_MAKE": shutil.which("make", path=env["PATH"]) or "make",
         },
     )
     subprocess.run(
@@ -61,10 +68,11 @@ def assert_prepare_case(
 ) -> None:
     observed = run_prepare(command, bin_dir, output_path, home_dir, overrides)
     expected = {
-        "args": "build-debug",
-        "cwd": str(REPO_ROOT),
+        "cwd": str(REPO_ROOT / "python"),
         "jobs": "2",
+        "make_args": "build-debug",
         "target": str(expected_target),
+        "uv_args": "run --no-sync maturin develop --profile nextest",
     }
     if observed != expected:
         raise AssertionError(f"prepare environment mismatch: {observed!r} != {expected!r}")
@@ -94,12 +102,19 @@ exec "$@"
         write_executable(
             bin_dir / "make",
             """#!/bin/sh
+printf 'make_args=%s\\n' "$*" > "$PREPARE_PROBE_OUTPUT"
+exec "$REAL_MAKE" --no-print-directory --old-file=py-stubs "$@"
+""",
+        )
+        write_executable(
+            bin_dir / "uv",
+            """#!/bin/sh
 {
-    printf 'args=%s\\n' "$*"
     printf 'cwd=%s\\n' "$PWD"
     printf 'jobs=%s\\n' "$CARGO_BUILD_JOBS"
-    printf 'target=%s\\n' "$TARGET_DIR"
-} > "$PREPARE_PROBE_OUTPUT"
+    printf 'target=%s\\n' "$CARGO_TARGET_DIR"
+    printf 'uv_args=%s\\n' "$*"
+} >> "$PREPARE_PROBE_OUTPUT"
 """,
         )
 
