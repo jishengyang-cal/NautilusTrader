@@ -46,6 +46,7 @@ def run_prepare(
     bin_dir: Path,
     output_path: Path,
     home_dir: Path,
+    git_common_dir: Path,
     overrides: dict[str, str],
 ) -> list[str]:
     """
@@ -68,6 +69,7 @@ def run_prepare(
             "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
             "PREPARE_PROBE_OUTPUT": str(output_path),
             "REAL_MAKE": real_make,
+            "TEST_GIT_COMMON_DIR": str(git_common_dir),
             "XDG_CACHE_HOME": str(home_dir / ".cache"),
         },
     )
@@ -85,13 +87,21 @@ def assert_prepare_case(
     bin_dir: Path,
     output_path: Path,
     home_dir: Path,
+    git_common_dir: Path,
     overrides: dict[str, str],
     expected_target: Path,
 ) -> None:
     """
     Assert one prepare path-selection case and its published metadata.
     """
-    observed = run_prepare(command, bin_dir, output_path, home_dir, overrides)
+    observed = run_prepare(
+        command,
+        bin_dir,
+        output_path,
+        home_dir,
+        git_common_dir,
+        overrides,
+    )
     jobs = overrides.get("CARGO_BUILD_JOBS", "2")
     call_prefix = f"uv_call={REPO_ROOT / 'python'}\t{jobs}\t{expected_target}\t"
     expected = [
@@ -134,6 +144,18 @@ exec "$REAL_MAKE" --no-print-directory \
     "$@"
 """,
     )
+    real_git = shutil.which("git") or "git"
+    write_executable(
+        bin_dir / "git",
+        f"""#!/bin/sh
+if [ "$*" = "rev-parse --path-format=absolute --git-common-dir" ] && \
+    [ -n "$TEST_GIT_COMMON_DIR" ]; then
+    printf '%s\\n' "$TEST_GIT_COMMON_DIR"
+    exit 0
+fi
+exec {real_git} "$@"
+""",
+    )
     write_executable(
         bin_dir / "uv",
         """#!/bin/sh
@@ -161,6 +183,7 @@ def check_path_selection(
     Check environment-driven persistent cache path selection.
     """
     shell_marker = temp_dir / "make-shell-ran"
+    git_common_dir = temp_dir / "git-common"
     relative_root = Path(os.path.relpath(temp_dir / "relative", REPO_ROOT))
     cases = (
         (
@@ -191,7 +214,7 @@ def check_path_selection(
             },
             REPO_ROOT / relative_root / f"cache $(shell touch {shell_marker}) expression",
         ),
-        ({}, home_dir / ".cache" / "nautilus-target"),
+        ({}, git_common_dir / "no-mistakes-cache" / "nautilus-target"),
     )
     for overrides, expected_target in cases:
         assert_prepare_case(
@@ -199,6 +222,7 @@ def check_path_selection(
             bin_dir,
             output_path,
             home_dir,
+            git_common_dir,
             overrides,
             expected_target,
         )

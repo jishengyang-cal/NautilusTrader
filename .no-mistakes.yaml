@@ -2,12 +2,10 @@ commands:
   prepare: |-
     rtk proxy sh -c '
       target_dir="${CARGO_TARGET_DIR:-${CARGO_TARGET_ROOT:+$CARGO_TARGET_ROOT/nautilus}}"
-      cache_root="${XDG_CACHE_HOME:-}"
-      if [ -z "$cache_root" ]; then
+      if [ -z "$target_dir" ]; then
         git_common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
-        cache_root="$git_common_dir/no-mistakes-cache"
+        target_dir="$git_common_dir/no-mistakes-cache/nautilus-target"
       fi
-      target_dir="${target_dir:-$cache_root/nautilus-target}"
       case "$target_dir" in
         /*) ;;
         *) target_dir="$PWD/$target_dir" ;;
