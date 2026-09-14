@@ -296,7 +296,8 @@ class DatabentoSubscriptionStrategy(Strategy):
         """
         On start.
         """
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True):
+        subscribe_quotes = env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True)
+        if subscribe_quotes:
             print(
                 f"{self.strategy_id}: subscribing Databento quotes for {self.instrument_id}",
                 flush=True,
@@ -310,7 +311,7 @@ class DatabentoSubscriptionStrategy(Strategy):
             )
             self.subscribe_bars(self.bar_type, client_id=databento_client_id())
 
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
+        if not subscribe_quotes and env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
             print(
                 f"{self.strategy_id}: subscribing Databento trades for {self.instrument_id}",
                 flush=True,
@@ -383,21 +384,6 @@ class DatabentoSubscriptionStrategy(Strategy):
                 f"{self.strategy_id}: Databento status #{self._status_count}: {status}",
                 flush=True,
             )
-
-    def on_stop(self) -> None:
-        """On stop."""
-        client_id = databento_client_id()
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True):
-            self.unsubscribe_quotes(self.instrument_id, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_BARS", default=True):
-            self.unsubscribe_bars(self.bar_type, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
-            self.unsubscribe_trades(self.instrument_id, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_MBO"):
-            self.unsubscribe_book_deltas(self.instrument_id, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_STATUS", default=True):
-            self.unsubscribe_instrument_status(self.instrument_id, client_id=client_id)
-
 
 class OptionGreeksStrategy(Strategy):
     """
@@ -679,7 +665,6 @@ class IbV2OrderStrategy(Strategy):
         """
         On order accepted.
         """
-        print(f"{self.strategy_id}: order accepted: {event}", flush=True)
         if not env_bool("IB_V2_CANCEL_ON_ACCEPT", default=True):
             return
 
@@ -697,29 +682,9 @@ class IbV2OrderStrategy(Strategy):
         )
         self.cancel_order(order.client_order_id, client_id=ib_client_id())
 
-    def on_order_submitted(self, event: Any) -> None:
-        """On order submitted."""
-        print(f"{self.strategy_id}: order submitted: {event}", flush=True)
-
-    def on_order_rejected(self, event: Any) -> None:
-        """On order rejected."""
-        print(f"{self.strategy_id}: order rejected: {event}", flush=True)
-
-    def on_order_denied(self, event: Any) -> None:
-        """On order denied."""
-        print(f"{self.strategy_id}: order denied: {event}", flush=True)
-
-    def on_order_updated(self, event: Any) -> None:
-        """On order updated."""
-        print(f"{self.strategy_id}: order updated: {event}", flush=True)
-
-    def on_order_canceled(self, event: Any) -> None:
-        """On order canceled."""
-        print(f"{self.strategy_id}: order canceled: {event}", flush=True)
-
-    def on_order_filled(self, event: Any) -> None:
-        """On order filled."""
-        print(f"{self.strategy_id}: order filled: {event}", flush=True)
+    def on_order_event(self, event: Any) -> None:
+        """On order event."""
+        print(f"{self.strategy_id}: order event: {event}", flush=True)
 
 
 class BracketOrderStrategy(IbV2OrderStrategy):

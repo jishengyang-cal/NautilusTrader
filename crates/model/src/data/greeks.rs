@@ -297,7 +297,7 @@ pub fn imply_vol(s: f64, r: f64, b: f64, is_call: bool, k: f64, t: f64, price: f
 /// # Errors
 ///
 /// Returns an error if an input is invalid for the `f32` pricing kernel or the calculated result
-/// contains a non-finite value.
+/// contains a non-finite value. The Python binding exposes these failures as `ValueError`.
 #[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn black_scholes_greeks(
     s: f64,
@@ -333,7 +333,8 @@ pub fn black_scholes_greeks(
 /// # Errors
 ///
 /// Returns an error if an input is invalid for the `f32` pricing kernel, the option price violates
-/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
+/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid. The
+/// Python binding exposes these failures as `ValueError`.
 #[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn imply_vol_and_greeks(
     s: f64,
@@ -361,7 +362,8 @@ pub fn imply_vol_and_greeks(
 /// # Errors
 ///
 /// Returns an error if an input is invalid for the `f32` pricing kernel, the target price violates
-/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
+/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid. The
+/// Python binding exposes these failures as `ValueError`.
 #[expect(clippy::too_many_arguments)]
 #[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn refine_vol_and_greeks(
