@@ -357,11 +357,15 @@ py-stubs: check-cargo-cooldown sync  #-- Regenerate Python type stubs when their
 		if ! cmp -s "$$py_stub_input_tmp" "$$py_stub_input_list"; then \
 			regenerate=true; \
 		fi; \
-		if [ ! -f "$$py_stub_stamp" ] || \
-			! while IFS= read -r input; do \
-				[ ! "$$input" -nt "$$py_stub_stamp" ] || exit 1; \
-			done < "$$py_stub_input_tmp"; then \
+		if [ ! -f "$$py_stub_stamp" ]; then \
 			regenerate=true; \
+		else \
+			while IFS= read -r input; do \
+				if [ "$$input" -nt "$$py_stub_stamp" ]; then \
+					regenerate=true; \
+					break; \
+				fi; \
+			done < "$$py_stub_input_tmp"; \
 		fi; \
 		if [ "$$regenerate" = true ]; then \
 			cd python && VIRTUAL_ENV= NAUTILUS_STUB_PROFILE=$(CARGO_CI_PROFILE) \
