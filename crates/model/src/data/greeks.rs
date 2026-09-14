@@ -38,6 +38,90 @@ const THETA_DAILY_FACTOR: f64 = 1.0 / 365.25;
 /// Scale for vega to express as absolute percent change when building `BlackScholesGreeksResult`.
 const VEGA_PERCENT_FACTOR: f64 = 0.01;
 
+fn check_finite(value: f64, parameter: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(value.is_finite(), "{parameter} must be finite, was {value}");
+    Ok(())
+}
+
+fn check_positive_finite(value: f64, parameter: &str) -> anyhow::Result<()> {
+    check_finite(value, parameter)?;
+    anyhow::ensure!(value > 0.0, "{parameter} must be positive, was {value}");
+    Ok(())
+}
+
+fn check_positive_f32(value: f64, parameter: &str) -> anyhow::Result<()> {
+    check_finite(value, parameter)?;
+    let narrowed = value as f32;
+    anyhow::ensure!(
+        narrowed.is_finite() && narrowed > 0.0,
+        "{parameter} must be positive and finite in the pricing kernel, was {value}"
+    );
+    Ok(())
+}
+
+fn check_fast_option_inputs(s: f64, r: f64, b: f64, k: f64, t: f64) -> anyhow::Result<()> {
+    check_positive_f32(s, "s")?;
+    check_finite(r, "r")?;
+    check_finite(b, "b")?;
+    anyhow::ensure!(
+        (r as f32).is_finite(),
+        "r must be finite in the pricing kernel, was {r}"
+    );
+    anyhow::ensure!(
+        (b as f32).is_finite(),
+        "b must be finite in the pricing kernel, was {b}"
+    );
+    check_positive_f32(k, "k")?;
+    check_positive_f32(t, "t")
+}
+
+#[expect(clippy::too_many_arguments)]
+fn check_option_price(
+    s: f64,
+    r: f64,
+    b: f64,
+    is_call: bool,
+    k: f64,
+    t: f64,
+    price: f64,
+    parameter: &str,
+) -> anyhow::Result<()> {
+    check_positive_finite(price, parameter)?;
+    let discounted_spot = s * ((b - r) * t).exp();
+    let discounted_strike = k * (-r * t).exp();
+    check_positive_finite(discounted_spot, "discounted spot")?;
+    check_positive_finite(discounted_strike, "discounted strike")?;
+    let (lower_bound, upper_bound) = if is_call {
+        (
+            (discounted_spot - discounted_strike).max(0.0),
+            discounted_spot,
+        )
+    } else {
+        (
+            (discounted_strike - discounted_spot).max(0.0),
+            discounted_strike,
+        )
+    };
+    anyhow::ensure!(
+        price > lower_bound && price < upper_bound,
+        "{parameter} violates no-arbitrage bounds ({lower_bound}, {upper_bound}), was {price}"
+    );
+    Ok(())
+}
+
+fn check_greeks_result(
+    result: BlackScholesGreeksResult,
+) -> anyhow::Result<BlackScholesGreeksResult> {
+    check_finite(result.price, "calculated price")?;
+    check_positive_f32(result.vol, "calculated volatility")?;
+    check_finite(result.delta, "calculated delta")?;
+    check_finite(result.gamma, "calculated gamma")?;
+    check_finite(result.vega, "calculated vega")?;
+    check_finite(result.theta, "calculated theta")?;
+    check_finite(result.itm_prob, "calculated in-the-money probability")?;
+    Ok(result)
+}
+
 /// Core option Greek sensitivity values (the 5 standard sensitivities).
 /// Designed as a composable building block embedded in all Greeks-carrying types.
 #[repr(C)]
@@ -207,7 +291,7 @@ pub fn imply_vol(s: f64, r: f64, b: f64, is_call: bool, k: f64, t: f64, price: f
 
 /// Computes Black-Scholes greeks using the fast `compute_greeks` implementation.
 /// This function uses `compute_greeks` from `black_scholes.rs` which is optimized for performance.
-#[must_use]
+#[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn black_scholes_greeks(
     s: f64,
     r: f64,
@@ -216,13 +300,16 @@ pub fn black_scholes_greeks(
     is_call: bool,
     k: f64,
     t: f64,
-) -> BlackScholesGreeksResult {
+) -> anyhow::Result<BlackScholesGreeksResult> {
+    check_fast_option_inputs(s, r, b, k, t)?;
+    check_positive_f32(vol, "vol")?;
+
     // Use f32 for performance, then cast to f64 when applying multiplier
     let greeks = compute_greeks::<f32>(
         s as f32, k as f32, t as f32, r as f32, b as f32, vol as f32, is_call,
     );
 
-    BlackScholesGreeksResult {
+    check_greeks_result(BlackScholesGreeksResult {
         price: f64::from(greeks.price),
         vol,
         delta: f64::from(greeks.delta),
@@ -230,12 +317,12 @@ pub fn black_scholes_greeks(
         vega: f64::from(greeks.vega) * VEGA_PERCENT_FACTOR,
         theta: f64::from(greeks.theta) * THETA_DAILY_FACTOR,
         itm_prob: f64::from(greeks.itm_prob),
-    }
+    })
 }
 
 /// Computes implied volatility and greeks using the fast implementations.
 /// This function uses `compute_greeks` after implying volatility.
-#[must_use]
+#[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn imply_vol_and_greeks(
     s: f64,
     r: f64,
@@ -244,7 +331,9 @@ pub fn imply_vol_and_greeks(
     k: f64,
     t: f64,
     price: f64,
-) -> BlackScholesGreeksResult {
+) -> anyhow::Result<BlackScholesGreeksResult> {
+    check_fast_option_inputs(s, r, b, k, t)?;
+    check_option_price(s, r, b, is_call, k, t, price, "price")?;
     let vol = imply_vol(s, r, b, is_call, k, t, price);
     // Handle case when imply_vol fails and returns 0.0 or very small value
     // Using a very small vol (1e-8) instead of 0.0 prevents division by zero in greeks calculations
@@ -257,7 +346,7 @@ pub fn imply_vol_and_greeks(
 /// This function uses `compute_iv_and_greeks` which performs a Halley iteration
 /// to refine the volatility estimate from an initial guess.
 #[expect(clippy::too_many_arguments)]
-#[must_use]
+#[must_use = "this `Result` may be an `Err` variant, which should be handled"]
 pub fn refine_vol_and_greeks(
     s: f64,
     r: f64,
@@ -267,7 +356,12 @@ pub fn refine_vol_and_greeks(
     t: f64,
     target_price: f64,
     initial_vol: f64,
-) -> BlackScholesGreeksResult {
+) -> anyhow::Result<BlackScholesGreeksResult> {
+    check_fast_option_inputs(s, r, b, k, t)?;
+    check_option_price(s, r, b, is_call, k, t, target_price, "target_price")?;
+    check_positive_f32(target_price, "target_price")?;
+    check_positive_f32(initial_vol, "initial_vol")?;
+
     // Use f32 for performance, then cast to f64 when applying multiplier
     let greeks = compute_iv_and_greeks::<f32>(
         target_price as f32,
@@ -280,7 +374,7 @@ pub fn refine_vol_and_greeks(
         initial_vol as f32,
     );
 
-    BlackScholesGreeksResult {
+    check_greeks_result(BlackScholesGreeksResult {
         price: f64::from(greeks.price),
         vol: f64::from(greeks.vol),
         delta: f64::from(greeks.delta),
@@ -288,7 +382,7 @@ pub fn refine_vol_and_greeks(
         vega: f64::from(greeks.vega) * VEGA_PERCENT_FACTOR,
         theta: f64::from(greeks.theta) * THETA_DAILY_FACTOR,
         itm_prob: f64::from(greeks.itm_prob),
-    }
+    })
 }
 
 #[repr(C)]
@@ -700,6 +794,59 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    fn black_scholes_greeks(
+        s: f64,
+        r: f64,
+        b: f64,
+        vol: f64,
+        is_call: bool,
+        k: f64,
+        t: f64,
+    ) -> BlackScholesGreeksResult {
+        super::black_scholes_greeks(s, r, b, vol, is_call, k, t).unwrap()
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    fn refine_vol_and_greeks(
+        s: f64,
+        r: f64,
+        b: f64,
+        is_call: bool,
+        k: f64,
+        t: f64,
+        target_price: f64,
+        initial_vol: f64,
+    ) -> BlackScholesGreeksResult {
+        super::refine_vol_and_greeks(s, r, b, is_call, k, t, target_price, initial_vol).unwrap()
+    }
+
+    fn imply_vol_and_greeks(
+        s: f64,
+        r: f64,
+        b: f64,
+        is_call: bool,
+        k: f64,
+        t: f64,
+        price: f64,
+    ) -> BlackScholesGreeksResult {
+        super::imply_vol_and_greeks(s, r, b, is_call, k, t, price).unwrap()
+    }
+
+    #[rstest]
+    fn test_black_scholes_greeks_rejects_time_below_f32_domain() {
+        let result = super::black_scholes_greeks(1.0, 0.0, 0.0, 0.2, true, 1.0, 1e-100);
+
+        assert!(result.is_err());
+    }
+
+    #[rstest]
+    fn test_refine_vol_and_greeks_rejects_initial_volatility_below_f32_domain() {
+        let result =
+            super::refine_vol_and_greeks(100.0, 0.05, 0.05, true, 100.0, 1.0, 10.0, 1e-100);
+
+        assert!(result.is_err());
+    }
     use crate::identifiers::InstrumentId;
 
     fn create_test_greeks_data() -> GreeksData {

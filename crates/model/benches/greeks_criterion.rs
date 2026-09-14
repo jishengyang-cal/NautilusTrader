@@ -38,15 +38,18 @@ fn bench_black_scholes_greeks_moneyness(c: &mut Criterion) {
                 &(spot, is_call),
                 |b, &(s, is_call)| {
                     b.iter(|| {
-                        black_box(black_scholes_greeks(
-                            black_box(s),
-                            black_box(r),
-                            black_box(cost_of_carry),
-                            black_box(vol),
-                            black_box(is_call),
-                            black_box(k),
-                            black_box(t),
-                        ))
+                        black_box(
+                            black_scholes_greeks(
+                                black_box(s),
+                                black_box(r),
+                                black_box(cost_of_carry),
+                                black_box(vol),
+                                black_box(is_call),
+                                black_box(k),
+                                black_box(t),
+                            )
+                            .unwrap(),
+                        )
                     });
                 },
             );
@@ -68,21 +71,26 @@ fn bench_imply_vol_and_greeks_moneyness(c: &mut Criterion) {
         for (is_call, option_type) in [(true, "call"), (false, "put")] {
             // Calculate theoretical price for this scenario
             let theoretical_price =
-                black_scholes_greeks(spot, r, cost_of_carry, vol, is_call, k, t).price;
+                black_scholes_greeks(spot, r, cost_of_carry, vol, is_call, k, t)
+                    .unwrap()
+                    .price;
             group.bench_with_input(
                 BenchmarkId::from_parameter(format!("{moneyness_label}_{option_type}")),
                 &(spot, is_call, theoretical_price),
                 |b, &(s, is_call, price)| {
                     b.iter(|| {
-                        black_box(imply_vol_and_greeks(
-                            black_box(s),
-                            black_box(r),
-                            black_box(cost_of_carry),
-                            black_box(is_call),
-                            black_box(k),
-                            black_box(t),
-                            black_box(price),
-                        ))
+                        black_box(
+                            imply_vol_and_greeks(
+                                black_box(s),
+                                black_box(r),
+                                black_box(cost_of_carry),
+                                black_box(is_call),
+                                black_box(k),
+                                black_box(t),
+                                black_box(price),
+                            )
+                            .unwrap(),
+                        )
                     });
                 },
             );
@@ -104,7 +112,9 @@ fn bench_refine_vol_and_greeks_moneyness(c: &mut Criterion) {
         for (is_call, option_type) in [(true, "call"), (false, "put")] {
             // Calculate target price for this scenario
             let target_price =
-                black_scholes_greeks(spot, r, cost_of_carry, initial_vol, is_call, k, t).price;
+                black_scholes_greeks(spot, r, cost_of_carry, initial_vol, is_call, k, t)
+                    .unwrap()
+                    .price;
             // Use a slightly different initial guess (10% off)
             let initial_guess = if is_call {
                 initial_vol * 1.1
@@ -116,16 +126,19 @@ fn bench_refine_vol_and_greeks_moneyness(c: &mut Criterion) {
                 &(spot, is_call, target_price, initial_guess),
                 |b, &(s, is_call, price, guess)| {
                     b.iter(|| {
-                        black_box(refine_vol_and_greeks(
-                            black_box(s),
-                            black_box(r),
-                            black_box(cost_of_carry),
-                            black_box(is_call),
-                            black_box(k),
-                            black_box(t),
-                            black_box(price),
-                            black_box(guess),
-                        ))
+                        black_box(
+                            refine_vol_and_greeks(
+                                black_box(s),
+                                black_box(r),
+                                black_box(cost_of_carry),
+                                black_box(is_call),
+                                black_box(k),
+                                black_box(t),
+                                black_box(price),
+                                black_box(guess),
+                            )
+                            .unwrap(),
+                        )
                     });
                 },
             );

@@ -389,7 +389,8 @@ pub fn py_black_scholes_greeks(
 ) -> PyResult<BlackScholesGreeksResult> {
     check_fast_option_inputs(s, r, b, k, t)?;
     check_positive_f32(vol, "vol")?;
-    let result = black_scholes_greeks(s, r, b, vol, is_call, k, t);
+    let result = black_scholes_greeks(s, r, b, vol, is_call, k, t)
+        .map_err(|e| to_pyvalue_err(e.to_string()))?;
     check_greeks_result(&result)?;
     Ok(result)
 }
@@ -441,7 +442,8 @@ pub fn py_imply_vol_and_greeks(
     check_option_price(s, r, b, is_call, k, t, price, "price")?;
     let vol = imply_vol(s, r, b, is_call, k, t, price);
     check_positive_f32(vol, "implied volatility")?;
-    let result = black_scholes_greeks(s, r, b, vol, is_call, k, t);
+    let result = black_scholes_greeks(s, r, b, vol, is_call, k, t)
+        .map_err(|e| to_pyvalue_err(e.to_string()))?;
     check_greeks_result(&result)?;
     Ok(result)
 }
@@ -470,16 +472,8 @@ pub fn py_refine_vol_and_greeks(
     check_option_price(s, r, b, is_call, k, t, target_price, "target_price")?;
     check_positive_f32(target_price, "target_price")?;
     check_positive_f32(initial_vol, "initial_vol")?;
-    let result = refine_vol_and_greeks(
-        s,
-        r,
-        b,
-        is_call,
-        k,
-        t,
-        target_price,
-        initial_vol,
-    );
+    let result = refine_vol_and_greeks(s, r, b, is_call, k, t, target_price, initial_vol)
+        .map_err(|e| to_pyvalue_err(e.to_string()))?;
     check_greeks_result(&result)?;
     Ok(result)
 }
