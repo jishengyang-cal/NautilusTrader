@@ -1,6 +1,6 @@
 commands:
   prepare: |-
-    rtk proxy bash -lc '
+    rtk proxy sh -c '
       target_dir="${CARGO_TARGET_DIR:-${CARGO_TARGET_ROOT:+$CARGO_TARGET_ROOT/nautilus}}"
       target_dir="${target_dir:-$HOME/.cache/nautilus-no-mistakes-target}"
       case "$target_dir" in

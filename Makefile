@@ -51,7 +51,19 @@ endif
 UV_SYNC_FLAGS ?= --inexact
 
 # TARGET_DIR controls where Cargo places build artifacts
-TARGET_DIR ?= $(CURDIR)/target
+ifneq ($(origin TARGET_DIR),undefined)
+SELECTED_TARGET_DIR := $(value TARGET_DIR)
+else ifneq ($(origin CARGO_TARGET_DIR),undefined)
+SELECTED_TARGET_DIR := $(value CARGO_TARGET_DIR)
+else
+SELECTED_TARGET_DIR := $(CURDIR)/target
+endif
+override undefine CARGO_TARGET_DIR
+override undefine TARGET_DIR
+CARGO_TARGET_DIR := $(value SELECTED_TARGET_DIR)
+TARGET_DIR := $(value SELECTED_TARGET_DIR)
+export CARGO_TARGET_DIR
+unexport TARGET_DIR
 
 # Compiler configuration
 # Uses clang by default (required by ed25519-blake2b and other deps).
@@ -142,9 +154,6 @@ CARGO_CI_PROFILE ?= nextest
 PYTHON_EXTENSION_PATH := $(firstword $(wildcard \
 	python/nautilus_trader/_libnautilus*.so \
 	python/nautilus_trader/_libnautilus*.pyd))
-PY_STUB_STAMP := $(TARGET_DIR)/.py-stubs.stamp
-# Track input paths separately so additions and deletions also invalidate the stamp.
-PY_STUB_INPUT_LIST := $(TARGET_DIR)/.py-stubs.inputs
 PY_STUB_INPUT_LIST_COMMAND = { \
 	printf '%s\n' .cargo/config.toml Cargo.lock Cargo.toml Makefile rust-toolchain.toml \
 		python/generate_docstrings.py python/generate_stubs.py python/pyproject.toml python/uv.lock; \
@@ -152,8 +161,6 @@ PY_STUB_INPUT_LIST_COMMAND = { \
 	find patches/pyo3-stub-gen -type f; \
 	find python/nautilus_trader -type f \( -name '*.py' -o -name '*.pyi' \); \
 }
-PY_STUB_INPUTS := $(shell $(PY_STUB_INPUT_LIST_COMMAND))
-
 # Select the appropriate flag for `cargo nextest` depending on FAIL_FAST.
 ifeq ($(FAIL_FAST),true)
 FAIL_FAST_FLAG :=
@@ -324,7 +331,7 @@ install-debug: build-debug  #-- Install the package in debug mode
 .PHONY: build
 build: py-stubs  #-- Build and install the package in release mode
 	$(info $(M) Building the Python extension in release mode...)
-	$Q cd python && VIRTUAL_ENV= CARGO_TARGET_DIR=$(TARGET_DIR) uv run --no-sync maturin develop --release
+	$Q cd python && VIRTUAL_ENV= uv run --no-sync maturin develop --release
 
 .PHONY: build-debug
 build-debug: py-stubs  #-- Build and install the package in debug mode
@@ -336,32 +343,33 @@ build-debug: py-stubs  #-- Build and install the package in debug mode
 .PHONY: build-wheel
 build-wheel: check-cargo-cooldown sync  #-- Build a wheel distribution in release mode
 	$(info $(M) Building the Python wheel in release mode...)
-	$Q cd python && VIRTUAL_ENV= CARGO_TARGET_DIR=$(TARGET_DIR) uv run --no-sync maturin build --release --out ../dist
-
-.PHONY: py-stub-input-list-force
-py-stub-input-list-force:
-
-$(PY_STUB_INPUT_LIST): py-stub-input-list-force
-	$Q mkdir -p "$(dir $(PY_STUB_INPUT_LIST))"
-	$Q py_stub_input_tmp="$(PY_STUB_INPUT_LIST).$$$$"; \
-	$(PY_STUB_INPUT_LIST_COMMAND) | LC_ALL=C sort > "$$py_stub_input_tmp"; \
-	if ! cmp -s "$$py_stub_input_tmp" "$(PY_STUB_INPUT_LIST)"; then \
-		mv "$$py_stub_input_tmp" "$(PY_STUB_INPUT_LIST)"; \
-	else \
-		rm "$$py_stub_input_tmp"; \
-	fi
-
-$(PY_STUB_STAMP): $(PY_STUB_INPUTS) $(PY_STUB_INPUT_LIST) | check-cargo-cooldown sync
-	$(info $(M) Generating Python type stubs...)
-	$Q mkdir -p "$(dir $(PY_STUB_STAMP))"
-	$Q CARGO_TARGET_DIR="$${CARGO_TARGET_DIR:-$${PWD}/target}"; \
-		export CARGO_TARGET_DIR; \
-		cd python && VIRTUAL_ENV= NAUTILUS_STUB_PROFILE=$(CARGO_CI_PROFILE) \
-		uv run --no-sync python generate_stubs.py
-	$Q touch "$(PY_STUB_STAMP)"
+	$Q cd python && VIRTUAL_ENV= uv run --no-sync maturin build --release --out ../dist
 
 .PHONY: py-stubs
-py-stubs: $(PY_STUB_STAMP)  #-- Regenerate Python type stubs when their inputs change
+py-stubs: check-cargo-cooldown sync  #-- Regenerate Python type stubs when their inputs change
+	$Q py_stub_stamp="$$CARGO_TARGET_DIR/.py-stubs.stamp"; \
+		py_stub_input_list="$$CARGO_TARGET_DIR/.py-stubs.inputs"; \
+		mkdir -p "$$CARGO_TARGET_DIR"; \
+		py_stub_input_tmp="$$py_stub_input_list.$$$$"; \
+		$(PY_STUB_INPUT_LIST_COMMAND) | LC_ALL=C sort > "$$py_stub_input_tmp"; \
+		regenerate=false; \
+		if ! cmp -s "$$py_stub_input_tmp" "$$py_stub_input_list"; then \
+			mv "$$py_stub_input_tmp" "$$py_stub_input_list"; \
+			regenerate=true; \
+		else \
+			rm "$$py_stub_input_tmp"; \
+		fi; \
+		if [ ! -f "$$py_stub_stamp" ] || \
+			! while IFS= read -r input; do \
+				[ ! "$$input" -nt "$$py_stub_stamp" ] || exit 1; \
+			done < "$$py_stub_input_list"; then \
+			regenerate=true; \
+		fi; \
+		if [ "$$regenerate" = true ]; then \
+			cd python && VIRTUAL_ENV= NAUTILUS_STUB_PROFILE=$(CARGO_CI_PROFILE) \
+				uv run --no-sync python generate_stubs.py && \
+			touch "$$py_stub_stamp"; \
+		fi
 
 .PHONY: check-generated-drift
 check-generated-drift:  #-- Check generated stubs and docstrings are committed
@@ -480,7 +488,6 @@ exit $$_t_rc
 endef
 
 .PHONY: pre-flight
-pre-flight: export CARGO_TARGET_DIR=$(TARGET_DIR)
 pre-flight:  #-- Run pre-flight checks (format, tests, build, generated drift, and audit)
 	$(info $(M) Running pre-flight checks...)
 	@if ! git diff --quiet; then \

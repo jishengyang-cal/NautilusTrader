@@ -28,6 +28,7 @@ def run_prepare(
     overrides: dict[str, str],
 ) -> list[str]:
     env = os.environ.copy()
+    real_make = shutil.which("make", path=env["PATH"]) or "make"
     for name in (
         "CARGO_BUILD_JOBS",
         "CARGO_CI_PROFILE",
@@ -36,15 +37,12 @@ def run_prepare(
     ):
         env.pop(name, None)
     env.update(overrides)
-    metadata_dir = output_path.parent / "make-target"
-    shutil.rmtree(metadata_dir, ignore_errors=True)
     env.update(
         {
             "HOME": str(home_dir),
-            "MAKE_METADATA_DIR": str(metadata_dir),
             "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
             "PREPARE_PROBE_OUTPUT": str(output_path),
-            "REAL_MAKE": shutil.which("make", path=env["PATH"]) or "make",
+            "REAL_MAKE": real_make,
         },
     )
     subprocess.run(
@@ -75,6 +73,9 @@ def assert_prepare_case(
     ]
     if observed != expected:
         raise AssertionError(f"prepare environment mismatch: {observed!r} != {expected!r}")
+    for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
+        if not (expected_target / metadata_name).is_file():
+            raise AssertionError(f"missing target metadata: {expected_target / metadata_name}")
 
 
 def main() -> None:
@@ -106,7 +107,6 @@ printf 'make_args=%s\\n' "$*" > "$PREPARE_PROBE_OUTPUT"
 exec "$REAL_MAKE" --no-print-directory \
     --old-file=check-cargo-cooldown \
     --old-file=sync \
-    TARGET_DIR="$MAKE_METADATA_DIR" \
     "$@"
 """,
         )
@@ -146,14 +146,62 @@ exec "$REAL_MAKE" --no-print-directory \
             ({}, home_dir / ".cache" / "nautilus-no-mistakes-target"),
         )
         for overrides, expected_target in cases:
-            assert_prepare_case(
-                command,
-                bin_dir,
-                output_path,
-                home_dir,
-                overrides,
-                expected_target,
-            )
+            try:
+                assert_prepare_case(
+                    command,
+                    bin_dir,
+                    output_path,
+                    home_dir,
+                    overrides,
+                    expected_target,
+                )
+            finally:
+                for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
+                    (expected_target / metadata_name).unlink(missing_ok=True)
+                try:
+                    expected_target.rmdir()
+                except OSError:
+                    pass
+
+        explicit_target = temp_dir / "explicit $target cache"
+        output_path.write_text("make_args=build-debug\n", encoding="utf-8")
+        env = os.environ.copy()
+        real_make = shutil.which("make", path=env["PATH"]) or "make"
+        env.update(
+            {
+                "CARGO_BUILD_JOBS": "2",
+                "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
+                "PREPARE_PROBE_OUTPUT": str(output_path),
+            },
+        )
+        subprocess.run(
+            [
+                real_make,
+                "--no-print-directory",
+                "--old-file=check-cargo-cooldown",
+                "--old-file=sync",
+                "build-debug",
+                f"TARGET_DIR={explicit_target}",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            check=True,
+        )
+        expected_calls = [
+            "make_args=build-debug",
+            f"uv_call={REPO_ROOT / 'python'}\t2\t{explicit_target}\t"
+            "run --no-sync python generate_stubs.py",
+            f"uv_call={REPO_ROOT / 'python'}\t2\t{explicit_target}\t"
+            "run --no-sync maturin develop --profile nextest",
+        ]
+        observed = output_path.read_text(encoding="utf-8").splitlines()
+        if observed != expected_calls:
+            raise AssertionError(f"TARGET_DIR mismatch: {observed!r} != {expected_calls!r}")
+        for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
+            if not (explicit_target / metadata_name).is_file():
+                raise AssertionError(
+                    f"missing TARGET_DIR metadata: {explicit_target / metadata_name}",
+                )
         if shell_marker.exists():
             raise AssertionError("Make expanded the cache path as an expression")
 
