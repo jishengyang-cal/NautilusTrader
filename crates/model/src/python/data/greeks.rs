@@ -371,10 +371,12 @@ impl BlackScholesGreeksResult {
 }
 
 /// Computes Black-Scholes greeks using the fast `compute_greeks` implementation.
+/// This function uses `compute_greeks` from `black_scholes.rs` which is optimized for performance.
 ///
 /// # Errors
 ///
-/// Returns a `PyValueError` if an input is non-finite or outside its positive domain.
+/// Returns an error if an input is invalid for the `f32` pricing kernel or the calculated result
+/// contains a non-finite value.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "black_scholes_greeks")]
@@ -421,11 +423,12 @@ pub fn py_imply_vol(
 }
 
 /// Computes implied volatility and greeks using the fast implementations.
+/// This function uses `compute_greeks` after implying volatility.
 ///
 /// # Errors
 ///
-/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
-/// generalized Black-Scholes no-arbitrage price bounds.
+/// Returns an error if an input is invalid for the `f32` pricing kernel, the option price violates
+/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "imply_vol_and_greeks")]
@@ -449,11 +452,13 @@ pub fn py_imply_vol_and_greeks(
 }
 
 /// Refines implied volatility using an initial guess and computes greeks.
+/// This function uses `compute_iv_and_greeks` which performs a Halley iteration
+/// to refine the volatility estimate from an initial guess.
 ///
 /// # Errors
 ///
-/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
-/// generalized Black-Scholes no-arbitrage price bounds.
+/// Returns an error if an input is invalid for the `f32` pricing kernel, the target price violates
+/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "refine_vol_and_greeks")]
