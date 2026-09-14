@@ -19,14 +19,13 @@ Exercise the no-mistakes prepare command without building the workspace.
 
 from __future__ import annotations
 
-from pathlib import Path
 import os
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 
 import yaml
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / ".no-mistakes.yaml"
