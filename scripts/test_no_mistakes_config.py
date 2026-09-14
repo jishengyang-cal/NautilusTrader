@@ -1,0 +1,136 @@
+"""Exercise the no-mistakes prepare command without building the workspace."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+import yaml
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_PATH = REPO_ROOT / ".no-mistakes.yaml"
+
+
+def write_executable(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def run_prepare(
+    command: str,
+    bin_dir: Path,
+    output_path: Path,
+    home_dir: Path,
+    overrides: dict[str, str],
+) -> dict[str, str]:
+    env = os.environ.copy()
+    for name in ("CARGO_BUILD_JOBS", "CARGO_TARGET_DIR", "CARGO_TARGET_ROOT"):
+        env.pop(name, None)
+    env.update(overrides)
+    env.update(
+        {
+            "HOME": str(home_dir),
+            "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
+            "PREPARE_PROBE_OUTPUT": str(output_path),
+        },
+    )
+    subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        shell=True,
+        executable="/bin/sh",
+    )
+    return dict(
+        line.split("=", 1)
+        for line in output_path.read_text(encoding="utf-8").splitlines()
+    )
+
+
+def assert_prepare_case(
+    command: str,
+    bin_dir: Path,
+    output_path: Path,
+    home_dir: Path,
+    overrides: dict[str, str],
+    expected_target: Path,
+) -> None:
+    observed = run_prepare(command, bin_dir, output_path, home_dir, overrides)
+    expected = {
+        "args": "build-debug",
+        "cwd": str(REPO_ROOT),
+        "jobs": "2",
+        "target": str(expected_target),
+    }
+    if observed != expected:
+        raise AssertionError(f"prepare environment mismatch: {observed!r} != {expected!r}")
+
+
+def main() -> None:
+    config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    command = config["commands"]["prepare"]
+
+    with tempfile.TemporaryDirectory(prefix="nautilus-no-mistakes-") as temp:
+        temp_dir = Path(temp)
+        bin_dir = temp_dir / "bin"
+        home_dir = temp_dir / "home"
+        output_path = temp_dir / "prepare-output"
+        bin_dir.mkdir()
+        home_dir.mkdir()
+        write_executable(
+            bin_dir / "rtk",
+            """#!/bin/sh
+if [ "$1" != "proxy" ]; then
+    exit 64
+fi
+shift
+exec "$@"
+""",
+        )
+        write_executable(
+            bin_dir / "make",
+            """#!/bin/sh
+{
+    printf 'args=%s\\n' "$*"
+    printf 'cwd=%s\\n' "$PWD"
+    printf 'jobs=%s\\n' "$CARGO_BUILD_JOBS"
+    printf 'target=%s\\n' "$TARGET_DIR"
+} > "$PREPARE_PROBE_OUTPUT"
+""",
+        )
+
+        cases = (
+            (
+                {
+                    "CARGO_BUILD_JOBS": "8",
+                    "CARGO_TARGET_DIR": "target cache",
+                    "CARGO_TARGET_ROOT": "/ignored-root",
+                },
+                REPO_ROOT / "target cache",
+            ),
+            (
+                {"CARGO_TARGET_DIR": str(temp_dir / "absolute target")},
+                temp_dir / "absolute target",
+            ),
+            ({"CARGO_TARGET_ROOT": "cargo root"}, REPO_ROOT / "cargo root" / "nautilus"),
+            ({}, home_dir / ".cache" / "nautilus-no-mistakes-target"),
+        )
+        for overrides, expected_target in cases:
+            assert_prepare_case(
+                command,
+                bin_dir,
+                output_path,
+                home_dir,
+                overrides,
+                expected_target,
+            )
+
+    print("no-mistakes prepare configuration tests passed")
+
+
+if __name__ == "__main__":
+    main()
