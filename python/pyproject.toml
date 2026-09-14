@@ -32,8 +32,6 @@ visualization = [
   "kaleido>=1.4.0,<2.0.0",
   "simplejson>=4.1.2,<5.0.0",
 ]
-strict-l2 = ["pyarrow==25.0.0"]
-
 [project.urls]
 homepage = "https://nautilustrader.io"
 repository = "https://github.com/nautechsystems/nautilus_trader"
@@ -112,8 +110,8 @@ no-build-package = [
   "platformdirs",
   "plotly",
   "pluggy",
-  "psutil",
   "pyarrow",
+  "psutil",
   "pygments",
   "pytest",
   "pytest-asyncio",

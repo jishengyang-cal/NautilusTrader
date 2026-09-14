@@ -552,9 +552,6 @@ version = "2.0.0rc5"
 source = { editable = "." }
 
 [package.optional-dependencies]
-strict-l2 = [
-    { name = "pyarrow" },
-]
 visualization = [
     { name = "kaleido" },
     { name = "pandas" },
@@ -590,10 +587,9 @@ requires-dist = [
     { name = "kaleido", marker = "extra == 'visualization'", specifier = ">=1.4.0,<2.0.0" },
     { name = "pandas", marker = "extra == 'visualization'", specifier = ">=2.3.3,<4.0.0" },
     { name = "plotly", marker = "extra == 'visualization'", specifier = ">=7.0.0,<8.0.0" },
-    { name = "pyarrow", marker = "extra == 'strict-l2'", specifier = "==25.0.0" },
     { name = "simplejson", marker = "extra == 'visualization'", specifier = ">=4.1.2,<5.0.0" },
 ]
-provides-extras = ["visualization", "strict-l2"]
+provides-extras = ["visualization"]
 
 [package.metadata.requires-dev]
 dev = [
