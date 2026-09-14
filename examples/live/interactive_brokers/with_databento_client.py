@@ -10,9 +10,8 @@
 
 The default is a build-only, data-only node. Set ``IB_V2_RUN_NODE=1`` to run.
 IB execution additionally requires ``IB_V2_ENABLE_EXECUTION=1`` and
-``TWS_ACCOUNT``. For a local IB Gateway paper session, set
-``IB_V2_HOST=127.0.0.1`` and ``IB_V2_PORT=4002``. Order submission remains
-separately gated by ``IB_V2_ENABLE_ORDER_SUBMISSION``.
+``TWS_ACCOUNT`` and always uses the IB Gateway paper port 4002. Order
+submission remains separately gated by ``IB_V2_ENABLE_ORDER_SUBMISSION``.
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ from _common import default_es_future_instrument_id
 from _common import env_bool
 from _common import env_int
 from _common import instrument_provider_config
-from _common import resolve_ib_endpoint
 from _common import schedule_node_stop
 
 from nautilus_trader.adapters import interactive_brokers
@@ -83,9 +81,7 @@ def main() -> None:
     builder = builder.with_timeout_portfolio(5)
     builder = builder.with_timeout_disconnection_secs(5)
     builder = builder.with_delay_post_stop_secs(2)
-    builder = builder.with_reconciliation(
-        reconciliation=env_bool("IB_V2_RECONCILIATION", default=False),
-    )
+    builder = builder.with_reconciliation(reconciliation=False)
     builder = builder.add_data_client(
         "DATABENTO",
         DatabentoDataClientFactory(),
@@ -99,14 +95,13 @@ def main() -> None:
     )
 
     if account_id is not None:
-        host, port = resolve_ib_endpoint()
         ib = interactive_brokers
         builder = builder.add_exec_client(
             None,
             ib.InteractiveBrokersExecutionClientFactory(),
             ib.InteractiveBrokersExecutionClientConfig(
-                host=host,
-                port=port,
+                host=os.getenv("IB_V2_HOST", "127.0.0.1"),
+                port=4002,
                 client_id=env_int("IB_V2_EXEC_CLIENT_ID", 1312),
                 account_id=account_id,
                 connection_timeout=env_int("IB_V2_CONNECTION_TIMEOUT", 10),
@@ -121,6 +116,11 @@ def main() -> None:
         node,
         "ib_v2_order_strategies:DatabentoSubscriptionStrategy",
     )
+    if execution_enabled:
+        add_strategy_from_config(
+            node,
+            "ib_v2_order_strategies:MarketOrderStrategy",
+        )
     print(f"Built Databento data + IB execution v2 node: {node.trader_id}", flush=True)
     if env_bool("IB_V2_RUN_NODE"):
         schedule_node_stop(node, env_int("IB_V2_AUTO_STOP_SECONDS", 0))
