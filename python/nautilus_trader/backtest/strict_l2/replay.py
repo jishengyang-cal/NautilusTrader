@@ -21,7 +21,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import shutil
+import stat
 from collections.abc import Mapping
 from collections.abc import Sequence
 from decimal import Decimal
@@ -379,14 +381,27 @@ def _verify_catalog_receipt(  # noqa: C901, PLR0913
         path.relative_to(catalog_path)
         snapshot_artifact = snapshot_path / Path(*pure.parts)
         snapshot_artifact.parent.mkdir(parents=True, exist_ok=True)
+        declared_size = entry["size_bytes"]
+        if (
+            isinstance(declared_size, bool)
+            or not isinstance(declared_size, int)
+            or declared_size < 0
+        ):
+            raise ValueError("strict-L2 catalog artifact size is invalid")
         digest = hashlib.sha256()
         size_bytes = 0
-        with path.open("rb") as source, snapshot_artifact.open("xb") as destination:
-            while chunk := source.read(1024 * 1024):
-                digest.update(chunk)
-                size_bytes += len(chunk)
-                destination.write(chunk)
-        if size_bytes != entry["size_bytes"] or digest.hexdigest() != entry["sha256"]:
+        with path.open("rb") as source:
+            source_stat = os.fstat(source.fileno())
+            if not stat.S_ISREG(source_stat.st_mode) or source_stat.st_size != declared_size:
+                raise ValueError("strict-L2 catalog artifact digest mismatch")
+            with snapshot_artifact.open("xb") as destination:
+                while chunk := source.read(1024 * 1024):
+                    size_bytes += len(chunk)
+                    if size_bytes > declared_size:
+                        raise ValueError("strict-L2 catalog artifact digest mismatch")
+                    digest.update(chunk)
+                    destination.write(chunk)
+        if size_bytes != declared_size or digest.hexdigest() != entry["sha256"]:
             raise ValueError("strict-L2 catalog artifact digest mismatch")
         declared.add(pure.as_posix())
     actual = {

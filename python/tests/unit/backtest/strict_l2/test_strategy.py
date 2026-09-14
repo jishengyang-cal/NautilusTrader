@@ -944,7 +944,10 @@ def test_candidate_replay_records_entry_miss_and_continues(tmp_path: Path) -> No
         node.dispose()
 
 
-def test_run_candidate_replay_rejects_catalog_changed_after_publication(tmp_path: Path) -> None:
+def test_run_candidate_replay_rejects_catalog_changed_after_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     Catalog mutation after publication fails before the replay engine starts.
     """
@@ -956,9 +959,23 @@ def test_run_candidate_replay_rejects_catalog_changed_after_publication(tmp_path
     request = _replay_request(receipt, catalog, instrument, source_manifest)
     request_path = tmp_path / "tampered-replay-request.json"
     request_path.write_text(json.dumps(request), encoding="utf-8")
+    output_root = tmp_path / "replays"
+    artifact_copy_started = False
+    original_open = Path.open
+
+    def track_artifact_copy(path: Path, mode: str = "r", *args, **kwargs):
+        nonlocal artifact_copy_started
+        if mode == "xb" and output_root in path.parents:
+            artifact_copy_started = True
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", track_artifact_copy)
 
     with pytest.raises(ValueError, match="catalog artifact digest mismatch"):
-        run_candidate_replay(request_path, tmp_path / "replays")
+        run_candidate_replay(request_path, output_root)
+
+    assert artifact_copy_started is False
+    assert list(output_root.iterdir()) == []
 
 
 def test_run_candidate_replay_rejects_coherently_rewritten_catalog(tmp_path: Path) -> None:
