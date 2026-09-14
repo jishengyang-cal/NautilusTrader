@@ -13,13 +13,76 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::UnixNanos;
+use nautilus_core::{UnixNanos, python::to_pyvalue_err};
 use pyo3::{prelude::*, types::PyType};
 
 use crate::data::greeks::{
     BlackScholesGreeksResult, GreeksData, OptionGreekValues, PortfolioGreeks, black_scholes_greeks,
-    imply_vol, imply_vol_and_greeks, refine_vol_and_greeks,
+    imply_vol, refine_vol_and_greeks,
 };
+
+fn check_finite(value: f64, parameter: &str) -> PyResult<()> {
+    if !value.is_finite() {
+        return Err(to_pyvalue_err(format!(
+            "{parameter} must be finite, was {value}"
+        )));
+    }
+    Ok(())
+}
+
+fn check_positive_finite(value: f64, parameter: &str) -> PyResult<()> {
+    check_finite(value, parameter)?;
+    if value <= 0.0 {
+        return Err(to_pyvalue_err(format!(
+            "{parameter} must be positive, was {value}"
+        )));
+    }
+    Ok(())
+}
+
+fn check_option_inputs(s: f64, r: f64, b: f64, k: f64, t: f64) -> PyResult<()> {
+    check_positive_finite(s, "s")?;
+    check_finite(r, "r")?;
+    check_finite(b, "b")?;
+    check_positive_finite(k, "k")?;
+    check_positive_finite(t, "t")
+}
+
+#[expect(clippy::too_many_arguments)]
+fn check_option_price(
+    s: f64,
+    r: f64,
+    b: f64,
+    is_call: bool,
+    k: f64,
+    t: f64,
+    price: f64,
+    parameter: &str,
+) -> PyResult<()> {
+    check_positive_finite(price, parameter)?;
+    let discounted_spot = s * ((b - r) * t).exp();
+    let discounted_strike = k * (-r * t).exp();
+    check_positive_finite(discounted_spot, "discounted spot")?;
+    check_positive_finite(discounted_strike, "discounted strike")?;
+    let (lower_bound, upper_bound) = if is_call {
+        (
+            (discounted_spot - discounted_strike).max(0.0),
+            discounted_spot,
+        )
+    } else {
+        (
+            (discounted_strike - discounted_spot).max(0.0),
+            discounted_strike,
+        )
+    };
+
+    if price <= lower_bound || price >= upper_bound {
+        return Err(to_pyvalue_err(format!(
+            "{parameter} violates no-arbitrage bounds ({lower_bound}, {upper_bound}), was {price}"
+        )));
+    }
+    Ok(())
+}
 
 #[cfg(feature = "python")]
 #[pymethods]
@@ -269,7 +332,10 @@ impl BlackScholesGreeksResult {
 }
 
 /// Computes Black-Scholes greeks using the fast `compute_greeks` implementation.
-/// This function uses `compute_greeks` from `black_scholes.rs` which is optimized for performance.
+///
+/// # Errors
+///
+/// Returns a `PyValueError` if an input is non-finite or outside its positive domain.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "black_scholes_greeks")]
@@ -282,6 +348,8 @@ pub fn py_black_scholes_greeks(
     k: f64,
     t: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
+    check_option_inputs(s, r, b, k, t)?;
+    check_positive_finite(vol, "vol")?;
     Ok(black_scholes_greeks(s, r, b, vol, is_call, k, t))
 }
 
@@ -289,7 +357,8 @@ pub fn py_black_scholes_greeks(
 ///
 /// # Errors
 ///
-/// Returns a `PyErr` if implied volatility calculation fails.
+/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
+/// generalized Black-Scholes no-arbitrage price bounds.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "imply_vol")]
@@ -302,12 +371,19 @@ pub fn py_imply_vol(
     t: f64,
     price: f64,
 ) -> PyResult<f64> {
+    check_option_inputs(s, r, b, k, t)?;
+    check_option_price(s, r, b, is_call, k, t, price, "price")?;
     let vol = imply_vol(s, r, b, is_call, k, t, price);
+    check_positive_finite(vol, "implied volatility")?;
     Ok(vol)
 }
 
 /// Computes implied volatility and greeks using the fast implementations.
-/// This function uses `compute_greeks` after implying volatility.
+///
+/// # Errors
+///
+/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
+/// generalized Black-Scholes no-arbitrage price bounds.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "imply_vol_and_greeks")]
@@ -320,12 +396,19 @@ pub fn py_imply_vol_and_greeks(
     t: f64,
     price: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
-    Ok(imply_vol_and_greeks(s, r, b, is_call, k, t, price))
+    check_option_inputs(s, r, b, k, t)?;
+    check_option_price(s, r, b, is_call, k, t, price, "price")?;
+    let vol = imply_vol(s, r, b, is_call, k, t, price);
+    check_positive_finite(vol, "implied volatility")?;
+    Ok(black_scholes_greeks(s, r, b, vol, is_call, k, t))
 }
 
 /// Refines implied volatility using an initial guess and computes greeks.
-/// This function uses `compute_iv_and_greeks` which performs a Halley iteration
-/// to refine the volatility estimate from an initial guess.
+///
+/// # Errors
+///
+/// Returns a `PyValueError` if an input is non-finite, outside its positive domain, or violates the
+/// generalized Black-Scholes no-arbitrage price bounds.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "refine_vol_and_greeks")]
@@ -340,6 +423,9 @@ pub fn py_refine_vol_and_greeks(
     target_price: f64,
     initial_vol: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
+    check_option_inputs(s, r, b, k, t)?;
+    check_option_price(s, r, b, is_call, k, t, target_price, "target_price")?;
+    check_positive_finite(initial_vol, "initial_vol")?;
     Ok(refine_vol_and_greeks(
         s,
         r,

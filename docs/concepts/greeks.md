@@ -124,6 +124,11 @@ result = refine_vol_and_greeks(
 `refine_vol_and_greeks()` performs one refinement step, not a full convergence loop. Use it with a
 good starting estimate; use `imply_vol_and_greeks()` when a full implied-volatility solve is needed.
 
+The Python functions reject non-finite inputs. Spot, strike, time to expiry, and supplied volatility
+must be positive. Implied-volatility market prices must lie strictly inside the generalized
+Black-Scholes no-arbitrage bounds derived from discounted spot and strike, and the initial
+volatility passed to `refine_vol_and_greeks()` must be positive.
+
 The `BlackScholesGreeksResult` returned by these functions contains: `price`, `vol`,
 `delta`, `gamma`, `vega`, `theta`, and `itm_prob`.
 
