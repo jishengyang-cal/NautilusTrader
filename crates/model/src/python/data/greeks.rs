@@ -375,8 +375,8 @@ impl BlackScholesGreeksResult {
 ///
 /// # Errors
 ///
-/// Returns an error if an input is invalid for the `f32` pricing kernel or the calculated result
-/// contains a non-finite value.
+/// Returns a `PyValueError` if an input is invalid for the `f32` pricing kernel or the calculated
+/// result contains a non-finite value.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "black_scholes_greeks")]
@@ -427,8 +427,8 @@ pub fn py_imply_vol(
 ///
 /// # Errors
 ///
-/// Returns an error if an input is invalid for the `f32` pricing kernel, the option price violates
-/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
+/// Returns a `PyValueError` if an input is invalid for the `f32` pricing kernel, the option price
+/// violates the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "imply_vol_and_greeks")]
@@ -457,8 +457,8 @@ pub fn py_imply_vol_and_greeks(
 ///
 /// # Errors
 ///
-/// Returns an error if an input is invalid for the `f32` pricing kernel, the target price violates
-/// the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
+/// Returns a `PyValueError` if an input is invalid for the `f32` pricing kernel, the target price
+/// violates the generalized Black-Scholes no-arbitrage bounds, or the calculated result is invalid.
 #[pyfunction]
 #[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "nautilus_trader.model")]
 #[pyo3(name = "refine_vol_and_greeks")]
