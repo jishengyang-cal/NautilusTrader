@@ -1,5 +1,7 @@
 commands:
-  prepare: "rtk make build-debug"
+  prepare: >-
+    rtk make build-debug
+    TARGET_DIR="$HOME/.cache/nautilus-no-mistakes-target"
   test: |-
     rtk proxy bash -lc '
       cd python &&
@@ -21,5 +23,6 @@ test:
   instructions: >-
     Reuse the repository-managed Python environment and native extension prepared by
     commands.prepare. Drive focused observable behavior for the changed surface; do
-    not rebuild the extension during the agent test phase unless tracked Rust or PyO3
-    sources changed after preparation.
+    not rebuild the extension during the agent test phase and do not run cargo nextest,
+    workspace-wide Rust tests, or broad linters. The explicit commands.test invocation
+    is the complete test scope for this branch.
