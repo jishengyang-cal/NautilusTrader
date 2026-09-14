@@ -21,9 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import platform
 import shutil
-import time
 from collections.abc import Mapping
 from collections.abc import Sequence
 from decimal import Decimal
@@ -38,6 +36,8 @@ from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.backtest import BacktestNode
 from nautilus_trader.backtest import BacktestRunConfig
 from nautilus_trader.backtest import BacktestVenueConfig
+from nautilus_trader.backtest.strict_l2.candidate import CandidateSignal
+from nautilus_trader.backtest.strict_l2.candidate import load_candidate_signals_snapshot
 from nautilus_trader.backtest.strict_l2.feedback import feedback_records_from_orders_report
 from nautilus_trader.backtest.strict_l2.feedback import publish_execution_feedback
 from nautilus_trader.backtest.strict_l2.strategy import CandidateReplayConfig
@@ -77,7 +77,7 @@ class _PerShareFeeModel(FeeModel):
 
 
 REQUEST_SCHEMA = "strict-l2-candidate-replay-request/v2"
-RESULT_SCHEMA = "strict-l2-candidate-replay-result/v1"
+RESULT_SCHEMA = "strict-l2-candidate-replay-result/v2"
 SHA256_HEX_LENGTH = 64
 REQUEST_FIELDS = {
     "schema_version",
@@ -98,12 +98,8 @@ REQUEST_FIELDS = {
 }
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
 
 
 def _canonical_sha256(value: object) -> str:
@@ -123,9 +119,10 @@ def _json_value(value: object) -> object:
     return str(value)
 
 
-def _load_request(path: str | Path) -> tuple[Path, dict[str, Any]]:
+def _load_request(path: str | Path) -> tuple[dict[str, Any], str]:
     source = Path(path).expanduser().resolve(strict=True)
-    value = json.loads(source.read_text(encoding="utf-8"))
+    source_bytes = source.read_bytes()
+    value = json.loads(source_bytes)
     if not isinstance(value, dict) or set(value) != REQUEST_FIELDS:
         raise ValueError("candidate replay request fields do not match the versioned contract")
     if value["schema_version"] != REQUEST_SCHEMA:
@@ -161,7 +158,7 @@ def _load_request(path: str | Path) -> tuple[Path, dict[str, Any]]:
     latency = value["order_insert_latency_ns"]
     if isinstance(latency, bool) or not isinstance(latency, int) or latency < 0:
         raise ValueError("candidate replay order_insert_latency_ns must be non-negative integer ns")
-    return source, value
+    return value, _sha256_bytes(source_bytes)
 
 
 def _validate_source_manifest(
@@ -170,7 +167,8 @@ def _validate_source_manifest(
     trading_date: str,
     symbols: set[str],
 ) -> tuple[str, str]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    manifest_bytes = path.read_bytes()
+    value = json.loads(manifest_bytes)
     if (
         not isinstance(value, dict)
         or value.get("schema_version") != "research/published-dataset-manifest-v1"
@@ -202,18 +200,20 @@ def _validate_source_manifest(
         raise ValueError("source symbol metadata path must be normalized and relative")
     metadata_path = (path.parent / Path(*pure.parts)).resolve(strict=True)
     metadata_path.relative_to(path.parent)
-    metadata_sha256 = _sha256(metadata_path)
-    if metadata_path.stat().st_size != entry.get("size_bytes") or metadata_sha256 != entry.get(
+    metadata_bytes = metadata_path.read_bytes()
+    metadata_sha256 = _sha256_bytes(metadata_bytes)
+    if len(metadata_bytes) != entry.get("size_bytes") or metadata_sha256 != entry.get(
         "sha256",
     ):
         raise ValueError("source symbol metadata failed digest verification")
-    return _sha256(path), metadata_sha256
+    return _sha256_bytes(manifest_bytes), metadata_sha256
 
 
 def _load_catalog_bindings(
     values: list[dict[str, Any]],
     source_manifest_sha256: str,
     symbol_metadata_sha256: str,
+    snapshot_root: Path,
 ) -> tuple[
     list[BacktestDataConfig],
     list[tuple[str, InstrumentId]],
@@ -229,7 +229,7 @@ def _load_catalog_bindings(
     first_timestamps = []
     receipt_bindings = []
 
-    for value in values:
+    for index, value in enumerate(values):
         symbol = value["symbol"]
         if not isinstance(symbol, str) or not symbol or symbol in symbols:
             raise ValueError("catalog symbols must be non-empty and unique")
@@ -245,24 +245,27 @@ def _load_catalog_bindings(
         catalog_path = catalog_source.resolve(strict=True)
         if not catalog_path.is_dir():
             raise ValueError("catalog path must be a real directory")
-        receipt = _verify_catalog_receipt(
+        snapshot_catalog_path = snapshot_root / str(index)
+        snapshot_catalog_path.mkdir()
+        receipt, receipt_sha256 = _verify_catalog_receipt(
             catalog_path,
+            snapshot_path=snapshot_catalog_path,
             symbol=symbol,
             instrument_id=instrument_id,
             expected_receipt_sha256=value["catalog_receipt_sha256"],
             source_manifest_sha256=source_manifest_sha256,
             symbol_metadata_sha256=symbol_metadata_sha256,
         )
-        receipt_path = catalog_path / "strict-l2-catalog-receipt.json"
         receipt_bindings.append(
             {
                 "symbol": symbol,
-                "path": str(receipt_path),
-                "sha256": _sha256(receipt_path),
+                "instrument_id": str(instrument_id),
+                "file": "strict-l2-catalog-receipt.json",
+                "sha256": receipt_sha256,
             },
         )
         first_timestamps.append(receipt["first_ts_init_ns"])
-        catalog = ParquetDataCatalog(str(catalog_path))
+        catalog = ParquetDataCatalog(str(snapshot_catalog_path))
         instruments = [item for item in catalog.instruments() if item.id == instrument_id]
         if len(instruments) != 1:
             raise ValueError("catalog does not contain exactly one bound instrument")
@@ -276,7 +279,7 @@ def _load_catalog_bindings(
         data_configs.append(
             BacktestDataConfig(
                 data_type="OrderBookDelta",
-                catalog_path=str(catalog_path),
+                catalog_path=str(snapshot_catalog_path),
                 instrument_id=instrument_id,
             ),
         )
@@ -289,23 +292,26 @@ def _load_catalog_bindings(
 def _verify_catalog_receipt(  # noqa: C901, PLR0913
     catalog_path: Path,
     *,
+    snapshot_path: Path,
     symbol: str,
     instrument_id: InstrumentId,
     expected_receipt_sha256: object,
     source_manifest_sha256: str,
     symbol_metadata_sha256: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str]:
     receipt_path = catalog_path / "strict-l2-catalog-receipt.json"
     if not receipt_path.is_file():
         raise ValueError("strict-L2 catalog receipt is missing")
+    receipt_bytes = receipt_path.read_bytes()
+    receipt_sha256 = _sha256_bytes(receipt_bytes)
     if (
         not isinstance(expected_receipt_sha256, str)
         or len(expected_receipt_sha256) != SHA256_HEX_LENGTH
         or any(character not in "0123456789abcdef" for character in expected_receipt_sha256)
-        or _sha256(receipt_path) != expected_receipt_sha256
+        or receipt_sha256 != expected_receipt_sha256
     ):
         raise ValueError("strict-L2 catalog receipt SHA-256 binding is invalid")
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_bytes)
     required = {
         "schema_version",
         "catalog_path",
@@ -358,12 +364,19 @@ def _verify_catalog_receipt(  # noqa: C901, PLR0913
             raise ValueError("strict-L2 catalog file path is not normalized")
         path = (catalog_path / Path(*pure.parts)).resolve(strict=True)
         path.relative_to(catalog_path)
+        artifact_bytes = path.read_bytes()
         if (
             not path.is_file()
-            or path.stat().st_size != entry["size_bytes"]
-            or _sha256(path) != entry["sha256"]
+            or len(artifact_bytes) != entry["size_bytes"]
+            or _sha256_bytes(
+                artifact_bytes,
+            )
+            != entry["sha256"]
         ):
             raise ValueError("strict-L2 catalog artifact digest mismatch")
+        snapshot_artifact = snapshot_path / Path(*pure.parts)
+        snapshot_artifact.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_artifact.write_bytes(artifact_bytes)
         declared.add(pure.as_posix())
     actual = {
         path.relative_to(catalog_path).as_posix()
@@ -373,7 +386,7 @@ def _verify_catalog_receipt(  # noqa: C901, PLR0913
 
     if declared != actual:
         raise ValueError("strict-L2 catalog artifact inventory mismatch")
-    return receipt
+    return receipt, receipt_sha256
 
 
 def _session_bounds(trading_date: str) -> tuple[int, int]:
@@ -401,60 +414,44 @@ def _validated_orders(
     return node.generate_orders_report(config_id)
 
 
-def _load_bound_audit(request: dict[str, Any]) -> tuple[Path, dict[str, Any], str]:
+def _load_bound_audit(request: dict[str, Any]) -> tuple[Path, bytes, dict[str, Any], str]:
     audit_path = Path(request["audit_receipt_path"]).expanduser().resolve(strict=True)
+    audit_bytes = audit_path.read_bytes()
     digest = request["audit_receipt_sha256"]
     if (
         not isinstance(digest, str)
         or len(digest) != SHA256_HEX_LENGTH
         or any(character not in "0123456789abcdef" for character in digest)
-        or _sha256(audit_path) != digest
+        or _sha256_bytes(audit_bytes) != digest
     ):
         raise ValueError("candidate audit receipt SHA-256 binding is invalid")
-    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit = json.loads(audit_bytes)
     if not isinstance(audit, dict) or audit.get("artifact_valid") is not True:
         raise ValueError("candidate replay requires a valid audit receipt")
-    return audit_path, audit, digest
+    return audit_path, audit_bytes, audit, digest
 
 
-def _publish_performance(
-    staging: Path,
-    identity: dict[str, Any],
-    profile_source_sha256: dict[str, str],
-    bindings: list[tuple[str, InstrumentId]],
-    strategies: list[CandidateReplayStrategy],
-) -> None:
-    if profile_source_sha256 != {
-        name: _sha256(Path(__file__).with_name(name)) for name in profile_source_sha256
-    }:
-        raise ValueError("profiling source files changed during replay")
-    performance = {
-        "schema_version": "strict-l2-replay-performance/v1",
-        **identity,
-        "execution_assumptions_unchanged": True,
-        "acceptance": "callback diagnostics only; not full performance acceptance",
-        "python_version": platform.python_version(),
-        "source_sha256": profile_source_sha256,
-        "clock": {
-            key: getattr(time.get_clock_info("perf_counter"), key)
-            for key in ("implementation", "monotonic", "adjustable", "resolution")
-        },
-        "strategies": {
-            symbol: strategy.performance_report
-            for (symbol, _), strategy in zip(bindings, strategies, strict=True)
-        },
+def _public_request(
+    request: dict[str, Any],
+    *,
+    source_manifest_sha256: str,
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in request.items()
+        if key not in {"audit_receipt_path", "source_manifest_path", "catalogs"}
+    } | {
+        "source_manifest_sha256": source_manifest_sha256,
+        "catalogs": [
+            {key: value for key, value in catalog.items() if key != "catalog_path"}
+            for catalog in request["catalogs"]
+        ],
     }
-    (staging / "performance.json").write_text(
-        json.dumps(performance, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
 
 
 def run_candidate_replay(
     request_path: str | Path,
     output_root: str | Path,
-    *,
-    record_performance: bool = False,
 ) -> dict[str, Any]:
     """
     Execute and atomically publish one strict-L2 candidate replay day.
@@ -465,22 +462,8 @@ def run_candidate_replay(
     The session is 09:30-16:00 America/New_York, with earlier catalog data used for
     book warmup. Feedback has ``environment=backtest`` and provides no live evidence.
 
-    Set ``record_performance=True`` (CLI ``--record-performance``) to publish a
-    separate ``performance.json``; see ``CandidateReplayStrategy.performance_report``
-    for sampling limitations. Source hashes are captured before execution and checked
-    afterward. Drift rejects the new publication while preserving existing outputs.
-
     """
-    profile_sources = (
-        {
-            name: Path(__file__).with_name(name)
-            for name in ("strategy.py", "replay.py", "candidate.py", "feedback.py")
-        }
-        if record_performance
-        else {}
-    )
-    profile_source_sha256 = {name: _sha256(path) for name, path in profile_sources.items()}
-    source, request = _load_request(request_path)
+    request, request_sha256 = _load_request(request_path)
     source_manifest = Path(request["source_manifest_path"]).expanduser().resolve(strict=True)
     requested_symbols = {item["symbol"] for item in request["catalogs"]}
     source_manifest_sha256, symbol_metadata_sha256 = _validate_source_manifest(
@@ -488,16 +471,24 @@ def run_candidate_replay(
         trading_date=request["trading_date"],
         symbols=requested_symbols,
     )
-    data_configs, bindings, venue, catalog_start_ns, catalog_receipts = _load_catalog_bindings(
-        request["catalogs"],
-        source_manifest_sha256,
-        symbol_metadata_sha256,
-    )
     start_ns, end_ns = _session_bounds(request["trading_date"])
-    book_warmup_start_ns = min(catalog_start_ns, start_ns)
-    audit_path, audit, audit_receipt_sha256 = _load_bound_audit(request)
+    audit_path, audit_bytes, audit, audit_receipt_sha256 = _load_bound_audit(request)
+    candidate_signals = load_candidate_signals_snapshot(
+        audit_path,
+        audit_bytes,
+        horizon_ms=request["horizon_ms"],
+        instruments=requested_symbols,
+        start_ns=start_ns,
+        end_ns=end_ns,
+    )
+    signals_by_symbol: dict[str, tuple[CandidateSignal, ...]] = {
+        symbol: tuple(signal for signal in candidate_signals if signal.instrument == symbol)
+        for symbol in requested_symbols
+    }
+    if any(not signals for signals in signals_by_symbol.values()):
+        raise ValueError("candidate contains no signals for a requested instrument")
     identity = {
-        "request_sha256": _sha256(source),
+        "request_sha256": request_sha256,
         "audit_receipt_sha256": audit_receipt_sha256,
         "candidate_run_id": audit.get("run_id"),
         "trading_date": request["trading_date"],
@@ -510,36 +501,46 @@ def run_candidate_replay(
         raise FileExistsError("candidate replay publication never overwrites output")
     root.mkdir(parents=True, exist_ok=True)
     staging.mkdir()
-    strategies = []
-    config = BacktestRunConfig(
-        id=replay_id,
-        venues=[
-            BacktestVenueConfig(
-                name=venue,
-                oms_type=OmsType.NETTING,
-                account_type=AccountType.MARGIN,
-                starting_balances=request["starting_balances"],
-                book_type=BookType.L2_MBP,
-                use_reduce_only=True,
-                trade_execution=True,
-                liquidity_consumption=True,
-                fee_model=_PerShareFeeModel(Decimal(request["fee_per_share_usd"])),
-                latency_model=StaticLatencyModel(
-                    base_latency_nanos=0,
-                    insert_latency_nanos=request["order_insert_latency_ns"],
-                    update_latency_nanos=request["order_insert_latency_ns"],
-                    cancel_latency_nanos=request["order_insert_latency_ns"],
-                ),
-            ),
-        ],
-        data=data_configs,
-        engine=BacktestEngineConfig(bypass_logging=True, run_analysis=True),
-        dispose_on_completion=False,
-        start=book_warmup_start_ns,
-        end=end_ns,
-    )
-    node = BacktestNode([config])
+    snapshot_root = staging / ".catalog-snapshots"
+    snapshot_root.mkdir()
+    strategies: list[CandidateReplayStrategy] = []
+    node = None
     try:
+        data_configs, bindings, venue, catalog_start_ns, catalog_receipts = _load_catalog_bindings(
+            request["catalogs"],
+            source_manifest_sha256,
+            symbol_metadata_sha256,
+            snapshot_root,
+        )
+        book_warmup_start_ns = min(catalog_start_ns, start_ns)
+        config = BacktestRunConfig(
+            id=replay_id,
+            venues=[
+                BacktestVenueConfig(
+                    name=venue,
+                    oms_type=OmsType.NETTING,
+                    account_type=AccountType.MARGIN,
+                    starting_balances=request["starting_balances"],
+                    book_type=BookType.L2_MBP,
+                    use_reduce_only=True,
+                    trade_execution=True,
+                    liquidity_consumption=True,
+                    fee_model=_PerShareFeeModel(Decimal(request["fee_per_share_usd"])),
+                    latency_model=StaticLatencyModel(
+                        base_latency_nanos=0,
+                        insert_latency_nanos=request["order_insert_latency_ns"],
+                        update_latency_nanos=request["order_insert_latency_ns"],
+                        cancel_latency_nanos=request["order_insert_latency_ns"],
+                    ),
+                ),
+            ],
+            data=data_configs,
+            engine=BacktestEngineConfig(bypass_logging=True, run_analysis=True),
+            dispose_on_completion=False,
+            start=book_warmup_start_ns,
+            end=end_ns,
+        )
+        node = BacktestNode([config])
         node.build()
 
         for symbol, instrument_id in bindings:
@@ -557,8 +558,8 @@ def run_candidate_replay(
                     replay_start_ns=start_ns,
                     replay_end_ns=end_ns,
                     order_insert_latency_ns=request["order_insert_latency_ns"],
-                    record_performance=record_performance,
                 ),
+                signals=signals_by_symbol[symbol],
             )
             strategies.append(strategy)
             node.add_strategy(config.id, strategy)
@@ -630,7 +631,10 @@ def run_candidate_replay(
             "schema_version": RESULT_SCHEMA,
             "replay_id": replay_id,
             **identity,
-            "request": request,
+            "request": _public_request(
+                request,
+                source_manifest_sha256=source_manifest_sha256,
+            ),
             "catalog_receipts": catalog_receipts,
             "book_type": "L2_MBP",
             **execution_assumptions,
@@ -643,15 +647,9 @@ def run_candidate_replay(
         }
         rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
         (staging / "replay-result.json").write_text(rendered, encoding="utf-8")
-
-        if record_performance:
-            _publish_performance(
-                staging,
-                identity,
-                profile_source_sha256,
-                bindings,
-                strategies,
-            )
+        node.dispose()
+        node = None
+        shutil.rmtree(snapshot_root)
         staging.replace(final)
         return {
             "status": "complete",
@@ -664,4 +662,5 @@ def run_candidate_replay(
         shutil.rmtree(staging, ignore_errors=True)
         raise
     finally:
-        node.dispose()
+        if node is not None:
+            node.dispose()

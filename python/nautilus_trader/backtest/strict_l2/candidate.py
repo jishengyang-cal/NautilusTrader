@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 
@@ -62,12 +63,8 @@ class CandidateSignal:
     p_up: float
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
 
 
 def _validate_digest(value: object, field: str) -> str:
@@ -80,11 +77,11 @@ def _validate_digest(value: object, field: str) -> str:
     return value
 
 
-def _load_json(path: Path, expected_type: type) -> object:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, expected_type):
-        raise TypeError(f"{path.name} has an invalid top-level type")
-    return value
+def _load_json(value: bytes, name: str, expected_type: type) -> object:
+    loaded = json.loads(value)
+    if not isinstance(loaded, expected_type):
+        raise TypeError(f"{name} has an invalid top-level type")
+    return loaded
 
 
 def _bound_file(root: Path, name: object) -> Path:
@@ -130,8 +127,9 @@ def _require_horizon_baseline_win(screening: object, horizon_ms: int) -> None:
         raise ValueError("candidate did not generalize at the requested horizon")
 
 
-def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
-    audit_receipt_path: str | Path,
+def _load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
+    receipt_path: Path,
+    receipt_bytes: bytes,
     *,
     horizon_ms: int,
     instruments: set[str] | frozenset[str] | None = None,
@@ -153,8 +151,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         raise ValueError("signal time bounds must be non-negative Unix nanoseconds")
     if start_ns is not None and end_ns is not None and start_ns >= end_ns:
         raise ValueError("signal time bounds must define a positive interval")
-    receipt_path = Path(audit_receipt_path).expanduser().resolve(strict=True)
-    receipt = _load_json(receipt_path, dict)
+    receipt = _load_json(receipt_bytes, receipt_path.name, dict)
     if receipt.get("schema_version") != AUDIT_SCHEMA or receipt.get("artifact_valid") is not True:
         raise ValueError("a valid strict-L2 candidate audit receipt is required")
     if receipt.get("strict_l2_only") is not True:
@@ -191,14 +188,16 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     bundle_path = candidate / "prediction-bundle.json"
     if not model.is_file() or not bundle_path.is_file():
         raise ValueError("candidate model or prediction bundle is missing")
-    if _sha256(model) != _validate_digest(receipt.get("model_sha256"), "model_sha256"):
+    model_bytes = model.read_bytes()
+    if _sha256_bytes(model_bytes) != _validate_digest(receipt.get("model_sha256"), "model_sha256"):
         raise ValueError("candidate model digest differs from its audit receipt")
-    if _sha256(bundle_path) != _validate_digest(
+    bundle_bytes = bundle_path.read_bytes()
+    if _sha256_bytes(bundle_bytes) != _validate_digest(
         receipt.get("prediction_bundle_sha256"),
         "prediction_bundle_sha256",
     ):
         raise ValueError("prediction bundle digest differs from its audit receipt")
-    bundle = _load_json(bundle_path, dict)
+    bundle = _load_json(bundle_bytes, bundle_path.name, dict)
     if bundle.get("schema_version") != PREDICTION_SCHEMA or bundle.get("run_id") != run_id:
         raise ValueError("prediction bundle identity mismatch")
     if bundle.get("evaluation_segment") != receipt["evaluation_segment"]:
@@ -217,9 +216,13 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         "predictions_sha256",
     )
 
+    prediction_bytes = prediction_path.read_bytes()
     if (
         bundle.get("prediction_sha256") != prediction_sha256
-        or _sha256(prediction_path) != prediction_sha256
+        or _sha256_bytes(
+            prediction_bytes,
+        )
+        != prediction_sha256
     ):
         raise ValueError("prediction artifact digest mismatch")
 
@@ -231,7 +234,7 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
         f"p_flat_{horizon_ms}ms",
         f"p_up_{horizon_ms}ms",
     }
-    parquet = pq.ParquetFile(prediction_path)
+    parquet = pq.ParquetFile(pa.BufferReader(prediction_bytes))
     names = set(parquet.schema_arrow.names)
     if not expected <= names:
         raise ValueError("prediction artifact is missing replay signal columns")
@@ -339,3 +342,51 @@ def load_candidate_signals(  # noqa: C901, PLR0912, PLR0913, PLR0915
     ):
         raise ValueError("prediction row count differs from its bundle")
     return tuple(signals)
+
+
+def load_candidate_signals(  # noqa: PLR0913
+    audit_receipt_path: str | Path,
+    *,
+    horizon_ms: int,
+    instruments: set[str] | frozenset[str] | None = None,
+    start_ns: int | None = None,
+    end_ns: int | None = None,
+    batch_size: int = 65_536,
+) -> tuple[CandidateSignal, ...]:
+    """
+    Load audited signals from one receipt and artifact byte snapshot.
+    """
+    receipt_path = Path(audit_receipt_path).expanduser().resolve(strict=True)
+    return load_candidate_signals_snapshot(
+        receipt_path,
+        receipt_path.read_bytes(),
+        horizon_ms=horizon_ms,
+        instruments=instruments,
+        start_ns=start_ns,
+        end_ns=end_ns,
+        batch_size=batch_size,
+    )
+
+
+def load_candidate_signals_snapshot(  # noqa: PLR0913
+    receipt_path: Path,
+    receipt_bytes: bytes,
+    *,
+    horizon_ms: int,
+    instruments: set[str] | frozenset[str] | None = None,
+    start_ns: int | None = None,
+    end_ns: int | None = None,
+    batch_size: int = 65_536,
+) -> tuple[CandidateSignal, ...]:
+    """
+    Load audited signals from caller-bound receipt bytes.
+    """
+    return _load_candidate_signals(
+        receipt_path,
+        receipt_bytes,
+        horizon_ms=horizon_ms,
+        instruments=instruments,
+        start_ns=start_ns,
+        end_ns=end_ns,
+        batch_size=batch_size,
+    )

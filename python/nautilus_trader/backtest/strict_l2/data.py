@@ -84,7 +84,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     rows: Iterable[Mapping],
     instrument_id: InstrumentId,
     *,
-    expected_symbol: str | None = None,
+    expected_symbol: str,
     price_precision: int = 9,
 ) -> Iterator[OrderBookDelta]:
     """
@@ -113,7 +113,7 @@ def rows_to_deltas(  # noqa: C901, PLR0912, PLR0915
     for expected_index, row in enumerate(rows):
         if frozenset(row) != STRICT_L2_FIELDS:
             raise ValueError("strict-L2 row fields do not match the sanitized contract")
-        if expected_symbol is not None and row["symbol"] != expected_symbol:
+        if row["symbol"] != expected_symbol:
             raise ValueError("strict-L2 symbol does not match the requested manifest partition")
         event_index = row["event_index"]
         if (

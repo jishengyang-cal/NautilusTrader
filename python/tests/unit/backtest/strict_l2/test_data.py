@@ -70,7 +70,7 @@ def test_absolute_l2_rows_replay_to_matching_mbp_state() -> None:
         _row(3, side="A", price=101_000_000_000, size=7, delta=7),
     ]
     instrument = InstrumentId.from_str("TEST.XNAS")
-    deltas = list(rows_to_deltas(rows, instrument))
+    deltas = list(rows_to_deltas(rows, instrument, expected_symbol="TEST"))
     assert [delta.action for delta in deltas] == [
         BookAction.CLEAR,
         BookAction.ADD,
@@ -95,10 +95,18 @@ def test_strict_l2_rejects_order_identity_and_incomplete_message() -> None:
     row = _row(0)
     row["order_id"] = 12
     with pytest.raises(ValueError, match="fields"):
-        list(rows_to_deltas([row], instrument))
+        list(rows_to_deltas([row], instrument, expected_symbol="TEST"))
     row = _row(0, last=False)
     with pytest.raises(ValueError, match="message boundary"):
-        list(rows_to_deltas([row], instrument))
+        list(rows_to_deltas([row], instrument, expected_symbol="TEST"))
+
+
+def test_strict_l2_requires_an_expected_symbol() -> None:
+    """
+    Conversion cannot combine rows without a caller-bound symbol partition.
+    """
+    with pytest.raises(TypeError, match="expected_symbol"):
+        list(rows_to_deltas([_row(0)], InstrumentId.from_str("TEST.XNAS")))
 
 
 def test_strict_l2_rejects_broken_logical_message_identity() -> None:
@@ -109,7 +117,7 @@ def test_strict_l2_rejects_broken_logical_message_identity() -> None:
     first = _row(0, last=False)
     second = _row(1, side="A", price=101_000_000_000, size=7, delta=7)
     with pytest.raises(ValueError, match="logical L2 message"):
-        list(rows_to_deltas([first, second], instrument))
+        list(rows_to_deltas([first, second], instrument, expected_symbol="TEST"))
 
 
 def test_logical_message_allows_increasing_venue_times_at_one_receive_time() -> None:
@@ -122,11 +130,16 @@ def test_logical_message_allows_increasing_venue_times_at_one_receive_time() -> 
     second["sequence"] = first["sequence"]
     second["ts_recv"] = first["ts_recv"]
     second["ts_event"] = first["ts_event"] + 1
-    assert len(list(rows_to_deltas([first, second], instrument))) == 2
+    assert (
+        len(
+            list(rows_to_deltas([first, second], instrument, expected_symbol="TEST")),
+        )
+        == 2
+    )
 
     second["ts_event"] = first["ts_event"] - 1
     with pytest.raises(ValueError, match="venue time moved backwards"):
-        list(rows_to_deltas([first, second], instrument))
+        list(rows_to_deltas([first, second], instrument, expected_symbol="TEST"))
 
 
 @pytest.mark.parametrize("second_sequence", [0, 12])
@@ -142,7 +155,7 @@ def test_strict_l2_allows_venue_sequence_gap_or_reset_between_completed_messages
     second = _row(1, size=15, delta=5)
     second["sequence"] = second_sequence
 
-    deltas = list(rows_to_deltas([first, second], instrument))
+    deltas = list(rows_to_deltas([first, second], instrument, expected_symbol="TEST"))
 
     assert [delta.sequence for delta in deltas] == [10, second_sequence]
 
@@ -157,12 +170,12 @@ def test_snapshot_flags_preserve_buffered_event_boundaries() -> None:
     level["sequence"] = clear["sequence"]
     level["ts_event"] = clear["ts_event"]
     level["ts_recv"] = clear["ts_recv"]
-    deltas = list(rows_to_deltas([clear, level], instrument))
+    deltas = list(rows_to_deltas([clear, level], instrument, expected_symbol="TEST"))
     assert deltas[0].flags == RecordFlag.F_SNAPSHOT.value
     assert deltas[1].flags == RecordFlag.F_SNAPSHOT.value | RecordFlag.F_LAST.value
 
     empty = _row(0, side="N", price=0, size=0, delta=0, action="CLEAR")
-    empty_delta = next(rows_to_deltas([empty], instrument))
+    empty_delta = next(rows_to_deltas([empty], instrument, expected_symbol="TEST"))
     assert empty_delta.flags == RecordFlag.F_SNAPSHOT.value | RecordFlag.F_LAST.value
 
 
@@ -182,7 +195,7 @@ def test_strict_l2_rejects_ordering_and_state_faults(mutate: Any, message: str) 
     rows = [_row(0), _row(1, size=15, delta=5)]
     mutate(rows)
     with pytest.raises(ValueError, match=message):
-        list(rows_to_deltas(rows, instrument))
+        list(rows_to_deltas(rows, instrument, expected_symbol="TEST"))
 
 
 def test_strict_l2_rejects_clear_inside_open_message_and_absent_delete() -> None:
@@ -194,11 +207,11 @@ def test_strict_l2_rejects_clear_inside_open_message_and_absent_delete() -> None
     clear = _row(1, side="N", price=0, size=0, delta=0, action="CLEAR")
     clear.update(sequence=first["sequence"], ts_event=first["ts_event"], ts_recv=first["ts_recv"])
     with pytest.raises(ValueError, match="CLEAR must start"):
-        list(rows_to_deltas([first, clear], instrument))
+        list(rows_to_deltas([first, clear], instrument, expected_symbol="TEST"))
 
     delete = _row(0, size=0, delta=0)
     with pytest.raises(ValueError, match="absent"):
-        list(rows_to_deltas([delete], instrument))
+        list(rows_to_deltas([delete], instrument, expected_symbol="TEST"))
 
 
 def test_strict_l2_uses_instrument_price_precision_and_rejects_misalignment() -> None:
@@ -206,11 +219,20 @@ def test_strict_l2_uses_instrument_price_precision_and_rejects_misalignment() ->
     Nanosecond integer prices must map exactly to the instrument precision.
     """
     instrument = InstrumentId.from_str("TEST.XNAS")
-    delta = next(rows_to_deltas([_row(0)], instrument, price_precision=2))
+    delta = next(
+        rows_to_deltas([_row(0)], instrument, expected_symbol="TEST", price_precision=2),
+    )
     assert str(delta.order.price) == "100.00"
     misaligned = _row(0, price=100_000_000_001)
     with pytest.raises(ValueError, match="price precision"):
-        list(rows_to_deltas([misaligned], instrument, price_precision=2))
+        list(
+            rows_to_deltas(
+                [misaligned],
+                instrument,
+                expected_symbol="TEST",
+                price_precision=2,
+            ),
+        )
 
 
 def test_manifest_stream_verifies_digest_and_preserves_availability_clock(tmp_path: Path) -> None:
