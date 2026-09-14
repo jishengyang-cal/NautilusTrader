@@ -32,6 +32,7 @@ visualization = [
   "kaleido>=1.4.0,<2.0.0",
   "simplejson>=4.1.2,<5.0.0",
 ]
+strict-l2 = ["pyarrow==25.0.0"]
 
 [project.urls]
 homepage = "https://nautilustrader.io"
@@ -112,6 +113,7 @@ no-build-package = [
   "plotly",
   "pluggy",
   "psutil",
+  "pyarrow",
   "pygments",
   "pytest",
   "pytest-asyncio",
@@ -149,6 +151,7 @@ no-build-package = [
 [dependency-groups]
 dev = ["maturin==1.15.0", "ruff>=0.16.6", "ty>=0.0.78"]
 test = [
+  "pyarrow==25.0.0",
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
   "pytest-cov>=7.1.0",
