@@ -296,7 +296,8 @@ class DatabentoSubscriptionStrategy(Strategy):
         """
         On start.
         """
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True):
+        subscribe_quotes = env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True)
+        if subscribe_quotes:
             print(
                 f"{self.strategy_id}: subscribing Databento quotes for {self.instrument_id}",
                 flush=True,
@@ -310,7 +311,7 @@ class DatabentoSubscriptionStrategy(Strategy):
             )
             self.subscribe_bars(self.bar_type, client_id=databento_client_id())
 
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
+        if not subscribe_quotes and env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
             print(
                 f"{self.strategy_id}: subscribing Databento trades for {self.instrument_id}",
                 flush=True,
@@ -383,21 +384,6 @@ class DatabentoSubscriptionStrategy(Strategy):
                 f"{self.strategy_id}: Databento status #{self._status_count}: {status}",
                 flush=True,
             )
-
-    def on_stop(self) -> None:
-        """On stop."""
-        client_id = databento_client_id()
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True):
-            self.unsubscribe_quotes(self.instrument_id, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_BARS", default=True):
-            self.unsubscribe_bars(self.bar_type, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
-            self.unsubscribe_trades(self.instrument_id, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_MBO"):
-            self.unsubscribe_book_deltas(self.instrument_id, client_id=client_id)
-        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_STATUS", default=True):
-            self.unsubscribe_instrument_status(self.instrument_id, client_id=client_id)
-
 
 class OptionGreeksStrategy(Strategy):
     """

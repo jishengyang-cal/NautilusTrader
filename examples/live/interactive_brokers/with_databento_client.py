@@ -77,10 +77,6 @@ def main() -> None:
         Environment.LIVE,
     )
     builder = builder.with_timeout_connection(env_int("IB_V2_NODE_CONNECTION_TIMEOUT", 15))
-    builder = builder.with_timeout_reconciliation(5)
-    builder = builder.with_timeout_portfolio(5)
-    builder = builder.with_timeout_disconnection_secs(5)
-    builder = builder.with_delay_post_stop_secs(2)
     builder = builder.with_reconciliation(reconciliation=False)
     builder = builder.add_data_client(
         "DATABENTO",
