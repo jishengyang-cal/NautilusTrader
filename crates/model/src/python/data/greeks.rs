@@ -41,9 +41,10 @@ fn check_positive_finite(value: f64, parameter: &str) -> PyResult<()> {
 }
 
 fn check_f32_finite(value: f64, parameter: &str) -> PyResult<()> {
-    if !(value as f32).is_finite() {
+    let narrowed = value as f32;
+    if !narrowed.is_finite() || (value != 0.0 && narrowed == 0.0) {
         return Err(to_pyvalue_err(format!(
-            "{parameter} must be finite in the pricing kernel, was {value}"
+            "{parameter} must be finite and representable in the pricing kernel, was {value}"
         )));
     }
     Ok(())

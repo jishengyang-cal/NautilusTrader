@@ -19,6 +19,7 @@ Independent normal-CDF and finite-difference checks of native option Greeks.
 from collections.abc import Callable
 from math import erf
 from math import exp
+from math import isfinite
 from math import log
 from math import sqrt
 
@@ -90,13 +91,35 @@ def test_native_put_call_parity_with_dividend_carry() -> None:
     )
 
 
+def test_black_scholes_accepts_exact_zero_rate_and_carry() -> None:
+    """
+    Exact zero remains representable and valid at the f32 pricing boundary.
+    """
+    result = black_scholes_greeks(100.0, 0.0, 0.0, 0.2, True, 100.0, 1.0)
+
+    assert all(
+        isfinite(value)
+        for value in (
+            result.price,
+            result.vol,
+            result.delta,
+            result.gamma,
+            result.vega,
+            result.theta,
+            result.itm_prob,
+        )
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("s", 0.0),
         ("s", float("nan")),
         ("r", float("inf")),
+        ("r", 1e-100),
         ("b", float("-inf")),
+        ("b", -1e-100),
         ("vol", 0.0),
         ("vol", float("nan")),
         ("k", -1.0),

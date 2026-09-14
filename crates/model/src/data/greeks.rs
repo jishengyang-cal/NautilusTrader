@@ -59,18 +59,20 @@ fn check_positive_f32(value: f64, parameter: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn check_f32_finite(value: f64, parameter: &str) -> anyhow::Result<()> {
+    check_finite(value, parameter)?;
+    let narrowed = value as f32;
+    anyhow::ensure!(
+        narrowed.is_finite() && (value == 0.0 || narrowed != 0.0),
+        "{parameter} must be finite and representable in the pricing kernel, was {value}"
+    );
+    Ok(())
+}
+
 fn check_fast_option_inputs(s: f64, r: f64, b: f64, k: f64, t: f64) -> anyhow::Result<()> {
     check_positive_f32(s, "s")?;
-    check_finite(r, "r")?;
-    check_finite(b, "b")?;
-    anyhow::ensure!(
-        (r as f32).is_finite(),
-        "r must be finite in the pricing kernel, was {r}"
-    );
-    anyhow::ensure!(
-        (b as f32).is_finite(),
-        "b must be finite in the pricing kernel, was {b}"
-    );
+    check_f32_finite(r, "r")?;
+    check_f32_finite(b, "b")?;
     check_positive_f32(k, "k")?;
     check_positive_f32(t, "t")
 }
@@ -853,6 +855,25 @@ mod tests {
         let result = super::black_scholes_greeks(1.0, 0.0, 0.0, 0.2, true, 1.0, 1e-100);
 
         assert!(result.is_err());
+    }
+
+    #[rstest]
+    #[case(1e-100, 0.0)]
+    #[case(0.0, -1e-100)]
+    fn test_black_scholes_greeks_rejects_rate_or_carry_below_f32_domain(
+        #[case] r: f64,
+        #[case] b: f64,
+    ) {
+        let result = super::black_scholes_greeks(100.0, r, b, 0.2, true, 100.0, 1.0);
+
+        assert!(result.is_err());
+    }
+
+    #[rstest]
+    fn test_black_scholes_greeks_accepts_exact_zero_rate_and_carry() {
+        let result = super::black_scholes_greeks(100.0, 0.0, 0.0, 0.2, true, 100.0, 1.0);
+
+        assert!(result.is_ok());
     }
 
     #[rstest]
