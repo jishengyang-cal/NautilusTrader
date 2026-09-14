@@ -329,7 +329,9 @@ build: py-stubs  #-- Build and install the package in release mode
 .PHONY: build-debug
 build-debug: py-stubs  #-- Build and install the package in debug mode
 	$(info $(M) Building the Python extension in debug mode...)
-	$Q cd python && VIRTUAL_ENV= CARGO_TARGET_DIR="$${CARGO_TARGET_DIR}" uv run --no-sync maturin develop --profile $(CARGO_CI_PROFILE)
+	$Q CARGO_TARGET_DIR="$${CARGO_TARGET_DIR:-$${PWD}/target}"; \
+		export CARGO_TARGET_DIR; \
+		cd python && VIRTUAL_ENV= uv run --no-sync maturin develop --profile $(CARGO_CI_PROFILE)
 
 .PHONY: build-wheel
 build-wheel: check-cargo-cooldown sync  #-- Build a wheel distribution in release mode
@@ -352,8 +354,10 @@ $(PY_STUB_INPUT_LIST): py-stub-input-list-force
 $(PY_STUB_STAMP): $(PY_STUB_INPUTS) $(PY_STUB_INPUT_LIST) | check-cargo-cooldown sync
 	$(info $(M) Generating Python type stubs...)
 	$Q mkdir -p "$(dir $(PY_STUB_STAMP))"
-	$Q cd python && VIRTUAL_ENV= NAUTILUS_STUB_PROFILE=$(CARGO_CI_PROFILE) \
-		CARGO_TARGET_DIR=$(TARGET_DIR) uv run --no-sync python generate_stubs.py
+	$Q CARGO_TARGET_DIR="$${CARGO_TARGET_DIR:-$${PWD}/target}"; \
+		export CARGO_TARGET_DIR; \
+		cd python && VIRTUAL_ENV= NAUTILUS_STUB_PROFILE=$(CARGO_CI_PROFILE) \
+		uv run --no-sync python generate_stubs.py
 	$Q touch "$(PY_STUB_STAMP)"
 
 .PHONY: py-stubs

@@ -26,7 +26,7 @@ def run_prepare(
     output_path: Path,
     home_dir: Path,
     overrides: dict[str, str],
-) -> dict[str, str]:
+) -> list[str]:
     env = os.environ.copy()
     for name in (
         "CARGO_BUILD_JOBS",
@@ -36,9 +36,12 @@ def run_prepare(
     ):
         env.pop(name, None)
     env.update(overrides)
+    metadata_dir = output_path.parent / "make-target"
+    shutil.rmtree(metadata_dir, ignore_errors=True)
     env.update(
         {
             "HOME": str(home_dir),
+            "MAKE_METADATA_DIR": str(metadata_dir),
             "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
             "PREPARE_PROBE_OUTPUT": str(output_path),
             "REAL_MAKE": shutil.which("make", path=env["PATH"]) or "make",
@@ -52,10 +55,7 @@ def run_prepare(
         shell=True,
         executable="/bin/sh",
     )
-    return dict(
-        line.split("=", 1)
-        for line in output_path.read_text(encoding="utf-8").splitlines()
-    )
+    return output_path.read_text(encoding="utf-8").splitlines()
 
 
 def assert_prepare_case(
@@ -67,13 +67,12 @@ def assert_prepare_case(
     expected_target: Path,
 ) -> None:
     observed = run_prepare(command, bin_dir, output_path, home_dir, overrides)
-    expected = {
-        "cwd": str(REPO_ROOT / "python"),
-        "jobs": "2",
-        "make_args": "build-debug",
-        "target": str(expected_target),
-        "uv_args": "run --no-sync maturin develop --profile nextest",
-    }
+    call_prefix = f"uv_call={REPO_ROOT / 'python'}\t2\t{expected_target}\t"
+    expected = [
+        "make_args=build-debug",
+        f"{call_prefix}run --no-sync python generate_stubs.py",
+        f"{call_prefix}run --no-sync maturin develop --profile nextest",
+    ]
     if observed != expected:
         raise AssertionError(f"prepare environment mismatch: {observed!r} != {expected!r}")
 
@@ -104,17 +103,19 @@ exec "$@"
             bin_dir / "make",
             """#!/bin/sh
 printf 'make_args=%s\\n' "$*" > "$PREPARE_PROBE_OUTPUT"
-exec "$REAL_MAKE" --no-print-directory --old-file=py-stubs "$@"
+exec "$REAL_MAKE" --no-print-directory \
+    --old-file=check-cargo-cooldown \
+    --old-file=sync \
+    TARGET_DIR="$MAKE_METADATA_DIR" \
+    "$@"
 """,
         )
         write_executable(
             bin_dir / "uv",
             """#!/bin/sh
 {
-    printf 'cwd=%s\\n' "$PWD"
-    printf 'jobs=%s\\n' "$CARGO_BUILD_JOBS"
-    printf 'target=%s\\n' "$CARGO_TARGET_DIR"
-    printf 'uv_args=%s\\n' "$*"
+    printf 'uv_call=%s\\t%s\\t%s\\t%s\\n' \
+        "$PWD" "$CARGO_BUILD_JOBS" "$CARGO_TARGET_DIR" "$*"
 } >> "$PREPARE_PROBE_OUTPUT"
 """,
         )
