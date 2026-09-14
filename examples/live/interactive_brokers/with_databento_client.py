@@ -6,8 +6,13 @@
 #  You may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 # -------------------------------------------------------------------------------------------------
-"""
-Example of IB with Databento.
+"""Example of Databento market data with optional IB execution.
+
+The default is a build-only, data-only node. Set ``IB_V2_RUN_NODE=1`` to run.
+IB execution additionally requires ``IB_V2_ENABLE_EXECUTION=1`` and
+``TWS_ACCOUNT``. For a local IB Gateway paper session, set
+``IB_V2_HOST=127.0.0.1`` and ``IB_V2_PORT=4002``. Order submission remains
+separately gated by ``IB_V2_ENABLE_ORDER_SUBMISSION``.
 """
 
 from __future__ import annotations
@@ -53,9 +58,11 @@ def main() -> None:
     if not api_key:
         raise SystemExit("DATABENTO_API_KEY must be set")
 
-    host, port = resolve_ib_endpoint()
     trader_id = TraderId.from_str("IB-V2-DATABENTO-001")
-    account_id = os.getenv("TWS_ACCOUNT") if env_bool("IB_V2_ENABLE_EXECUTION") else None
+    execution_enabled = env_bool("IB_V2_ENABLE_EXECUTION")
+    account_id = os.getenv("TWS_ACCOUNT") if execution_enabled else None
+    if execution_enabled and not account_id:
+        raise SystemExit("TWS_ACCOUNT must be set when IB execution is enabled")
     provider_config = instrument_provider_config(
         load_ids=[
             "SPY.XNAS",
@@ -72,7 +79,13 @@ def main() -> None:
         Environment.LIVE,
     )
     builder = builder.with_timeout_connection(env_int("IB_V2_NODE_CONNECTION_TIMEOUT", 15))
-    builder = builder.with_reconciliation(reconciliation=False)
+    builder = builder.with_timeout_reconciliation(5)
+    builder = builder.with_timeout_portfolio(5)
+    builder = builder.with_timeout_disconnection_secs(5)
+    builder = builder.with_delay_post_stop_secs(2)
+    builder = builder.with_reconciliation(
+        reconciliation=env_bool("IB_V2_RECONCILIATION", default=False),
+    )
     builder = builder.add_data_client(
         "DATABENTO",
         DatabentoDataClientFactory(),
@@ -86,6 +99,7 @@ def main() -> None:
     )
 
     if account_id is not None:
+        host, port = resolve_ib_endpoint()
         ib = interactive_brokers
         builder = builder.add_exec_client(
             None,

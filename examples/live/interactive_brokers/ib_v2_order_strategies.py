@@ -25,6 +25,7 @@ from nautilus_trader.core import UUID4
 from nautilus_trader.core.datetime import unix_nanos_to_dt
 from nautilus_trader.model import Bar
 from nautilus_trader.model import BarType
+from nautilus_trader.model import BookType
 from nautilus_trader.model import ClientId
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import ContingencyType
@@ -285,6 +286,9 @@ class DatabentoSubscriptionStrategy(Strategy):
         self.instrument_id = env_instrument_id("IB_V2_DATABENTO_DATA_INSTRUMENT_ID", "SPY.XNAS")
         self.bar_type = bar_type_from_env("IB_V2_DATABENTO_BAR_TYPE", self.instrument_id)
         self._quote_count = 0
+        self._trade_count = 0
+        self._book_delta_count = 0
+        self._status_count = 0
         self._bar_count = 0
         self._max_prints = env_int("IB_V2_SUBSCRIPTION_MAX_PRINTS", 5)
 
@@ -305,6 +309,31 @@ class DatabentoSubscriptionStrategy(Strategy):
                 flush=True,
             )
             self.subscribe_bars(self.bar_type, client_id=databento_client_id())
+
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
+            print(
+                f"{self.strategy_id}: subscribing Databento trades for {self.instrument_id}",
+                flush=True,
+            )
+            self.subscribe_trades(self.instrument_id, client_id=databento_client_id())
+
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_MBO"):
+            print(
+                f"{self.strategy_id}: subscribing Databento MBO deltas for "
+                f"{self.instrument_id}; this subscription has no initial snapshot",
+                flush=True,
+            )
+            self.subscribe_book_deltas(
+                self.instrument_id,
+                BookType.L3_MBO,
+                client_id=databento_client_id(),
+            )
+
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_STATUS", default=True):
+            self.subscribe_instrument_status(
+                self.instrument_id,
+                client_id=databento_client_id(),
+            )
 
     def on_quote(self, quote: Any) -> None:
         """
@@ -327,6 +356,47 @@ class DatabentoSubscriptionStrategy(Strategy):
                 f"{self.strategy_id}: Databento bar #{self._bar_count}: {bar}",
                 flush=True,
             )
+
+    def on_trade(self, trade: Any) -> None:
+        """On trade."""
+        self._trade_count += 1
+        if self._trade_count <= self._max_prints:
+            print(
+                f"{self.strategy_id}: Databento trade #{self._trade_count}: {trade}",
+                flush=True,
+            )
+
+    def on_book_deltas(self, deltas: Any) -> None:
+        """On book deltas."""
+        self._book_delta_count += 1
+        if self._book_delta_count <= self._max_prints:
+            print(
+                f"{self.strategy_id}: Databento book deltas #{self._book_delta_count}: {deltas}",
+                flush=True,
+            )
+
+    def on_instrument_status(self, status: Any) -> None:
+        """On instrument status."""
+        self._status_count += 1
+        if self._status_count <= self._max_prints:
+            print(
+                f"{self.strategy_id}: Databento status #{self._status_count}: {status}",
+                flush=True,
+            )
+
+    def on_stop(self) -> None:
+        """On stop."""
+        client_id = databento_client_id()
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True):
+            self.unsubscribe_quotes(self.instrument_id, client_id=client_id)
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_BARS", default=True):
+            self.unsubscribe_bars(self.bar_type, client_id=client_id)
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
+            self.unsubscribe_trades(self.instrument_id, client_id=client_id)
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_MBO"):
+            self.unsubscribe_book_deltas(self.instrument_id, client_id=client_id)
+        if env_bool("IB_V2_DATABENTO_SUBSCRIBE_STATUS", default=True):
+            self.unsubscribe_instrument_status(self.instrument_id, client_id=client_id)
 
 
 class OptionGreeksStrategy(Strategy):
@@ -609,6 +679,7 @@ class IbV2OrderStrategy(Strategy):
         """
         On order accepted.
         """
+        print(f"{self.strategy_id}: order accepted: {event}", flush=True)
         if not env_bool("IB_V2_CANCEL_ON_ACCEPT", default=True):
             return
 
@@ -625,6 +696,30 @@ class IbV2OrderStrategy(Strategy):
             flush=True,
         )
         self.cancel_order(order.client_order_id, client_id=ib_client_id())
+
+    def on_order_submitted(self, event: Any) -> None:
+        """On order submitted."""
+        print(f"{self.strategy_id}: order submitted: {event}", flush=True)
+
+    def on_order_rejected(self, event: Any) -> None:
+        """On order rejected."""
+        print(f"{self.strategy_id}: order rejected: {event}", flush=True)
+
+    def on_order_denied(self, event: Any) -> None:
+        """On order denied."""
+        print(f"{self.strategy_id}: order denied: {event}", flush=True)
+
+    def on_order_updated(self, event: Any) -> None:
+        """On order updated."""
+        print(f"{self.strategy_id}: order updated: {event}", flush=True)
+
+    def on_order_canceled(self, event: Any) -> None:
+        """On order canceled."""
+        print(f"{self.strategy_id}: order canceled: {event}", flush=True)
+
+    def on_order_filled(self, event: Any) -> None:
+        """On order filled."""
+        print(f"{self.strategy_id}: order filled: {event}", flush=True)
 
 
 class BracketOrderStrategy(IbV2OrderStrategy):
