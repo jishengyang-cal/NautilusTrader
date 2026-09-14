@@ -1,5 +1,5 @@
 commands:
-  prepare: 'rtk proxy env CARGO_BUILD_JOBS=2 TARGET_DIR="$HOME/.cache/nautilus-no-mistakes-target" make build-debug'
+  prepare: "rtk proxy env CARGO_BUILD_JOBS=2 TARGET_DIR=\"$HOME/.cache/nautilus-no-mistakes-target\" make build-debug"
   test: |-
     rtk proxy bash -lc '
       cd python &&
@@ -13,6 +13,8 @@ commands:
           tests/unit/backtest/strict_l2 \
           tests/unit/model/test_option_pricing_validation.py
     '
+
+no_ci: true
 
 pr:
   base_branch: develop
