@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+# -------------------------------------------------------------------------------------------------
+#  Copyright (C) 2015-2026 Nautech Systems Pty Ltd. All rights reserved.
+#  https://nautechsystems.io
+#
+#  Licensed under the GNU Lesser General Public License Version 3.0 (the "License");
+#  You may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -------------------------------------------------------------------------------------------------
 """Exercise the no-mistakes prepare command without building the workspace."""
 
 from __future__ import annotations
@@ -10,12 +25,13 @@ from pathlib import Path
 
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / ".no-mistakes.yaml"
+EXPECTED_RETRY_CALLS = 2
 
 
 def write_executable(path: Path, content: str) -> None:
+    """Write an executable probe script."""
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
 
@@ -27,6 +43,7 @@ def run_prepare(
     home_dir: Path,
     overrides: dict[str, str],
 ) -> list[str]:
+    """Run the repository-owned prepare command in an isolated probe environment."""
     env = os.environ.copy()
     real_make = shutil.which("make", path=env["PATH"]) or "make"
     for name in (
@@ -46,12 +63,10 @@ def run_prepare(
         },
     )
     subprocess.run(
-        command,
+        ["/bin/sh", "-c", command],
         cwd=REPO_ROOT,
         env=env,
         check=True,
-        shell=True,
-        executable="/bin/sh",
     )
     return output_path.read_text(encoding="utf-8").splitlines()
 
@@ -64,6 +79,7 @@ def assert_prepare_case(
     overrides: dict[str, str],
     expected_target: Path,
 ) -> None:
+    """Assert one prepare path-selection case and its published metadata."""
     observed = run_prepare(command, bin_dir, output_path, home_dir, overrides)
     call_prefix = f"uv_call={REPO_ROOT / 'python'}\t2\t{expected_target}\t"
     expected = [
@@ -72,13 +88,18 @@ def assert_prepare_case(
         f"{call_prefix}run --no-sync maturin develop --profile nextest",
     ]
     if observed != expected:
-        raise AssertionError(f"prepare environment mismatch: {observed!r} != {expected!r}")
+        raise AssertionError(
+            f"prepare environment mismatch: {observed!r} != {expected!r}"
+        )
     for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
         if not (expected_target / metadata_name).is_file():
-            raise AssertionError(f"missing target metadata: {expected_target / metadata_name}")
+            raise AssertionError(
+                f"missing target metadata: {expected_target / metadata_name}"
+            )
 
 
 def main() -> None:
+    """Run cache-selection and failure-retry regressions."""
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     command = config["commands"]["prepare"]
 
@@ -195,14 +216,20 @@ fi
         )
         expected_calls = [
             "make_args=build-debug",
-            f"uv_call={REPO_ROOT / 'python'}\t2\t{explicit_target}\t"
-            "run --no-sync python generate_stubs.py",
-            f"uv_call={REPO_ROOT / 'python'}\t2\t{explicit_target}\t"
-            "run --no-sync maturin develop --profile nextest",
+            (
+                f"uv_call={REPO_ROOT / 'python'}\t2\t{explicit_target}\t"
+                "run --no-sync python generate_stubs.py"
+            ),
+            (
+                f"uv_call={REPO_ROOT / 'python'}\t2\t{explicit_target}\t"
+                "run --no-sync maturin develop --profile nextest"
+            ),
         ]
         observed = output_path.read_text(encoding="utf-8").splitlines()
         if observed != expected_calls:
-            raise AssertionError(f"TARGET_DIR mismatch: {observed!r} != {expected_calls!r}")
+            raise AssertionError(
+                f"TARGET_DIR mismatch: {observed!r} != {expected_calls!r}"
+            )
         for metadata_name in (".py-stubs.inputs", ".py-stubs.stamp"):
             if not (explicit_target / metadata_name).is_file():
                 raise AssertionError(
@@ -238,7 +265,9 @@ fi
             "--old-file=sync",
             "py-stubs",
         ]
-        failed = subprocess.run(retry_command, cwd=REPO_ROOT, env=retry_env, check=False)
+        failed = subprocess.run(
+            retry_command, cwd=REPO_ROOT, env=retry_env, check=False
+        )
         if failed.returncode == 0:
             raise AssertionError("stub generation failure unexpectedly succeeded")
         if retry_input_list.read_text(encoding="utf-8") != stale_input_list:
@@ -247,7 +276,7 @@ fi
             raise AssertionError("failed generation invalidated the existing stamp")
         subprocess.run(retry_command, cwd=REPO_ROOT, env=retry_env, check=True)
         retry_calls = retry_output.read_text(encoding="utf-8").splitlines()
-        if len(retry_calls) != 2:
+        if len(retry_calls) != EXPECTED_RETRY_CALLS:
             raise AssertionError(f"stub generation was not retried: {retry_calls!r}")
         if retry_input_list.read_text(encoding="utf-8") == stale_input_list:
             raise AssertionError("successful retry did not publish the new input list")
