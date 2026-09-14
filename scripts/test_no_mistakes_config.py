@@ -87,6 +87,7 @@ def main() -> None:
         bin_dir = temp_dir / "bin"
         home_dir = temp_dir / "home"
         output_path = temp_dir / "prepare-output"
+        shell_marker = temp_dir / "make-shell-ran"
         bin_dir.mkdir()
         home_dir.mkdir()
         write_executable(
@@ -132,6 +133,15 @@ exec "$REAL_MAKE" --no-print-directory --old-file=py-stubs "$@"
                 temp_dir / "absolute target",
             ),
             ({"CARGO_TARGET_ROOT": "cargo root"}, REPO_ROOT / "cargo root" / "nautilus"),
+            ({"CARGO_TARGET_DIR": "cache $dollar"}, REPO_ROOT / "cache $dollar"),
+            (
+                {
+                    "CARGO_TARGET_DIR": (
+                        f"cache $(shell touch {shell_marker}) expression"
+                    ),
+                },
+                REPO_ROOT / f"cache $(shell touch {shell_marker}) expression",
+            ),
             ({}, home_dir / ".cache" / "nautilus-no-mistakes-target"),
         )
         for overrides, expected_target in cases:
@@ -143,6 +153,8 @@ exec "$REAL_MAKE" --no-print-directory --old-file=py-stubs "$@"
                 overrides,
                 expected_target,
             )
+        if shell_marker.exists():
+            raise AssertionError("Make expanded the cache path as an expression")
 
     print("no-mistakes prepare configuration tests passed")
 

@@ -7,7 +7,7 @@ commands:
         /*) ;;
         *) target_dir="$PWD/$target_dir" ;;
       esac
-      env CARGO_BUILD_JOBS=2 TARGET_DIR="$target_dir" make build-debug
+      env CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR="$target_dir" make build-debug
     '
   test: |-
     rtk proxy bash -lc '

@@ -329,7 +329,7 @@ build: py-stubs  #-- Build and install the package in release mode
 .PHONY: build-debug
 build-debug: py-stubs  #-- Build and install the package in debug mode
 	$(info $(M) Building the Python extension in debug mode...)
-	$Q cd python && VIRTUAL_ENV= CARGO_TARGET_DIR="$(TARGET_DIR)" uv run --no-sync maturin develop --profile $(CARGO_CI_PROFILE)
+	$Q cd python && VIRTUAL_ENV= CARGO_TARGET_DIR="$${CARGO_TARGET_DIR}" uv run --no-sync maturin develop --profile $(CARGO_CI_PROFILE)
 
 .PHONY: build-wheel
 build-wheel: check-cargo-cooldown sync  #-- Build a wheel distribution in release mode
