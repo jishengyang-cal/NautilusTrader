@@ -377,19 +377,17 @@ def _verify_catalog_receipt(  # noqa: C901, PLR0913
             raise ValueError("strict-L2 catalog file path is not normalized")
         path = (catalog_path / Path(*pure.parts)).resolve(strict=True)
         path.relative_to(catalog_path)
-        artifact_bytes = path.read_bytes()
-        if (
-            not path.is_file()
-            or len(artifact_bytes) != entry["size_bytes"]
-            or _sha256_bytes(
-                artifact_bytes,
-            )
-            != entry["sha256"]
-        ):
-            raise ValueError("strict-L2 catalog artifact digest mismatch")
         snapshot_artifact = snapshot_path / Path(*pure.parts)
         snapshot_artifact.parent.mkdir(parents=True, exist_ok=True)
-        snapshot_artifact.write_bytes(artifact_bytes)
+        digest = hashlib.sha256()
+        size_bytes = 0
+        with path.open("rb") as source, snapshot_artifact.open("xb") as destination:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+                size_bytes += len(chunk)
+                destination.write(chunk)
+        if size_bytes != entry["size_bytes"] or digest.hexdigest() != entry["sha256"]:
+            raise ValueError("strict-L2 catalog artifact digest mismatch")
         declared.add(pure.as_posix())
     actual = {
         path.relative_to(catalog_path).as_posix()

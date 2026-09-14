@@ -40,12 +40,51 @@ fn check_positive_finite(value: f64, parameter: &str) -> PyResult<()> {
     Ok(())
 }
 
+fn check_f32_finite(value: f64, parameter: &str) -> PyResult<()> {
+    if !(value as f32).is_finite() {
+        return Err(to_pyvalue_err(format!(
+            "{parameter} must be finite in the pricing kernel, was {value}"
+        )));
+    }
+    Ok(())
+}
+
+fn check_positive_f32(value: f64, parameter: &str) -> PyResult<()> {
+    check_positive_finite(value, parameter)?;
+    let narrowed = value as f32;
+    if !narrowed.is_finite() || narrowed <= 0.0 {
+        return Err(to_pyvalue_err(format!(
+            "{parameter} must be positive and finite in the pricing kernel, was {value}"
+        )));
+    }
+    Ok(())
+}
+
 fn check_option_inputs(s: f64, r: f64, b: f64, k: f64, t: f64) -> PyResult<()> {
     check_positive_finite(s, "s")?;
     check_finite(r, "r")?;
     check_finite(b, "b")?;
     check_positive_finite(k, "k")?;
     check_positive_finite(t, "t")
+}
+
+fn check_fast_option_inputs(s: f64, r: f64, b: f64, k: f64, t: f64) -> PyResult<()> {
+    check_option_inputs(s, r, b, k, t)?;
+    check_positive_f32(s, "s")?;
+    check_f32_finite(r, "r")?;
+    check_f32_finite(b, "b")?;
+    check_positive_f32(k, "k")?;
+    check_positive_f32(t, "t")
+}
+
+fn check_greeks_result(result: &BlackScholesGreeksResult) -> PyResult<()> {
+    check_finite(result.price, "calculated price")?;
+    check_positive_finite(result.vol, "calculated volatility")?;
+    check_finite(result.delta, "calculated delta")?;
+    check_finite(result.gamma, "calculated gamma")?;
+    check_finite(result.vega, "calculated vega")?;
+    check_finite(result.theta, "calculated theta")?;
+    check_finite(result.itm_prob, "calculated in-the-money probability")
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -348,9 +387,11 @@ pub fn py_black_scholes_greeks(
     k: f64,
     t: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
-    check_option_inputs(s, r, b, k, t)?;
-    check_positive_finite(vol, "vol")?;
-    Ok(black_scholes_greeks(s, r, b, vol, is_call, k, t))
+    check_fast_option_inputs(s, r, b, k, t)?;
+    check_positive_f32(vol, "vol")?;
+    let result = black_scholes_greeks(s, r, b, vol, is_call, k, t);
+    check_greeks_result(&result)?;
+    Ok(result)
 }
 
 /// Computes the implied volatility for an option given its parameters and market price.
@@ -396,11 +437,13 @@ pub fn py_imply_vol_and_greeks(
     t: f64,
     price: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
-    check_option_inputs(s, r, b, k, t)?;
+    check_fast_option_inputs(s, r, b, k, t)?;
     check_option_price(s, r, b, is_call, k, t, price, "price")?;
     let vol = imply_vol(s, r, b, is_call, k, t, price);
-    check_positive_finite(vol, "implied volatility")?;
-    Ok(black_scholes_greeks(s, r, b, vol, is_call, k, t))
+    check_positive_f32(vol, "implied volatility")?;
+    let result = black_scholes_greeks(s, r, b, vol, is_call, k, t);
+    check_greeks_result(&result)?;
+    Ok(result)
 }
 
 /// Refines implied volatility using an initial guess and computes greeks.
@@ -423,10 +466,11 @@ pub fn py_refine_vol_and_greeks(
     target_price: f64,
     initial_vol: f64,
 ) -> PyResult<BlackScholesGreeksResult> {
-    check_option_inputs(s, r, b, k, t)?;
+    check_fast_option_inputs(s, r, b, k, t)?;
     check_option_price(s, r, b, is_call, k, t, target_price, "target_price")?;
-    check_positive_finite(initial_vol, "initial_vol")?;
-    Ok(refine_vol_and_greeks(
+    check_positive_f32(target_price, "target_price")?;
+    check_positive_f32(initial_vol, "initial_vol")?;
+    let result = refine_vol_and_greeks(
         s,
         r,
         b,
@@ -435,5 +479,28 @@ pub fn py_refine_vol_and_greeks(
         t,
         target_price,
         initial_vol,
-    ))
+    );
+    check_greeks_result(&result)?;
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn test_black_scholes_rejects_time_below_f32_domain() {
+        let result = py_black_scholes_greeks(1.0, 0.0, 0.0, 0.2, true, 1.0, 1e-100);
+
+        assert!(result.is_err());
+    }
+
+    #[rstest]
+    fn test_refinement_rejects_initial_volatility_below_f32_domain() {
+        let result = py_refine_vol_and_greeks(100.0, 0.05, 0.05, true, 100.0, 1.0, 10.0, 1e-100);
+
+        assert!(result.is_err());
+    }
 }
