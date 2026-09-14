@@ -351,23 +351,23 @@ py-stubs: check-cargo-cooldown sync  #-- Regenerate Python type stubs when their
 		py_stub_input_list="$$CARGO_TARGET_DIR/.py-stubs.inputs"; \
 		mkdir -p "$$CARGO_TARGET_DIR"; \
 		py_stub_input_tmp="$$py_stub_input_list.$$$$"; \
+		trap 'rm -f "$$py_stub_input_tmp"' 0; \
 		$(PY_STUB_INPUT_LIST_COMMAND) | LC_ALL=C sort > "$$py_stub_input_tmp"; \
 		regenerate=false; \
 		if ! cmp -s "$$py_stub_input_tmp" "$$py_stub_input_list"; then \
-			mv "$$py_stub_input_tmp" "$$py_stub_input_list"; \
 			regenerate=true; \
-		else \
-			rm "$$py_stub_input_tmp"; \
 		fi; \
 		if [ ! -f "$$py_stub_stamp" ] || \
 			! while IFS= read -r input; do \
 				[ ! "$$input" -nt "$$py_stub_stamp" ] || exit 1; \
-			done < "$$py_stub_input_list"; then \
+			done < "$$py_stub_input_tmp"; then \
 			regenerate=true; \
 		fi; \
 		if [ "$$regenerate" = true ]; then \
 			cd python && VIRTUAL_ENV= NAUTILUS_STUB_PROFILE=$(CARGO_CI_PROFILE) \
-				uv run --no-sync python generate_stubs.py && \
+				uv run --no-sync python generate_stubs.py && cd .. && \
+			rm -f "$$py_stub_stamp" && \
+			mv "$$py_stub_input_tmp" "$$py_stub_input_list" && \
 			touch "$$py_stub_stamp"; \
 		fi
 
