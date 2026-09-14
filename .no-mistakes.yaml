@@ -14,6 +14,8 @@ commands:
           tests/unit/model/test_option_pricing_validation.py
     '
 
+no_ci: true
+
 pr:
   base_branch: develop
 
