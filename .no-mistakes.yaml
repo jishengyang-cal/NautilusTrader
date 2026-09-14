@@ -1,5 +1,10 @@
 commands:
-  prepare: "rtk proxy env CARGO_BUILD_JOBS=2 TARGET_DIR=\"$HOME/.cache/nautilus-no-mistakes-target\" make build-debug"
+  prepare: |-
+    rtk proxy bash -lc '
+      target_dir="${NAUTILUS_GATE_TARGET_DIR:-${CARGO_TARGET_DIR:-${CARGO_TARGET_ROOT:+$CARGO_TARGET_ROOT/nautilus}}}"
+      target_dir="${target_dir:-$HOME/.cache/nautilus-no-mistakes-target}"
+      env CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" TARGET_DIR="$target_dir" make build-debug
+    '
   test: |-
     rtk proxy bash -lc '
       cd python &&
@@ -14,10 +19,16 @@ commands:
           tests/unit/model/test_option_pricing_validation.py
     '
 
-no_ci: true
-
 pr:
   base_branch: develop
+
+document:
+  instructions: >-
+    Rust Python binding doc comments are generated from their non-Python Rust owners by
+    python/generate_docstrings.py. Keep generated files reproducible and use the generator's
+    crate-scoped dry run when documentation changes touch them. Do not invoke workspace-wide
+    Cargo builds or Clippy from the document step; commands.prepare and commands.test own
+    compilation and behavioral validation for this gate.
 
 test:
   instructions: >-
