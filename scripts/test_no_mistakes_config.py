@@ -19,11 +19,11 @@ Exercise the no-mistakes prepare command without building the workspace.
 
 from __future__ import annotations
 
+from pathlib import Path
 import os
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
 
 import yaml
 
