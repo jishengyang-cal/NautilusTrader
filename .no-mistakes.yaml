@@ -2,12 +2,17 @@ commands:
   prepare: |-
     rtk proxy sh -c '
       target_dir="${CARGO_TARGET_DIR:-${CARGO_TARGET_ROOT:+$CARGO_TARGET_ROOT/nautilus}}"
-      target_dir="${target_dir:-$HOME/.cache/nautilus-no-mistakes-target}"
+      cache_root="${XDG_CACHE_HOME:-}"
+      if [ -z "$cache_root" ]; then
+        git_common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+        cache_root="$git_common_dir/no-mistakes-cache"
+      fi
+      target_dir="${target_dir:-$cache_root/nautilus-target}"
       case "$target_dir" in
         /*) ;;
         *) target_dir="$PWD/$target_dir" ;;
       esac
-      env CARGO_BUILD_JOBS=2 CARGO_TARGET_DIR="$target_dir" make build-debug
+      env CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" CARGO_TARGET_DIR="$target_dir" make build-debug
     '
   test: |-
     rtk proxy bash -lc '

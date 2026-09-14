@@ -58,6 +58,7 @@ def run_prepare(
         "CARGO_CI_PROFILE",
         "CARGO_TARGET_DIR",
         "CARGO_TARGET_ROOT",
+        "XDG_CACHE_HOME",
     ):
         env.pop(name, None)
     env.update(overrides)
@@ -67,6 +68,7 @@ def run_prepare(
             "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
             "PREPARE_PROBE_OUTPUT": str(output_path),
             "REAL_MAKE": real_make,
+            "XDG_CACHE_HOME": str(home_dir / ".cache"),
         },
     )
     subprocess.run(
@@ -90,7 +92,8 @@ def assert_prepare_case(
     Assert one prepare path-selection case and its published metadata.
     """
     observed = run_prepare(command, bin_dir, output_path, home_dir, overrides)
-    call_prefix = f"uv_call={REPO_ROOT / 'python'}\t2\t{expected_target}\t"
+    jobs = overrides.get("CARGO_BUILD_JOBS", "2")
+    call_prefix = f"uv_call={REPO_ROOT / 'python'}\t{jobs}\t{expected_target}\t"
     expected = [
         "make_args=build-debug",
         f"{call_prefix}run --no-sync python generate_stubs.py",
@@ -188,7 +191,7 @@ def check_path_selection(
             },
             REPO_ROOT / relative_root / f"cache $(shell touch {shell_marker}) expression",
         ),
-        ({}, home_dir / ".cache" / "nautilus-no-mistakes-target"),
+        ({}, home_dir / ".cache" / "nautilus-target"),
     )
     for overrides, expected_target in cases:
         assert_prepare_case(
