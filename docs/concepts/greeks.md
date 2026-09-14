@@ -127,6 +127,7 @@ good starting estimate; use `imply_vol_and_greeks()` when a full implied-volatil
 All Python pricing functions reject non-finite inputs. The three fast Greeks functions also enforce
 their `f32` pricing-kernel domain in both Rust and Python: every kernel input must remain finite when
 converted to `f32`, and spot, strike, time to expiry, and supplied volatility must remain positive.
+Python reports these input-domain and no-arbitrage violations as `ValueError`.
 Implied-volatility market prices must lie strictly inside the generalized Black-Scholes
 no-arbitrage bounds derived from discounted spot and strike. The target price and initial
 volatility passed to `refine_vol_and_greeks()` must also remain positive when converted to `f32`.

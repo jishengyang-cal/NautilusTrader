@@ -110,8 +110,8 @@ no-build-package = [
   "platformdirs",
   "plotly",
   "pluggy",
-  "pyarrow",
   "psutil",
+  "pyarrow",
   "pygments",
   "pytest",
   "pytest-asyncio",
@@ -436,6 +436,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "scripts/check-markdown-tables.py" = ["INP001"]
 "scripts/extract-doc-links.py" = ["INP001"]
 "scripts/security-audit.py" = ["INP001"]
+"scripts/test_no_mistakes_config.py" = ["INP001", "PLR0913", "PLR0917", "S603"]
 "scripts/ci/check_commit_message.py" = ["S603", "T201"]
 "scripts/ci/test_*.py" = [
   "S101",

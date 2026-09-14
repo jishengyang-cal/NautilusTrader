@@ -1,16 +1,27 @@
-# 本仓中央文档入口
+# Central documentation entry point
 
-开始前必须完整读取 [本仓原有规则](AGENTS.md)，继续遵守其中的命令、约束及更细目录规则。本文件只增加工作区导航，不替代或放宽原有规则。
+Read the complete [repository rules](AGENTS.md) before starting. Continue to
+follow their commands, constraints, and any rules in deeper directories. This
+file only adds workspace navigation; it does not replace or relax those rules.
 
-先读以下中央文档，再修改代码：
+Read these central documents before changing code:
 
-- [统一入口](../../../docs/README.md)、[AI 工作流](../../../docs/engineering/ai-workflow.md)、[文档归属 ADR](../../../docs/architecture/decisions/ADR-0002-central-authored-documentation.md)。
-- [仓库地图](../../../docs/architecture/repository-map.md)、[工具边界](../../../docs/architecture/tool-boundaries.md)。
-- 本仓模块：[backtesting](../../../docs/modules/backtesting/README.md)、[execution](../../../docs/modules/execution/README.md)、[orderbook](../../../docs/modules/orderbook/README.md)；修改前读对应不变量。
-- [工单指引](../../../docs/tracking/README.md)、[统一看板](../../../docs/tracking/board.md)、[ticket 模板](../../../docs/templates/ticket.md)。从已有 ticket 开始，交付时更新同一工单及验证证据。
+- [Documentation index](../../../docs/README.md), [AI workflow](../../../docs/engineering/ai-workflow.md), and [documentation ownership ADR](../../../docs/architecture/decisions/ADR-0002-central-authored-documentation.md).
+- [Repository map](../../../docs/architecture/repository-map.md) and [tool boundaries](../../../docs/architecture/tool-boundaries.md).
+- Repository modules: [backtesting](../../../docs/modules/backtesting/README.md), [execution](../../../docs/modules/execution/README.md), and [orderbook](../../../docs/modules/orderbook/README.md). Read the relevant invariants before making changes.
+- [Ticket guide](../../../docs/tracking/README.md), [board](../../../docs/tracking/board.md), and [ticket template](../../../docs/templates/ticket.md). Start from an existing ticket and update the same ticket with delivery and validation evidence.
 
-自编架构、实验、优化、排障和运维记录在上述中央 docs 中维护；本仓保留源码、可执行 schema、测试及上游原有文档。实际执行的验证与建议执行的验证必须分开记录。
+Maintain authored architecture, experiment, optimization, debugging, and
+operations records in the central docs above. Keep source code, executable
+schemas, tests, and original upstream documentation in this repository. Record
+checks actually run separately from checks that are only recommended.
 
-链接以本文件所在仓库根为基准；规范布局下工作区根为 ../../..。若单独克隆到其他位置，先定位工作区管理仓库，或读取操作者已设置的 WORKSPACE_DOCS_ROOT；中央文件不可读时明确报告缺口，不新造另一套规范、不声称已读。
+Links are relative to this repository root. In the standard layout, the
+workspace root is `../../..`. For a standalone clone, locate the workspace
+management repository or use the operator-provided `WORKSPACE_DOCS_ROOT`. If
+the central files cannot be read, report the gap; do not create a duplicate set
+of rules or claim that they were read.
 
-入口维护与核验见 [接入记录](../../../docs/governance/repository-ai-entrypoints.md)。只执行当前改动所需的仓库检查；发布另按既有授权流程。
+See the [entry-point record](../../../docs/governance/repository-ai-entrypoints.md)
+for maintenance and validation. Run only repository checks required by the
+current change; publication follows the separately authorized workflow.

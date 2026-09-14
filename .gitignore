@@ -71,6 +71,7 @@ crates/adapters/*/coverage/
 .pytest_cache/
 .python-version
 .ruff_cache/
+.codegraph/
 *dask-worker-space*
 __pycache__/
 requirements*
