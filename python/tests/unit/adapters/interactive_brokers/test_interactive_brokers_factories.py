@@ -16,6 +16,7 @@
 Test interactive brokers factories behavior.
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +24,7 @@ from unit.adapters.example_modules import capture_data_tester_main
 from unit.adapters.example_modules import capture_exec_tester_main
 from unit.adapters.example_modules import load_example_module
 
+from nautilus_trader.adapters.databento import DatabentoDataClientConfig
 from nautilus_trader.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
 from nautilus_trader.adapters.interactive_brokers import InteractiveBrokersDataClientFactory
 from nautilus_trader.adapters.interactive_brokers import InteractiveBrokersExecutionClientConfig
@@ -44,6 +46,7 @@ IB = "IB"
 ib_data_tester = load_example_module("interactive_brokers", "data_tester")
 ib_exec_tester = load_example_module("interactive_brokers", "exec_tester")
 ib_order_strategies = load_example_module("interactive_brokers", "ib_v2_order_strategies")
+ib_with_databento = load_example_module("interactive_brokers", "with_databento_client")
 
 
 def test_interactive_brokers_factories_expose_python_names() -> None:
@@ -230,3 +233,161 @@ def test_databento_market_order_strategy_loads_instrument_offline(
         assert strategy.submitted is True
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("subscribe_quotes", "expected_market_data"),
+    [
+        (True, "quotes"),
+        (False, "trades"),
+    ],
+)
+def test_databento_subscription_strategy_dispatches_offline(
+    monkeypatch: pytest.MonkeyPatch,
+    subscribe_quotes: bool,
+    expected_market_data: str,
+) -> None:
+    """
+    Test Databento subscription strategy dispatches offline.
+    """
+
+    class ProbeStrategy(ib_order_strategies.DatabentoSubscriptionStrategy):
+        operations: list[tuple[object, ...]] = []
+
+        def subscribe_quotes(
+            self,
+            instrument_id: object,
+            *,
+            client_id: object | None = None,
+            **_: object,
+        ) -> None:
+            type(self).operations.append(("quotes", instrument_id, client_id))
+
+        def subscribe_trades(
+            self,
+            instrument_id: object,
+            *,
+            client_id: object | None = None,
+            **_: object,
+        ) -> None:
+            type(self).operations.append(("trades", instrument_id, client_id))
+
+        def subscribe_book_deltas(
+            self,
+            instrument_id: object,
+            book_type: object,
+            *,
+            client_id: object | None = None,
+            **_: object,
+        ) -> None:
+            type(self).operations.append(
+                ("book_deltas", instrument_id, book_type, client_id),
+            )
+
+        def subscribe_instrument_status(
+            self,
+            instrument_id: object,
+            *,
+            client_id: object | None = None,
+            **_: object,
+        ) -> None:
+            type(self).operations.append(("status", instrument_id, client_id))
+
+    monkeypatch.setenv("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", str(int(subscribe_quotes)))
+    monkeypatch.setenv("IB_V2_DATABENTO_SUBSCRIBE_TRADES", "1")
+    monkeypatch.setenv("IB_V2_DATABENTO_SUBSCRIBE_BARS", "0")
+    monkeypatch.setenv("IB_V2_DATABENTO_SUBSCRIBE_MBO", "1")
+    monkeypatch.setenv("IB_V2_DATABENTO_SUBSCRIBE_STATUS", "1")
+    ProbeStrategy.operations = []
+    strategy = ProbeStrategy()
+
+    strategy.on_start()
+
+    client_id = ib_order_strategies.databento_client_id()
+    assert ProbeStrategy.operations == [
+        (expected_market_data, strategy.instrument_id, client_id),
+        (
+            "book_deltas",
+            strategy.instrument_id,
+            ib_order_strategies.BookType.L3_MBO,
+            client_id,
+        ),
+        ("status", strategy.instrument_id, client_id),
+    ]
+
+
+def test_databento_and_ib_configuration_are_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Test Databento and IB configuration are isolated.
+    """
+    captured: dict[str, object] = {}
+
+    class CaptureNode:
+        trader_id = TraderId.from_str("IB-V2-DATABENTO-001")
+
+        def add_strategy_from_config(self, _config: object) -> None:
+            pass
+
+    class CaptureBuilder:
+        def with_timeout_connection(self, _timeout_secs: int) -> "CaptureBuilder":
+            return self
+
+        def with_reconciliation(self, _reconciliation: bool) -> "CaptureBuilder":
+            return self
+
+        def add_data_client(self, *args: object) -> "CaptureBuilder":
+            captured["data_client_args"] = args
+            return self
+
+        def add_exec_client(self, *args: object) -> "CaptureBuilder":
+            captured["exec_client_args"] = args
+            return self
+
+        def build(self) -> CaptureNode:
+            return CaptureNode()
+
+    class CaptureLiveNode:
+        @staticmethod
+        def builder(
+            _name: str,
+            _trader_id: object,
+            _environment: object,
+        ) -> CaptureBuilder:
+            return CaptureBuilder()
+
+    publishers_path = (
+        Path(__file__).resolve().parents[5] / "crates/adapters/databento/publishers.json"
+    )
+    monkeypatch.setenv("DATABENTO_API_KEY", "d" * 32)
+    monkeypatch.setenv("DATABENTO_PUBLISHERS_FILE", str(publishers_path))
+    monkeypatch.setenv("IB_V2_ENABLE_EXECUTION", "1")
+    monkeypatch.setenv("TWS_ACCOUNT", "DU1234567")
+    monkeypatch.setenv("IB_V2_HOST", "ib-paper.test")
+    monkeypatch.setenv("IB_V2_EXEC_CLIENT_ID", "1312")
+    monkeypatch.setenv("IB_V2_CONNECTION_TIMEOUT", "11")
+    monkeypatch.setenv("IB_V2_REQUEST_TIMEOUT", "22")
+    monkeypatch.delenv("IB_V2_RUN_NODE", raising=False)
+    monkeypatch.setattr(ib_with_databento, "LiveNode", CaptureLiveNode)
+
+    ib_with_databento.main()
+
+    data_client_args = captured["data_client_args"]
+    exec_client_args = captured["exec_client_args"]
+    assert isinstance(data_client_args, tuple)
+    assert isinstance(exec_client_args, tuple)
+    _, _, data_config = data_client_args
+    _, _, exec_config = exec_client_args
+    assert isinstance(data_config, DatabentoDataClientConfig)
+    assert data_config.publishers_filepath == publishers_path
+    assert data_config.use_exchange_as_venue is True
+    assert not hasattr(data_config, "account_id")
+    assert isinstance(exec_config, InteractiveBrokersExecutionClientConfig)
+    assert exec_config.host == "ib-paper.test"
+    assert exec_config.port == 4002
+    assert exec_config.client_id == 1312
+    assert exec_config.account_id == "DU1234567"
+    assert exec_config.connection_timeout == 11
+    assert exec_config.request_timeout == 22
+    assert not hasattr(exec_config, "publishers_filepath")

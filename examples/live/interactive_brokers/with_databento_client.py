@@ -87,6 +87,7 @@ def main() -> None:
                 "DATABENTO_PUBLISHERS_FILE",
                 default_publishers_filepath(),
             ),
+            use_exchange_as_venue=True,
         ),
     )
 
