@@ -19,17 +19,20 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from _common import add_strategy_from_config
-from _common import default_cl_future_instrument_id
-from _common import default_es_future_instrument_id
-from _common import env_bool
-from _common import env_int
-from _common import instrument_provider_config
-from _common import schedule_node_stop
-
+from _common import (
+    add_strategy_from_config,
+    default_cl_future_instrument_id,
+    default_es_future_instrument_id,
+    env_bool,
+    env_int,
+    instrument_provider_config,
+    schedule_node_stop,
+)
 from nautilus_trader.adapters import interactive_brokers
-from nautilus_trader.adapters.databento import DatabentoDataClientConfig
-from nautilus_trader.adapters.databento import DatabentoDataClientFactory
+from nautilus_trader.adapters.databento import (
+    DatabentoDataClientConfig,
+    DatabentoDataClientFactory,
+)
 from nautilus_trader.common import Environment
 from nautilus_trader.live import LiveNode
 from nautilus_trader.model import TraderId
@@ -66,8 +69,12 @@ def main() -> None:
             "SPY.XNAS",
             "AAPL.XNAS",
             "V.XNYS",
-            os.getenv("IB_V2_DATABENTO_CL_INSTRUMENT_ID", default_cl_future_instrument_id()),
-            os.getenv("IB_V2_DATABENTO_ES_INSTRUMENT_ID", default_es_future_instrument_id()),
+            os.getenv(
+                "IB_V2_DATABENTO_CL_INSTRUMENT_ID", default_cl_future_instrument_id()
+            ),
+            os.getenv(
+                "IB_V2_DATABENTO_ES_INSTRUMENT_ID", default_es_future_instrument_id()
+            ),
         ],
     )
 
@@ -76,7 +83,9 @@ def main() -> None:
         trader_id,
         Environment.LIVE,
     )
-    builder = builder.with_timeout_connection(env_int("IB_V2_NODE_CONNECTION_TIMEOUT", 15))
+    builder = builder.with_timeout_connection(
+        env_int("IB_V2_NODE_CONNECTION_TIMEOUT", 15)
+    )
     builder = builder.with_reconciliation(reconciliation=False)
     builder = builder.add_data_client(
         "DATABENTO",
