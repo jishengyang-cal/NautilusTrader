@@ -454,6 +454,7 @@ class IbV2OrderStrategy(Strategy):
 
     strategy_id_value = "IB-V2-ORDER-001"
     instrument_id_value = default_es_future_instrument_id()
+    instrument_client_id_value = "IB"
 
     def __init__(self) -> None:
         """
@@ -490,7 +491,10 @@ class IbV2OrderStrategy(Strategy):
             return
 
         print(f"{self.strategy_id}: requesting {self.instrument_id}", flush=True)
-        self.request_instrument(self.instrument_id, client_id=ib_client_id())
+        self.request_instrument(
+            self.instrument_id,
+            client_id=ClientId.from_str(self.instrument_client_id_value),
+        )
 
     def on_instrument(self, instrument: Any) -> None:
         """
@@ -755,6 +759,15 @@ class MarketOrderStrategy(IbV2OrderStrategy):
             env_quantity("IB_V2_MARKET_QUANTITY"),
         )
         self.submit_ib_order(order)
+
+
+class DatabentoMarketOrderStrategy(MarketOrderStrategy):
+    """
+    Submit an IB market order after loading its instrument from Databento.
+    """
+
+    strategy_id_value = "IB-V2-DATABENTO-MARKET-STRATEGY"
+    instrument_client_id_value = "DATABENTO"
 
 
 class OcaGroupStrategy(IbV2OrderStrategy):

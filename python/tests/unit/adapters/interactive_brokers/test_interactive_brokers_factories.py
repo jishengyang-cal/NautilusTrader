@@ -16,6 +16,8 @@
 Test interactive brokers factories behavior.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from unit.adapters.example_modules import capture_data_tester_main
 from unit.adapters.example_modules import capture_exec_tester_main
@@ -29,6 +31,8 @@ from nautilus_trader.adapters.interactive_brokers import InteractiveBrokersInstr
 from nautilus_trader.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
 from nautilus_trader.adapters.interactive_brokers import MarketDataType
 from nautilus_trader.adapters.interactive_brokers import SymbologyMethod
+from nautilus_trader.backtest import BacktestEngine
+from nautilus_trader.backtest import BacktestEngineConfig
 from nautilus_trader.common import Environment
 from nautilus_trader.live import LiveNode
 from nautilus_trader.live import LiveRiskEngineConfig
@@ -39,6 +43,7 @@ from nautilus_trader.model import TraderId
 IB = "IB"
 ib_data_tester = load_example_module("interactive_brokers", "data_tester")
 ib_exec_tester = load_example_module("interactive_brokers", "exec_tester")
+ib_order_strategies = load_example_module("interactive_brokers", "ib_v2_order_strategies")
 
 
 def test_interactive_brokers_factories_expose_python_names() -> None:
@@ -185,3 +190,43 @@ def test_interactive_brokers_exec_tester_runs_live_orders(
     assert kwargs["enable_limit_buys"] is True
     assert kwargs["enable_limit_sells"] is True
     assert captured["run_called"] is True
+
+
+def test_databento_market_order_strategy_loads_instrument_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Test Databento market order strategy loads its instrument offline.
+    """
+
+    class ProbeStrategy(ib_order_strategies.DatabentoMarketOrderStrategy):
+        requested_client_id: object | None = None
+        submitted = False
+
+        def request_instrument(
+            self,
+            instrument_id: object,
+            *,
+            client_id: object | None = None,
+            **_: object,
+        ) -> str:
+            self.requested_client_id = client_id
+            self.on_instrument(SimpleNamespace(id=instrument_id))
+            return "offline-request"
+
+        def submit_example_orders(self) -> None:
+            self.submitted = True
+
+    monkeypatch.setenv("IB_V2_ENABLE_ORDER_SUBMISSION", "1")
+    engine = BacktestEngine(BacktestEngineConfig(bypass_logging=True, run_analysis=False))
+    strategy = ProbeStrategy()
+
+    try:
+        engine.add_strategy(strategy)
+        engine.run()
+
+        assert strategy.requested_client_id == ib_order_strategies.databento_client_id()
+        assert strategy.instrument is not None
+        assert strategy.submitted is True
+    finally:
+        engine.dispose()

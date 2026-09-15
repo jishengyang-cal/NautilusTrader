@@ -115,7 +115,7 @@ def main() -> None:
     if execution_enabled:
         add_strategy_from_config(
             node,
-            "ib_v2_order_strategies:MarketOrderStrategy",
+            "ib_v2_order_strategies:DatabentoMarketOrderStrategy",
         )
     print(f"Built Databento data + IB execution v2 node: {node.trader_id}", flush=True)
     if env_bool("IB_V2_RUN_NODE"):
