@@ -6,12 +6,21 @@
 #  You may not use this file except in compliance with the License.
 #  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 # -------------------------------------------------------------------------------------------------
-"""Example of Databento market data with optional IB execution.
+"""
+Example of Databento market data with optional IB execution.
 
 The default is a build-only, data-only node. Set ``IB_V2_RUN_NODE=1`` to run.
 IB execution additionally requires ``IB_V2_ENABLE_EXECUTION=1`` and
-``TWS_ACCOUNT`` and always uses the IB Gateway paper port 4002. Order
-submission remains separately gated by ``IB_V2_ENABLE_ORDER_SUBMISSION``.
+``TWS_ACCOUNT``. The ``IB_V2_PORT`` setting defaults to and must remain on the
+IB Gateway paper port 4002. Order submission remains separately gated by
+``IB_V2_ENABLE_ORDER_SUBMISSION``; the attached order strategy prints any order
+lifecycle events.
+
+The Databento strategy subscribes to instrument definitions, quotes, bars, and
+instrument status by default. Disable ``IB_V2_DATABENTO_SUBSCRIBE_QUOTES`` to
+exercise trade callbacks, or enable ``IB_V2_DATABENTO_SUBSCRIBE_MBO`` to receive
+L3 market-by-order deltas without an initial snapshot.
+
 """
 
 from __future__ import annotations
@@ -19,20 +28,17 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from _common import (
-    add_strategy_from_config,
-    default_cl_future_instrument_id,
-    default_es_future_instrument_id,
-    env_bool,
-    env_int,
-    instrument_provider_config,
-    schedule_node_stop,
-)
+from _common import add_strategy_from_config
+from _common import default_cl_future_instrument_id
+from _common import default_es_future_instrument_id
+from _common import env_bool
+from _common import env_int
+from _common import instrument_provider_config
+from _common import schedule_node_stop
+
 from nautilus_trader.adapters import interactive_brokers
-from nautilus_trader.adapters.databento import (
-    DatabentoDataClientConfig,
-    DatabentoDataClientFactory,
-)
+from nautilus_trader.adapters.databento import DatabentoDataClientConfig
+from nautilus_trader.adapters.databento import DatabentoDataClientFactory
 from nautilus_trader.common import Environment
 from nautilus_trader.live import LiveNode
 from nautilus_trader.model import TraderId
@@ -69,12 +75,8 @@ def main() -> None:
             "SPY.XNAS",
             "AAPL.XNAS",
             "V.XNYS",
-            os.getenv(
-                "IB_V2_DATABENTO_CL_INSTRUMENT_ID", default_cl_future_instrument_id()
-            ),
-            os.getenv(
-                "IB_V2_DATABENTO_ES_INSTRUMENT_ID", default_es_future_instrument_id()
-            ),
+            os.getenv("IB_V2_DATABENTO_CL_INSTRUMENT_ID", default_cl_future_instrument_id()),
+            os.getenv("IB_V2_DATABENTO_ES_INSTRUMENT_ID", default_es_future_instrument_id()),
         ],
     )
 
@@ -83,9 +85,7 @@ def main() -> None:
         trader_id,
         Environment.LIVE,
     )
-    builder = builder.with_timeout_connection(
-        env_int("IB_V2_NODE_CONNECTION_TIMEOUT", 15)
-    )
+    builder = builder.with_timeout_connection(env_int("IB_V2_NODE_CONNECTION_TIMEOUT", 15))
     builder = builder.with_reconciliation(reconciliation=False)
     builder = builder.add_data_client(
         "DATABENTO",

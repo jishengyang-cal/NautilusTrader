@@ -15,35 +15,33 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import uuid4
 
-from _common import (
-    default_es_future_instrument_id,
-    default_es_put_option_instrument_id,
-    default_es_put_spread_instrument_id,
-    default_ym_future_instrument_id,
-)
+from _common import default_es_future_instrument_id
+from _common import default_es_put_option_instrument_id
+from _common import default_es_put_spread_instrument_id
+from _common import default_ym_future_instrument_id
+
 from nautilus_trader.adapters import interactive_brokers
 from nautilus_trader.core import UUID4
 from nautilus_trader.core.datetime import unix_nanos_to_dt
-from nautilus_trader.model import (
-    Bar,
-    BarType,
-    BookType,
-    ClientId,
-    ClientOrderId,
-    ContingencyType,
-    InstrumentId,
-    LimitOrder,
-    MarketOrder,
-    OrderListId,
-    OrderSide,
-    Price,
-    Quantity,
-    StopMarketOrder,
-    StrategyId,
-    TimeInForce,
-    TriggerType,
-)
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.model import Bar
+from nautilus_trader.model import BarType
+from nautilus_trader.model import BookType
+from nautilus_trader.model import ClientId
+from nautilus_trader.model import ClientOrderId
+from nautilus_trader.model import ContingencyType
+from nautilus_trader.model import InstrumentId
+from nautilus_trader.model import LimitOrder
+from nautilus_trader.model import MarketOrder
+from nautilus_trader.model import OrderListId
+from nautilus_trader.model import OrderSide
+from nautilus_trader.model import Price
+from nautilus_trader.model import Quantity
+from nautilus_trader.model import StopMarketOrder
+from nautilus_trader.model import StrategyId
+from nautilus_trader.model import TimeInForce
+from nautilus_trader.model import TriggerType
+from nautilus_trader.trading import Strategy
+from nautilus_trader.trading import StrategyConfig
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -179,12 +177,8 @@ class IbV2SubscriptionStrategy(Strategy):
                 strategy_id=StrategyId.from_str("IB-V2-SUBSCRIPTION-STRATEGY"),
             ),
         )
-        self.instrument_id = env_instrument_id(
-            "IB_V2_SUBSCRIPTION_INSTRUMENT_ID", "^SPX.CBOE"
-        )
-        self.bar_type = bar_type_from_env(
-            "IB_V2_SUBSCRIPTION_BAR_TYPE", self.instrument_id
-        )
+        self.instrument_id = env_instrument_id("IB_V2_SUBSCRIPTION_INSTRUMENT_ID", "^SPX.CBOE")
+        self.bar_type = bar_type_from_env("IB_V2_SUBSCRIPTION_BAR_TYPE", self.instrument_id)
         self._subscribed = False
         self._quote_count = 0
         self._trade_count = 0
@@ -229,9 +223,7 @@ class IbV2SubscriptionStrategy(Strategy):
             self.subscribe_trades(self.instrument_id, client_id=ib_client_id())
 
         if env_bool("IB_V2_SUBSCRIBE_BARS"):
-            print(
-                f"{self.strategy_id}: subscribing bars for {self.bar_type}", flush=True
-            )
+            print(f"{self.strategy_id}: subscribing bars for {self.bar_type}", flush=True)
             self.subscribe_bars(self.bar_type, client_id=ib_client_id())
 
         if env_bool("IB_V2_SUBSCRIBE_INDEX_PRICES"):
@@ -247,9 +239,7 @@ class IbV2SubscriptionStrategy(Strategy):
         """
         self._quote_count += 1
         if self._quote_count <= self._max_prints:
-            print(
-                f"{self.strategy_id}: quote #{self._quote_count}: {quote}", flush=True
-            )
+            print(f"{self.strategy_id}: quote #{self._quote_count}: {quote}", flush=True)
 
     def on_trade(self, trade: Any) -> None:
         """
@@ -257,9 +247,7 @@ class IbV2SubscriptionStrategy(Strategy):
         """
         self._trade_count += 1
         if self._trade_count <= self._max_prints:
-            print(
-                f"{self.strategy_id}: trade #{self._trade_count}: {trade}", flush=True
-            )
+            print(f"{self.strategy_id}: trade #{self._trade_count}: {trade}", flush=True)
 
     def on_bar(self, bar: Any) -> None:
         """
@@ -295,12 +283,8 @@ class DatabentoSubscriptionStrategy(Strategy):
                 strategy_id=StrategyId.from_str("IB-V2-DATABENTO-SUBSCRIPTION"),
             ),
         )
-        self.instrument_id = env_instrument_id(
-            "IB_V2_DATABENTO_DATA_INSTRUMENT_ID", "SPY.XNAS"
-        )
-        self.bar_type = bar_type_from_env(
-            "IB_V2_DATABENTO_BAR_TYPE", self.instrument_id
-        )
+        self.instrument_id = env_instrument_id("IB_V2_DATABENTO_DATA_INSTRUMENT_ID", "SPY.XNAS")
+        self.bar_type = bar_type_from_env("IB_V2_DATABENTO_BAR_TYPE", self.instrument_id)
         self._quote_count = 0
         self._trade_count = 0
         self._book_delta_count = 0
@@ -332,9 +316,7 @@ class DatabentoSubscriptionStrategy(Strategy):
             )
             self.subscribe_bars(self.bar_type, client_id=databento_client_id())
 
-        if not subscribe_quotes and env_bool(
-            "IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True
-        ):
+        if not subscribe_quotes and env_bool("IB_V2_DATABENTO_SUBSCRIBE_TRADES", default=True):
             print(
                 f"{self.strategy_id}: subscribing Databento trades for {self.instrument_id}",
                 flush=True,
@@ -382,7 +364,9 @@ class DatabentoSubscriptionStrategy(Strategy):
             )
 
     def on_trade(self, trade: Any) -> None:
-        """On trade."""
+        """
+        On trade.
+        """
         self._trade_count += 1
         if self._trade_count <= self._max_prints:
             print(
@@ -391,7 +375,9 @@ class DatabentoSubscriptionStrategy(Strategy):
             )
 
     def on_book_deltas(self, deltas: Any) -> None:
-        """On book deltas."""
+        """
+        On book deltas.
+        """
         self._book_delta_count += 1
         if self._book_delta_count <= self._max_prints:
             print(
@@ -400,7 +386,9 @@ class DatabentoSubscriptionStrategy(Strategy):
             )
 
     def on_instrument_status(self, status: Any) -> None:
-        """On instrument status."""
+        """
+        On instrument status.
+        """
         self._status_count += 1
         if self._status_count <= self._max_prints:
             print(
@@ -707,7 +695,9 @@ class IbV2OrderStrategy(Strategy):
         self.cancel_order(order.client_order_id, client_id=ib_client_id())
 
     def on_order_event(self, event: Any) -> None:
-        """On order event."""
+        """
+        On order event.
+        """
         print(f"{self.strategy_id}: order event: {event}", flush=True)
 
 
@@ -830,9 +820,7 @@ class SimpleConditionsStrategy(IbV2OrderStrategy):
         Submit example orders.
         """
         ib = interactive_brokers
-        time_str = (dt.datetime.now(dt.UTC) + dt.timedelta(minutes=5)).strftime(
-            "%Y%m%d-%H:%M:%S"
-        )
+        time_str = (dt.datetime.now(dt.UTC) + dt.timedelta(minutes=5)).strftime("%Y%m%d-%H:%M:%S")
         time_condition = {
             "type": ib.IbConditionKind.TIME.as_str(),
             "time": time_str,
@@ -848,9 +836,7 @@ class SimpleConditionsStrategy(IbV2OrderStrategy):
             tags=[
                 ib_order_tags(
                     conditions=[time_condition],
-                    conditionsCancelOrder=env_bool(
-                        "IB_V2_CONDITIONS_CANCEL_ORDER", default=False
-                    ),
+                    conditionsCancelOrder=env_bool("IB_V2_CONDITIONS_CANCEL_ORDER", default=False),
                 ),
             ],
         )
@@ -859,9 +845,7 @@ class SimpleConditionsStrategy(IbV2OrderStrategy):
         if not env_bool("IB_V2_ENABLE_PRICE_CONDITION", default=True):
             return
 
-        con_id = env_int(
-            "IB_V2_CONDITION_CONTRACT_ID", 0
-        ) or contract_id_from_instrument(
+        con_id = env_int("IB_V2_CONDITION_CONTRACT_ID", 0) or contract_id_from_instrument(
             self.instrument,
         )
 
@@ -893,9 +877,7 @@ class SimpleConditionsStrategy(IbV2OrderStrategy):
             tags=[
                 ib_order_tags(
                     conditions=[price_condition],
-                    conditionsCancelOrder=env_bool(
-                        "IB_V2_CONDITIONS_CANCEL_ORDER", default=False
-                    ),
+                    conditionsCancelOrder=env_bool("IB_V2_CONDITIONS_CANCEL_ORDER", default=False),
                 ),
             ],
         )
@@ -998,9 +980,7 @@ class DatabentoInstrumentIdStrategy(IbV2OrderStrategy):
             "IB_V2_DATABENTO_INSTRUMENT_ID",
             self.instrument_id_value,
         )
-        self.bar_type = bar_type_from_env(
-            "IB_V2_DATABENTO_INSTRUMENT_BAR_TYPE", self.instrument_id
-        )
+        self.bar_type = bar_type_from_env("IB_V2_DATABENTO_INSTRUMENT_BAR_TYPE", self.instrument_id)
         self._seen_instrument_ids: set[str] = set()
         self._startup_requested = False
         self._live_trades_subscribed = False
@@ -1029,9 +1009,7 @@ class DatabentoInstrumentIdStrategy(IbV2OrderStrategy):
         instrument_id = str(instrument.id)
         if instrument_id not in self._seen_instrument_ids:
             self._seen_instrument_ids.add(instrument_id)
-            print(
-                f"{self.strategy_id}: received instrument: {instrument.id}", flush=True
-            )
+            print(f"{self.strategy_id}: received instrument: {instrument.id}", flush=True)
 
         if instrument.id != self.instrument_id or self._startup_requested:
             return
@@ -1043,9 +1021,7 @@ class DatabentoInstrumentIdStrategy(IbV2OrderStrategy):
             f"{self.strategy_id}: requesting historical bars for {self.bar_type}",
             flush=True,
         )
-        self.request_bars(
-            self.bar_type, start=unix_nanos_to_dt(start_ns), client_id=ib_client_id()
-        )
+        self.request_bars(self.bar_type, start=unix_nanos_to_dt(start_ns), client_id=ib_client_id())
 
         if env_bool("IB_V2_ENABLE_LIVE_TRADES"):
             self._live_trades_subscribed = True
@@ -1121,9 +1097,7 @@ class DatabentoInstrumentIdStrategy(IbV2OrderStrategy):
         """
         self._trade_count += 1
         if self._trade_count <= self._max_prints:
-            print(
-                f"{self.strategy_id}: trade #{self._trade_count}: {trade}", flush=True
-            )
+            print(f"{self.strategy_id}: trade #{self._trade_count}: {trade}", flush=True)
 
     def on_bar(self, bar: Any) -> None:
         """
