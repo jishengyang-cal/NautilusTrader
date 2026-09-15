@@ -7,7 +7,20 @@
 #  You may obtain a copy of the License at https://www.gnu.org/licenses/lgpl-3.0.en.html
 # -------------------------------------------------------------------------------------------------
 """
-Example of IB with Databento.
+Example of Databento market data with optional IB execution.
+
+The default is a build-only, data-only node. Set ``IB_V2_RUN_NODE=1`` to run.
+IB execution additionally requires ``IB_V2_ENABLE_EXECUTION=1`` and
+``TWS_ACCOUNT``. The ``IB_V2_PORT`` setting defaults to and must remain on the
+IB Gateway paper port 4002. Order submission remains separately gated by
+``IB_V2_ENABLE_ORDER_SUBMISSION``; the attached order strategy prints any order
+lifecycle events.
+
+The Databento strategy subscribes to instrument definitions, quotes, bars, and
+instrument status by default. Disable ``IB_V2_DATABENTO_SUBSCRIBE_QUOTES`` to
+exercise trade callbacks, or enable ``IB_V2_DATABENTO_SUBSCRIBE_MBO`` to receive
+L3 market-by-order deltas without an initial snapshot.
+
 """
 
 from __future__ import annotations
@@ -21,7 +34,6 @@ from _common import default_es_future_instrument_id
 from _common import env_bool
 from _common import env_int
 from _common import instrument_provider_config
-from _common import resolve_ib_endpoint
 from _common import schedule_node_stop
 
 from nautilus_trader.adapters import interactive_brokers
@@ -53,9 +65,11 @@ def main() -> None:
     if not api_key:
         raise SystemExit("DATABENTO_API_KEY must be set")
 
-    host, port = resolve_ib_endpoint()
     trader_id = TraderId.from_str("IB-V2-DATABENTO-001")
-    account_id = os.getenv("TWS_ACCOUNT") if env_bool("IB_V2_ENABLE_EXECUTION") else None
+    execution_enabled = env_bool("IB_V2_ENABLE_EXECUTION")
+    account_id = os.getenv("TWS_ACCOUNT") if execution_enabled else None
+    if execution_enabled and not account_id:
+        raise SystemExit("TWS_ACCOUNT must be set when IB execution is enabled")
     provider_config = instrument_provider_config(
         load_ids=[
             "SPY.XNAS",
@@ -86,13 +100,17 @@ def main() -> None:
     )
 
     if account_id is not None:
+        ib_port = env_int("IB_V2_PORT", 4002)
+        if ib_port != 4002:
+            raise SystemExit("IB_V2_PORT must be 4002 for IB Gateway paper execution")
+
         ib = interactive_brokers
         builder = builder.add_exec_client(
             None,
             ib.InteractiveBrokersExecutionClientFactory(),
             ib.InteractiveBrokersExecutionClientConfig(
-                host=host,
-                port=port,
+                host=os.getenv("IB_V2_HOST", "127.0.0.1"),
+                port=ib_port,
                 client_id=env_int("IB_V2_EXEC_CLIENT_ID", 1312),
                 account_id=account_id,
                 connection_timeout=env_int("IB_V2_CONNECTION_TIMEOUT", 10),
@@ -107,6 +125,11 @@ def main() -> None:
         node,
         "ib_v2_order_strategies:DatabentoSubscriptionStrategy",
     )
+    if execution_enabled:
+        add_strategy_from_config(
+            node,
+            "ib_v2_order_strategies:MarketOrderStrategy",
+        )
     print(f"Built Databento data + IB execution v2 node: {node.trader_id}", flush=True)
     if env_bool("IB_V2_RUN_NODE"):
         schedule_node_stop(node, env_int("IB_V2_AUTO_STOP_SECONDS", 0))
