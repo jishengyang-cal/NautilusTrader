@@ -64,9 +64,6 @@ def main() -> None:
     account_id = os.getenv("TWS_ACCOUNT") if execution_enabled else None
     if execution_enabled and not account_id:
         raise SystemExit("TWS_ACCOUNT must be set when IB execution is enabled")
-    ib_port = env_int("IB_V2_PORT", 4002)
-    if execution_enabled and ib_port != 4002:
-        raise SystemExit("IB_V2_PORT must be 4002 for IB Gateway paper execution")
     provider_config = instrument_provider_config(
         load_ids=[
             "SPY.XNAS",
@@ -103,6 +100,10 @@ def main() -> None:
     )
 
     if account_id is not None:
+        ib_port = env_int("IB_V2_PORT", 4002)
+        if ib_port != 4002:
+            raise SystemExit("IB_V2_PORT must be 4002 for IB Gateway paper execution")
+
         ib = interactive_brokers
         builder = builder.add_exec_client(
             None,
