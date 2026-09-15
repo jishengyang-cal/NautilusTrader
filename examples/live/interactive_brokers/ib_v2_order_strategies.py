@@ -312,6 +312,11 @@ class DatabentoSubscriptionStrategy(Strategy):
         """
         On start.
         """
+        self.subscribe_instrument(
+            self.instrument_id,
+            client_id=databento_client_id(),
+        )
+
         subscribe_quotes = env_bool("IB_V2_DATABENTO_SUBSCRIBE_QUOTES", default=True)
         if subscribe_quotes:
             print(
